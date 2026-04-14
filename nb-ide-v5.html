@@ -1,0 +1,4807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>NB IDE</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;700&display=swap');
+
+:root {
+  --bg: #060610;
+  --surface: #0e0e1a;
+  --surface2: #161624;
+  --border: #1e1e32;
+  --text: #c8c8e0;
+  --text2: #5a5a80;
+  --accent: #ff6b2b;
+  --accent2: #ff8f5e;
+  --green: #4ade80;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --yellow: #fbbf24;
+  --cyan: #22d3ee;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+  --display: 'Space Grotesk', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: 36px 1fr 32px;
+  height: 100dvh;
+  height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+}
+
+.logo {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.5px;
+  color: var(--accent);
+  user-select: none;
+  flex-shrink: 0;
+}
+.logo span { color: var(--text2); font-weight: 300; font-size: 9px; margin-left: 3px; }
+
+header nav { display: flex; gap: 3px; margin-left: auto; }
+
+header button, .qbar button {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  -webkit-appearance: none;
+  white-space: nowrap;
+}
+header button:active, .qbar button:active { border-color: var(--accent); color: var(--accent); }
+header button.active { border-color: var(--accent); color: var(--accent); background: rgba(255,107,43,0.1); }
+header button.running { border-color: var(--green); color: var(--green); background: rgba(74,222,128,0.1); }
+
+header select {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%235a5a80'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 18px;
+}
+header select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+#quadrants {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.quad {
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.quad-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 26px;
+  min-height: 26px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text2);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.quad-header .qlabel {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 9px;
+}
+
+.quad-header .qinfo {
+  margin-left: auto;
+  color: var(--text2);
+  font-size: 9px;
+}
+
+#q-editor .editor-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+#editor, .highlight-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 6px 6px 6px 50px;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+
+#editor {
+  background: transparent;
+  color: rgba(0,0,0,0);
+  caret-color: #fff;
+  border: none;
+  outline: none;
+  resize: none;
+  z-index: 2;
+  -webkit-text-fill-color: transparent;
+}
+
+.highlight-layer {
+  pointer-events: none;
+  z-index: 1;
+  color: #e8e8f8;
+  background: var(--bg);
+}
+
+.highlight-inner { min-height: 100%; }
+
+.highlight-layer .kw { color: #5cb8ff; font-weight: 700; }
+.highlight-layer .op { color: #6fffb0; }
+.highlight-layer .st { color: #ff8040; font-weight: 700; }
+.highlight-layer .mem { color: #22d3ee; }
+.highlight-layer .num { color: #d9a0ff; }
+.highlight-layer .cmt { color: #6a6a8a; }
+.highlight-layer .str { color: #ffe066; }
+.highlight-layer .typ { color: #fbbf24; }
+.highlight-layer .decl { color: #ff6b2b; font-weight: 700; }
+.highlight-layer .flow { color: #f87171; }
+.highlight-layer .flag { color: #6a6a8a; font-style: italic; }
+.highlight-layer .userfn { color: #a78bfa; }
+
+.gutter-clip {
+  position: absolute;
+  top: 0; left: 0;
+  width: 44px;
+  height: 100%;
+  overflow: hidden;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+.gutter-inner {
+  display: flex;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+}
+.line-nums, .stack-depth {
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: none;
+  white-space: pre;
+}
+.line-nums {
+  width: 22px;
+  text-align: right;
+  padding-right: 2px;
+  color: var(--text2);
+}
+.stack-depth {
+  width: 18px;
+  text-align: center;
+  padding-left: 2px;
+}
+.sd-ok { color: var(--green); }
+.sd-warn { color: var(--yellow); }
+.sd-err { color: var(--red); font-weight: 700; }
+.sd-zero { color: var(--text2); }
+.sd-na { color: transparent; }
+
+.qbar {
+  display: flex;
+  gap: 2px;
+  padding: 3px 4px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+.qbar::-webkit-scrollbar { display: none; }
+.qbar button { font-size: 10px; padding: 3px 6px; flex-shrink: 0; }
+.qbar button:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+#q-stack .trace-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-bottom: 1px solid rgba(30,30,50,0.5);
+  font-family: var(--mono);
+  font-size: 10px;
+  gap: 4px;
+  min-height: 20px;
+  overflow: hidden;
+}
+.trace-row:nth-child(odd) { background: rgba(255,255,255,0.01); }
+.trace-row .tr-line { color: var(--text2); width: 16px; text-align: right; flex-shrink: 0; font-size: 9px; }
+.trace-row .tr-instr { color: var(--text); width: 60px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.trace-row .tr-arrow { color: var(--text2); flex-shrink: 0; font-size: 9px; }
+.trace-row .tr-stack { color: var(--green); flex: 1; white-space: nowrap; overflow-x: auto; font-size: 10px; -webkit-overflow-scrolling: touch; }
+.trace-row .tr-stack .sv { display: inline-block; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); border-radius: 3px; padding: 0 3px; margin: 0 1px; color: var(--green); font-size: 9px; line-height: 16px; }
+.trace-row .tr-stack .sv-new { background: rgba(74,222,128,0.25); border-color: var(--green); color: #fff; }
+.trace-row.tr-empty .tr-stack { color: var(--text2); font-style: italic; }
+.trace-row.tr-func { background: rgba(255,107,43,0.08); }
+.trace-row.tr-func .tr-instr { color: var(--accent); font-weight: 700; }
+.trace-sep { padding: 2px 8px; font-family: var(--mono); font-size: 9px; color: var(--text2); background: var(--surface2); text-transform: uppercase; letter-spacing: 1px; }
+
+#q-canvas .canvas-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas {
+  image-rendering: pixelated;
+  background: #000;
+  cursor: crosshair;
+}
+
+.canvas-empty {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text2);
+  text-align: center;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+#q-ref .ref-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 10px; }
+#q-ref .ref-toc { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 10px; }
+#q-ref .ref-toc button { font-family: var(--mono); font-size: 9px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface2); color: var(--text2); cursor: pointer; -webkit-appearance: none; }
+#q-ref .ref-toc button:active { color: var(--accent); border-color: var(--accent); }
+#q-ref h2 { font-family: var(--display); font-size: 12px; color: var(--accent2); margin: 12px 0 4px 0; font-weight: 600; }
+#q-ref h2:first-child { margin-top: 0; }
+#q-ref p, #q-ref li { font-size: 11px; line-height: 1.4; color: var(--text); margin-bottom: 4px; }
+#q-ref ul { padding-left: 14px; }
+#q-ref code { font-family: var(--mono); font-size: 10px; background: var(--surface2); padding: 1px 3px; border-radius: 3px; color: #5cb8ff; }
+#q-ref pre { font-family: var(--mono); font-size: 10px; line-height: 1.5; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 6px; margin: 4px 0 8px 0; overflow-x: auto; color: var(--text); }
+#q-ref .tip { color: var(--yellow); font-size: 10px; margin: 3px 0 6px 0; }
+#q-ref .section { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px; }
+#q-ref .section:last-child { border-bottom: none; }
+#q-ref .fn-link { color: var(--accent2); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+#q-ref .fn-link:hover { color: var(--accent); }
+#q-ref .fn-src { display: none; background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 6px; margin: 4px 0 8px 0; font-family: var(--mono); font-size: 10px; line-height: 1.5; overflow-x: auto; color: var(--text); max-height: 300px; overflow-y: auto; position: relative; }
+#q-ref .fn-src.open { display: block; }
+#q-ref .fn-src .fn-close { position: sticky; top: 0; float: right; background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; color: var(--text2); font-size: 9px; padding: 1px 5px; cursor: pointer; font-family: var(--mono); }
+#q-ref .fn-src .fn-close:hover { color: var(--accent); border-color: var(--accent); }
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text2);
+}
+footer .pos { margin-left: auto; }
+
+@media (max-width: 700px) {
+  #quadrants {
+    grid-template-columns: 1fr;
+    grid-template-rows: 2fr 1fr 1fr 1fr;
+  }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <div class="logo">NB<span>IDE</span></div>
+  <nav>
+    <select id="example-select" onchange="loadExample(this.value)"></select>
+    <button id="run-btn" onclick="toggleRun()">▶ Run</button>
+  </nav>
+</header>
+
+<div id="quadrants">
+  <div class="quad" id="q-editor">
+    <div class="quad-header">
+      <span class="qlabel">Editor</span>
+      <span class="qinfo" id="cursor-pos">1:1</span>
+    </div>
+    <div class="editor-area">
+      <div class="gutter-clip"><div class="gutter-inner" id="gutter-inner"><div class="line-nums" id="line-nums"></div><div class="stack-depth" id="stack-depth"></div></div></div>
+      <div class="highlight-layer"><div class="highlight-inner" id="hl"></div></div>
+      <textarea id="editor" spellcheck="false" autocapitalize="none" autocomplete="off" autocorrect="off"></textarea>
+    </div>
+    <div class="qbar">
+      <button onclick="ins('push ')">push</button>
+      <button onclick="ins('get ')">get</button>
+      <button onclick="ins('set ')">set</button>
+      <button onclick="ins('call ')">call</button>
+      <button onclick="ins('add')">add</button>
+      <button onclick="ins('sub')">sub</button>
+      <button onclick="ins('mul')">mul</button>
+      <button onclick="ins('store')">store</button>
+      <button onclick="ins('load')">load</button>
+      <button onclick="ins('store8')">st8</button>
+      <button onclick="ins('if\n  \nend',4)">if</button>
+      <button onclick="ins('block\nloop\n  \n  jump 0\nend\nend',7)">loop</button>
+      <button onclick="ins('func  -> i32\n  \nend',5)">func</button>
+      <button onclick="ins('drop')">drop</button>
+      <button onclick="ins('return')">ret</button>
+      <button onclick="ins('end')">end</button>
+    </div>
+  </div>
+
+  <div class="quad" id="q-stack">
+    <div class="quad-header">
+      <span class="qlabel">Stack</span>
+      <span class="qinfo" id="trace-count"></span>
+    </div>
+    <div class="trace-body" id="trace-content"></div>
+  </div>
+
+  <div class="quad" id="q-canvas">
+    <div class="quad-header">
+      <span class="qlabel">Framebuffer</span>
+      <span class="qinfo" id="canvas-info">320×240</span>
+    </div>
+    <div class="canvas-body">
+      <canvas id="canvas" width="320" height="240" tabindex="0"></canvas>
+    </div>
+  </div>
+
+  <div class="quad" id="q-ref">
+    <div class="quad-header">
+      <span class="qlabel">Reference</span>
+    </div>
+    <div class="ref-body" id="ref-body"></div>
+  </div>
+</div>
+
+<footer>
+  <span id="status">Ready</span>
+  <span id="fps-display"></span>
+  <span class="pos" id="footer-pos"></span>
+</footer>
+
+</div>
+
+<script>
+const editor = document.getElementById('editor');
+const hl = document.getElementById('hl');
+const lineNums = document.getElementById('line-nums');
+const stackDepth = document.getElementById('stack-depth');
+const gutterInner = document.getElementById('gutter-inner');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const runBtn = document.getElementById('run-btn');
+
+const FB_W = 320, FB_H = 240;
+const FB_SIZE = FB_W * FB_H * 4; // 307200 bytes
+
+// ── Input state ──
+// Memory layout for input (written by host before each frame):
+// 307200 (0x4B000): mouse_x     i32
+// 307204 (0x4B004): mouse_y     i32
+// 307208 (0x4B008): mouse_btn   i32 (1=left down)
+// 307212 (0x4B00C): key_code    i32 (last key pressed, 0=none)
+// 307216 (0x4B010): key_down    i32 (1=any key held)
+// 307220 (0x4B014): frame       i32 (frame counter)
+// 307224 (0x4B018): mouse_btn_pressed  i32 (1 on the frame button went down)
+// 307228 (0x4B01C): key_pressed  i32 (1 on the frame a key went down)
+const INPUT_BASE = FB_SIZE; // 307200
+const ADDR_MOUSE_X   = INPUT_BASE;
+const ADDR_MOUSE_Y   = INPUT_BASE + 4;
+const ADDR_MOUSE_BTN  = INPUT_BASE + 8;
+const ADDR_KEY_CODE   = INPUT_BASE + 12;
+const ADDR_KEY_DOWN   = INPUT_BASE + 16;
+const ADDR_FRAME      = INPUT_BASE + 20;
+const ADDR_MOUSE_PRESS = INPUT_BASE + 24;
+const ADDR_KEY_PRESS  = INPUT_BASE + 28;
+// User memory starts at 307232 (INPUT_BASE + 32)
+
+// GPU command region — memory-mapped I/O
+// Module writes commands here, host processes them after execution
+const GPU_BASE = 308000;
+const GPU_CMD     = GPU_BASE;      // i32: 0=none, 1=plasma, 2=gradient, 3=fill, 4=circle_field
+const GPU_PARAM0  = GPU_BASE + 4;  // i32: shader-specific
+const GPU_PARAM1  = GPU_BASE + 8;
+const GPU_PARAM2  = GPU_BASE + 12;
+const GPU_PARAM3  = GPU_BASE + 16;
+const GPU_PARAM4  = GPU_BASE + 20;
+const GPU_PARAM5  = GPU_BASE + 24;
+const GPU_STATUS  = GPU_BASE + 28; // i32: 0=idle, 1=done
+
+// Built-in GPU shaders (run in JS, bypass interpreter)
+// Each writes directly to the framebuffer region of mem
+function processGPU(mem) {
+  const dv = new DataView(mem.buffer);
+  const cmd = dv.getInt32(GPU_CMD, true);
+  if (cmd === 0) return;
+
+  const p0 = dv.getInt32(GPU_PARAM0, true);
+  const p1 = dv.getInt32(GPU_PARAM1, true);
+  const p2 = dv.getInt32(GPU_PARAM2, true);
+  const p3 = dv.getInt32(GPU_PARAM3, true);
+  const p4 = dv.getInt32(GPU_PARAM4, true);
+  const p5 = dv.getInt32(GPU_PARAM5, true);
+
+  if (cmd === 1) {
+    // Plasma: p0=frame, p1=speed(1-10), p2=scale(1-10)
+    const t = p0 * (p1 || 3) * 0.01;
+    const sc = (p2 || 4) * 0.04;
+    const sin = Math.sin, PI2 = Math.PI * 2;
+    for (let y = 0; y < FB_H; y++) {
+      for (let x = 0; x < FB_W; x++) {
+        const v1 = sin(x * sc + t);
+        const v2 = sin(y * sc + t * 0.7);
+        const v3 = sin((x + y) * sc * 0.5 + t * 1.3);
+        const v = (v1 + v2 + v3) / 3;
+        const addr = (y * FB_W + x) * 4;
+        mem[addr]     = (sin(v * PI2) * 127 + 128) | 0;
+        mem[addr + 1] = (sin(v * PI2 + 2.094) * 127 + 128) | 0;
+        mem[addr + 2] = (sin(v * PI2 + 4.189) * 127 + 128) | 0;
+        mem[addr + 3] = 255;
+      }
+    }
+  }
+
+  else if (cmd === 2) {
+    // Gradient: p0=r1, p1=g1, p2=b1, p3=r2, p4=g2, p5=b2
+    for (let y = 0; y < FB_H; y++) {
+      const t = y / FB_H;
+      const r = (p0 + (p3 - p0) * t) | 0;
+      const g = (p1 + (p4 - p1) * t) | 0;
+      const b = (p2 + (p5 - p2) * t) | 0;
+      for (let x = 0; x < FB_W; x++) {
+        const addr = (y * FB_W + x) * 4;
+        mem[addr] = r; mem[addr+1] = g; mem[addr+2] = b; mem[addr+3] = 255;
+      }
+    }
+  }
+
+  else if (cmd === 3) {
+    // Fill: p0=r, p1=g, p2=b
+    for (let i = 0; i < FB_SIZE; i += 4) {
+      mem[i] = p0 & 0xff; mem[i+1] = p1 & 0xff; mem[i+2] = p2 & 0xff; mem[i+3] = 255;
+    }
+  }
+
+  else if (cmd === 4) {
+    // Circle field: p0=cx, p1=cy, p2=radius, p3=r, p4=g, p5=b
+    const r2 = p2 * p2;
+    for (let y = 0; y < FB_H; y++) {
+      const dy = y - p1;
+      const dy2 = dy * dy;
+      for (let x = 0; x < FB_W; x++) {
+        const dx = x - p0;
+        if (dx * dx + dy2 <= r2) {
+          const addr = (y * FB_W + x) * 4;
+          mem[addr] = p3 & 0xff; mem[addr+1] = p4 & 0xff; mem[addr+2] = p5 & 0xff; mem[addr+3] = 255;
+        }
+      }
+    }
+  }
+
+  // Clear command, set status
+  dv.setInt32(GPU_CMD, 0, true);
+  dv.setInt32(GPU_STATUS, 1, true);
+}
+
+let inputState = {
+  mouseX: 0, mouseY: 0, mouseBtn: 0,
+  keyCode: 0, keyDown: 0,
+  mouseBtnPrev: 0, keyDownPrev: 0
+};
+
+// Convert canvas CSS coords to 320x240 space
+function canvasCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = FB_W / rect.width;
+  const sy = FB_H / rect.height;
+  let cx, cy;
+  if (e.touches) {
+    cx = (e.touches[0].clientX - rect.left) * sx;
+    cy = (e.touches[0].clientY - rect.top) * sy;
+  } else {
+    cx = (e.clientX - rect.left) * sx;
+    cy = (e.clientY - rect.top) * sy;
+  }
+  return [Math.floor(Math.max(0, Math.min(FB_W - 1, cx))), Math.floor(Math.max(0, Math.min(FB_H - 1, cy)))];
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  const [x, y] = canvasCoords(e);
+  inputState.mouseX = x;
+  inputState.mouseY = y;
+});
+canvas.addEventListener('mousedown', (e) => {
+  inputState.mouseBtn = 1;
+  canvas.focus();
+});
+canvas.addEventListener('mouseup', () => { inputState.mouseBtn = 0; });
+canvas.addEventListener('mouseleave', () => { inputState.mouseBtn = 0; });
+
+// Touch support
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  const [x, y] = canvasCoords(e);
+  inputState.mouseX = x;
+  inputState.mouseY = y;
+}, { passive: false });
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const [x, y] = canvasCoords(e);
+  inputState.mouseX = x;
+  inputState.mouseY = y;
+  inputState.mouseBtn = 1;
+  canvas.focus();
+}, { passive: false });
+canvas.addEventListener('touchend', () => { inputState.mouseBtn = 0; });
+
+// Keyboard on canvas
+canvas.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (isRunning) toggleRun(); return; }
+  inputState.keyCode = e.keyCode;
+  inputState.keyDown = 1;
+  e.preventDefault();
+});
+canvas.addEventListener('keyup', () => {
+  inputState.keyDown = 0;
+});
+
+// ── Run loop state ──
+let isRunning = false;
+let frameCount = 0;
+let rafId = null;
+let compiledProgram = null; // cached parse
+let persistentMem = null;   // memory persists across frames when running
+
+// ── NB Token Sets ──
+const KW = new Set(['func','export','if','else','end','block','loop','return','local','global','global_get','global_set','memory','data','table','elem']);
+const STACK_TOK = new Set(['push','pushf','pushd','get','set','tee','drop','dup','pick','swap','over','nip','rot']);
+const OPS = new Set(['add','sub','mul','div','mod','eq','ne','lt','gt','le','ge','eqz','and','or','xor','not','shl','shr','fadd','fsub','fmul','fdiv','feq','fne','flt','fgt','fle','fge','dadd','dsub','dmul','ddiv','deq','dne','dlt','dgt','dle','dge','i2f','f2i','i2d','f2d','d2f','d2i','band','bor','bxor','bnot','bshl','bshr','min','max','abs','neg','fneg','sqrt','fsqrt','ceil','floor','trunc','nearest','clz','ctz','popcnt','wrap','extend','reinterpret','copysign','fabs','fmin','fmax','select']);
+const MEM = new Set(['load','load8','load16','store','store8','store16','fload','fstore','dload','dstore','grow','size']);
+const FLOW = new Set(['branch','jump','call','call_indirect']);
+const DECL = new Set(['param','local','global','extern','require','requires','init','public','name','version','category','description']);
+const TYPES = new Set(['i32','i64','f32','f64','void']);
+
+function collectFuncNames(src) {
+  const names = new Set(STDLIB_FUNCS);
+  for (const line of src.split('\n')) {
+    const m = line.trim().match(/^(?:export\s+)?func\s+(\w+)/);
+    if (m) names.add(m[1]);
+  }
+  return names;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlight(src) {
+  const funcNames = collectFuncNames(src);
+  const lines = src.split('\n');
+  let html = '';
+  for (let li = 0; li < lines.length; li++) {
+    if (li > 0) html += '\n';
+    const line = lines[li];
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === ' ' || ch === '\t') { html += ch; i++; continue; }
+      if (ch === '/' && line[i+1] === '/') { html += '<span class="cmt">' + esc(line.substring(i)) + '</span>'; break; }
+      if (ch === '@') { let w = '@'; i++; while (i < line.length && /[a-zA-Z_]/.test(line[i])) { w += line[i]; i++; } html += '<span class="flag">' + esc(w) + '</span>'; continue; }
+      if (ch === '-' && i+1 < line.length && line[i+1] >= '0' && line[i+1] <= '9') { let num = '-'; i++; while (i < line.length && /[0-9.]/.test(line[i])) { num += line[i]; i++; } html += '<span class="num">' + num + '</span>'; continue; }
+      if ((ch >= '0' && ch <= '9') || (ch === '.' && i+1 < line.length && line[i+1] >= '0' && line[i+1] <= '9')) { let num = ''; while (i < line.length && /[0-9.xXa-fA-F]/.test(line[i])) { num += line[i]; i++; } html += '<span class="num">' + num + '</span>'; continue; }
+      if (ch === '"' || ch === "'") { let s = ch; i++; while (i < line.length && line[i] !== ch) { s += line[i]; i++; } if (i < line.length) { s += line[i]; i++; } html += '<span class="str">' + esc(s) + '</span>'; continue; }
+      if (/[a-zA-Z_]/.test(ch)) {
+        let w = '';
+        while (i < line.length && /[a-zA-Z0-9_]/.test(line[i])) { w += line[i]; i++; }
+        if (KW.has(w)) html += '<span class="kw">' + esc(w) + '</span>';
+        else if (STACK_TOK.has(w)) html += '<span class="st">' + esc(w) + '</span>';
+        else if (OPS.has(w)) html += '<span class="op">' + esc(w) + '</span>';
+        else if (MEM.has(w)) html += '<span class="mem">' + esc(w) + '</span>';
+        else if (FLOW.has(w)) html += '<span class="flow">' + esc(w) + '</span>';
+        else if (DECL.has(w)) html += '<span class="decl">' + esc(w) + '</span>';
+        else if (TYPES.has(w)) html += '<span class="typ">' + esc(w) + '</span>';
+        else if (funcNames.has(w)) html += '<span class="userfn">' + esc(w) + '</span>';
+        else html += esc(w);
+        continue;
+      }
+      if ('<>->='.includes(ch)) { let op = ch; i++; if (i < line.length && (line[i] === '>' || line[i] === '=')) { op += line[i]; i++; } html += '<span class="op">' + esc(op) + '</span>'; continue; }
+      html += esc(ch);
+      i++;
+    }
+  }
+  return html;
+}
+
+let runTimer = null;
+function updateHighlight() {
+  hl.innerHTML = highlight(editor.value);
+  updateLineNums();
+  updateStackDepth();
+  updateTrace();
+  updateCursorPos();
+  compiledProgram = null; // invalidate cache
+  if (!isRunning) {
+    clearTimeout(runTimer);
+    runTimer = setTimeout(() => runNBOnce(), 80);
+  }
+}
+
+function updateLineNums() {
+  const n = editor.value.split('\n').length;
+  let h = '';
+  for (let i = 1; i <= n; i++) h += i + '\n';
+  lineNums.textContent = h;
+}
+
+const PUSH_OPS = new Set(['push','pushf','pushd','get','global_get','load','load8','load16','fload','dload','dup','over','grow','size']);
+const POP1_OPS = new Set(['set','tee','drop','eqz','not','bnot','i2f','f2i','i2d','f2d','d2f','d2i','neg','fneg','abs','fabs','sqrt','fsqrt','ceil','floor','trunc','nearest','clz','ctz','popcnt','wrap','extend','reinterpret','nip','global_set']);
+const POP2_PUSH1 = new Set(['add','sub','mul','div','mod','eq','ne','lt','gt','le','ge','and','or','xor','shl','shr','fadd','fsub','fmul','fdiv','feq','fne','flt','fgt','fle','fge','dadd','dsub','dmul','ddiv','deq','dne','dlt','dgt','dle','dge','band','bor','bxor','bshl','bshr','min','max','fmin','fmax','copysign','rot','swap','select']);
+const POP2_OPS = new Set(['store','store8','store16','fstore','dstore']);
+
+function analyzeStackDepth(src) {
+  const lines = src.split('\n');
+  const depths = [];
+  let depth = 0, inFunc = false;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+    const cmtIdx = raw.indexOf('//');
+    const line = cmtIdx >= 0 ? raw.substring(0, cmtIdx).trim() : raw;
+    if (!line) { depths.push(inFunc ? depth : null); continue; }
+    const parts = line.split(/\s+/);
+    const first = parts[0];
+    if (first === 'func' || (first === 'export' && parts[1] === 'func')) { inFunc = true; depth = 0; depths.push(depth); continue; }
+    if (first === 'end' && inFunc) { depths.push(depth); continue; }
+    if (!inFunc) { depths.push(null); continue; }
+    if (first === 'param' || first === 'local' || first === 'extern' || first === 'block' || first === 'loop') { depths.push(depth); continue; }
+    if (first === 'if') { depth = Math.max(0, depth - 1); depths.push(depth); continue; }
+    if (first === 'else' || first === 'return' || first === 'branch' || first === 'jump') { depths.push(depth); continue; }
+    if (PUSH_OPS.has(first)) depth++;
+    else if (first === 'tee') {}
+    else if (first === 'call') {}
+    else if (POP1_OPS.has(first)) depth = Math.max(0, depth - 1);
+    else if (POP2_PUSH1.has(first)) depth = Math.max(0, depth - 1);
+    else if (POP2_OPS.has(first)) depth = Math.max(0, depth - 2);
+    depths.push(depth);
+  }
+  return depths;
+}
+
+function updateStackDepth() {
+  const depths = analyzeStackDepth(editor.value);
+  let html = '';
+  for (const d of depths) {
+    if (d === null) html += '<span class="sd-na">·</span>\n';
+    else if (d === 0) html += '<span class="sd-zero">0</span>\n';
+    else if (d <= 2) html += '<span class="sd-ok">' + d + '</span>\n';
+    else if (d <= 4) html += '<span class="sd-warn">' + d + '</span>\n';
+    else html += '<span class="sd-err">' + d + '</span>\n';
+  }
+  stackDepth.innerHTML = html;
+}
+
+function updateCursorPos() {
+  const v = editor.value, pos = editor.selectionStart;
+  const before = v.substring(0, pos);
+  const line = before.split('\n').length;
+  const col = pos - before.lastIndexOf('\n');
+  document.getElementById('cursor-pos').textContent = line + ':' + col;
+}
+
+editor.addEventListener('scroll', () => {
+  const hlEl = hl.parentElement;
+  hlEl.scrollTop = editor.scrollTop;
+  hlEl.scrollLeft = editor.scrollLeft;
+  gutterInner.style.top = -Math.round(editor.scrollTop) + 'px';
+});
+
+editor.addEventListener('input', updateHighlight);
+editor.addEventListener('click', updateCursorPos);
+editor.addEventListener('keyup', updateCursorPos);
+
+editor.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = editor.selectionStart;
+    editor.value = editor.value.substring(0, s) + '  ' + editor.value.substring(editor.selectionEnd);
+    editor.selectionStart = editor.selectionEnd = s + 2;
+    updateHighlight();
+  }
+});
+
+function ins(text, cursorBack) {
+  const s = editor.selectionStart;
+  const before = editor.value.substring(0, s);
+  const after = editor.value.substring(editor.selectionEnd);
+  const needNL = before.length > 0 && before[before.length-1] !== '\n' ? '\n' : '';
+  editor.value = before + needNL + text + after;
+  const newPos = s + needNL.length + text.length - (cursorBack || 0);
+  editor.selectionStart = editor.selectionEnd = newPos;
+  editor.focus();
+  updateHighlight();
+}
+
+// ── Stack Tracer (static analysis — unchanged) ──
+function updateTrace() {
+  const src = editor.value;
+  const lines = src.split('\n');
+  let html = '', stack = [], vars = {}, inFunc = false, nestDepth = 0, rowCount = 0;
+
+  for (let li = 0; li < lines.length; li++) {
+    const raw = lines[li].trim();
+    const cmtIdx = raw.indexOf('//');
+    const line = cmtIdx >= 0 ? raw.substring(0, cmtIdx).trim() : raw;
+    if (!line) continue;
+    const parts = line.split(/\s+/);
+    const first = parts[0];
+
+    if (first === 'func' || (first === 'export' && parts[1] === 'func')) {
+      inFunc = true; stack = []; vars = {}; nestDepth = 1;
+      const fname = first === 'export' ? (parts[2] || '?') : (parts[1] || '?');
+      html += '<div class="trace-sep">' + esc(fname) + '</div>';
+      continue;
+    }
+    if (!inFunc) continue;
+    if (first === 'param') { vars[parts[1] || '?'] = parts[1] || '?'; continue; }
+    if (first === 'local') { vars[parts[1] || '?'] = '0'; continue; }
+    if (first === 'extern') continue;
+
+    if (first === 'block' || first === 'loop' || first === 'if') nestDepth++;
+    if (first === 'end') {
+      nestDepth--;
+      if (nestDepth <= 0) { html += mkRow(li+1, 'end', stack, 0); inFunc = false; rowCount++; continue; }
+      html += mkRow(li+1, 'end', stack, 0); rowCount++; continue;
+    }
+
+    let pushed = 0;
+    if (first === 'push' || first === 'pushf' || first === 'pushd') { stack.push(parts[1] || '?'); pushed = 1; }
+    else if (first === 'get' || first === 'global_get') { const n = parts[1]||'?'; stack.push(vars[n] !== undefined ? vars[n] : n); pushed = 1; }
+    else if (first === 'set' || first === 'global_set') { const n = parts[1]||'?'; vars[n] = stack.length ? stack.pop() : '?'; }
+    else if (first === 'tee') { const n = parts[1]||'?'; vars[n] = stack.length ? stack[stack.length-1] : '?'; }
+    else if (first === 'drop') { if (stack.length) stack.pop(); }
+    else if (first === 'dup') { stack.push(stack.length ? stack[stack.length-1] : '?'); pushed = 1; }
+    else if (first === 'swap') { if (stack.length >= 2) { const a = stack.pop(), b = stack.pop(); stack.push(a); stack.push(b); } }
+    else if (first === 'over') { if (stack.length >= 2) { stack.push(stack[stack.length-2]); pushed = 1; } }
+    else if (first === 'if') { if (stack.length) stack.pop(); }
+    else if (POP2_PUSH1.has(first)) { const b = stack.length ? stack.pop() : '?'; const a = stack.length ? stack.pop() : '?'; stack.push(evalOp(first, a, b)); pushed = 1; }
+    else if (POP2_OPS.has(first)) { if (stack.length) stack.pop(); if (stack.length) stack.pop(); }
+    else if (first === 'eqz') { const a = stack.length ? stack.pop() : '?'; stack.push(a === '0' ? '1' : (a === '?' ? '?' : (isNaN(parseFloat(a)) ? a+'==0' : (parseFloat(a)===0?'1':'0')))); pushed = 1; }
+    else if (first === 'call') { stack.push((parts[1]||'?')+'()'); pushed = 1; }
+    else if (first === 'branch') { if (stack.length) stack.pop(); }
+    else if (PUSH_OPS.has(first) && !['get','push','pushf','pushd','dup','over'].includes(first)) { const addr = stack.length ? stack.pop() : '?'; stack.push('['+addr+']'); pushed = 1; }
+    else if (POP1_OPS.has(first) && !['set','drop','global_set','eqz'].includes(first)) { const a = stack.length ? stack.pop() : '?'; stack.push(evalUnary(first, a)); pushed = 1; }
+
+    html += mkRow(li+1, raw, stack, pushed);
+    rowCount++;
+  }
+
+  document.getElementById('trace-content').innerHTML = html;
+  document.getElementById('trace-count').textContent = rowCount + ' ops';
+}
+
+function evalOp(op, a, b) {
+  const na = parseFloat(a), nb = parseFloat(b);
+  if (!isNaN(na) && !isNaN(nb)) {
+    switch(op) {
+      case 'add': case 'fadd': case 'dadd': return ''+(na+nb);
+      case 'sub': case 'fsub': case 'dsub': return ''+(na-nb);
+      case 'mul': case 'fmul': case 'dmul': return ''+(na*nb);
+      case 'div': case 'fdiv': case 'ddiv': return nb!==0 ? ''+(op==='div'?Math.trunc(na/nb):na/nb) : 'NaN';
+      case 'mod': return nb!==0 ? ''+(na%nb) : 'NaN';
+      case 'eq': case 'feq': case 'deq': return na===nb?'1':'0';
+      case 'ne': case 'fne': case 'dne': return na!==nb?'1':'0';
+      case 'lt': case 'flt': case 'dlt': return na<nb?'1':'0';
+      case 'gt': case 'fgt': case 'dgt': return na>nb?'1':'0';
+      case 'le': case 'fle': case 'dle': return na<=nb?'1':'0';
+      case 'ge': case 'fge': case 'dge': return na>=nb?'1':'0';
+      case 'and': return ''+(na&nb); case 'or': return ''+(na|nb); case 'xor': return ''+(na^nb);
+      case 'shl': case 'bshl': return ''+(na<<nb); case 'shr': case 'bshr': return ''+(na>>nb);
+      case 'min': case 'fmin': return ''+Math.min(na,nb); case 'max': case 'fmax': return ''+Math.max(na,nb);
+      default: return '?';
+    }
+  }
+  const sym = opSym(op);
+  return (a.includes(' ')? '(…)':a) + sym + (b.includes(' ')? '(…)':b);
+}
+
+function opSym(op) {
+  const m = {add:'+',fadd:'+',dadd:'+',sub:'-',fsub:'-',dsub:'-',mul:'×',fmul:'×',dmul:'×',div:'/',fdiv:'/',ddiv:'/',mod:'%',eq:'==',feq:'==',deq:'==',ne:'!=',fne:'!=',dne:'!=',lt:'<',flt:'<',dlt:'<',gt:'>',fgt:'>',dgt:'>',le:'<=',fle:'<=',dle:'<=',ge:'>=',fge:'>=',dge:'>=',and:'&',or:'|',xor:'^',band:'&',bor:'|',bxor:'^',shl:'<<',shr:'>>',bshl:'<<',bshr:'>>'};
+  return m[op] || op;
+}
+
+function evalUnary(op, a) {
+  const n = parseFloat(a);
+  if (isNaN(n)) return op+'('+a+')';
+  switch(op) {
+    case 'neg': case 'fneg': return ''+(-n);
+    case 'abs': case 'fabs': return ''+Math.abs(n);
+    case 'sqrt': case 'fsqrt': return ''+Math.sqrt(n);
+    case 'i2f': case 'i2d': return ''+n;
+    case 'f2i': case 'd2i': return ''+Math.trunc(n);
+    case 'f2d': case 'd2f': return ''+n;
+    case 'ceil': return ''+Math.ceil(n);
+    case 'floor': return ''+Math.floor(n);
+    case 'trunc': return ''+Math.trunc(n);
+    case 'not': case 'bnot': return ''+(~n);
+    default: return '?';
+  }
+}
+
+function mkRow(lineNum, instr, stack, pushed) {
+  let stackHtml = '';
+  if (stack.length === 0) {
+    stackHtml = '<span style="color:var(--text2);font-style:italic">empty</span>';
+  } else {
+    stackHtml = stack.map((v, i) => {
+      const isNew = pushed > 0 && i >= stack.length - pushed;
+      return '<span class="sv' + (isNew ? ' sv-new' : '') + '">' + esc(''+v) + '</span>';
+    }).join(' ');
+  }
+  return '<div class="trace-row' + (stack.length===0?' tr-empty':'') + '">'
+    + '<span class="tr-line">' + lineNum + '</span>'
+    + '<span class="tr-instr">' + esc(instr.length > 14 ? instr.substring(0,13)+'…' : instr) + '</span>'
+    + '<span class="tr-arrow">→</span>'
+    + '<span class="tr-stack">' + stackHtml + '</span>'
+    + '</div>';
+}
+
+// ── NB Standard Library (prelude) ──
+const NB_STDLIB = `func put_pixel
+  param x
+  param y
+  param r
+  param g
+  param b
+  local addr
+  get x
+  push 0
+  lt
+  if
+    return
+  end
+  get x
+  push 320
+  ge
+  if
+    return
+  end
+  get y
+  push 0
+  lt
+  if
+    return
+  end
+  get y
+  push 240
+  ge
+  if
+    return
+  end
+  get y
+  push 320
+  mul
+  get x
+  add
+  push 4
+  mul
+  set addr
+  get addr
+  get r
+  store8
+  get addr
+  push 1
+  add
+  get g
+  store8
+  get addr
+  push 2
+  add
+  get b
+  store8
+  get addr
+  push 3
+  add
+  push 255
+  store8
+end
+
+func put_pixel_fast
+  param x
+  param y
+  param r
+  param g
+  param b
+  local addr
+  get y
+  push 320
+  mul
+  get x
+  add
+  push 4
+  mul
+  set addr
+  get addr
+  get r
+  store8
+  get addr
+  push 1
+  add
+  get g
+  store8
+  get addr
+  push 2
+  add
+  get b
+  store8
+  get addr
+  push 3
+  add
+  push 255
+  store8
+end
+
+func put_block
+  param bx
+  param by
+  param bsz
+  param r
+  param g
+  param b
+  local px
+  local py
+  local addr
+  get by
+  set py
+  block
+  loop
+    get py
+    get by
+    get bsz
+    add
+    ge
+    branch 1
+    get py
+    push 0
+    lt
+    if
+      get py
+      push 1
+      add
+      set py
+      jump 0
+    end
+    get py
+    push 240
+    ge
+    if
+      jump 1
+    end
+    get bx
+    set px
+    block
+    loop
+      get px
+      get bx
+      get bsz
+      add
+      ge
+      branch 1
+      get px
+      push 0
+      lt
+      if
+        get px
+        push 1
+        add
+        set px
+        jump 0
+      end
+      get px
+      push 320
+      ge
+      if
+        jump 1
+      end
+      get py
+      push 320
+      mul
+      get px
+      add
+      push 4
+      mul
+      set addr
+      get addr
+      get r
+      store8
+      get addr
+      push 1
+      add
+      get g
+      store8
+      get addr
+      push 2
+      add
+      get b
+      store8
+      get addr
+      push 3
+      add
+      push 255
+      store8
+      get px
+      push 1
+      add
+      set px
+      jump 0
+    end
+    end
+    get py
+    push 1
+    add
+    set py
+    jump 0
+  end
+  end
+end
+
+func fill_rect
+  param rx
+  param ry
+  param rw
+  param rh
+  param r
+  param g
+  param b
+  local ix
+  local iy
+  get ry
+  set iy
+  block
+  loop
+    get iy
+    get ry
+    get rh
+    add
+    ge
+    branch 1
+    get rx
+    set ix
+    block
+    loop
+      get ix
+      get rx
+      get rw
+      add
+      ge
+      branch 1
+      get ix
+      get iy
+      get r
+      get g
+      get b
+      call put_pixel
+      get ix
+      push 1
+      add
+      set ix
+      jump 0
+    end
+    end
+    get iy
+    push 1
+    add
+    set iy
+    jump 0
+  end
+  end
+end
+
+func fill_circle
+  param cx
+  param cy
+  param rad
+  param r
+  param g
+  param b
+  local x
+  local y
+  local dx
+  local dy
+  local r2
+  get rad
+  get rad
+  mul
+  set r2
+  get cy
+  get rad
+  sub
+  set y
+  block
+  loop
+    get y
+    get cy
+    get rad
+    add
+    gt
+    branch 1
+    get cx
+    get rad
+    sub
+    set x
+    block
+    loop
+      get x
+      get cx
+      get rad
+      add
+      gt
+      branch 1
+      get x
+      get cx
+      sub
+      set dx
+      get y
+      get cy
+      sub
+      set dy
+      get dx
+      get dx
+      mul
+      get dy
+      get dy
+      mul
+      add
+      get r2
+      le
+      if
+        get x
+        get y
+        get r
+        get g
+        get b
+        call put_pixel
+      end
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end
+
+func hline
+  param x1
+  param x2
+  param y
+  param r
+  param g
+  param b
+  local x
+  get x1
+  set x
+  block
+  loop
+    get x
+    get x2
+    gt
+    branch 1
+    get x
+    get y
+    get r
+    get g
+    get b
+    call put_pixel
+    get x
+    push 1
+    add
+    set x
+    jump 0
+  end
+  end
+end
+
+func vline
+  param x
+  param y1
+  param y2
+  param r
+  param g
+  param b
+  local y
+  get y1
+  set y
+  block
+  loop
+    get y
+    get y2
+    gt
+    branch 1
+    get x
+    get y
+    get r
+    get g
+    get b
+    call put_pixel
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end
+
+func draw_line
+  param x1
+  param y1
+  param x2
+  param y2
+  param r
+  param g
+  param b
+  local dx
+  local dy
+  local sx
+  local sy
+  local err
+  local e2
+  local cx
+  local cy
+  get x2
+  get x1
+  sub
+  call abs_val
+  set dx
+  get y2
+  get y1
+  sub
+  call abs_val
+  neg
+  set dy
+  get x1
+  get x2
+  lt
+  if
+    push 1
+    set sx
+  else
+    push -1
+    set sx
+  end
+  get y1
+  get y2
+  lt
+  if
+    push 1
+    set sy
+  else
+    push -1
+    set sy
+  end
+  get dx
+  get dy
+  add
+  set err
+  get x1
+  set cx
+  get y1
+  set cy
+  block
+  loop
+    get cx
+    get cy
+    get r
+    get g
+    get b
+    call put_pixel
+    get cx
+    get x2
+    eq
+    get cy
+    get y2
+    eq
+    and
+    branch 1
+    get err
+    push 2
+    mul
+    set e2
+    get e2
+    get dy
+    ge
+    if
+      get err
+      get dy
+      add
+      set err
+      get cx
+      get sx
+      add
+      set cx
+    end
+    get e2
+    get dx
+    le
+    if
+      get err
+      get dx
+      add
+      set err
+      get cy
+      get sy
+      add
+      set cy
+    end
+    jump 0
+  end
+  end
+end
+
+func clear_screen
+  param r
+  param g
+  param b
+  local i
+  local addr
+  push 0
+  set i
+  block
+  loop
+    get i
+    push 76800
+    ge
+    branch 1
+    get i
+    push 4
+    mul
+    set addr
+    get addr
+    get r
+    store8
+    get addr
+    push 1
+    add
+    get g
+    store8
+    get addr
+    push 2
+    add
+    get b
+    store8
+    get addr
+    push 3
+    add
+    push 255
+    store8
+    get i
+    push 1
+    add
+    set i
+    jump 0
+  end
+  end
+end
+
+
+// 5x7 bitmap font — ASCII 32-126
+// 95 chars x 5 bytes = 475 bytes at mem[327680]
+data 327680 0 0 0 0 0  // ' '
+data 327685 0 0 95 0 0  // '!'
+data 327690 0 7 0 7 0  // '"'
+data 327695 20 127 20 127 20  // '#'
+data 327700 36 42 127 42 18  // '$'
+data 327705 35 19 8 100 98  // '%'
+data 327710 54 73 85 34 80  // '&'
+data 327715 0 0 7 0 0  // '''
+data 327720 0 28 34 65 0  // '('
+data 327725 0 65 34 28 0  // ')'
+data 327730 20 8 62 8 20  // '*'
+data 327735 8 8 62 8 8  // '+'
+data 327740 0 80 48 0 0  // ','
+data 327745 8 8 8 8 8  // '-'
+data 327750 0 96 96 0 0  // '.'
+data 327755 32 16 8 4 2  // '/'
+data 327760 62 81 73 69 62  // '0'
+data 327765 0 66 127 64 0  // '1'
+data 327770 66 97 81 73 70  // '2'
+data 327775 33 65 69 75 49  // '3'
+data 327780 24 20 18 127 16  // '4'
+data 327785 39 69 69 69 57  // '5'
+data 327790 60 74 73 73 48  // '6'
+data 327795 1 113 9 5 3  // '7'
+data 327800 54 73 73 73 54  // '8'
+data 327805 6 73 73 41 30  // '9'
+data 327810 0 54 54 0 0  // ':'
+data 327815 0 86 54 0 0  // ';'
+data 327820 8 20 34 65 0  // '<'
+data 327825 20 20 20 20 20  // '='
+data 327830 0 65 34 20 8  // '>'
+data 327835 2 1 81 9 6  // '?'
+data 327840 62 65 93 85 94  // '@'
+data 327845 126 17 17 17 126  // 'A'
+data 327850 127 73 73 73 54  // 'B'
+data 327855 62 65 65 65 34  // 'C'
+data 327860 127 65 65 34 28  // 'D'
+data 327865 127 73 73 73 65  // 'E'
+data 327870 127 9 9 9 1  // 'F'
+data 327875 62 65 73 73 122  // 'G'
+data 327880 127 8 8 8 127  // 'H'
+data 327885 0 65 127 65 0  // 'I'
+data 327890 32 64 65 63 1  // 'J'
+data 327895 127 8 20 34 65  // 'K'
+data 327900 127 64 64 64 64  // 'L'
+data 327905 127 2 12 2 127  // 'M'
+data 327910 127 4 8 16 127  // 'N'
+data 327915 62 65 65 65 62  // 'O'
+data 327920 127 9 9 9 6  // 'P'
+data 327925 62 65 81 33 94  // 'Q'
+data 327930 127 9 25 41 70  // 'R'
+data 327935 70 73 73 73 49  // 'S'
+data 327940 1 1 127 1 1  // 'T'
+data 327945 63 64 64 64 63  // 'U'
+data 327950 31 32 64 32 31  // 'V'
+data 327955 63 64 56 64 63  // 'W'
+data 327960 99 20 8 20 99  // 'X'
+data 327965 7 8 112 8 7  // 'Y'
+data 327970 97 81 73 69 67  // 'Z'
+data 327975 0 127 65 65 0  // '['
+data 327980 2 4 8 16 32  // '\\'
+data 327985 0 65 65 127 0  // ']'
+data 327990 4 2 1 2 4  // '^'
+data 327995 64 64 64 64 64  // '_'
+data 328000 0 1 2 4 0  // '\`'
+data 328005 32 84 84 84 120  // 'a'
+data 328010 127 72 68 68 56  // 'b'
+data 328015 56 68 68 68 32  // 'c'
+data 328020 56 68 68 72 127  // 'd'
+data 328025 56 84 84 84 24  // 'e'
+data 328030 8 126 9 1 2  // 'f'
+data 328035 12 82 82 82 62  // 'g'
+data 328040 127 8 4 4 120  // 'h'
+data 328045 0 68 125 64 0  // 'i'
+data 328050 32 64 68 61 0  // 'j'
+data 328055 127 16 40 68 0  // 'k'
+data 328060 0 65 127 64 0  // 'l'
+data 328065 124 4 24 4 120  // 'm'
+data 328070 124 8 4 4 120  // 'n'
+data 328075 56 68 68 68 56  // 'o'
+data 328080 124 20 20 20 8  // 'p'
+data 328085 8 20 20 24 124  // 'q'
+data 328090 124 8 4 4 8  // 'r'
+data 328095 72 84 84 84 32  // 's'
+data 328100 4 63 68 64 32  // 't'
+data 328105 60 64 64 32 124  // 'u'
+data 328110 28 32 64 32 28  // 'v'
+data 328115 60 64 48 64 60  // 'w'
+data 328120 68 40 16 40 68  // 'x'
+data 328125 12 80 80 80 60  // 'y'
+data 328130 68 100 84 76 68  // 'z'
+data 328135 0 8 54 65 0  // '{'
+data 328140 0 0 127 0 0  // '|'
+data 328145 0 65 54 8 0  // '}'
+data 328150 8 4 8 16 8  // '~'
+
+
+func draw_char
+  param ch
+  param dx
+  param dy
+  param r
+  param g
+  param b
+  local font_addr
+  local col
+  local row
+  local byte
+  get ch
+  push 32
+  lt
+  if
+    return
+  end
+  get ch
+  push 126
+  gt
+  if
+    return
+  end
+  get ch
+  push 32
+  sub
+  push 5
+  mul
+  push 327680
+  add
+  set font_addr
+  push 0
+  set col
+  block
+  loop
+    get col
+    push 5
+    ge
+    branch 1
+    get font_addr
+    get col
+    add
+    load8
+    set byte
+    push 0
+    set row
+    block
+    loop
+      get row
+      push 7
+      ge
+      branch 1
+      get byte
+      get row
+      shr
+      push 1
+      and
+      if
+        get dx
+        get col
+        add
+        get dy
+        get row
+        add
+        get r
+        get g
+        get b
+        call put_pixel
+      end
+      get row
+      push 1
+      add
+      set row
+      jump 0
+    end
+    end
+    get col
+    push 1
+    add
+    set col
+    jump 0
+  end
+  end
+end
+
+func draw_text
+  param str_addr
+  param sx
+  param sy
+  param r
+  param g
+  param b
+  local ch
+  local cx
+  get sx
+  set cx
+  block
+  loop
+    get str_addr
+    load8
+    set ch
+    get ch
+    eqz
+    branch 1
+    get ch
+    get cx
+    get sy
+    get r
+    get g
+    get b
+    call draw_char
+    get cx
+    push 6
+    add
+    set cx
+    get str_addr
+    push 1
+    add
+    set str_addr
+    jump 0
+  end
+  end
+end
+
+func draw_number
+  param n
+  param dx
+  param dy
+  param r
+  param g
+  param b
+  local is_neg
+  local digit
+  local ndigits
+  local buf_addr
+  local temp
+  local cx
+  push 328160
+  set buf_addr
+  push 0
+  set ndigits
+  push 0
+  set is_neg
+  get n
+  push 0
+  lt
+  if
+    push 1
+    set is_neg
+    get n
+    neg
+    set n
+  end
+  get n
+  eqz
+  if
+    get buf_addr
+    push 48
+    store8
+    push 1
+    set ndigits
+  else
+    block
+    loop
+      get n
+      eqz
+      branch 1
+      get n
+      push 10
+      mod
+      push 48
+      add
+      set digit
+      get buf_addr
+      get ndigits
+      add
+      get digit
+      store8
+      get n
+      push 10
+      div
+      set n
+      get ndigits
+      push 1
+      add
+      set ndigits
+      jump 0
+    end
+    end
+  end
+  get dx
+  set cx
+  get is_neg
+  if
+    push 45
+    get cx
+    get dy
+    get r
+    get g
+    get b
+    call draw_char
+    get cx
+    push 6
+    add
+    set cx
+  end
+  get ndigits
+  push 1
+  sub
+  set temp
+  block
+  loop
+    get temp
+    push 0
+    lt
+    branch 1
+    get buf_addr
+    get temp
+    add
+    load8
+    get cx
+    get dy
+    get r
+    get g
+    get b
+    call draw_char
+    get cx
+    push 6
+    add
+    set cx
+    get temp
+    push 1
+    sub
+    set temp
+    jump 0
+  end
+  end
+end
+
+func store_byte -> i32
+  param addr
+  param val
+  get addr
+  get val
+  store8
+  get addr
+  push 1
+  add
+end
+
+
+func memset
+  param addr
+  param val
+  param len
+  local i
+  push 0
+  set i
+  block
+  loop
+    get i
+    get len
+    ge
+    branch 1
+    get addr
+    get i
+    add
+    get val
+    store8
+    get i
+    push 1
+    add
+    set i
+    jump 0
+  end
+  end
+end
+
+func memcpy
+  param dst
+  param src
+  param len
+  local i
+  push 0
+  set i
+  block
+  loop
+    get i
+    get len
+    ge
+    branch 1
+    get dst
+    get i
+    add
+    get src
+    get i
+    add
+    load8
+    store8
+    get i
+    push 1
+    add
+    set i
+    jump 0
+  end
+  end
+end
+
+
+func mouse_x -> i32
+  push 307200
+  load
+end
+
+func mouse_y -> i32
+  push 307204
+  load
+end
+
+func mouse_down -> i32
+  push 307208
+  load
+end
+
+func mouse_pressed -> i32
+  push 307224
+  load
+end
+
+func key_code -> i32
+  push 307212
+  load
+end
+
+func key_down -> i32
+  push 307216
+  load
+end
+
+func key_pressed -> i32
+  push 307228
+  load
+end
+
+func frame_count -> i32
+  push 307220
+  load
+end
+
+
+func abs_val -> i32
+  param n
+  get n
+  push 0
+  lt
+  if
+    get n
+    neg
+    return
+  end
+  get n
+end
+
+func clamp -> i32
+  param val
+  param lo
+  param hi
+  get val
+  get lo
+  lt
+  if
+    get lo
+    return
+  end
+  get val
+  get hi
+  gt
+  if
+    get hi
+    return
+  end
+  get val
+end
+
+func sign -> i32
+  param n
+  get n
+  push 0
+  lt
+  if
+    push -1
+    return
+  end
+  get n
+  push 0
+  gt
+  if
+    push 1
+    return
+  end
+  push 0
+end
+
+func draw_rect_outline
+  param rx
+  param ry
+  param rw
+  param rh
+  param r
+  param g
+  param b
+  get rx
+  get rx
+  get rw
+  add
+  push 1
+  sub
+  get ry
+  get r
+  get g
+  get b
+  call hline
+  get rx
+  get rx
+  get rw
+  add
+  push 1
+  sub
+  get ry
+  get rh
+  add
+  push 1
+  sub
+  get r
+  get g
+  get b
+  call hline
+  get rx
+  get ry
+  get ry
+  get rh
+  add
+  push 1
+  sub
+  get r
+  get g
+  get b
+  call vline
+  get rx
+  get rw
+  add
+  push 1
+  sub
+  get ry
+  get ry
+  get rh
+  add
+  push 1
+  sub
+  get r
+  get g
+  get b
+  call vline
+end
+
+func draw_circle_outline
+  param cx
+  param cy
+  param rad
+  param r
+  param g
+  param b
+  local x
+  local y
+  local dx
+  local dy
+  local r2_outer
+  local r2_inner
+  get rad
+  get rad
+  mul
+  set r2_outer
+  get rad
+  push 1
+  sub
+  dup
+  mul
+  set r2_inner
+  get cy
+  get rad
+  sub
+  set y
+  block
+  loop
+    get y
+    get cy
+    get rad
+    add
+    gt
+    branch 1
+    get cx
+    get rad
+    sub
+    set x
+    block
+    loop
+      get x
+      get cx
+      get rad
+      add
+      gt
+      branch 1
+      get x
+      get cx
+      sub
+      set dx
+      get y
+      get cy
+      sub
+      set dy
+      get dx
+      get dx
+      mul
+      get dy
+      get dy
+      mul
+      add
+      dup
+      get r2_outer
+      le
+      swap
+      get r2_inner
+      gt
+      and
+      if
+        get x
+        get y
+        get r
+        get g
+        get b
+        call put_pixel
+      end
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end
+
+func fill_triangle
+  param x1
+  param y1
+  param x2
+  param y2
+  param x3
+  param y3
+  param r
+  param g
+  param b
+  local min_y
+  local max_y
+  local y
+  local min_x
+  local max_x
+  local x
+  local d1
+  local d2
+  local d3
+  get y1
+  get y2
+  min
+  get y3
+  min
+  set min_y
+  get y1
+  get y2
+  max
+  get y3
+  max
+  set max_y
+  get x1
+  get x2
+  min
+  get x3
+  min
+  set min_x
+  get x1
+  get x2
+  max
+  get x3
+  max
+  set max_x
+  get min_y
+  set y
+  block
+  loop
+    get y
+    get max_y
+    gt
+    branch 1
+    get min_x
+    set x
+    block
+    loop
+      get x
+      get max_x
+      gt
+      branch 1
+      // sign test: point vs each edge
+      get x
+      get x1
+      sub
+      get y2
+      get y1
+      sub
+      mul
+      get y
+      get y1
+      sub
+      get x2
+      get x1
+      sub
+      mul
+      sub
+      set d1
+      get x
+      get x2
+      sub
+      get y3
+      get y2
+      sub
+      mul
+      get y
+      get y2
+      sub
+      get x3
+      get x2
+      sub
+      mul
+      sub
+      set d2
+      get x
+      get x3
+      sub
+      get y1
+      get y3
+      sub
+      mul
+      get y
+      get y3
+      sub
+      get x1
+      get x3
+      sub
+      mul
+      sub
+      set d3
+      // inside if all same sign
+      get d1
+      push 0
+      ge
+      get d2
+      push 0
+      ge
+      and
+      get d3
+      push 0
+      ge
+      and
+      if
+        get x
+        get y
+        get r
+        get g
+        get b
+        call put_pixel
+      else
+        get d1
+        push 0
+        le
+        get d2
+        push 0
+        le
+        and
+        get d3
+        push 0
+        le
+        and
+        if
+          get x
+          get y
+          get r
+          get g
+          get b
+          call put_pixel
+        end
+      end
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end
+
+func draw_hex
+  param n
+  param dx
+  param dy
+  param r
+  param g
+  param b
+  local i
+  local digit
+  local cx
+  get dx
+  set cx
+  push 7
+  set i
+  block
+  loop
+    get i
+    push 0
+    lt
+    branch 1
+    get n
+    get i
+    push 4
+    mul
+    shr
+    push 15
+    and
+    set digit
+    get digit
+    push 10
+    lt
+    if
+      get digit
+      push 48
+      add
+    else
+      get digit
+      push 55
+      add
+    end
+    get cx
+    get dy
+    get r
+    get g
+    get b
+    call draw_char
+    get cx
+    push 6
+    add
+    set cx
+    get i
+    push 1
+    sub
+    set i
+    jump 0
+  end
+  end
+end
+
+func strlen -> i32
+  param addr
+  local len
+  push 0
+  set len
+  block
+  loop
+    get addr
+    get len
+    add
+    load8
+    eqz
+    branch 1
+    get len
+    push 1
+    add
+    set len
+    jump 0
+  end
+  end
+  get len
+end
+
+func min_val -> i32
+  param a
+  param b
+  get a
+  get b
+  lt
+  if
+    get a
+    return
+  end
+  get b
+end
+
+func max_val -> i32
+  param a
+  param b
+  get a
+  get b
+  gt
+  if
+    get a
+    return
+  end
+  get b
+end
+
+func lerp -> i32
+  param a
+  param b
+  param t
+  // t is 0..256 (fixed point, 256 = 1.0)
+  get b
+  get a
+  sub
+  get t
+  mul
+  push 256
+  div
+  get a
+  add
+end
+
+func map_range -> i32
+  param val
+  param in_lo
+  param in_hi
+  param out_lo
+  param out_hi
+  get val
+  get in_lo
+  sub
+  get out_hi
+  get out_lo
+  sub
+  mul
+  get in_hi
+  get in_lo
+  sub
+  div
+  get out_lo
+  add
+end
+
+func distance -> i32
+  param x1
+  param y1
+  param x2
+  param y2
+  local dx
+  local dy
+  get x2
+  get x1
+  sub
+  set dx
+  get y2
+  get y1
+  sub
+  set dy
+  get dx
+  get dx
+  mul
+  get dy
+  get dy
+  mul
+  add
+  // integer sqrt via Newton's method
+  dup
+  eqz
+  if
+    push 0
+    return
+  end
+  dup
+  local guess
+  local prev
+  push 2
+  div
+  set guess
+  push 0
+  set prev
+  block
+  loop
+    get guess
+    get prev
+    eq
+    branch 1
+    get guess
+    set prev
+    get guess
+    dup
+    div
+    get guess
+    add
+    push 2
+    div
+    set guess
+    jump 0
+  end
+  end
+  drop
+  get guess
+end
+
+func rand -> i32
+  // LCG: seed at mem[307240]
+  // seed = seed * 1103515245 + 12345
+  local seed
+  push 307240
+  load
+  set seed
+  get seed
+  eqz
+  if
+    push 12345
+    set seed
+  end
+  get seed
+  push 1103515245
+  mul
+  push 12345
+  add
+  set seed
+  push 307240
+  get seed
+  store
+  get seed
+  push 16
+  shr
+  push 32767
+  and
+end
+
+func rand_seed
+  param s
+  push 307240
+  get s
+  store
+end
+
+func memzero
+  param addr
+  param len
+  get addr
+  push 0
+  get len
+  call memset
+end
+
+func memcmp -> i32
+  param a
+  param b
+  param len
+  local i
+  push 0
+  set i
+  block
+  loop
+    get i
+    get len
+    ge
+    branch 1
+    get a
+    get i
+    add
+    load8
+    get b
+    get i
+    add
+    load8
+    sub
+    dup
+    eqz
+    if
+      drop
+      get i
+      push 1
+      add
+      set i
+      jump 0
+    end
+    return
+  end
+  end
+  push 0
+end
+
+func rgb_pack -> i32
+  param r
+  param g
+  param b
+  get r
+  push 16
+  shl
+  get g
+  push 8
+  shl
+  or
+  get b
+  or
+end
+
+func rgb_r -> i32
+  param c
+  get c
+  push 16
+  shr
+  push 255
+  and
+end
+
+func rgb_g -> i32
+  param c
+  get c
+  push 8
+  shr
+  push 255
+  and
+end
+
+func rgb_b -> i32
+  param c
+  get c
+  push 255
+  and
+end`;
+const NB_STDLIB_LINES = NB_STDLIB.split('\\n').length;
+
+// Stdlib function names for syntax highlighting
+const STDLIB_FUNCS = new Set([
+  'put_pixel','put_pixel_fast','put_block','fill_rect','fill_circle','hline','vline','draw_line','clear_screen',
+  'draw_rect_outline','draw_circle_outline','fill_triangle',
+  'draw_char','draw_text','draw_number','draw_hex','store_byte',
+  'strlen','memset','memcpy','memzero','memcmp',
+  'mouse_x','mouse_y','mouse_down','mouse_pressed',
+  'key_code','key_down','key_pressed','frame_count',
+  'abs_val','clamp','sign','min_val','max_val',
+  'lerp','map_range','distance','rand','rand_seed',
+  'rgb_pack','rgb_r','rgb_g','rgb_b'
+]);
+
+// ── Compiler: parse source into reusable program object ──
+function compileNB(src) {
+  const fullSrc = NB_STDLIB + '\n' + src;
+  const slines = fullSrc.split('\n');
+  const instrs = [];
+  for (let i = 0; i < slines.length; i++) {
+    const cmtIdx = slines[i].indexOf('//');
+    const line = (cmtIdx >= 0 ? slines[i].substring(0, cmtIdx) : slines[i]).trim();
+    instrs.push(line ? line.split(/\s+/) : []);
+  }
+  const N = instrs.length;
+  const funcTable = {}, dataSegments = [], funcTableDecl = [];
+  let tableSize = 0;
+
+  for (let fi = 0; fi < N; fi++) {
+    const p = instrs[fi]; if (!p.length) continue;
+    if (p[0] === 'data' && p.length >= 3) {
+      const addr = parseInt(p[1]) || 0, bytes = [];
+      for (let bi = 2; bi < p.length; bi++) { const v = parseInt(p[bi]); if (!isNaN(v)) bytes.push(v & 0xff); }
+      if (bytes.length) dataSegments.push({ addr, bytes }); continue;
+    }
+    if (p[0] === 'table' && p.length >= 2) { tableSize = parseInt(p[1]) || 0; continue; }
+    if (p[0] === 'elem' && p.length >= 3) {
+      const si2 = parseInt(p[1]) || 0;
+      for (let ei = 2; ei < p.length; ei++) { const idx = si2 + (ei - 2); while (funcTableDecl.length <= idx) funcTableDecl.push(null); funcTableDecl[idx] = p[ei]; }
+      continue;
+    }
+    const isExport = p[0] === 'export' && p[1] === 'func', isFunc = p[0] === 'func';
+    if (!isExport && !isFunc) continue;
+    const fname = isExport ? (p[2] || '') : (p[1] || ''); if (!fname) continue;
+    const params = []; let si = fi + 1;
+    while (si < N) { if (instrs[si].length && instrs[si][0] === 'param') { params.push(instrs[si][1] || '?'); si++; } else break; }
+    let scanNest = 0, funcEnd = N;
+    for (let j = fi + 1; j < N; j++) {
+      const sp = instrs[j]; if (!sp.length) continue; const sw = sp[0];
+      if (sw === 'func' || (sw === 'export' && sp[1] === 'func')) { funcEnd = j - 1; break; }
+      if (sw === 'block' || sw === 'loop' || sw === 'if') scanNest++;
+      else if (sw === 'end') { if (scanNest === 0) { funcEnd = j; break; } scanNest--; }
+    }
+    funcTable[fname] = { startLine: fi, endLine: funcEnd, params, isExport, hasReturn: instrs[fi].includes('->') };
+  }
+
+  // Block info
+  const funcBlockCache = {};
+  for (const fname in funcTable) {
+    const f = funcTable[fname], infos = [], sStack = [];
+    for (let si = f.startLine + 1; si <= f.endLine; si++) {
+      const sp = instrs[si]; if (!sp || !sp.length) continue; const sw = sp[0];
+      if (sw === 'block' || sw === 'loop' || sw === 'if') { sStack.push(infos.length); infos.push({ type: sw, startLine: si, endLine: -1, elseAt: -1 }); }
+      else if (sw === 'else') { if (sStack.length) infos[sStack[sStack.length-1]].elseAt = si; }
+      else if (sw === 'end') { if (sStack.length) infos[sStack.pop()].endLine = si; }
+    }
+    const byLine = {}; for (const bi of infos) byLine[bi.startLine] = bi;
+    funcBlockCache[fname] = byLine;
+  }
+
+  // Bytecode compilation
+  const OP_NOP=0,OP_PUSH=1,OP_PUSHF=2,OP_GET=3,OP_SET=4,OP_TEE=5,OP_DROP=6,OP_DUP=7,OP_SWAP=8,OP_OVER=9,
+    OP_ADD=10,OP_SUB=11,OP_MUL=12,OP_DIV=13,OP_MOD=14,OP_FDIV=18,
+    OP_EQ=19,OP_NE=20,OP_LT=21,OP_GT=22,OP_LE=23,OP_GE=24,OP_EQZ=25,
+    OP_AND=26,OP_OR=27,OP_XOR=28,OP_SHL=29,OP_SHR=30,OP_NOT=31,
+    OP_NEG=32,OP_ABS=33,OP_MIN=34,OP_MAX=35,OP_SELECT=36,
+    OP_STORE=40,OP_LOAD=41,OP_STORE8=42,OP_LOAD8=43,OP_STORE16=44,OP_LOAD16=45,
+    OP_FSTORE=46,OP_FLOAD=47,OP_DSTORE=48,OP_DLOAD=49,OP_GROW=50,OP_SIZE=51,
+    OP_BLOCK=60,OP_LOOP=61,OP_IF=62,OP_ELSE=63,OP_END=64,OP_BRANCH=65,OP_JUMP=66,OP_RETURN=67,
+    OP_CALL=70,OP_CALL_IND=71,OP_DECL=80;
+
+  const mnem = {
+    push:OP_PUSH,pushf:OP_PUSHF,pushd:OP_PUSHF,
+    get:OP_GET,global_get:OP_GET,set:OP_SET,global_set:OP_SET,tee:OP_TEE,
+    drop:OP_DROP,dup:OP_DUP,swap:OP_SWAP,over:OP_OVER,
+    add:OP_ADD,fadd:OP_ADD,dadd:OP_ADD,sub:OP_SUB,fsub:OP_SUB,dsub:OP_SUB,
+    mul:OP_MUL,fmul:OP_MUL,dmul:OP_MUL,div:OP_DIV,mod:OP_MOD,
+    fdiv:OP_FDIV,ddiv:OP_FDIV,
+    eq:OP_EQ,feq:OP_EQ,ne:OP_NE,fne:OP_NE,lt:OP_LT,flt:OP_LT,gt:OP_GT,fgt:OP_GT,
+    le:OP_LE,fle:OP_LE,ge:OP_GE,fge:OP_GE,eqz:OP_EQZ,
+    and:OP_AND,band:OP_AND,or:OP_OR,bor:OP_OR,xor:OP_XOR,bxor:OP_XOR,
+    shl:OP_SHL,bshl:OP_SHL,shr:OP_SHR,bshr:OP_SHR,not:OP_NOT,bnot:OP_NOT,
+    neg:OP_NEG,fneg:OP_NEG,abs:OP_ABS,fabs:OP_ABS,min:OP_MIN,fmin:OP_MIN,max:OP_MAX,fmax:OP_MAX,
+    select:OP_SELECT,
+    store:OP_STORE,load:OP_LOAD,store8:OP_STORE8,load8:OP_LOAD8,store16:OP_STORE16,load16:OP_LOAD16,
+    fstore:OP_FSTORE,fload:OP_FLOAD,dstore:OP_DSTORE,dload:OP_DLOAD,grow:OP_GROW,size:OP_SIZE,
+    block:OP_BLOCK,loop:OP_LOOP,'if':OP_IF,'else':OP_ELSE,end:OP_END,
+    branch:OP_BRANCH,jump:OP_JUMP,'return':OP_RETURN,
+    call:OP_CALL,call_indirect:OP_CALL_IND,
+    param:OP_DECL,local:OP_DECL,extern:OP_DECL,
+    i2f:OP_NOP,f2i:OP_NOP,i2d:OP_NOP,f2d:OP_NOP,d2f:OP_NOP,d2i:OP_NOP,
+  };
+
+  const funcBytecode = {};
+  for (const fname in funcTable) {
+    const f = funcTable[fname], bc = [], lineToPC = {};
+    for (let ip = f.startLine + 1; ip <= f.endLine; ip++) {
+      const p = instrs[ip];
+      lineToPC[ip] = bc.length;
+      if (!p || !p.length) { bc.push(OP_NOP, 0); continue; }
+      const op = mnem[p[0]];
+      if (op === undefined) { bc.push(OP_NOP, 0); continue; }
+      switch (op) {
+        case OP_PUSH: bc.push(op, parseInt(p[1]) || 0); break;
+        case OP_PUSHF: bc.push(op, parseFloat(p[1]) || 0); break;
+        case OP_GET: case OP_SET: case OP_TEE: case OP_DECL: bc.push(op, p[1] || '?'); break;
+        case OP_BRANCH: case OP_JUMP: bc.push(op, parseInt(p[1]) || 0); break;
+        case OP_CALL: bc.push(op, p[1] || ''); break;
+        case OP_CALL_IND: bc.push(op, 0); break;
+        case OP_BLOCK: case OP_LOOP: case OP_IF: bc.push(op, ip); break; // store source line for block lookup
+        default: bc.push(op, 0); break;
+      }
+    }
+    // Build pc-jump table: for each block/loop/if, precompute target PCs
+    const jumpTable = {}; // pc -> {elsePc, endPc, startPc, type}
+    for (let i = 0; i < bc.length; i += 2) {
+      if (bc[i] === OP_BLOCK || bc[i] === OP_LOOP || bc[i] === OP_IF) {
+        const srcLine = bc[i + 1];
+        const bi = funcBlockCache[fname]?.[srcLine];
+        if (bi) {
+          jumpTable[i] = {
+            type: bi.type,
+            elsePc: bi.elseAt >= 0 && lineToPC[bi.elseAt + 1] !== undefined ? lineToPC[bi.elseAt + 1] : -1,
+            endPc: lineToPC[bi.endLine] !== undefined ? lineToPC[bi.endLine] : bc.length,
+            startPc: lineToPC[bi.startLine + 1] !== undefined ? lineToPC[bi.startLine + 1] : 0,
+          };
+        }
+      } else if (bc[i] === OP_ELSE) {
+        // Find enclosing if's endPc — will be resolved at runtime via labelStack
+      }
+    }
+    funcBytecode[fname] = { bc, jumpTable, lineToPC };
+  }
+
+  return { instrs, funcTable, funcBlockCache, funcBytecode, dataSegments, funcTableDecl, preludeLines: NB_STDLIB_LINES };
+}
+
+// ── Bytecode interpreter ──
+function executeNB(prog, mem) {
+  const { funcTable, funcBytecode, dataSegments, funcTableDecl } = prog;
+  const MAX_OPS = 10000000;
+  let globalOps = 0;
+  const dv = new DataView(mem.buffer);
+  const memLen = mem.length;
+
+  for (let si = 0; si < dataSegments.length; si++) {
+    const seg = dataSegments[si];
+    for (let i = 0; i < seg.bytes.length; i++) { const a = seg.addr + i; if (a >= 0 && a < memLen) mem[a] = seg.bytes[i]; }
+  }
+
+  function execFunc(fname, argValues, callDepth) {
+    if (callDepth > 64 || globalOps >= MAX_OPS) return 0;
+    const func = funcTable[fname]; if (!func) return 0;
+    const fbc = funcBytecode[fname]; if (!fbc) return 0;
+    const { bc, jumpTable } = fbc;
+    const bcLen = bc.length;
+    const stack = [], vars = {}, labelStack = [];
+    let pc = 0;
+
+    for (let pi = 0; pi < func.params.length; pi++)
+      vars[func.params[pi]] = pi < argValues.length ? argValues[pi] : 0;
+
+    while (pc < bcLen && globalOps < MAX_OPS) {
+      globalOps++;
+      const op = bc[pc], arg = bc[pc + 1];
+      switch (op) {
+        case 0: pc+=2; break; // NOP
+        case 1: stack.push(arg); pc+=2; break; // PUSH
+        case 2: stack.push(arg); pc+=2; break; // PUSHF
+        case 3: stack.push(vars[arg] !== undefined ? vars[arg] : 0); pc+=2; break; // GET
+        case 4: vars[arg] = stack.length ? stack.pop() : 0; pc+=2; break; // SET
+        case 5: if (stack.length) vars[arg] = stack[stack.length-1]; pc+=2; break; // TEE
+        case 6: if (stack.length) stack.pop(); pc+=2; break; // DROP
+        case 7: stack.push(stack.length ? stack[stack.length-1] : 0); pc+=2; break; // DUP
+        case 8: if (stack.length>=2) { const a=stack.pop(),b=stack.pop(); stack.push(a,b); } pc+=2; break; // SWAP
+        case 9: if (stack.length>=2) stack.push(stack[stack.length-2]); pc+=2; break; // OVER
+        case 10: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a+b); pc+=2; break; } // ADD
+        case 11: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a-b); pc+=2; break; } // SUB
+        case 12: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a*b); pc+=2; break; } // MUL
+        case 13: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(b?Math.trunc(a/b):0); pc+=2; break; } // DIV
+        case 14: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(b?a%b:0); pc+=2; break; } // MOD
+        case 18: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(b?a/b:0); pc+=2; break; } // FDIV
+        case 19: { const b=stack.pop(),a=stack.pop(); stack.push(a===b?1:0); pc+=2; break; } // EQ
+        case 20: { const b=stack.pop(),a=stack.pop(); stack.push(a!==b?1:0); pc+=2; break; } // NE
+        case 21: { const b=stack.pop(),a=stack.pop(); stack.push(a<b?1:0); pc+=2; break; } // LT
+        case 22: { const b=stack.pop(),a=stack.pop(); stack.push(a>b?1:0); pc+=2; break; } // GT
+        case 23: { const b=stack.pop(),a=stack.pop(); stack.push(a<=b?1:0); pc+=2; break; } // LE
+        case 24: { const b=stack.pop(),a=stack.pop(); stack.push(a>=b?1:0); pc+=2; break; } // GE
+        case 25: stack.push((stack.pop()||0)===0?1:0); pc+=2; break; // EQZ
+        case 26: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a&b); pc+=2; break; } // AND
+        case 27: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a|b); pc+=2; break; } // OR
+        case 28: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a^b); pc+=2; break; } // XOR
+        case 29: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a<<b); pc+=2; break; } // SHL
+        case 30: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(a>>b); pc+=2; break; } // SHR
+        case 31: stack.push(~(stack.pop()||0)); pc+=2; break; // NOT
+        case 32: stack.push(-(stack.pop()||0)); pc+=2; break; // NEG
+        case 33: stack.push(Math.abs(stack.pop()||0)); pc+=2; break; // ABS
+        case 34: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(Math.min(a,b)); pc+=2; break; } // MIN
+        case 35: { const b=stack.pop()||0,a=stack.pop()||0; stack.push(Math.max(a,b)); pc+=2; break; } // MAX
+        case 36: { const c=stack.pop()||0,b=stack.pop()||0,a=stack.pop()||0; stack.push(c?a:b); pc+=2; break; } // SELECT
+        case 40: { const v=stack.pop()||0,addr=stack.pop()||0; if(addr>=0&&addr<memLen-3) dv.setInt32(addr,v,true); pc+=2; break; } // STORE
+        case 41: { const addr=stack.pop()||0; stack.push(addr>=0&&addr<memLen-3?dv.getInt32(addr,true):0); pc+=2; break; } // LOAD
+        case 42: { const v=stack.pop()||0,addr=stack.pop()||0; if(addr>=0&&addr<memLen) mem[addr]=v&0xff; pc+=2; break; } // STORE8
+        case 43: { const addr=stack.pop()||0; stack.push(addr>=0&&addr<memLen?mem[addr]:0); pc+=2; break; } // LOAD8
+        case 44: { const v=stack.pop()||0,addr=stack.pop()||0; if(addr>=0&&addr<memLen-1) dv.setInt16(addr,v,true); pc+=2; break; }
+        case 45: { const addr=stack.pop()||0; stack.push(addr>=0&&addr<memLen-1?dv.getInt16(addr,true):0); pc+=2; break; }
+        case 46: { const v=stack.pop()||0,addr=stack.pop()||0; if(addr>=0&&addr<memLen-3) dv.setFloat32(addr,v,true); pc+=2; break; }
+        case 47: { const addr=stack.pop()||0; stack.push(addr>=0&&addr<memLen-3?dv.getFloat32(addr,true):0); pc+=2; break; }
+        case 48: { const v=stack.pop()||0,addr=stack.pop()||0; if(addr>=0&&addr<memLen-7) dv.setFloat64(addr,v,true); pc+=2; break; }
+        case 49: { const addr=stack.pop()||0; stack.push(addr>=0&&addr<memLen-7?dv.getFloat64(addr,true):0); pc+=2; break; }
+        case 50: stack.pop(); stack.push(0); pc+=2; break; // GROW
+        case 51: stack.push(1); pc+=2; break; // SIZE
+        case 60: // BLOCK
+        case 61: { // LOOP
+          const jt = jumpTable[pc];
+          if (jt) labelStack.push({ type: jt.type, startPc: jt.startPc, endPc: jt.endPc });
+          pc+=2; break;
+        }
+        case 62: { // IF
+          const cond = stack.length ? stack.pop() : 0;
+          const jt = jumpTable[pc];
+          if (jt) {
+            labelStack.push({ type: 'if', startPc: 0, endPc: jt.endPc });
+            if (!cond) { pc = jt.elsePc >= 0 ? jt.elsePc : jt.endPc; break; }
+          }
+          pc+=2; break;
+        }
+        case 63: { // ELSE — skip to end
+          const ls = labelStack.length ? labelStack[labelStack.length-1] : null;
+          if (ls) pc = ls.endPc; else pc+=2;
+          break;
+        }
+        case 64: // END
+          if (labelStack.length) labelStack.pop();
+          pc+=2; break;
+        case 65: { // BRANCH
+          const cond = stack.length ? stack.pop() : 0;
+          if (cond) {
+            const ti = labelStack.length - 1 - arg;
+            if (ti >= 0) {
+              const t = labelStack[ti];
+              if (t.type === 'loop') { pc = t.startPc; labelStack.length = ti + 1; }
+              else { pc = t.endPc + 2; labelStack.length = ti; }
+            } else return stack.length ? stack[stack.length-1] : 0;
+          } else pc+=2;
+          break;
+        }
+        case 66: { // JUMP
+          const ti = labelStack.length - 1 - arg;
+          if (ti >= 0) {
+            const t = labelStack[ti];
+            if (t.type === 'loop') { pc = t.startPc; labelStack.length = ti + 1; }
+            else { pc = t.endPc + 2; labelStack.length = ti; }
+          } else return stack.length ? stack[stack.length-1] : 0;
+          break;
+        }
+        case 67: return stack.length ? stack[stack.length-1] : 0; // RETURN
+        case 70: { // CALL
+          const callee = funcTable[arg];
+          if (callee) {
+            const args = [];
+            for (let pi = 0; pi < callee.params.length; pi++) args.unshift(stack.length ? stack.pop() : 0);
+            const result = execFunc(arg, args, callDepth + 1);
+            if (callee.hasReturn) stack.push(result);
+          }
+          pc+=2; break;
+        }
+        case 71: { // CALL_INDIRECT
+          const idx = stack.length ? stack.pop() : 0;
+          const fn = (idx >= 0 && idx < funcTableDecl.length) ? funcTableDecl[idx] : null;
+          if (fn && funcTable[fn]) {
+            const callee = funcTable[fn];
+            const args = [];
+            for (let pi = 0; pi < callee.params.length; pi++) args.unshift(stack.length ? stack.pop() : 0);
+            const result = execFunc(fn, args, callDepth + 1);
+            if (callee.hasReturn) stack.push(result);
+          }
+          pc+=2; break;
+        }
+        case 80: // DECL (param/local/extern)
+          if (vars[arg] === undefined) vars[arg] = 0;
+          pc+=2; break;
+        default: pc+=2; break;
+      }
+    }
+    return stack.length ? stack[stack.length-1] : 0;
+  }
+
+  for (const fname in funcTable) {
+    if (funcTable[fname].isExport) execFunc(fname, [], 0);
+  }
+  return globalOps;
+}
+
+function writeInputToMem(mem) {
+  const dv = new DataView(mem.buffer);
+  dv.setInt32(ADDR_MOUSE_X, inputState.mouseX, true);
+  dv.setInt32(ADDR_MOUSE_Y, inputState.mouseY, true);
+  dv.setInt32(ADDR_MOUSE_BTN, inputState.mouseBtn, true);
+  dv.setInt32(ADDR_KEY_CODE, inputState.keyCode, true);
+  dv.setInt32(ADDR_KEY_DOWN, inputState.keyDown, true);
+  dv.setInt32(ADDR_FRAME, frameCount, true);
+  // Edge-detect: pressed this frame
+  dv.setInt32(ADDR_MOUSE_PRESS, (inputState.mouseBtn && !inputState.mouseBtnPrev) ? 1 : 0, true);
+  dv.setInt32(ADDR_KEY_PRESS, (inputState.keyDown && !inputState.keyDownPrev) ? 1 : 0, true);
+}
+
+// ── Blit framebuffer to canvas ──
+function blitToCanvas(mem) {
+  const imgData = ctx.createImageData(FB_W, FB_H);
+  imgData.data.set(mem.subarray(0, FB_SIZE));
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// ── Single-shot run (when not in loop mode) ──
+function runNBOnce() {
+  const mem = new Uint8Array(65536 + FB_SIZE);
+  const prog = compileNB(editor.value);
+  writeInputToMem(mem);
+  const ops = executeNB(prog, mem);
+  processGPU(mem);
+  blitToCanvas(mem);
+  const status = document.getElementById('status');
+  if (ops >= 5000000) { status.textContent = ops.toLocaleString() + ' ops (limit)'; status.style.color = 'var(--red)'; }
+  else { status.textContent = ops.toLocaleString() + ' ops'; status.style.color = 'var(--text2)'; }
+}
+
+// ── Run/Stop toggle ──
+function toggleRun() {
+  if (isRunning) {
+    isRunning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    runBtn.textContent = '▶ Run';
+    runBtn.classList.remove('running');
+    persistentMem = null;
+    frameCount = 0;
+    document.getElementById('fps-display').textContent = '';
+  } else {
+    isRunning = true;
+    frameCount = 0;
+    compiledProgram = compileNB(editor.value);
+    // Allocate persistent memory
+    persistentMem = new Uint8Array(65536 + FB_SIZE);
+    runBtn.textContent = '■ Stop';
+    runBtn.classList.add('running');
+    canvas.focus();
+    lastFpsTime = performance.now();
+    fpsFrames = 0;
+    runLoop();
+  }
+}
+
+let lastFpsTime = 0, fpsFrames = 0, displayFps = 0;
+
+function runLoop() {
+  if (!isRunning) return;
+
+  // Recompile if source changed
+  if (!compiledProgram) {
+    compiledProgram = compileNB(editor.value);
+  }
+
+  // Smart FB clear: if program exports 'update', framebuffer persists.
+  // Otherwise clear each frame (for stateless 'draw'/'main' programs).
+  const hasUpdate = compiledProgram.funcTable['update'] && compiledProgram.funcTable['update'].isExport;
+  if (!hasUpdate) {
+    persistentMem.fill(0, 0, FB_SIZE);
+  }
+
+  // Write input
+  writeInputToMem(persistentMem);
+
+  // Execute
+  const ops = executeNB(compiledProgram, persistentMem);
+
+  // Process GPU commands (memory-mapped I/O)
+  processGPU(persistentMem);
+
+  // Blit
+  blitToCanvas(persistentMem);
+
+  // Update input edge state
+  inputState.mouseBtnPrev = inputState.mouseBtn;
+  inputState.keyDownPrev = inputState.keyDown;
+  // Clear single-frame key code after use
+  if (!inputState.keyDown) inputState.keyCode = 0;
+
+  frameCount++;
+
+  // FPS counter
+  fpsFrames++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    displayFps = Math.round(fpsFrames * 1000 / (now - lastFpsTime));
+    fpsFrames = 0;
+    lastFpsTime = now;
+  }
+
+  const status = document.getElementById('status');
+  status.textContent = ops.toLocaleString() + ' ops · frame ' + frameCount;
+  status.style.color = ops >= 5000000 ? 'var(--red)' : 'var(--green)';
+  document.getElementById('fps-display').textContent = displayFps + ' fps';
+
+  rafId = requestAnimationFrame(runLoop);
+}
+
+// Re-compile on edit while running
+editor.addEventListener('input', () => {
+  compiledProgram = null;
+});
+
+function scrollToSection(id) {
+  const el = document.getElementById('ref-' + id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Examples ──
+const EXAMPLES = [
+{name:'Stdlib', code:`// name: stdlib_demo
+// version: 1
+// All stdlib functions + data directive demo.
+
+// Strings via data (zero ops)
+data 328180 78 66 32 83 84 68 76 73 66 0
+data 328200 97 98 115 40 45 53 41 61 0
+data 328220 99 108 40 57 44 48 44 53 41 61 0
+data 328240 50 52 32 102 117 110 99 115 46 32 48 32 104 111 115 116 46 0
+
+export func main
+  local a
+
+  // Title
+  push 328180
+  push 10
+  push 8
+  push 255
+  push 140
+  push 40
+  call draw_text
+
+  // Shapes
+  push 10
+  push 22
+  push 50
+  push 30
+  push 60
+  push 130
+  push 220
+  call fill_rect
+
+  push 90
+  push 37
+  push 16
+  push 80
+  push 230
+  push 120
+  call fill_circle
+
+  push 120
+  push 22
+  push 180
+  push 52
+  push 255
+  push 200
+  push 60
+  call draw_line
+
+  push 200
+  push 22
+  push 310
+  push 22
+  push 100
+  push 255
+  push 100
+  call hline
+
+  push 200
+  push 22
+  push 200
+  push 55
+  push 100
+  push 255
+  push 100
+  call vline
+
+  // Numbers
+  push 42
+  push 10
+  push 65
+  push 80
+  push 220
+  push 255
+  call draw_number
+
+  push -7
+  push 50
+  push 65
+  push 255
+  push 100
+  push 100
+  call draw_number
+
+  push 2025
+  push 80
+  push 65
+  push 180
+  push 140
+  push 255
+  call draw_number
+
+  // Math: abs(-5)=
+  push 328200
+  push 10
+  push 85
+  push 200
+  push 200
+  push 200
+  call draw_text
+  push -5
+  call abs_val
+  set a
+  get a
+  push 58
+  push 85
+  push 255
+  push 200
+  push 60
+  call draw_number
+
+  // clamp(9,0,5)=
+  push 328220
+  push 10
+  push 100
+  push 200
+  push 200
+  push 200
+  call draw_text
+  push 9
+  push 0
+  push 5
+  call clamp
+  set a
+  get a
+  push 70
+  push 100
+  push 255
+  push 200
+  push 60
+  call draw_number
+
+  // Footer
+  push 328240
+  push 10
+  push 225
+  push 255
+  push 107
+  push 43
+  call draw_text
+end`},
+
+{name:'Hello', code:`// name: hello
+// version: 1
+// Stdlib is built in. Font loaded via data.
+// Strings via data. Just call draw_text.
+
+// "HELLO WORLD"
+data 328180 72 69 76 76 79 32 87 79 82 76 68 0
+// "from NB"
+data 328200 102 114 111 109 32 78 66 0
+
+export func main
+  // White text
+  push 328180
+  push 95
+  push 80
+  push 255
+  push 255
+  push 255
+  call draw_text
+
+  // Orange subtitle
+  push 328200
+  push 117
+  push 95
+  push 255
+  push 107
+  push 43
+  call draw_text
+
+  // Accent underline
+  push 95
+  push 105
+  push 132
+  push 3
+  push 255
+  push 107
+  push 43
+  call fill_rect
+
+  // Circles
+  push 250
+  push 180
+  push 30
+  push 60
+  push 130
+  push 220
+  call fill_circle
+
+  push 250
+  push 180
+  push 15
+  push 255
+  push 107
+  push 43
+  call fill_circle
+end`},
+
+{name:'Cursor', code:`// name: cursor
+// version: 1
+// Hit ▶ Run — circle follows your mouse!
+
+export func main
+  local mx
+  local my
+  local btn
+  call mouse_x
+  set mx
+  call mouse_y
+  set my
+  call mouse_down
+  set btn
+  // Outer ring
+  get mx
+  get my
+  push 20
+  push 60
+  push 180
+  push 255
+  call fill_circle
+  // Inner — red on click, dark otherwise
+  get btn
+  if
+    get mx
+    get my
+    push 12
+    push 255
+    push 80
+    push 60
+    call fill_circle
+  else
+    get mx
+    get my
+    push 12
+    push 0
+    push 20
+    push 40
+    call fill_circle
+  end
+  // Center dot
+  get mx
+  get my
+  push 3
+  push 255
+  push 255
+  push 255
+  call fill_circle
+end`},
+
+{name:'Paint', code:`// name: paint
+// version: 1
+// Hit ▶ Run — click and drag to paint!
+// Uses "update" so framebuffer persists.
+
+export func update
+  local mx
+  local my
+  local btn
+  local frame
+  local cr
+  local cg
+  call mouse_x
+  set mx
+  call mouse_y
+  set my
+  call mouse_down
+  set btn
+  call frame_count
+  set frame
+  get btn
+  if
+    get frame
+    push 3
+    mul
+    push 255
+    mod
+    set cr
+    push 100
+    get frame
+    push 2
+    mul
+    push 255
+    mod
+    add
+    set cg
+    get mx
+    get my
+    push 6
+    get cr
+    get cg
+    push 200
+    call fill_circle
+  end
+end`},
+
+{name:'Gradient', code:`// name: gradient
+// version: 1
+// Uses put_pixel_fast — no bounds checks
+// because the loop guarantees 0<=x<320, 0<=y<240
+
+export func draw
+  local x
+  local y
+  local r
+  local g
+  local b
+  push 0
+  set y
+  block
+  loop
+    get y
+    push 240
+    ge
+    branch 1
+    get y
+    push 235
+    mul
+    push 240
+    div
+    push 20
+    add
+    set r
+    push 100
+    get y
+    push 80
+    mul
+    push 240
+    div
+    add
+    set g
+    push 255
+    get y
+    push 215
+    mul
+    push 240
+    div
+    sub
+    set b
+    push 0
+    set x
+    block
+    loop
+      get x
+      push 320
+      ge
+      branch 1
+      get x
+      get y
+      get r
+      get g
+      get b
+      call put_pixel_fast
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end`},
+
+{name:'Circle', code:`// name: circle
+// version: 1
+
+export func draw
+  push 160
+  push 120
+  push 80
+  push 60
+  push 130
+  push 220
+  call fill_circle
+  push 160
+  push 120
+  push 50
+  push 80
+  push 230
+  push 120
+  call fill_circle
+  push 160
+  push 120
+  push 30
+  push 10
+  push 20
+  push 40
+  call fill_circle
+  push 160
+  push 120
+  push 10
+  push 255
+  push 100
+  push 50
+  call fill_circle
+  push 80
+  push 60
+  push 20
+  push 255
+  push 220
+  push 60
+  call fill_circle
+  push 240
+  push 180
+  push 15
+  push 255
+  push 220
+  push 60
+  call fill_circle
+end`},
+
+{name:'Keys', code:`// name: keys
+// version: 1
+// Hit ▶ Run, click canvas, press keys!
+// Each keypress stamps a colored block.
+// Arrows move cursor.
+// Cursor pos at mem[307232], mem[307236].
+
+export func update
+  local code
+  local pressed
+  local cx
+  local cy
+  local cr
+  local cg
+  local cb
+  push 307232
+  load
+  set cx
+  push 307236
+  load
+  set cy
+  call key_code
+  set code
+  call key_pressed
+  set pressed
+  // Cursor blink
+  call frame_count
+  push 10
+  mod
+  push 5
+  lt
+  if
+    get cx
+    get cy
+    push 12
+    push 14
+    push 60
+    push 60
+    push 80
+    call fill_rect
+  end
+  get pressed
+  eqz
+  if
+    return
+  end
+  // Arrows
+  get code
+  push 37
+  eq
+  if
+    get cx
+    push 14
+    sub
+    push 0
+    push 306
+    call clamp
+    set cx
+    push 307232
+    get cx
+    store
+    return
+  end
+  get code
+  push 39
+  eq
+  if
+    get cx
+    push 14
+    add
+    set cx
+    get cx
+    push 306
+    gt
+    if
+      push 0
+      set cx
+      get cy
+      push 16
+      add
+      set cy
+    end
+    push 307232
+    get cx
+    store
+    push 307236
+    get cy
+    store
+    return
+  end
+  get code
+  push 38
+  eq
+  if
+    get cy
+    push 16
+    sub
+    push 0
+    push 226
+    call clamp
+    set cy
+    push 307236
+    get cy
+    store
+    return
+  end
+  get code
+  push 40
+  eq
+  if
+    get cy
+    push 16
+    add
+    set cy
+    push 307236
+    get cy
+    store
+    return
+  end
+  // Color from keycode
+  get code
+  push 7
+  mul
+  push 255
+  mod
+  push 50
+  add
+  set cr
+  get code
+  push 13
+  mul
+  push 255
+  mod
+  push 50
+  add
+  set cg
+  get code
+  push 23
+  mul
+  push 255
+  mod
+  push 80
+  add
+  set cb
+  get cx
+  get cy
+  push 12
+  push 14
+  get cr
+  get cg
+  get cb
+  call fill_rect
+  // Advance
+  get cx
+  push 14
+  add
+  set cx
+  get cx
+  push 306
+  gt
+  if
+    push 0
+    set cx
+    get cy
+    push 16
+    add
+    set cy
+  end
+  get cy
+  push 226
+  gt
+  if
+    push 0
+    set cy
+  end
+  push 307232
+  get cx
+  store
+  push 307236
+  get cy
+  store
+end`},
+
+{name:'Text', code:`// name: text
+// version: 1
+// Strings via data directives — zero ops.
+
+data 328180 72 69 76 76 79 32 87 79 82 76 68 0
+data 328200 78 66 32 115 112 101 97 107 115 32 65 83 67 73 73 0
+data 328220 100 97 116 97 32 61 32 116 104 101 32 97 114 114 97 121 0
+
+export func main
+  push 328180
+  push 20
+  push 30
+  push 255
+  push 255
+  push 255
+  call draw_text
+
+  push 328200
+  push 20
+  push 50
+  push 255
+  push 140
+  push 40
+  call draw_text
+
+  push 328220
+  push 20
+  push 70
+  push 80
+  push 220
+  push 255
+  call draw_text
+
+  // Numbers
+  push 42
+  push 20
+  push 100
+  push 80
+  push 220
+  push 255
+  call draw_number
+
+  push -7
+  push 50
+  push 100
+  push 255
+  push 100
+  push 100
+  call draw_number
+
+  push 2025
+  push 80
+  push 100
+  push 180
+  push 140
+  push 255
+  call draw_number
+
+  // Shapes alongside
+  push 200
+  push 30
+  push 60
+  push 40
+  push 60
+  push 130
+  push 220
+  call fill_rect
+
+  push 280
+  push 50
+  push 20
+  push 80
+  push 230
+  push 120
+  call fill_circle
+
+  push 200
+  push 30
+  push 300
+  push 70
+  push 255
+  push 200
+  push 60
+  call draw_line
+end`},
+
+{name:'Shapes', code:`// name: shapes
+// version: 1
+// Outlines, fills, and triangles
+
+export func main
+  // Filled rect + outline
+  push 20
+  push 20
+  push 80
+  push 50
+  push 40
+  push 80
+  push 160
+  call fill_rect
+
+  push 20
+  push 20
+  push 80
+  push 50
+  push 100
+  push 200
+  push 255
+  call draw_rect_outline
+
+  // Filled circle + outline
+  push 200
+  push 50
+  push 30
+  push 160
+  push 60
+  push 60
+  call fill_circle
+
+  push 200
+  push 50
+  push 30
+  push 255
+  push 120
+  push 120
+  call draw_circle_outline
+
+  // Triangle
+  push 40
+  push 200
+  push 160
+  push 100
+  push 280
+  push 200
+  push 80
+  push 200
+  push 120
+  call fill_triangle
+
+  // Bresenham lines
+  push 260
+  push 100
+  push 310
+  push 230
+  push 255
+  push 200
+  push 60
+  call draw_line
+
+  push 260
+  push 100
+  push 310
+  push 100
+  push 255
+  push 200
+  push 60
+  call draw_line
+
+  push 310
+  push 100
+  push 310
+  push 230
+  push 255
+  push 200
+  push 60
+  call draw_line
+
+  // Labels
+  data 328180 83 104 97 112 101 115 0
+  push 328180
+  push 20
+  push 8
+  push 255
+  push 255
+  push 255
+  call draw_text
+end`},
+
+{name:'Random', code:`// name: random
+// version: 1
+// Hit ▶ Run — random dots + bouncing ball
+// Uses rand, distance, lerp, clamp
+
+export func update
+  local i
+  local x
+  local y
+  local r
+  local g
+  local b
+  local bx
+  local by
+  local bvx
+  local bvy
+  // Ball state in user memory
+  // 307244 = bx, 307248 = by
+  // 307252 = vx, 307256 = vy
+  // 307260 = initialized
+  push 307260
+  load
+  eqz
+  if
+    push 307244
+    push 160
+    store
+    push 307248
+    push 120
+    store
+    push 307252
+    push 3
+    store
+    push 307256
+    push 2
+    store
+    push 307260
+    push 1
+    store
+    call frame_count
+    call rand_seed
+  end
+  // Scatter random pixels
+  push 0
+  set i
+  block
+  loop
+    get i
+    push 40
+    ge
+    branch 1
+    call rand
+    push 320
+    mod
+    set x
+    call rand
+    push 240
+    mod
+    set y
+    call rand
+    push 200
+    mod
+    push 55
+    add
+    set r
+    call rand
+    push 200
+    mod
+    push 55
+    add
+    set g
+    call rand
+    push 200
+    mod
+    push 55
+    add
+    set b
+    get x
+    get y
+    get r
+    get g
+    get b
+    call put_pixel_fast
+    get i
+    push 1
+    add
+    set i
+    jump 0
+  end
+  end
+  // Update ball
+  push 307244
+  load
+  set bx
+  push 307248
+  load
+  set by
+  push 307252
+  load
+  set bvx
+  push 307256
+  load
+  set bvy
+  get bx
+  get bvx
+  add
+  set bx
+  get by
+  get bvy
+  add
+  set by
+  // Bounce
+  get bx
+  push 10
+  lt
+  get bx
+  push 310
+  gt
+  or
+  if
+    get bvx
+    neg
+    set bvx
+  end
+  get by
+  push 10
+  lt
+  get by
+  push 230
+  gt
+  or
+  if
+    get bvy
+    neg
+    set bvy
+  end
+  get bx
+  push 10
+  push 310
+  call clamp
+  set bx
+  get by
+  push 10
+  push 230
+  call clamp
+  set by
+  // Save
+  push 307244
+  get bx
+  store
+  push 307248
+  get by
+  store
+  push 307252
+  get bvx
+  store
+  push 307256
+  get bvy
+  store
+  // Draw ball
+  get bx
+  get by
+  push 8
+  push 255
+  push 107
+  push 43
+  call fill_circle
+  get bx
+  get by
+  push 8
+  push 255
+  push 200
+  push 150
+  call draw_circle_outline
+end`},
+
+{name:'Color', code:`// name: color
+// version: 1
+// Full screen with put_block(x,y,4,r,g,b)
+// 80x60 blocks = 4800 instead of 76800 pixels
+
+export func main
+  local x
+  local y
+  local r
+  local g
+  local b
+  local c
+  push 0
+  set y
+  block
+  loop
+    get y
+    push 60
+    ge
+    branch 1
+    push 0
+    set x
+    block
+    loop
+      get x
+      push 80
+      ge
+      branch 1
+      // r from x
+      get x
+      push 0
+      push 80
+      push 40
+      push 255
+      call map_range
+      set r
+      // g from lerp
+      push 200
+      push 40
+      get y
+      push 4
+      mul
+      call lerp
+      set g
+      // b from y
+      get y
+      push 0
+      push 60
+      push 255
+      push 40
+      call map_range
+      set b
+      // pack + unpack round-trip
+      get r
+      get g
+      get b
+      call rgb_pack
+      set c
+      // draw 4x4 block
+      get x
+      push 4
+      mul
+      get y
+      push 4
+      mul
+      push 4
+      get c
+      call rgb_r
+      get c
+      call rgb_g
+      get c
+      call rgb_b
+      call put_block
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+  // Labels
+  data 328180 108 101 114 112 32 43 32 109 97 112 95 114 97 110 103 101 0
+  data 328200 114 103 98 95 112 97 99 107 47 117 110 112 97 99 107 0
+  data 328220 112 117 116 95 98 108 111 99 107 40 52 41 0
+  push 328180
+  push 4
+  push 4
+  push 255
+  push 200
+  push 60
+  call draw_text
+  push 328200
+  push 4
+  push 14
+  push 80
+  push 220
+  push 255
+  call draw_text
+  push 328220
+  push 4
+  push 24
+  push 200
+  push 200
+  push 200
+  call draw_text
+end`},
+
+{name:'Distance', code:`// name: distance
+// version: 1
+// Hit ▶ Run — distance from center to cursor
+// Uses distance, draw_number, draw_hex
+
+export func main
+  local mx
+  local my
+  local d
+  local cx
+  local cy
+  push 160
+  set cx
+  push 120
+  set cy
+  call mouse_x
+  set mx
+  call mouse_y
+  set my
+  get mx
+  get my
+  get cx
+  get cy
+  call distance
+  set d
+  // Center cross
+  push 150
+  push 170
+  push 120
+  push 40
+  push 40
+  push 60
+  call hline
+  push 160
+  push 110
+  push 130
+  push 40
+  push 40
+  push 60
+  call vline
+  // Line from center to mouse
+  get cx
+  get cy
+  get mx
+  get my
+  push 80
+  push 120
+  push 200
+  call draw_line
+  // Circle at center
+  get cx
+  get cy
+  push 5
+  push 60
+  push 130
+  push 220
+  call fill_circle
+  // Circle at mouse
+  get mx
+  get my
+  push 5
+  push 255
+  push 107
+  push 43
+  call fill_circle
+  // Distance ring
+  get cx
+  get cy
+  get d
+  push 30
+  push 60
+  push 80
+  call draw_circle_outline
+  // Show distance
+  data 328180 100 61 0
+  push 328180
+  push 10
+  push 8
+  push 200
+  push 200
+  push 200
+  call draw_text
+  get d
+  push 28
+  push 8
+  push 255
+  push 255
+  push 255
+  call draw_number
+  // Show hex
+  data 328190 104 120 61 0
+  push 328190
+  push 10
+  push 20
+  push 200
+  push 200
+  push 200
+  call draw_text
+  get d
+  push 28
+  push 20
+  push 80
+  push 220
+  push 255
+  call draw_hex
+end`},
+
+{name:'Plasma', code:`// name: plasma
+// version: 1
+// Hit ▶ Run — animated plasma
+// Sine via data lookup table (0 ops)
+// 5x5 blocks = 64x48 = 3072 blocks
+
+// 256-byte sine table at mem[307248]
+// Values 0-255 (128 = center)
+data 307248 128 131 134 137 140 143 146 149 152 155 158 161 164 167 170 173 176 179 182 185 187 190 193 195 198 201 203 206 208 210 213 215 217 219 222 224 226 228 230 231 233 235 236 238 240 241 242 244 245 246 247 248 249 250 251 251 252 253 253 254 254 254 254 254 255 254 254 254 254 254 253 253 252 251 251 250 249 248 247 246 245 244 242 241 240 238 236 235 233 231 230 228 226 224 222 219 217 215 213 210 208 206 203 201 198 195 193 190 187 185 182 179 176 173 170 167 164 161 158 155 152 149 146 143 140 137 134 131 128 124 121 118 115 112 109 106 103 100 97 94 91 88 85 82 79 76 73 70 68 65 62 60 57 54 52 49 47 45 42 40 38 36 33 31 29 27 25 24 22 20 19 17 15 14 13 11 10 9 8 7 6 5 4 4 3 2 2 1 1 1 1 1 1 1 1 1 1 1 2 2 3 4 4 5 6 7 8 9 10 11 13 14 15 17 19 20 22 24 25 27 29 31 33 36 38 40 42 45 47 49 52 54 57 60 62 65 68 70 73 76 79 82 85 88 91 94 97 100 103 106 109 112 115 118 121 124
+
+// Table lookup: sin(x) -> 0..255
+func tsin -> i32
+  param x
+  push 307248
+  get x
+  push 255
+  and
+  add
+  load8
+end
+
+export func update
+  local x
+  local y
+  local t
+  local v1
+  local v2
+  local v3
+  local r
+  local g
+  local b
+  call frame_count
+  set t
+  push 0
+  set y
+  block
+  loop
+    get y
+    push 48
+    ge
+    branch 1
+    push 0
+    set x
+    block
+    loop
+      get x
+      push 64
+      ge
+      branch 1
+      // v1 = sin(x*4 + t*3)
+      get x
+      push 4
+      mul
+      get t
+      push 3
+      mul
+      add
+      call tsin
+      set v1
+      // v2 = sin(y*3 + t*2)
+      get y
+      push 3
+      mul
+      get t
+      push 2
+      mul
+      add
+      call tsin
+      set v2
+      // v3 = sin((x+y)*2 + t)
+      get x
+      get y
+      add
+      push 2
+      mul
+      get t
+      add
+      call tsin
+      set v3
+      // Mix to RGB
+      get v1
+      get v2
+      add
+      push 2
+      div
+      set r
+      get v2
+      get v3
+      add
+      push 2
+      div
+      set g
+      get v3
+      get v1
+      add
+      push 2
+      div
+      set b
+      // Draw 5x5 block
+      get x
+      push 5
+      mul
+      get y
+      push 5
+      mul
+      push 5
+      get r
+      get g
+      get b
+      call put_block
+      get x
+      push 1
+      add
+      set x
+      jump 0
+    end
+    end
+    get y
+    push 1
+    add
+    set y
+    jump 0
+  end
+  end
+end`},
+
+{name:'GPU Plasma', code:`// name: gpu_plasma
+// version: 1
+// Hit ▶ Run — full screen plasma at 60fps!
+//
+// Memory-mapped GPU: write command to
+// mem[308000], host processes it after
+// execution. Zero interpreter pixels.
+//
+// GPU commands:
+//   1 = plasma (p0=frame, p1=speed, p2=scale)
+//   2 = gradient (p0-p2=color1, p3-p5=color2)
+//   3 = fill (p0=r, p1=g, p2=b)
+//   4 = circle (p0=cx, p1=cy, p2=r, p3-p5=rgb)
+
+export func update
+  // Write plasma command
+  push 308000
+  push 1
+  store
+  // param0 = frame count
+  push 308004
+  call frame_count
+  store
+  // param1 = speed
+  push 308008
+  push 3
+  store
+  // param2 = scale
+  push 308012
+  push 4
+  store
+  // That is it. 7 instructions.
+  // Host reads mem[308000], runs the shader,
+  // writes 307200 pixels, clears the command.
+  // The module never touched a pixel.
+
+  // Draw text on top (NB interpreter, ~200 ops)
+  data 328180 71 80 85 32 80 76 65 83 77 65 0
+  push 328180
+  push 4
+  push 4
+  push 0
+  push 0
+  push 0
+  call draw_text
+  data 328200 55 32 111 112 115 32 110 111 116 32 53 77 0
+  push 328200
+  push 4
+  push 14
+  push 0
+  push 0
+  push 0
+  call draw_text
+end`},
+
+{name:'GPU Gradient', code:`// name: gpu_gradient
+// version: 1
+// Full screen gradient — 6 store instructions
+// Host fills 76800 pixels, NB does nothing
+
+export func main
+  // GPU command 2 = gradient
+  push 308000
+  push 2
+  store
+  // Color 1: top (dark blue)
+  push 308004
+  push 20
+  store
+  push 308008
+  push 40
+  store
+  push 308012
+  push 80
+  store
+  // Color 2: bottom (orange)
+  push 308016
+  push 255
+  store
+  push 308020
+  push 140
+  store
+  push 308024
+  push 40
+  store
+
+  // Text overlay
+  data 328180 71 80 85 32 71 114 97 100 105 101 110 116 0
+  push 328180
+  push 4
+  push 4
+  push 255
+  push 255
+  push 255
+  call draw_text
+  data 328200 54 32 115 116 111 114 101 115 46 32 48 32 112 105 120 101 108 32 111 112 115 46 0
+  push 328200
+  push 4
+  push 14
+  push 255
+  push 200
+  push 200
+  call draw_text
+end`}
+];
+
+function loadExample(idx) {
+  idx = parseInt(idx);
+  if (isRunning) toggleRun();
+  editor.value = EXAMPLES[idx].code;
+  updateHighlight();
+}
+
+function buildExampleDropdown() {
+  const sel = document.getElementById('example-select');
+  for (let i = 0; i < EXAMPLES.length; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = EXAMPLES[i].name;
+    sel.appendChild(opt);
+  }
+}
+
+function buildRef() {
+  document.getElementById('ref-body').innerHTML = `
+<div class="ref-toc">
+  <button onclick="scrollToSection('stdlib')">Stdlib</button>
+  <button onclick="scrollToSection('data')">Data</button>
+  <button onclick="scrollToSection('fb')">FB</button>
+  <button onclick="scrollToSection('input')">Input</button>
+  <button onclick="scrollToSection('stack')">Stack</button>
+  <button onclick="scrollToSection('func')">Func</button>
+  <button onclick="scrollToSection('vars')">Vars</button>
+  <button onclick="scrollToSection('ops')">Ops</button>
+  <button onclick="scrollToSection('cmp')">Cmp</button>
+  <button onclick="scrollToSection('ifelse')">If</button>
+  <button onclick="scrollToSection('loops')">Loop</button>
+  <button onclick="scrollToSection('mem')">Mem</button>
+  <button onclick="scrollToSection('table')">Table</button>
+  <button onclick="scrollToSection('gpu')">GPU</button>
+  <button onclick="scrollToSection('patterns')">Pat</button>
+</div>
+
+<div class="section" id="ref-stdlib">
+<h2>NB Stdlib</h2>
+<p>44 functions written in pure NB. Click any name to see its source.</p>
+
+<h2>Drawing</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'put_pixel')">put_pixel(x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'put_pixel_fast')">put_pixel_fast(x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'put_block')">put_block(x, y, size, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'fill_rect')">fill_rect(x, y, w, h, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_rect_outline')">draw_rect_outline(x, y, w, h, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'fill_circle')">fill_circle(cx, cy, rad, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_circle_outline')">draw_circle_outline(cx, cy, rad, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'fill_triangle')">fill_triangle(x1, y1, x2, y2, x3, y3, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'hline')">hline(x1, x2, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'vline')">vline(x, y1, y2, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_line')">draw_line(x1, y1, x2, y2, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'clear_screen')">clear_screen(r, g, b)</span></p>
+<p class="tip">put_pixel_fast skips bounds checks — use in tight loops with known-valid coords.</p>
+
+<h2>Text</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_char')">draw_char(ch, x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_text')">draw_text(addr, x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_number')">draw_number(n, x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'draw_hex')">draw_hex(n, x, y, r, g, b)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'store_byte')">store_byte(addr, val) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'strlen')">strlen(addr) -> i32</span></p>
+<p>Font loaded via <code>data</code> at startup. Chars 5×7 px, 6px spacing, ASCII 32–126.</p>
+
+<h2>Input</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'mouse_x')">mouse_x() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'mouse_y')">mouse_y() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'mouse_down')">mouse_down() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'mouse_pressed')">mouse_pressed() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'key_code')">key_code() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'key_down')">key_down() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'key_pressed')">key_pressed() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'frame_count')">frame_count() -> i32</span></p>
+
+<h2>Memory</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'memset')">memset(addr, val, len)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'memcpy')">memcpy(dst, src, len)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'memzero')">memzero(addr, len)</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'memcmp')">memcmp(a, b, len) -> i32</span></p>
+
+<h2>Math</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'abs_val')">abs_val(n) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'clamp')">clamp(val, lo, hi) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'sign')">sign(n) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'min_val')">min_val(a, b) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'max_val')">max_val(a, b) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'lerp')">lerp(a, b, t) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'map_range')">map_range(val, in_lo, in_hi, out_lo, out_hi) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'distance')">distance(x1, y1, x2, y2) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'rand')">rand() -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'rand_seed')">rand_seed(s)</span></p>
+<p class="tip">lerp t is fixed-point: 0–256 where 256 = 1.0. rand returns 0–32767.</p>
+
+<h2>Color</h2>
+<p><span class="fn-link" onclick="showFnSrc(this,'rgb_pack')">rgb_pack(r, g, b) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'rgb_r')">rgb_r(c) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'rgb_g')">rgb_g(c) -> i32</span></p>
+<p><span class="fn-link" onclick="showFnSrc(this,'rgb_b')">rgb_b(c) -> i32</span></p>
+</div>
+
+<div class="section" id="ref-data">
+<h2>Data Directive</h2>
+<p>Bulk-initialize memory at load time. Zero ops.</p>
+<pre>// bytes into memory
+data 328000 72 101 108 108 111 0
+
+// font glyph for 'A'
+data 327845 126 17 17 17 126</pre>
+<p>Processed before any code runs — like wasm data segments.</p>
+<p class="tip">Use for fonts, sprites, lookup tables, strings.</p>
+</div>
+
+<div class="section" id="ref-fb">
+<h2>Framebuffer</h2>
+<p>Memory <code>[0..307199]</code> = 320×240 RGBA pixels.</p>
+<pre>// addr = (y * 320 + x) * 4
+// R G B A bytes</pre>
+</div>
+
+<div class="section" id="ref-input">
+<h2>Input Table</h2>
+<pre>307200  mouse_x      i32
+307204  mouse_y      i32
+307208  mouse_btn    i32 (1=down)
+307212  key_code     i32 (keyCode)
+307216  key_down     i32 (1=held)
+307220  frame        i32 (counter)
+307224  mouse_press  i32 (edge)
+307228  key_press    i32 (edge)</pre>
+<p class="tip">Click canvas to focus. ▶ Run for live input. Esc to stop.</p>
+</div>
+
+<div class="section" id="ref-stack">
+<h2>The Stack</h2>
+<pre>push 3     // put 3 on top
+push 4     // put 4 on top
+add        // pop both, push 7
+drop       // discard top
+dup        // copy top
+swap       // swap top two
+over       // copy second to top</pre>
+</div>
+
+<div class="section" id="ref-func">
+<h2>Functions</h2>
+<pre>func double -> i32
+  param n
+  get n
+  push 2
+  mul
+end
+
+push 5
+call double    // → 10</pre>
+<p><code>-> i32</code> = returns top of stack.</p>
+</div>
+
+<div class="section" id="ref-vars">
+<h2>Variables</h2>
+<pre>local x
+push 42
+set x       // pop into x
+get x       // push x
+tee x       // set x, keep on stack</pre>
+</div>
+
+<div class="section" id="ref-ops">
+<h2>Math Ops</h2>
+<pre>add sub mul div mod
+abs neg sqrt ceil floor trunc
+min max
+and or xor not shl shr</pre>
+</div>
+
+<div class="section" id="ref-cmp">
+<h2>Comparisons</h2>
+<pre>eq ne lt gt le ge eqz</pre>
+<p>Pop two, push 1/0. <code>eqz</code> pops one.</p>
+</div>
+
+<div class="section" id="ref-ifelse">
+<h2>If/Else</h2>
+<pre>get x
+push 10
+gt
+if
+  // true
+else
+  // false
+end</pre>
+</div>
+
+<div class="section" id="ref-loops">
+<h2>Loops</h2>
+<pre>block
+loop
+  get i
+  push 10
+  ge
+  branch 1    // break
+  // body
+  jump 0      // continue
+end
+end</pre>
+</div>
+
+<div class="section" id="ref-mem">
+<h2>Memory Layout</h2>
+<pre>0–307199      Framebuffer (RGBA)
+307200–307231 Input table
+307232–307999 User memory
+308000–308031 GPU commands
+327680–328155 Font (data)
+328160+       String/scratch</pre>
+<pre>store store8 store16  // addr val →
+load  load8  load16   // addr → val</pre>
+</div>
+
+<div class="section" id="ref-table">
+<h2>Function Table</h2>
+<p>Indirect calls via table index — like wasm tables.</p>
+<pre>// Declare table with 3 slots
+table 3
+
+// Fill slots with function names
+elem 0 draw_red draw_green draw_blue
+
+// Call by index from stack
+push 1
+call_indirect  // calls draw_green</pre>
+<p>Enables dispatch, callbacks, function pointers.</p>
+<p class="tip"><code>elem</code> can list multiple names: <code>elem 0 a b c</code></p>
+</div>
+
+<div class="section" id="ref-gpu">
+<h2>GPU (memory-mapped)</h2>
+<p>Write a command to <code>mem[308000]</code>, host processes it after execution. No function calls — just <code>store</code>.</p>
+<pre>308000  cmd      i32
+308004  param0   i32
+308008  param1   i32
+308012  param2   i32
+308016  param3   i32
+308020  param4   i32
+308024  param5   i32
+308028  status   i32 (1=done)</pre>
+<h2>Commands</h2>
+<pre>1 = plasma   (frame, speed, scale)
+2 = gradient (r1,g1,b1, r2,g2,b2)
+3 = fill     (r, g, b)
+4 = circle   (cx, cy, rad, r, g, b)</pre>
+<h2>Example</h2>
+<pre>// Full-screen plasma — 4 stores
+push 308000
+push 1
+store
+push 308004
+call frame_count
+store
+push 308008
+push 3
+store
+push 308012
+push 4
+store
+// Host fills 76800 pixels. Done.</pre>
+<p class="tip">Module writes bytes. Host reads bytes. No imports, no calls, no opcodes. Just memory.</p>
+</div>
+
+<div class="section" id="ref-patterns">
+<h2>Patterns</h2>
+<h2>Persist Framebuffer</h2>
+<pre>// FB cleared each frame:
+export func draw
+export func main
+// FB persists (paint, trails):
+export func update</pre>
+<h2>Static Data</h2>
+<pre>// String via data directive
+data 328180 72 101 108 108 111 0
+// then draw it
+push 328180
+push 10
+push 10
+push 255
+push 255
+push 255
+call draw_text</pre>
+<h2>Top Bugs</h2>
+<ul>
+  <li>Alpha=0 → invisible pixels</li>
+  <li>Forgot <code>drop</code> after non-void call</li>
+  <li>Wrong arg count → stack shift</li>
+  <li><code>branch 0</code> in loop = restart</li>
+  <li>Canvas not focused for keyboard</li>
+</ul>
+</div>
+`;
+}
+
+// Extract a function's source from the stdlib and show it inline
+function showFnSrc(el, name) {
+  // Check if already open — toggle off
+  const existing = el.parentElement.querySelector('.fn-src');
+  if (existing) { existing.remove(); return; }
+  // Close any other open sources
+  document.querySelectorAll('#q-ref .fn-src').forEach(e => e.remove());
+  // Parse the function from NB_STDLIB
+  const lines = NB_STDLIB.split('\n');
+  let capture = false, depth = 0, src = [];
+  for (const line of lines) {
+    const s = line.trim();
+    if (!capture) {
+      const m = s.match(/^func\s+(\S+)/);
+      if (m && m[1].replace(/\s*->.*/, '') === name) {
+        capture = true; depth = 1; src.push(line);
+      }
+      continue;
+    }
+    src.push(line);
+    const tok = s.split(/\s+/)[0];
+    if (tok === 'if' || tok === 'block' || tok === 'loop') depth++;
+    if (tok === 'end') { depth--; if (depth <= 0) break; }
+  }
+  if (!src.length) return;
+  // Create the source panel
+  const div = document.createElement('div');
+  div.className = 'fn-src open';
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  div.innerHTML = '<button class="fn-close" onclick="this.parentElement.remove()">✕</button><pre style="margin:0;background:none;border:none;padding:0;font-size:10px;color:var(--text)">' + esc(src.join('\n')) + '</pre>';
+  el.parentElement.insertBefore(div, el.nextSibling);
+}
+
+function resizeCanvas() {
+  const body = document.querySelector('#q-canvas .canvas-body');
+  if (!body) return;
+  const w = body.clientWidth;
+  const h = body.clientHeight;
+  const aspect = 320/240;
+  let cw, ch;
+  if (w/h > aspect) { ch = h; cw = Math.floor(h * aspect); }
+  else { cw = w; ch = Math.floor(w / aspect); }
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+// Init
+buildRef();
+buildExampleDropdown();
+loadExample(0);
+setTimeout(resizeCanvas, 50);
+</script>
+</body>
+</html>
