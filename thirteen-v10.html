@@ -1,0 +1,2109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0e0b08" />
+<title>thirteen — a language of 13 words</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,144,900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e0b08;
+    --paper:#18120d;
+    --ink:#f2ebd8;
+    --dim:#7a6f58;
+    --line:#2a221a;
+    --accent:#ff5722;
+    --accent-2:#ffd166;
+    --green:#9cde6e;
+    --red:#ff6b6b;
+    --blue:#7dd3fc;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overscroll-behavior:none}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:14px;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    height:100dvh;
+    background-image:
+      radial-gradient(circle at 15% 5%, rgba(255,87,34,.10), transparent 45%),
+      radial-gradient(circle at 85% 95%, rgba(255,209,102,.06), transparent 45%);
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 1px, transparent 1px 3px);
+    mix-blend-mode:overlay;
+  }
+
+  header{
+    padding:14px 18px 10px;
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:10px;
+    flex-shrink:0;
+  }
+  .brand{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:30px;
+    letter-spacing:-0.02em;
+    line-height:1;
+    color:var(--ink);
+  }
+  .brand .dot{color:var(--accent)}
+  .sub{
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.15em;
+    text-align:right;
+  }
+
+  /* main layout */
+  main{
+    display:flex;
+    flex-direction:column;
+    flex:1;
+    min-height:0;
+  }
+
+  .editor-wrap{
+    flex:1;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    background:var(--paper);
+    border-bottom:1px solid var(--line);
+  }
+  .editor-label{
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    padding:8px 18px 4px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .editor-label .hint{color:var(--accent-2);text-transform:none;letter-spacing:0;font-style:italic}
+  textarea#code{
+    flex:1;
+    width:100%;
+    background:transparent;
+    color:var(--ink);
+    border:none;
+    outline:none;
+    resize:none;
+    padding:4px 18px 12px;
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:15px;
+    line-height:1.55;
+    caret-color:var(--accent);
+    -webkit-appearance:none;
+    tab-size:2;
+  }
+
+  /* word palette */
+  .palette{
+    flex-shrink:0;
+    background:var(--bg);
+    border-bottom:1px solid var(--line);
+    padding:8px 10px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    justify-content:center;
+  }
+  .chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    padding:7px 10px;
+    background:var(--paper);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:3px;
+    cursor:pointer;
+    user-select:none;
+    transition:all .12s ease;
+    min-width:44px;
+    text-align:center;
+  }
+  .chip:active{
+    background:var(--accent);
+    color:var(--bg);
+    transform:scale(0.94);
+  }
+  .chip.punct{
+    color:var(--accent-2);
+    font-weight:600;
+  }
+  .chip.op{
+    color:var(--blue);
+    background:#0f1a20;
+    border-color:#1a2a33;
+  }
+
+  /* controls */
+  .controls{
+    flex-shrink:0;
+    display:flex;
+    gap:0;
+    border-bottom:1px solid var(--line);
+  }
+  .btn{
+    flex:1;
+    padding:14px 10px;
+    background:var(--paper);
+    color:var(--ink);
+    border:none;
+    border-right:1px solid var(--line);
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.15em;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .btn:last-child{border-right:none}
+  .btn:active{background:var(--line)}
+  .btn.primary{
+    background:var(--accent);
+    color:var(--bg);
+    font-weight:600;
+  }
+  .btn.primary:active{background:#e04515}
+
+  /* output */
+  .canvas-wrap{
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    background:#000;
+    border-bottom:1px solid var(--line);
+  }
+  .canvas-label{
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    padding:8px 18px 4px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    background:var(--bg);
+  }
+  .canvas-frame{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#000;
+    padding:6px;
+    min-height:22vh;
+    max-height:26vh;
+  }
+  #canvas{
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    background:#000;
+    display:block;
+    aspect-ratio:1 / 1;
+    height:100%;
+    max-width:100%;
+    max-height:100%;
+    width:auto;
+    object-fit:contain;
+  }
+  .output-wrap{
+    flex-shrink:0;
+    min-height:14vh;
+    max-height:22vh;
+    display:flex;
+    flex-direction:column;
+    background:#06040a;
+  }
+  .output-label{
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    padding:8px 18px 4px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .output-label .status{
+    color:var(--green);
+    text-transform:none;
+    letter-spacing:0;
+    font-style:italic;
+  }
+  .output-label .status.err{color:var(--red)}
+  #out{
+    flex:1;
+    overflow-y:auto;
+    padding:4px 18px 12px;
+    font-size:13px;
+    line-height:1.55;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+  .out-line{color:var(--green)}
+  .out-err{color:var(--red)}
+  .out-info{color:var(--dim);font-style:italic}
+  .out-prompt{color:var(--accent-2)}
+
+  /* library modal */
+  .lib-modal{
+    background:var(--paper);
+    border:1px solid var(--accent-2);
+    padding:0;
+    border-radius:4px;
+    width:100%;
+    max-width:520px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .lib-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:18px 22px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-head h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:30px;
+    color:var(--accent-2);
+    line-height:1;
+  }
+  .lib-close{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--dim);
+    font-size:16px;
+    width:32px;
+    height:32px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .lib-close:active{background:var(--line);color:var(--ink)}
+  .lib-sub{
+    font-size:11px;
+    color:var(--dim);
+    padding:8px 22px 10px;
+    font-style:italic;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-toc{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    padding:10px 22px;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-toc .chip{
+    font-size:11px;
+    padding:5px 9px;
+    background:var(--bg);
+    border-color:var(--line);
+    color:var(--accent-2);
+    min-width:auto;
+  }
+  .lib-src{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    line-height:1.55;
+    padding:14px 22px 22px;
+    color:var(--ink);
+    white-space:pre-wrap;
+    overflow-y:auto;
+    flex:1;
+  }
+  .lib-fn-name{color:var(--accent-2);font-weight:600}
+  .lib-kw{color:var(--accent)}
+  .lib-num{color:var(--blue)}
+  .lib-hit{
+    background:rgba(255,209,102,0.15);
+    border-left:2px solid var(--accent-2);
+    padding-left:10px;
+    margin-left:-12px;
+  }
+
+  /* autocomplete bar */
+  .ac-bar{
+    display:none;
+    padding:6px 12px;
+    background:var(--paper);
+    border-bottom:1px solid var(--line);
+    gap:5px;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+  }
+  .ac-bar.show{display:flex}
+  .ac-chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    padding:6px 10px;
+    background:var(--accent);
+    color:var(--bg);
+    border:none;
+    border-radius:3px;
+    cursor:pointer;
+    user-select:none;
+    font-weight:600;
+  }
+  .ac-chip:active{background:#e04515}
+  .ac-chip .match{color:var(--bg);text-decoration:underline;text-decoration-color:rgba(0,0,0,0.4)}
+
+  /* reference modal */
+  .ref-modal{
+    background:var(--paper);
+    border:1px solid var(--blue);
+    padding:0;
+    border-radius:4px;
+    width:100%;
+    max-width:520px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .ref-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:18px 22px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-head h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:30px;
+    color:var(--blue);
+    line-height:1;
+  }
+  .ref-sub{
+    font-size:11px;
+    color:var(--dim);
+    padding:8px 22px 10px;
+    font-style:italic;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-body{
+    flex:1;
+    overflow-y:auto;
+    padding:14px 22px 22px;
+  }
+  .ref-section{
+    margin-bottom:22px;
+  }
+  .ref-section h4{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:18px;
+    color:var(--accent-2);
+    margin-bottom:10px;
+    padding-bottom:4px;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-entry{
+    margin-bottom:14px;
+  }
+  .ref-word{
+    font-family:'JetBrains Mono', monospace;
+    font-size:14px;
+    font-weight:600;
+    color:var(--accent);
+    display:inline-block;
+    margin-right:10px;
+  }
+  .ref-meaning{
+    font-size:13px;
+    color:var(--ink);
+    display:inline;
+  }
+  .ref-code{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:var(--blue);
+    background:var(--bg);
+    padding:8px 10px;
+    border-radius:3px;
+    margin-top:6px;
+    white-space:pre-wrap;
+    border-left:2px solid var(--blue);
+  }
+  .ref-code .arrow{color:var(--dim)}
+  .ref-code .out{color:var(--green)}
+
+  /* modal for input */
+  .modal-bg{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,0.75);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  .modal-bg.show{display:flex}
+  .modal{
+    background:var(--paper);
+    border:1px solid var(--accent);
+    padding:22px;
+    border-radius:4px;
+    width:100%;
+    max-width:360px;
+  }
+  .modal h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:22px;
+    margin-bottom:4px;
+    color:var(--accent-2);
+  }
+  .modal p{
+    font-size:12px;
+    color:var(--dim);
+    margin-bottom:14px;
+  }
+  .modal input{
+    width:100%;
+    background:var(--bg);
+    border:1px solid var(--line);
+    color:var(--ink);
+    padding:12px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:15px;
+    border-radius:3px;
+    outline:none;
+    margin-bottom:12px;
+  }
+  .modal input:focus{border-color:var(--accent)}
+  .modal button{
+    width:100%;
+    padding:12px;
+    background:var(--accent);
+    color:var(--bg);
+    border:none;
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:0.15em;
+    font-weight:600;
+    border-radius:3px;
+    cursor:pointer;
+  }
+
+  /* examples menu */
+  .examples{
+    display:none;
+    position:absolute;
+    bottom:100%;
+    left:0;right:0;
+    background:var(--paper);
+    border-top:1px solid var(--accent);
+    max-height:50vh;
+    overflow-y:auto;
+    z-index:50;
+  }
+  .examples.show{display:block}
+  .ex-item{
+    padding:12px 18px;
+    border-bottom:1px solid var(--line);
+    cursor:pointer;
+  }
+  .ex-item:active{background:var(--line)}
+  .ex-title{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-size:16px;
+    color:var(--accent-2);
+    margin-bottom:2px;
+  }
+  .ex-desc{font-size:11px;color:var(--dim)}
+
+  /* small screens */
+  @media (max-height: 650px){
+    .brand{font-size:24px}
+    header{padding:10px 14px 8px}
+    .output-wrap{min-height:22vh}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">thirteen<span class="dot">.</span></div>
+  <div class="sub">13 words<br/>+ , . " "</div>
+</header>
+
+<main>
+  <div class="editor-wrap">
+    <div class="editor-label">
+      <span>source</span>
+      <span class="hint">tap words below</span>
+    </div>
+    <textarea id="code" spellcheck="false" autocapitalize="off" autocorrect="off">show "pi is " pi
+show "sq 7 = " sq 7
+show "sin 1 = " sin 1</textarea>
+  </div>
+
+  <div class="ac-bar" id="ac-bar"></div>
+
+  <div class="palette" id="palette"></div>
+
+  <div class="controls" style="position:relative">
+    <div class="examples" id="examples"></div>
+    <button class="btn" onclick="toggleExamples()">examples</button>
+    <button class="btn" onclick="showLibrary()">library</button>
+    <button class="btn" onclick="showRef()">ref</button>
+    <button class="btn" onclick="clearOutput()">clear</button>
+    <button class="btn primary" onclick="runCode()">▶ run</button>
+  </div>
+
+  <div class="canvas-wrap">
+    <div class="canvas-label">
+      <span>canvas · 100×100</span>
+      <span style="color:var(--dim);font-style:italic;text-transform:none;letter-spacing:0;">show not · clears</span>
+    </div>
+    <div class="canvas-frame">
+      <canvas id="canvas" width="100" height="100"></canvas>
+    </div>
+  </div>
+
+  <div class="output-wrap">
+    <div class="output-label">
+      <span>output</span>
+      <span class="status" id="status">ready</span>
+    </div>
+    <div id="out"></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="ref-modal">
+  <div class="ref-modal">
+    <div class="ref-head">
+      <h3>reference</h3>
+      <button class="lib-close" onclick="hideRef()">✕</button>
+    </div>
+    <p class="ref-sub">13 words · 2 punctuation · strings · combinations</p>
+    <div class="ref-body" id="ref-body"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="library-modal">
+  <div class="lib-modal">
+    <div class="lib-head">
+      <h3>library</h3>
+      <button class="lib-close" onclick="hideLibrary()">✕</button>
+    </div>
+    <p class="lib-sub">13 functions · all written in thirteen · always available</p>
+    <div class="lib-toc" id="lib-toc"></div>
+    <pre class="lib-src" id="lib-src"></pre>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>tell</h3>
+    <p id="modal-prompt">enter a number</p>
+    <input type="text" id="modal-input" inputmode="decimal" />
+    <button onclick="submitInput()">give</button>
+  </div>
+</div>
+
+<script>
+// ============ STANDARD LIBRARY ============
+// All functions below are pre-loaded into every program.
+// They are written in thirteen itself — no cheating.
+const LIBRARY_SOURCE = `know pi,
+  be p 355
+  be p has not again 113
+  stop p
+.
+
+know tau,
+  be t pi
+  be t has again 2
+  stop t
+.
+
+know e,
+  be v 2718
+  be v has not again 1000
+  stop v
+.
+
+know neg n,
+  stop n has again not 1
+.
+
+know abs n,
+  think n is more 0,
+    stop n
+  .
+  stop neg n
+.
+
+know sq n,
+  stop n has again n
+.
+
+know max a b,
+  think a is more b,
+    stop a
+  .
+  stop b
+.
+
+know min a b,
+  think a is more b,
+    stop b
+  .
+  stop a
+.
+
+know pow b n,
+  be r 1
+  go n is more 0,
+    be r has again b
+    be n has not more 1
+  .
+  stop r
+.
+
+know mod a b,
+  go a has more 1 is more b,
+    be a has not more b
+  .
+  stop a
+.
+
+know sin x,
+  be t1 x
+  be t3 x has again x has again x has not again 6
+  be t5 x has again x has again x has again x has again x has not again 120
+  be t7 x has again x has again x has again x has again x has again x has again x has not again 5040
+  stop t1 has not more t3 has more t5 has not more t7
+.
+
+know cos x,
+  be t0 1
+  be t2 x has again x has not again 2
+  be t4 x has again x has again x has again x has not again 24
+  be t6 x has again x has again x has again x has again x has again x has not again 720
+  stop t0 has not more t2 has more t4 has not more t6
+.
+
+be spin_seed 100
+
+know spin lo hi,
+  be spin_seed has again 10
+  be big spin_seed
+  be big has not again 13
+  be big floor big
+  be span hi has not more lo has more 1
+  be tenth big
+  be tenth has not again span
+  be tenth floor tenth
+  be tenth has again span
+  be r big has not more tenth
+  be r has more lo
+  stop r
+.
+`;
+
+// ============ CANVAS ENGINE ============
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function clearCanvas(){
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+clearCanvas();
+
+function rgbStr(r,g,b){
+  const clamp = v => Math.max(0, Math.min(255, Math.round(Number(v) || 0)));
+  return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`;
+}
+
+// draw a pixel at (x,y) with color (r,g,b)
+function drawPixel(x, y, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+}
+
+// draw a line from (x1,y1) to (x2,y2) via Bresenham; if dotted, skip every other pixel
+function drawLine(x1, y1, x2, y2, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  x1 = Math.floor(x1); y1 = Math.floor(y1);
+  x2 = Math.floor(x2); y2 = Math.floor(y2);
+  const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+  const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
+  let err = dx - dy;
+  let step = 0;
+  while(true){
+    if(solid || step % 2 === 0) ctx.fillRect(x1, y1, 1, 1);
+    if(x1 === x2 && y1 === y2) break;
+    const e2 = 2*err;
+    if(e2 > -dy){ err -= dy; x1 += sx; }
+    if(e2 < dx){ err += dx; y1 += sy; }
+    step++;
+  }
+}
+
+function drawBox(x, y, w, h, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  x = Math.floor(x); y = Math.floor(y);
+  w = Math.floor(w); h = Math.floor(h);
+  if(solid){
+    ctx.fillRect(x, y, w, h);
+  } else {
+    // outlined (dotted): draw 4 dashed edges
+    drawLine(x,     y,     x+w-1, y,     false, r, g, b);
+    drawLine(x+w-1, y,     x+w-1, y+h-1, false, r, g, b);
+    drawLine(x+w-1, y+h-1, x,     y+h-1, false, r, g, b);
+    drawLine(x,     y+h-1, x,     y,     false, r, g, b);
+  }
+}
+
+function drawCircle(cx, cy, radius, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  cx = Math.floor(cx); cy = Math.floor(cy);
+  const rad = Math.max(0, Math.floor(radius));
+  if(solid){
+    for(let yy = -rad; yy <= rad; yy++){
+      for(let xx = -rad; xx <= rad; xx++){
+        if(xx*xx + yy*yy <= rad*rad) ctx.fillRect(cx+xx, cy+yy, 1, 1);
+      }
+    }
+  } else {
+    // midpoint circle, dotted
+    let x = rad, y = 0, err = 0, step = 0;
+    while(x >= y){
+      [[x,y],[y,x],[-y,x],[-x,y],[-x,-y],[-y,-x],[y,-x],[x,-y]].forEach(([ox,oy])=>{
+        if(step % 2 === 0) ctx.fillRect(cx+ox, cy+oy, 1, 1);
+      });
+      y++; step++;
+      if(err <= 0){ err += 2*y + 1; }
+      if(err > 0){ x--; err -= 2*x + 1; }
+    }
+  }
+}
+
+// Given a list of args (numbers or {flag:'is'|'not'}), try to draw. Returns true if drawn.
+function tryDraw(args){
+  const nums = [];
+  let styleFlag = null;
+  let flagIdx = -1;
+  for(let i = 0; i < args.length; i++){
+    const a = args[i];
+    if(typeof a === 'number'){ nums.push(a); }
+    else if(a === '__IS__' || a === '__NOT__'){
+      if(styleFlag !== null) return false;
+      styleFlag = (a === '__IS__') ? 'is' : 'not';
+      flagIdx = nums.length;
+    } else {
+      return false;
+    }
+  }
+
+  const n = nums.length;
+  const solid = styleFlag === 'is';
+
+  // pixel: 5 numbers, no flag → x y r g b
+  if(n === 5 && styleFlag === null){
+    drawPixel(nums[0], nums[1], nums[2], nums[3], nums[4]);
+    return true;
+  }
+  // line: 4 pos + flag + 3 color → x1 y1 x2 y2 [is|not] r g b
+  if(n === 7 && styleFlag !== null && flagIdx === 4){
+    drawLine(nums[0], nums[1], nums[2], nums[3], solid, nums[4], nums[5], nums[6]);
+    return true;
+  }
+  // circle: 3 pos + flag + 3 color → x y radius [is|not] r g b
+  if(n === 6 && styleFlag !== null && flagIdx === 3){
+    drawCircle(nums[0], nums[1], nums[2], solid, nums[3], nums[4], nums[5]);
+    return true;
+  }
+
+  return false;
+}
+
+// ============ ORIGINAL SCRIPT ============
+const words = ['be','is','has','not','more','again','think','go','stop','show','tell','know','guess'];
+const puncts = [',','.'];
+
+const palette = document.getElementById('palette');
+const code = document.getElementById('code');
+
+function insertAtCursor(text){
+  const s = code.selectionStart, e = code.selectionEnd;
+  const before = code.value.slice(0,s), after = code.value.slice(e);
+  const needsSpaceBefore = before.length && !/\s$/.test(before) && !/[,.]/.test(text);
+  const insert = (needsSpaceBefore ? ' ' : '') + text;
+  code.value = before + insert + after;
+  const pos = s + insert.length;
+  code.focus();
+  code.setSelectionRange(pos,pos);
+  updateAutocomplete();
+}
+
+// punctuation chips
+puncts.forEach(p=>{
+  const c = document.createElement('div');
+  c.className = 'chip punct';
+  c.textContent = p;
+  c.onclick = ()=>insertAtCursor(p);
+  palette.appendChild(c);
+});
+// quote chip — inserts a pair and positions cursor between
+const qc = document.createElement('div');
+qc.className = 'chip punct';
+qc.textContent = '" "';
+qc.onclick = ()=>{
+  const s = code.selectionStart, e = code.selectionEnd;
+  const before = code.value.slice(0,s), after = code.value.slice(e);
+  const needsSpace = before.length && !/\s$/.test(before);
+  const pad = needsSpace ? ' ' : '';
+  code.value = before + pad + '""' + after;
+  const pos = s + pad.length + 1;
+  code.focus();
+  code.setSelectionRange(pos,pos);
+  updateAutocomplete();
+};
+palette.appendChild(qc);
+['↵','⎵','⌫'].forEach(sym=>{
+  const c = document.createElement('div');
+  c.className = 'chip op';
+  c.textContent = sym;
+  c.onclick = ()=>{
+    if(sym==='↵') insertAtCursor('\n');
+    else if(sym==='⎵') insertAtCursor(' ');
+    else {
+      const s = code.selectionStart;
+      if(s>0){
+        code.value = code.value.slice(0,s-1)+code.value.slice(code.selectionEnd);
+        code.focus();
+        code.setSelectionRange(s-1,s-1);
+        updateAutocomplete();
+      }
+    }
+  };
+  palette.appendChild(c);
+});
+
+// ============ AUTOCOMPLETE ============
+const acBar = document.getElementById('ac-bar');
+
+function getCurrentWordFragment(){
+  const s = code.selectionStart;
+  const before = code.value.slice(0, s);
+  const m = before.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  return m ? m[1] : '';
+}
+
+function updateAutocomplete(){
+  const frag = getCurrentWordFragment();
+  acBar.innerHTML = '';
+  if(!frag){ acBar.classList.remove('show'); return; }
+  const matches = words.filter(w => w.startsWith(frag.toLowerCase()));
+  if(matches.length === 0 || (matches.length === 1 && matches[0] === frag)){
+    acBar.classList.remove('show');
+    return;
+  }
+  matches.forEach(w => {
+    const chip = document.createElement('button');
+    chip.className = 'ac-chip';
+    chip.innerHTML = '<span class="match">' + w.slice(0, frag.length) + '</span>' + w.slice(frag.length);
+    chip.onmousedown = (e) => { e.preventDefault(); completeWord(w); };
+    chip.ontouchstart = (e) => { e.preventDefault(); completeWord(w); };
+    acBar.appendChild(chip);
+  });
+  acBar.classList.add('show');
+}
+
+function completeWord(word){
+  const frag = getCurrentWordFragment();
+  const s = code.selectionStart;
+  const before = code.value.slice(0, s - frag.length);
+  const after = code.value.slice(s);
+  const insert = word + ' ';
+  code.value = before + insert + after;
+  const pos = before.length + insert.length;
+  code.focus();
+  code.setSelectionRange(pos, pos);
+  updateAutocomplete();
+}
+
+code.addEventListener('input', updateAutocomplete);
+code.addEventListener('keyup', updateAutocomplete);
+code.addEventListener('click', updateAutocomplete);
+
+// ============ OUTPUT HELPERS ============
+const out = document.getElementById('out');
+const status = document.getElementById('status');
+
+function log(text, cls='out-line'){
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  out.appendChild(d);
+  out.scrollTop = out.scrollHeight;
+}
+function clearOutput(){
+  out.innerHTML = '';
+  status.textContent = 'ready';
+  status.classList.remove('err');
+}
+
+// ============ INPUT MODAL ============
+let inputResolver = null;
+function askInput(prompt){
+  return new Promise(resolve=>{
+    inputResolver = resolve;
+    document.getElementById('modal-prompt').textContent = prompt;
+    document.getElementById('modal-input').value = '';
+    document.getElementById('modal').classList.add('show');
+    setTimeout(()=>document.getElementById('modal-input').focus(),100);
+  });
+}
+function submitInput(){
+  const val = document.getElementById('modal-input').value;
+  document.getElementById('modal').classList.remove('show');
+  if(inputResolver){ inputResolver(val); inputResolver=null; }
+}
+document.getElementById('modal-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); submitInput(); }
+});
+
+// ============ LEXER ============
+function tokenize(src){
+  const toks = [];
+  let line = 1;
+  src = src.replace(/\/\/[^\n]*/g,'');
+  let i = 0;
+  while(i < src.length){
+    const ch = src[i];
+    if(ch === '\n'){
+      // only emit if last token isn't already a newline (collapse blanks)
+      if(toks.length && toks[toks.length-1].type !== 'nl'){
+        toks.push({type:'nl', val:'\n', line});
+      }
+      line++; i++; continue;
+    }
+    if(/\s/.test(ch)){ i++; continue; }
+    if(ch === ',' || ch === '.'){ toks.push({type:'punct', val:ch, line}); i++; continue; }
+    // string literal
+    if(ch === '"'){
+      let j = i+1, str = '';
+      while(j < src.length && src[j] !== '"'){
+        if(src[j] === '\n') line++;
+        str += src[j];
+        j++;
+      }
+      if(j >= src.length) throw new Error(`line ${line}: unclosed string`);
+      toks.push({type:'str', val:str, line});
+      i = j+1;
+      continue;
+    }
+    // number
+    if(/[0-9]/.test(ch)){
+      let j = i;
+      while(j < src.length && /[0-9.]/.test(src[j]) && !(src[j]==='.' && (j+1>=src.length || !/[0-9]/.test(src[j+1])))){
+        j++;
+      }
+      const numStr = src.slice(i,j);
+      toks.push({type:'num', val:parseFloat(numStr), line});
+      i = j;
+      continue;
+    }
+    if(/[a-zA-Z_]/.test(ch)){
+      let j = i;
+      while(j < src.length && /[a-zA-Z0-9_]/.test(src[j])) j++;
+      const w = src.slice(i,j);
+      if(words.includes(w)){
+        toks.push({type:'kw', val:w, line});
+      } else {
+        toks.push({type:'id', val:w, line});
+      }
+      i = j;
+      continue;
+    }
+    throw new Error(`unexpected "${ch}" on line ${line}`);
+  }
+  return toks;
+}
+
+// ============ INTERPRETER ============
+// Grammar (informal):
+// program      := stmt*
+// stmt         := be-stmt | show-stmt | tell-stmt | think-block | run-block | stop-stmt
+// be-stmt      := "be" IDENT expr
+// show-stmt    := "show" expr
+// tell-stmt    := "tell" IDENT
+// think-block  := "think" bool "," stmt* "."
+// run-block    := "run" bool "," stmt* "."
+// stop-stmt    := "stop"
+// bool         := expr ("is" ("not")? ("more")? expr)?
+// expr         := atom ("has" op)*      ← "has" chains ops onto current value
+// op           := ("not")? ("more"|"again") expr
+// atom         := NUMBER | IDENT
+
+class Interp {
+  constructor(tokens, ask, emit){
+    this.t = tokens;
+    this.p = 0;
+    this.vars = {};
+    this.funcs = {};
+    this.ask = ask;
+    this.emit = emit;
+    this.halted = false;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction = 0;
+    this.scopeStack = [];
+    // Native (built-in) functions — JavaScript implementations for things
+    // that can't be efficiently built in thirteen (e.g. fast floor).
+    this.natives = {
+      floor: { arity: 1, fn: (x) => Math.floor(x) },
+    };
+  }
+  peek(o=0){ return this.t[this.p+o]; }
+  skipNL(){ while(this.peek() && this.peek().type === 'nl') this.p++; }
+  eat(type,val){
+    const tk = this.t[this.p];
+    if(!tk) throw new Error('unexpected end of program');
+    if(tk.type !== type) throw new Error(`line ${tk.line}: expected ${type} ${val||''}, got "${tk.val}"`);
+    if(val !== undefined && tk.val !== val) throw new Error(`line ${tk.line}: expected "${val}", got "${tk.val}"`);
+    this.p++;
+    return tk;
+  }
+  match(type,val){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type !== type) return false;
+    if(val !== undefined && tk.val !== val) return false;
+    return true;
+  }
+
+  async run(){
+    while(this.p < this.t.length && !this.halted){
+      await this.stmt();
+    }
+  }
+
+  async stmt(){
+    if(this.halted || this.returning) return;
+    // skip statement separators
+    while(this.peek() && this.peek().type === 'nl') this.p++;
+    const tk = this.peek();
+    if(!tk) return;
+    if(tk.type === 'kw'){
+      switch(tk.val){
+        case 'be': return await this.beStmt();
+        case 'show': return await this.showStmt();
+        case 'tell': return await this.tellStmt();
+        case 'think': return await this.thinkBlock();
+        case 'go': return await this.goBlock();
+        case 'know': return await this.knowStmt();
+        case 'guess': {
+          // evaluate guess, discard result (unusual but allowed)
+          this.guessValue();
+          return;
+        }
+        case 'stop':
+          this.p++;
+          if(this.inFunction > 0){
+            // inside a function: optional value, then return
+            if(this.isExprStart()){
+              this.returnValue = this.expr();
+            } else {
+              this.returnValue = undefined;
+            }
+            this.returning = true;
+          } else {
+            // top-level: halt everything
+            this.halted = true;
+          }
+          return;
+        default: throw new Error(`line ${tk.line}: unexpected keyword "${tk.val}" at statement start`);
+      }
+    }
+    // identifier at statement start = function call
+    if(tk.type === 'id'){
+      if(tk.val in this.natives){
+        this.callNative(tk.val);
+        return;
+      }
+      if(tk.val in this.funcs){
+        return await this.callStmt();
+      }
+      throw new Error(`line ${tk.line}: "${tk.val}" is not defined`);
+    }
+    throw new Error(`line ${tk.line}: unexpected "${tk.val}" at statement start`);
+  }
+
+  async beStmt(){
+    this.eat('kw','be');
+    const id = this.eat('id').val;
+    const val = this.expr(id);
+    this.assignVar(id, val);
+  }
+
+  // Assign a variable. If inside a function and the name exists in the
+  // outer (enclosing) scope, update it there too. This gives us "global-ish"
+  // variables without needing a new keyword — any variable defined outside
+  // a function is visible and mutable from inside.
+  assignVar(id, val){
+    this.vars[id] = val;
+    // propagate to outer scopes where this variable already exists
+    for(let i = this.scopeStack.length - 1; i >= 0; i--){
+      const scope = this.scopeStack[i];
+      if(id in scope) scope[id] = val;
+    }
+  }
+
+  async showStmt(){
+    this.eat('kw','show');
+    // Special case: "show not" alone = clear canvas
+    if(this.match('kw','not')){
+      // peek ahead: if next-after-not is end-of-stmt, it's a clear
+      const nextT = this.t[this.p+1];
+      const isEnd = !nextT || nextT.type === 'nl' || (nextT.type === 'punct');
+      if(isEnd){
+        this.eat('kw','not');
+        clearCanvas();
+        return;
+      }
+    }
+    const args = [];
+    // Track whether current context looks drawable (only numbers so far)
+    let pureNumbers = true;
+    while(this.isShowArgStart()){
+      if(this.match('kw','is')){
+        this.eat('kw','is');
+        args.push('__IS__');
+      } else if(this.match('kw','not')){
+        // In a pure-numbers context, "not" is the dotted-style flag.
+        // Otherwise (a string is in the mix), treat as prefix on next value.
+        if(pureNumbers){
+          this.eat('kw','not');
+          args.push('__NOT__');
+        } else {
+          args.push(this.expr());
+        }
+      } else {
+        const v = this.expr();
+        if(typeof v !== 'number') pureNumbers = false;
+        args.push(v);
+      }
+    }
+    // Try drawing first
+    if(tryDraw(args)) return;
+    // Otherwise, treat as text: stringify non-flag args, ignore flags
+    const text = args
+      .filter(a => a !== '__IS__' && a !== '__NOT__')
+      .map(v => String(v))
+      .join('');
+    this.emit(text);
+  }
+
+  isShowArgStart(){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type === 'num' || tk.type === 'str' || tk.type === 'id') return true;
+    if(tk.type === 'kw' && (tk.val === 'not' || tk.val === 'is' || tk.val === 'guess')) return true;
+    return false;
+  }
+
+  isExprStart(){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type === 'num' || tk.type === 'str' || tk.type === 'id') return true;
+    if(tk.type === 'kw' && (tk.val === 'not' || tk.val === 'guess')) return true;
+    return false;
+  }
+
+  async tellStmt(){
+    this.eat('kw','tell');
+    const id = this.eat('id').val;
+    const s = await this.ask(`tell ${id}:`);
+    // if it parses cleanly as a number, store as number; otherwise as string
+    const n = parseFloat(s);
+    const clean = s.trim();
+    if(clean !== '' && !isNaN(n) && isFinite(n) && String(n) === clean){
+      this.vars[id] = n;
+    } else {
+      this.vars[id] = s;
+    }
+  }
+
+  async thinkBlock(){
+    this.eat('kw','think');
+    const cond = this.bool();
+    this.eat('punct',',');
+    if(cond){
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        const tk = this.peek();
+        if(!tk) throw new Error('think block never closed with "."');
+        if(tk.type === 'punct' && tk.val === '.') break;
+        await this.stmt();
+      }
+      this.skipNL();
+      this.eat('punct','.');
+    } else {
+      this.skipToDot();
+    }
+  }
+
+  async goBlock(){
+    this.eat('kw','go');
+    const condStart = this.p;
+    this.bool();
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    let depth = 1;
+    let scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error('go block never closed with "."');
+    const bodyEnd = scan;
+
+    let safety = 0;
+    while(!this.halted && !this.returning){
+      if(++safety > 100000) throw new Error('go loop exceeded 100000 iterations');
+      this.p = condStart;
+      const c = this.bool();
+      this.eat('punct',',');
+      if(!c) break;
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        if(this.p >= bodyEnd) break;
+        const tk = this.peek();
+        if(tk && tk.type === 'punct' && tk.val === '.') break;
+        await this.stmt();
+      }
+    }
+    this.p = bodyEnd + 1;
+  }
+
+  // know name param1 param2 ... , body .
+  async knowStmt(){
+    this.eat('kw','know');
+    const nameTok = this.eat('id');
+    const params = [];
+    while(this.peek() && this.peek().type === 'id'){
+      params.push(this.eat('id').val);
+    }
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    // find matching .
+    let depth = 1;
+    let scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error(`line ${nameTok.line}: know block never closed with "."`);
+    this.funcs[nameTok.val] = { params, bodyStart, bodyEnd: scan };
+    this.p = scan + 1; // skip past the closing .
+  }
+
+  async callStmt(){
+    return await this.callAsValue();
+  }
+
+  // Function call that returns a value (used both as statement and as expression)
+  async callAsValue(){
+    const nameTok = this.eat('id');
+    const fn = this.funcs[nameTok.val];
+    const args = [];
+    while(this.isExprStart()){
+      args.push(this.expr());
+    }
+    if(args.length !== fn.params.length){
+      throw new Error(`line ${nameTok.line}: "${nameTok.val}" expects ${fn.params.length} arg(s), got ${args.length}`);
+    }
+    const savedVars = this.vars;
+    const resumeP = this.p;
+    const savedReturning = this.returning;
+    const savedReturnValue = this.returnValue;
+    this.scopeStack.push(savedVars);
+    this.vars = Object.assign({}, savedVars);
+    fn.params.forEach((name,i)=>{ this.vars[name] = args[i]; });
+    this.p = fn.bodyStart;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction++;
+    while(!this.halted && !this.returning){
+      this.skipNL();
+      if(this.p >= fn.bodyEnd) break;
+      const tk = this.peek();
+      if(tk && tk.type === 'punct' && tk.val === '.') break;
+      await this.stmt();
+    }
+    this.inFunction--;
+    const result = this.returnValue;
+    this.scopeStack.pop();
+    this.vars = savedVars;
+    this.p = resumeP;
+    this.returning = savedReturning;
+    this.returnValue = savedReturnValue;
+    return result;
+  }
+
+  skipToDot(){
+    let depth = 1;
+    while(this.p < this.t.length && depth > 0){
+      const tk = this.t[this.p++];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; }
+    }
+  }
+
+  // boolean expression: expr (is (not)? (more)? expr)?
+  bool(){
+    const left = this.expr();
+    if(this.match('kw','is')){
+      this.eat('kw','is');
+      let negate = false, gt = false;
+      if(this.match('kw','not')){ this.eat('kw','not'); negate = true; }
+      if(this.match('kw','more')){ this.eat('kw','more'); gt = true; }
+      const right = this.expr();
+      let result;
+      if(gt) result = left > right;
+      else result = left === right;
+      return negate ? !result : result;
+    }
+    return !!left;
+  }
+
+  // expression with "has" chains: atom (has (not)? (more|again) atom)*
+  expr(selfIdent){
+    let val;
+    if(this.match('kw','has')){
+      if(selfIdent === undefined) throw new Error(`line ${this.peek().line}: "has" with no subject`);
+      val = this.vars[selfIdent] ?? 0;
+    } else {
+      val = this.atom();
+    }
+    while(this.match('kw','has')){
+      this.eat('kw','has');
+      let negate = false;
+      if(this.match('kw','not')){ this.eat('kw','not'); negate = true; }
+      let op;
+      if(this.match('kw','more')){ this.eat('kw','more'); op = 'more'; }
+      else if(this.match('kw','again')){ this.eat('kw','again'); op = 'again'; }
+      else throw new Error(`line ${this.peek()?.line}: expected "more" or "again" after "has"`);
+      const rhs = this.atom();
+      if(op === 'more'){
+        // string concat if either side is a string
+        if(typeof val === 'string' || typeof rhs === 'string'){
+          if(negate){
+            // remove rhs from end of val if present, else from anywhere
+            const s = String(val), r = String(rhs);
+            if(s.endsWith(r)) val = s.slice(0, s.length - r.length);
+            else val = s.split(r).join('');
+          } else {
+            val = String(val) + String(rhs);
+          }
+        } else {
+          val = negate ? (val - rhs) : (val + rhs);
+        }
+      } else { // again — only meaningful on numbers
+        if(typeof val === 'string'){
+          // string repeat when "has again n"
+          val = negate ? val : String(val).repeat(Math.max(0, Math.floor(rhs)));
+        } else {
+          val = negate ? (val / rhs) : (val * rhs);
+        }
+      }
+    }
+    return val;
+  }
+
+  // Call a native (JS-implemented) function.
+  callNative(name){
+    const nativeTok = this.eat('id');
+    const spec = this.natives[name];
+    const args = [];
+    for(let i = 0; i < spec.arity; i++){
+      args.push(this.atom());
+    }
+    return spec.fn(...args);
+  }
+
+  // guess min max → random integer in [min, max] inclusive
+  guessValue(){
+    this.eat('kw','guess');
+    const lo = this.atom();
+    const hi = this.atom();
+    if(typeof lo !== 'number' || typeof hi !== 'number'){
+      throw new Error('guess expects two numbers: min and max');
+    }
+    const a = Math.min(lo, hi), b = Math.max(lo, hi);
+    return Math.floor(Math.random() * (Math.floor(b) - Math.ceil(a) + 1)) + Math.ceil(a);
+  }
+
+  atom(){
+    const tk = this.peek();
+    if(!tk) throw new Error('unexpected end of expression');
+    if(tk.type === 'num'){ this.p++; return tk.val; }
+    if(tk.type === 'str'){ this.p++; return tk.val; }
+    if(tk.type === 'id'){
+      // native function?
+      if(tk.val in this.natives){
+        return this.callNative(tk.val);
+      }
+      // user-defined function?
+      if(tk.val in this.funcs){
+        return this.callFnSync(tk.val, tk.line);
+      }
+      this.p++;
+      if(!(tk.val in this.vars)) throw new Error(`line ${tk.line}: unknown name "${tk.val}"`);
+      return this.vars[tk.val];
+    }
+    if(tk.type === 'kw' && tk.val === 'not'){
+      this.p++;
+      const v = this.atom();
+      if(typeof v === 'string') return '';
+      return -v;
+    }
+    if(tk.type === 'kw' && tk.val === 'guess'){
+      return this.guessValue();
+    }
+    throw new Error(`line ${tk.line}: expected a number, string, or name, got "${tk.val}"`);
+  }
+
+  // Synchronous function call used inside expressions.
+  // Works because our function bodies don't actually need async except for tell.
+  // If a function uses tell, that's a limitation we accept for now.
+  callFnSync(name, line){
+    this.eat('id');
+    const fn = this.funcs[name];
+    const args = [];
+    while(this.isExprStart()){
+      args.push(this.expr());
+    }
+    if(args.length !== fn.params.length){
+      throw new Error(`line ${line}: "${name}" expects ${fn.params.length} arg(s), got ${args.length}`);
+    }
+    const savedVars = this.vars;
+    const resumeP = this.p;
+    const savedReturning = this.returning;
+    const savedReturnValue = this.returnValue;
+    this.scopeStack.push(savedVars);
+    this.vars = Object.assign({}, savedVars);
+    fn.params.forEach((pname,i)=>{ this.vars[pname] = args[i]; });
+    this.p = fn.bodyStart;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction++;
+    // sync body loop — dispatch statements synchronously
+    while(!this.halted && !this.returning){
+      this.skipNL();
+      if(this.p >= fn.bodyEnd) break;
+      const tk = this.peek();
+      if(tk && tk.type === 'punct' && tk.val === '.') break;
+      this.stmtSync();
+    }
+    this.inFunction--;
+    const result = this.returnValue;
+    this.scopeStack.pop();
+    this.vars = savedVars;
+    this.p = resumeP;
+    this.returning = savedReturning;
+    this.returnValue = savedReturnValue;
+    return result;
+  }
+
+  // Synchronous statement dispatcher (for use inside function calls from expressions).
+  // Does not support tell (which requires await).
+  stmtSync(){
+    if(this.halted || this.returning) return;
+    while(this.peek() && this.peek().type === 'nl') this.p++;
+    const tk = this.peek();
+    if(!tk) return;
+    if(tk.type === 'kw'){
+      switch(tk.val){
+        case 'be': {
+          this.eat('kw','be');
+          const id = this.eat('id').val;
+          const val = this.expr(id);
+          this.assignVar(id, val);
+          return;
+        }
+        case 'show': {
+          // reuse async showStmt but inline — we skip canvas draws here too
+          return this.showStmtSync();
+        }
+        case 'tell':
+          throw new Error(`line ${tk.line}: "tell" not allowed inside a function used as an expression`);
+        case 'think': return this.thinkBlockSync();
+        case 'go': return this.goBlockSync();
+        case 'know': return this.knowStmt();
+        case 'guess': { this.guessValue(); return; }
+        case 'stop':
+          this.p++;
+          if(this.inFunction > 0){
+            if(this.isExprStart()){ this.returnValue = this.expr(); }
+            else { this.returnValue = undefined; }
+            this.returning = true;
+          } else {
+            this.halted = true;
+          }
+          return;
+        default: throw new Error(`line ${tk.line}: unexpected keyword "${tk.val}"`);
+      }
+    }
+    if(tk.type === 'id'){
+      if(tk.val in this.natives){
+        this.callNative(tk.val);
+        return;
+      }
+      if(tk.val in this.funcs){
+        this.callFnSync(tk.val, tk.line);
+        return;
+      }
+      throw new Error(`line ${tk.line}: "${tk.val}" is not defined`);
+    }
+    throw new Error(`line ${tk.line}: unexpected "${tk.val}"`);
+  }
+
+  showStmtSync(){
+    this.eat('kw','show');
+    if(this.match('kw','not')){
+      const nextT = this.t[this.p+1];
+      const isEnd = !nextT || nextT.type === 'nl' || (nextT.type === 'punct');
+      if(isEnd){
+        this.eat('kw','not');
+        clearCanvas();
+        return;
+      }
+    }
+    const args = [];
+    let pureNumbers = true;
+    while(this.isShowArgStart()){
+      if(this.match('kw','is')){ this.eat('kw','is'); args.push('__IS__'); }
+      else if(this.match('kw','not')){
+        if(pureNumbers){ this.eat('kw','not'); args.push('__NOT__'); }
+        else { args.push(this.expr()); }
+      } else {
+        const v = this.expr();
+        if(typeof v !== 'number') pureNumbers = false;
+        args.push(v);
+      }
+    }
+    if(tryDraw(args)) return;
+    const text = args.filter(a => a !== '__IS__' && a !== '__NOT__').map(v => String(v)).join('');
+    this.emit(text);
+  }
+
+  thinkBlockSync(){
+    this.eat('kw','think');
+    const cond = this.bool();
+    this.eat('punct',',');
+    if(cond){
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        const tk = this.peek();
+        if(!tk) throw new Error('think block never closed with "."');
+        if(tk.type === 'punct' && tk.val === '.') break;
+        this.stmtSync();
+      }
+      this.skipNL();
+      this.eat('punct','.');
+    } else {
+      this.skipToDot();
+    }
+  }
+
+  goBlockSync(){
+    this.eat('kw','go');
+    const condStart = this.p;
+    this.bool();
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    let depth = 1, scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error('go block never closed with "."');
+    const bodyEnd = scan;
+    let safety = 0;
+    while(!this.halted && !this.returning){
+      if(++safety > 100000) throw new Error('go loop exceeded 100000 iterations');
+      this.p = condStart;
+      const c = this.bool();
+      this.eat('punct',',');
+      if(!c) break;
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        if(this.p >= bodyEnd) break;
+        const tk = this.peek();
+        if(tk && tk.type === 'punct' && tk.val === '.') break;
+        this.stmtSync();
+      }
+    }
+    this.p = bodyEnd + 1;
+  }
+}
+
+// ============ RUNNER ============
+async function runCode(){
+  clearOutput();
+  clearCanvas();
+  status.textContent = 'running…';
+  status.classList.remove('err');
+  const userSrc = code.value;
+  const src = LIBRARY_SOURCE + '\n' + userSrc;
+  try {
+    const toks = tokenize(src);
+    const interp = new Interp(toks, askInput, (s)=>log(s));
+    await interp.run();
+    status.textContent = interp.halted ? 'stopped' : 'done';
+  } catch(e){
+    log('✗ ' + e.message, 'out-err');
+    status.textContent = 'error';
+    status.classList.add('err');
+  }
+}
+
+// ============ EXAMPLES ============
+const examples = [
+  {
+    title: 'spin (pure PRNG)',
+    desc: 'random from 1/13 decimals — cycles every 6',
+    code: `show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100`
+  },
+  {
+    title: 'dice roll',
+    desc: 'random number 1-6',
+    code: `be roll guess 1 6
+show "you rolled " roll`
+  },
+  {
+    title: 'guessing game',
+    desc: 'guess the secret 1-20',
+    code: `be secret guess 1 20
+tell answer
+think answer is secret,
+  show "got it!"
+.
+think answer is not secret,
+  show "nope, it was " secret
+.`
+  },
+  {
+    title: 'random pixels',
+    desc: '50 pixels in random places and colors',
+    code: `be i 0
+go i is not more 50,
+  be x guess 0 99
+  be y guess 0 99
+  be r guess 0 255
+  be g guess 0 255
+  be b guess 0 255
+  show x y r g b
+  be i has more 1
+.`
+  },
+  {
+    title: 'red pixel',
+    desc: 'draw one red pixel at (50,50)',
+    code: `show 50 50 255 0 0`
+  },
+  {
+    title: 'three dots',
+    desc: 'red, green, blue pixels',
+    code: `show 25 50 255 80 80
+show 50 50 80 255 80
+show 75 50 80 80 255`
+  },
+  {
+    title: 'diagonal line',
+    desc: 'solid yellow diagonal',
+    code: `show 10 10 90 90 is 255 255 0`
+  },
+  {
+    title: 'circles',
+    desc: 'solid and hollow circles',
+    code: `show 30 50 20 is 255 100 100
+show 75 50 15 not 100 200 255`
+  },
+  {
+    title: 'pi',
+    desc: 'library function',
+    code: `be x pi
+show "pi ~ " x`
+  },
+  {
+    title: 'squares',
+    desc: 'call sq from the library',
+    code: `show "1 squared = " sq 1
+show "5 squared = " sq 5
+show "9 squared = " sq 9`
+  },
+  {
+    title: 'abs',
+    desc: 'absolute value from library',
+    code: `show "abs(5) = " abs 5
+show "abs(-7) = " abs not 7`
+  },
+  {
+    title: 'min max',
+    desc: 'library comparisons',
+    code: `show "min(3,8) = " min 3 8
+show "max(3,8) = " max 3 8`
+  },
+  {
+    title: 'power of 2',
+    desc: 'pow from library',
+    code: `show "2^10 = " pow 2 10
+show "3^5 = " pow 3 5`
+  },
+  {
+    title: 'sine wave',
+    desc: 'sin from library, drawn',
+    code: `be i 0
+go i is not more 99,
+  be t i has again pi has not again 100
+  be y sin t
+  be y has again 40
+  be y has not more 50
+  be y has again not 1
+  show i y 0 255 150
+  be i has more 1
+.`
+  },
+  {
+    title: 'full wave',
+    desc: 'sin across 2pi',
+    code: `be i 0
+go i is not more 99,
+  be t i has again tau has not again 100
+  be y sin t
+  be y has again 30
+  be y has not more 50
+  be y has again not 1
+  show i y 255 200 0
+  be i has more 1
+.`
+  },
+  {
+    title: 'circle points',
+    desc: 'sin + cos = circle',
+    code: `be i 0
+go i is not more 99,
+  be t i has again tau has not again 100
+  be cx cos t
+  be cy sin t
+  be cx has again 30 has more 50
+  be cy has again 30 has more 50
+  show cx cy 255 100 200
+  be i has more 1
+.`
+  },
+  {
+    title: 'dot drawer',
+    desc: 'build your own function',
+    code: `know dot x y,
+  show x y 0 255 150
+.
+dot 25 25
+dot 50 50
+dot 75 75
+dot 25 75
+dot 75 25`
+  },
+  {
+    title: 'gradient line',
+    desc: 'red fades to blue across x',
+    code: `be x 0
+go x is not more 99,
+  be b 255 has not more x
+  show x 50 x 50 b
+  be x has more 1
+.`
+  },
+  {
+    title: 'hello world',
+    desc: 'the classic (text)',
+    code: `show "hello world"`
+  },
+  {
+    title: 'greet by name',
+    desc: 'ask a name, greet them',
+    code: `tell name
+show "hello " name "!"`
+  },
+  {
+    title: 'countdown',
+    desc: 'count from 5 down to 0',
+    code: `be x 5
+go x is more 0,
+  show x
+  be x has not more 1
+.
+show x`
+  },
+  {
+    title: 'sum 1 to 10',
+    desc: 'accumulate into a total',
+    code: `be i 1
+be t 0
+go i is not more 10,
+  be t has more i
+  be i has more 1
+.
+show "total is " t`
+  }
+];
+const exEl = document.getElementById('examples');
+examples.forEach(ex=>{
+  const d = document.createElement('div');
+  d.className = 'ex-item';
+  d.innerHTML = `<div class="ex-title">${ex.title}</div><div class="ex-desc">${ex.desc}</div>`;
+  d.onclick = ()=>{
+    code.value = ex.code;
+    exEl.classList.remove('show');
+  };
+  exEl.appendChild(d);
+});
+function toggleExamples(){
+  exEl.classList.toggle('show');
+}
+
+// ============ LIBRARY VIEWER ============
+function highlightSource(src){
+  const kws = ['know','be','is','has','not','more','again','think','go','stop','show','tell','guess'];
+  // escape HTML
+  let html = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // numbers
+  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="lib-num">$1</span>');
+  // keywords
+  kws.forEach(kw => {
+    const re = new RegExp('\\b' + kw + '\\b', 'g');
+    html = html.replace(re, '<span class="lib-kw">' + kw + '</span>');
+  });
+  // function names after "know"
+  html = html.replace(/<span class="lib-kw">know<\/span> (\w+)/g,
+    '<span class="lib-kw">know</span> <span class="lib-fn-name">$1</span>');
+  return html;
+}
+
+function extractFnNames(src){
+  const names = [];
+  const re = /know\s+(\w+)/g;
+  let m;
+  while((m = re.exec(src)) !== null) names.push(m[1]);
+  return names;
+}
+
+function showLibrary(){
+  const src = LIBRARY_SOURCE;
+  const fns = extractFnNames(src);
+  const toc = document.getElementById('lib-toc');
+  toc.innerHTML = '';
+  fns.forEach(name => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = name;
+    chip.onclick = () => scrollToFn(name);
+    toc.appendChild(chip);
+  });
+  document.getElementById('lib-src').innerHTML = highlightSource(src);
+  document.getElementById('library-modal').classList.add('show');
+}
+
+function hideLibrary(){
+  document.getElementById('library-modal').classList.remove('show');
+}
+
+// ============ REFERENCE ============
+const REFERENCE = [
+  {
+    section: 'The 13 Words',
+    entries: [
+      { word: 'be', meaning: 'assign a variable',
+        code: 'be x 5           → x = 5\nbe x has more 1  → x = x + 1' },
+      { word: 'is', meaning: 'equals (==) · also: solid-style flag in drawing',
+        code: 'think x is 5,                 → if x equals 5\nshow 10 10 90 90 is 255 0 0   → solid line' },
+      { word: 'has', meaning: 'the current value of the variable being assigned',
+        code: 'be x has more 1  → x becomes x + 1\nbe x has again 2 → x becomes x * 2' },
+      { word: 'not', meaning: 'negate · opposite · also: dotted-style flag · clears things',
+        code: 'think x is not 5,   → if x ≠ 5\nbe x has not more 1 → x = x - 1\nshow not            → clear canvas\nbe s not ""         → empty string' },
+      { word: 'more', meaning: 'greater than · plus · add',
+        code: 'think x is more 5,  → if x > 5\nbe x has more 3     → x = x + 3' },
+      { word: 'again', meaning: 'repeat · multiply · repeat a string',
+        code: 'be x has again 3       → x = x × 3\nbe s has again 3       → s repeated 3 times' },
+      { word: 'think', meaning: 'if · conditional',
+        code: 'think x is 5,\n  show "yes"\n.' },
+      { word: 'go', meaning: 'while loop',
+        code: 'be i 0\ngo i is not more 5,\n  show i\n  be i has more 1\n.' },
+      { word: 'stop', meaning: 'halt program · or return a value from a function',
+        code: 'stop           → halt everything\nstop 5         → return 5 from a function' },
+      { word: 'show', meaning: 'output · text, numbers, or canvas draws',
+        code: 'show "hi " name          → print\nshow 50 50 255 0 0       → red pixel\nshow 10 10 90 90 is 0 255 0 → solid green line' },
+      { word: 'tell', meaning: 'input · ask user for a value',
+        code: 'tell name  → prompts user, stores answer in name' },
+      { word: 'know', meaning: 'define a function',
+        code: 'know greet who,\n  show "hi " who\n.\ngreet "alice"' },
+      { word: 'guess', meaning: 'random integer between min and max (inclusive)',
+        code: 'be roll guess 1 6       → dice roll 1-6\nbe c guess 0 255        → random color channel\nbe secret guess 1 100   → random number 1-100' },
+    ]
+  },
+  {
+    section: 'Punctuation',
+    entries: [
+      { word: ',', meaning: 'opens a block (if, while, function body)',
+        code: 'think x is 5,\n  show x\n.' },
+      { word: '.', meaning: 'closes a block',
+        code: 'go i is more 0,\n  be i has not more 1\n.' },
+      { word: '" "', meaning: 'string literal',
+        code: 'show "hello world"\nbe s "greeting"' },
+    ]
+  },
+  {
+    section: 'Math Combinations',
+    entries: [
+      { word: 'has more', meaning: 'add',
+        code: 'be x has more 3   → x += 3' },
+      { word: 'has not more', meaning: 'subtract',
+        code: 'be x has not more 3   → x -= 3' },
+      { word: 'has again', meaning: 'multiply',
+        code: 'be x has again 3  → x *= 3' },
+      { word: 'has not again', meaning: 'divide',
+        code: 'be x has not again 3  → x /= 3' },
+    ]
+  },
+  {
+    section: 'Comparison Combinations',
+    entries: [
+      { word: 'is', meaning: 'equal (==)',
+        code: 'think x is 5,' },
+      { word: 'is not', meaning: 'not equal (≠)',
+        code: 'think x is not 5,' },
+      { word: 'is more', meaning: 'greater than (>)',
+        code: 'think x is more 5,' },
+      { word: 'is not more', meaning: 'less or equal (≤)',
+        code: 'think x is not more 5,' },
+    ]
+  },
+  {
+    section: 'Drawing with show',
+    entries: [
+      { word: 'pixel', meaning: '5 numbers: x y r g b',
+        code: 'show 50 50 255 0 0   → red pixel at (50,50)' },
+      { word: 'line', meaning: '4 position + is/not flag + 3 color',
+        code: 'show 10 10 90 90 is 255 255 0    → solid yellow\nshow 10 10 90 90 not 0 255 255   → dotted cyan' },
+      { word: 'circle', meaning: '3 position (x y radius) + is/not flag + 3 color',
+        code: 'show 50 50 20 is 255 0 0    → solid red circle\nshow 50 50 20 not 255 0 0   → hollow red circle' },
+      { word: 'clear', meaning: 'show not wipes the canvas',
+        code: 'show not   → clear canvas' },
+    ]
+  }
+];
+
+function showRef(){
+  const body = document.getElementById('ref-body');
+  body.innerHTML = '';
+  REFERENCE.forEach(sec => {
+    const sdiv = document.createElement('div');
+    sdiv.className = 'ref-section';
+    const h = document.createElement('h4');
+    h.textContent = sec.section;
+    sdiv.appendChild(h);
+    sec.entries.forEach(en => {
+      const e = document.createElement('div');
+      e.className = 'ref-entry';
+      const head = document.createElement('div');
+      head.innerHTML = '<span class="ref-word">' + escapeHtml(en.word) + '</span><span class="ref-meaning">' + escapeHtml(en.meaning) + '</span>';
+      e.appendChild(head);
+      if(en.code){
+        const c = document.createElement('pre');
+        c.className = 'ref-code';
+        c.textContent = en.code;
+        e.appendChild(c);
+      }
+      sdiv.appendChild(e);
+    });
+    body.appendChild(sdiv);
+  });
+  document.getElementById('ref-modal').classList.add('show');
+}
+
+function hideRef(){
+  document.getElementById('ref-modal').classList.remove('show');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function scrollToFn(name){
+  const pre = document.getElementById('lib-src');
+  const src = LIBRARY_SOURCE;
+  // re-render with this function highlighted
+  const lines = src.split('\n');
+  let inFn = false;
+  let highlighted = '';
+  for(const line of lines){
+    const opens = new RegExp('^know\\s+' + name + '\\b').test(line);
+    const closes = inFn && line.trim() === '.';
+    if(opens) inFn = true;
+    const rendered = highlightSource(line);
+    if(inFn) highlighted += '<div class="lib-hit">' + rendered + '</div>';
+    else highlighted += rendered + '\n';
+    if(closes){ inFn = false; }
+  }
+  pre.innerHTML = highlighted;
+  // scroll to first highlighted line
+  const first = pre.querySelector('.lib-hit');
+  if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
+}
+
+// initial friendly output
+log('thirteen — 13 words, 2 punctuation, quotes.', 'out-info');
+log('tap library for 13 built-in functions.', 'out-info');
+log('tap ▶ run to execute. tap examples to load one.', 'out-info');
+</script>
+</body>
+</html>
