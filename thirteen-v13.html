@@ -1,0 +1,3916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0e0b08" />
+<title>thirteen — a language of 13 words</title>
+<!-- Combined build: v11 features + visual graph view.
+     Press `graph` to see the source as nodes + wires. Press `canvas` (or run)
+     to go back to execution. -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,144,900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e0b08;
+    --paper:#18120d;
+    --ink:#f2ebd8;
+    --dim:#7a6f58;
+    --line:#2a221a;
+    --accent:#ff5722;
+    --accent-2:#ffd166;
+    --green:#9cde6e;
+    --red:#ff6b6b;
+    --blue:#7dd3fc;
+    --purple:#c4a7ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overscroll-behavior:none}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:13px;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    height:100dvh;
+    background-image:
+      radial-gradient(circle at 15% 5%, rgba(255,87,34,.10), transparent 45%),
+      radial-gradient(circle at 85% 95%, rgba(255,209,102,.06), transparent 45%);
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 1px, transparent 1px 3px);
+    mix-blend-mode:overlay;
+  }
+
+  header{
+    padding:14px 18px 10px;
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:10px;
+    flex-shrink:0;
+  }
+  .brand{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:26px;
+    letter-spacing:-0.02em;
+    line-height:1;
+    color:var(--ink);
+  }
+  .brand .dot{color:var(--accent)}
+  .sub{
+    font-size:10px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.15em;
+    text-align:right;
+  }
+
+  /* main layout — quadrant grid */
+  main{
+    display:grid;
+    grid-template-columns:1fr;
+    /* phone default: editor is biggest, other three stack below */
+    grid-template-rows:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+    grid-template-areas:
+      "editor"
+      "graph"
+      "canvas"
+      "output";
+    flex:1;
+    min-height:0;
+    gap:0;
+    background:var(--line);
+  }
+  /* tablet / landscape phone: 2x2 grid */
+  @media (min-width: 700px), (min-height: 500px) and (orientation: landscape){
+    main{
+      grid-template-columns:1fr 1fr;
+      grid-template-rows:1.1fr 1fr;
+      grid-template-areas:
+        "editor graph"
+        "canvas output";
+      gap:1px;
+    }
+  }
+
+  .quad{
+    background:var(--paper);
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+    position:relative;
+  }
+  .quad-head{
+    flex-shrink:0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:6px 12px 4px;
+    font-size:9px;
+    color:var(--dim);
+    text-transform:uppercase;
+    letter-spacing:0.18em;
+    background:var(--bg);
+    border-bottom:1px solid var(--line);
+  }
+  .quad-head .label{color:var(--dim)}
+  .quad-head .info{
+    color:var(--dim);
+    text-transform:none;
+    letter-spacing:0;
+    font-style:italic;
+    font-size:10px;
+  }
+  .quad-head .info.status{color:var(--green)}
+  .quad-head .info.status.err{color:var(--red)}
+  .quad-head .info.status.accent{color:var(--accent-2)}
+
+  .editor-wrap{
+    grid-area:editor;
+  }
+  .editor-body{
+    flex:1;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+  }
+  /* Layered editor: transparent textarea on top, colored highlight div below.
+     Both share identical font metrics and padding so glyphs line up exactly. */
+  .editor-layers{
+    flex:1;
+    min-height:0;
+    position:relative;
+    overflow:hidden;
+  }
+  textarea#code, .hl-layer{
+    position:absolute;
+    top:0; left:0;
+    width:100%; height:100%;
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:13px;
+    line-height:1.5;
+    padding:6px 14px 10px;
+    white-space:pre;
+    overflow:auto;
+    tab-size:2;
+    letter-spacing:0;
+    word-spacing:0;
+  }
+  textarea#code{
+    background:transparent;
+    color:transparent;
+    -webkit-text-fill-color:transparent;
+    caret-color:var(--accent);
+    border:none;
+    outline:none;
+    resize:none;
+    -webkit-appearance:none;
+    z-index:2;
+  }
+  .hl-layer{
+    pointer-events:none;
+    z-index:1;
+    color:var(--ink);
+    background:var(--paper);
+    overflow:hidden; /* the textarea scrolls; we sync via JS */
+  }
+  /* Token classes on the highlight layer */
+  .hl-kw{color:var(--accent);font-weight:600}
+  .hl-num{color:var(--blue)}
+  .hl-str{color:var(--green)}
+  .hl-punct{color:var(--accent-2);font-weight:600}
+  .hl-cmt{color:var(--dim);font-style:italic}
+  .hl-id{color:var(--ink)} /* unknown identifier — param, typo */
+  .hl-lib{color:var(--purple)} /* library function names: pi, sin, sqrt, etc */
+  /* Variable ids get inline color via style attr (dynamic, per-run) */
+
+  /* Graph quadrant */
+  .graph-wrap{
+    grid-area:graph;
+    background:#06040a;
+  }
+  .graph-scroll{
+    flex:1;
+    overflow:auto;
+    min-height:0;
+  }
+  #graph{
+    display:block;
+    min-width:100%;
+  }
+  #graph-err{
+    color:var(--red);
+    padding:12px 18px;
+    font-size:12px;
+    font-style:italic;
+    display:none;
+  }
+
+  /* Canvas quadrant */
+  .canvas-wrap{
+    grid-area:canvas;
+    background:#000;
+  }
+  .canvas-frame{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#000;
+    padding:6px;
+    min-height:0;
+    position:relative;
+  }
+  #canvas{
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    background:#000;
+    display:block;
+    aspect-ratio:1 / 1;
+    max-width:100%;
+    max-height:100%;
+    height:auto;
+    width:auto;
+    object-fit:contain;
+  }
+
+  /* Output quadrant */
+  .output-wrap{
+    grid-area:output;
+    background:#06040a;
+  }
+  #out{
+    flex:1;
+    overflow-y:auto;
+    padding:6px 14px 10px;
+    font-size:12px;
+    line-height:1.5;
+    white-space:pre-wrap;
+    word-break:break-word;
+    min-height:0;
+  }
+  .out-line{color:var(--green)}
+  .out-err{color:var(--red)}
+  .out-info{color:var(--dim);font-style:italic}
+  .out-prompt{color:var(--accent-2)}
+
+  /* SVG node styling (unchanged) */
+  .node-body{fill:var(--paper);stroke:var(--line);stroke-width:1}
+  .node-body.be{stroke:var(--accent-2)}
+  .node-body.show{stroke:var(--blue)}
+  .node-body.tell{stroke:var(--purple)}
+  .node-body.think{stroke:var(--green);stroke-dasharray:4,2}
+  .node-body.go{stroke:var(--accent);stroke-dasharray:4,2}
+  .node-body.know{stroke:var(--accent-2);stroke-width:2}
+  .node-body.stop{stroke:var(--red)}
+  .node-body.again{stroke:var(--blue);stroke-dasharray:2,2}
+  .node-body.call{stroke:var(--accent-2)}
+  .node-body.expr{fill:#12100a;stroke:var(--dim)}
+
+  .node-label{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    fill:var(--ink);
+    font-size:14px;
+  }
+  .node-label.be{fill:var(--accent-2)}
+  .node-label.show{fill:var(--blue)}
+  .node-label.tell{fill:var(--purple)}
+  .node-label.think{fill:var(--green)}
+  .node-label.go{fill:var(--accent)}
+  .node-label.know{fill:var(--accent-2)}
+  .node-label.stop{fill:var(--red)}
+  .node-label.again{fill:var(--blue)}
+  .node-label.call{fill:var(--accent-2)}
+
+  .expr-text{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    fill:var(--ink);
+  }
+  .expr-op{fill:var(--accent)}
+  .expr-num{fill:var(--blue)}
+  .expr-str{fill:var(--green)}
+  .expr-var{fill:var(--accent-2);font-weight:600}
+
+  .wire-label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    opacity:0.9;
+  }
+
+  .block-frame{
+    fill:rgba(255,255,255,0.02);
+    stroke:var(--line);
+    stroke-width:1;
+    stroke-dasharray:2,2;
+    rx:4;
+  }
+
+  /* autocomplete — now floats in the editor quadrant, above the textarea */
+  .ac-bar{
+    display:none;
+    position:absolute;
+    bottom:46px; /* above the palette */
+    left:8px;
+    right:8px;
+    max-width:calc(100% - 16px);
+    padding:4px;
+    background:rgba(14,11,8,0.92);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    border:1px solid var(--accent);
+    border-radius:3px;
+    gap:4px;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    z-index:20;
+  }
+  .ac-bar.show{display:flex}
+  .ac-chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    padding:5px 9px;
+    background:var(--accent);
+    color:var(--bg);
+    border:none;
+    border-radius:3px;
+    cursor:pointer;
+    user-select:none;
+    font-weight:600;
+  }
+  .ac-chip:active{background:#e04515}
+  .ac-chip .match{color:var(--bg);text-decoration:underline;text-decoration-color:rgba(0,0,0,0.4)}
+
+  /* controls */
+  .controls{
+    flex-shrink:0;
+    display:flex;
+    gap:0;
+    border-bottom:1px solid var(--line);
+  }
+  .btn{
+    flex:1;
+    padding:11px 8px;
+    background:var(--paper);
+    color:var(--ink);
+    border:none;
+    border-right:1px solid var(--line);
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .btn:last-child{border-right:none}
+  .btn:active{background:var(--line)}
+  .btn.primary{
+    background:var(--accent);
+    color:var(--bg);
+    font-weight:600;
+  }
+  .btn.primary:active{background:#e04515}
+
+  /* library modal */
+  .lib-modal{
+    background:var(--paper);
+    border:1px solid var(--accent-2);
+    padding:0;
+    border-radius:4px;
+    width:100%;
+    max-width:520px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .lib-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:18px 22px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-head h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:30px;
+    color:var(--accent-2);
+    line-height:1;
+  }
+  .lib-close{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--dim);
+    font-size:16px;
+    width:32px;
+    height:32px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .lib-close:active{background:var(--line);color:var(--ink)}
+  .lib-sub{
+    font-size:11px;
+    color:var(--dim);
+    padding:8px 22px 10px;
+    font-style:italic;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-toc{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+    padding:10px 22px;
+    border-bottom:1px solid var(--line);
+  }
+  .lib-toc .chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    padding:5px 9px;
+    background:var(--bg);
+    border:1px solid var(--line);
+    border-radius:3px;
+    color:var(--accent-2);
+    cursor:pointer;
+    user-select:none;
+  }
+  .lib-toc .chip:active{background:var(--line)}
+  .lib-src{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    line-height:1.55;
+    padding:14px 22px 22px;
+    color:var(--ink);
+    white-space:pre-wrap;
+    overflow-y:auto;
+    flex:1;
+  }
+  .lib-fn-name{color:var(--accent-2);font-weight:600}
+  .lib-kw{color:var(--accent)}
+  .lib-num{color:var(--blue)}
+  .lib-hit{
+    background:rgba(255,209,102,0.15);
+    border-left:2px solid var(--accent-2);
+    padding-left:10px;
+    margin-left:-12px;
+  }
+
+  /* reference modal */
+  .ref-modal{
+    background:var(--paper);
+    border:1px solid var(--blue);
+    padding:0;
+    border-radius:4px;
+    width:100%;
+    max-width:520px;
+    max-height:85vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .ref-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:18px 22px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-head h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:30px;
+    color:var(--blue);
+    line-height:1;
+  }
+  .ref-sub{
+    font-size:11px;
+    color:var(--dim);
+    padding:8px 22px 10px;
+    font-style:italic;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-body{
+    flex:1;
+    overflow-y:auto;
+    padding:14px 22px 22px;
+  }
+  .ref-section{
+    margin-bottom:22px;
+  }
+  .ref-section h4{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:18px;
+    color:var(--accent-2);
+    margin-bottom:10px;
+    padding-bottom:4px;
+    border-bottom:1px solid var(--line);
+  }
+  .ref-entry{
+    margin-bottom:14px;
+  }
+  .ref-word{
+    font-family:'JetBrains Mono', monospace;
+    font-size:14px;
+    font-weight:600;
+    color:var(--accent);
+    display:inline-block;
+    margin-right:10px;
+  }
+  .ref-meaning{
+    font-size:13px;
+    color:var(--ink);
+    display:inline;
+  }
+  .ref-code{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:var(--blue);
+    background:var(--bg);
+    padding:8px 10px;
+    border-radius:3px;
+    margin-top:6px;
+    white-space:pre-wrap;
+    border-left:2px solid var(--blue);
+  }
+  .ref-code .arrow{color:var(--dim)}
+  .ref-code .out{color:var(--green)}
+
+  /* modal for input */
+  .modal-bg{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,0.75);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  .modal-bg.show{display:flex}
+  .modal{
+    background:var(--paper);
+    border:1px solid var(--accent);
+    padding:22px;
+    border-radius:4px;
+    width:100%;
+    max-width:360px;
+  }
+  .modal h3{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:900;
+    font-size:22px;
+    margin-bottom:4px;
+    color:var(--accent-2);
+  }
+  .modal p{
+    font-size:12px;
+    color:var(--dim);
+    margin-bottom:14px;
+  }
+  .modal input{
+    width:100%;
+    background:var(--bg);
+    border:1px solid var(--line);
+    color:var(--ink);
+    padding:12px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:15px;
+    border-radius:3px;
+    outline:none;
+    margin-bottom:12px;
+  }
+  .modal input:focus{border-color:var(--accent)}
+  .modal button{
+    width:100%;
+    padding:12px;
+    background:var(--accent);
+    color:var(--bg);
+    border:none;
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:0.15em;
+    font-weight:600;
+    border-radius:3px;
+    cursor:pointer;
+  }
+
+  /* examples menu */
+  .examples{
+    display:none;
+    position:absolute;
+    top:100%;
+    left:0;right:0;
+    background:var(--paper);
+    border-bottom:1px solid var(--accent);
+    max-height:50vh;
+    overflow-y:auto;
+    z-index:50;
+  }
+  .examples.show{display:block}
+  .ex-item{
+    padding:12px 18px;
+    border-bottom:1px solid var(--line);
+    cursor:pointer;
+  }
+  .ex-item:active{background:var(--line)}
+  .ex-title{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-size:16px;
+    color:var(--accent-2);
+    margin-bottom:2px;
+  }
+  .ex-desc{font-size:11px;color:var(--dim)}
+
+  /* small screens */
+  @media (max-height: 650px){
+    .brand{font-size:22px}
+    header{padding:8px 14px 6px}
+  }
+
+  /* typing mode — keyboard is open on phone, let editor grow to fill the
+     grid so the other three quadrants fold away. On tablets/laptops the
+     grid is already roomy, so we leave it alone. */
+  @media (max-width: 699px) and (orientation: portrait){
+    body.typing main{
+      grid-template-rows:1fr 0 0 0;
+    }
+    body.typing .graph-wrap,
+    body.typing .canvas-wrap,
+    body.typing .output-wrap{display:none}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">thirteen<span class="dot">.</span></div>
+  <div class="sub">13 words<br/>+ , . " "</div>
+</header>
+
+<div class="controls" style="position:relative">
+  <div class="examples" id="examples"></div>
+  <button class="btn" onclick="toggleExamples()">examples</button>
+  <button class="btn" onclick="showLibrary()">library</button>
+  <button class="btn" onclick="showRef()">ref</button>
+  <button class="btn" onclick="clearOutput()">clear</button>
+  <button class="btn primary" onclick="runCode()">▶ run</button>
+</div>
+
+<main>
+  <!-- Q1: Editor (top-left) -->
+  <div class="quad editor-wrap">
+    <div class="quad-head">
+      <span class="label">source</span>
+      <span class="info" id="editor-info">13 words · , . " "</span>
+    </div>
+    <div class="editor-body">
+      <div class="ac-bar" id="ac-bar"></div>
+      <div class="editor-layers">
+        <div class="hl-layer" id="hl-layer" aria-hidden="true"></div>
+        <textarea id="code" spellcheck="false" autocapitalize="off" autocorrect="off">be x 10
+be y 20
+be x has more y
+show "x is " x
+show "y is " y</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q2: Graph (top-right) -->
+  <div class="quad graph-wrap">
+    <div class="quad-head">
+      <span class="label">graph · nodes &amp; wires</span>
+      <span class="info status accent" id="graph-status">ready</span>
+    </div>
+    <div class="graph-scroll">
+      <svg id="graph" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="graph-err"></div>
+    </div>
+  </div>
+
+  <!-- Q3: Canvas (bottom-left) -->
+  <div class="quad canvas-wrap">
+    <div class="quad-head">
+      <span class="label">canvas · 100×100</span>
+      <span class="info">show not · clears</span>
+    </div>
+    <div class="canvas-frame">
+      <canvas id="canvas" width="100" height="100"></canvas>
+    </div>
+  </div>
+
+  <!-- Q4: Output (bottom-right) -->
+  <div class="quad output-wrap">
+    <div class="quad-head">
+      <span class="label">output</span>
+      <span class="info status" id="status">ready</span>
+    </div>
+    <div id="out"></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="ref-modal">
+  <div class="ref-modal">
+    <div class="ref-head">
+      <h3>reference</h3>
+      <button class="lib-close" onclick="hideRef()">✕</button>
+    </div>
+    <p class="ref-sub">13 words · 2 punctuation · strings · combinations</p>
+    <div class="ref-body" id="ref-body"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="library-modal">
+  <div class="lib-modal">
+    <div class="lib-head">
+      <h3>library</h3>
+      <button class="lib-close" onclick="hideLibrary()">✕</button>
+    </div>
+    <p class="lib-sub">13 functions · all written in thirteen · always available</p>
+    <div class="lib-toc" id="lib-toc"></div>
+    <pre class="lib-src" id="lib-src"></pre>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>tell</h3>
+    <p id="modal-prompt">enter a number</p>
+    <input type="text" id="modal-input" inputmode="decimal" />
+    <button onclick="submitInput()">give</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   THIRTEEN — DESIGN NOTES FOR EXTENDERS
+   ============================================================================
+
+   The language has 13 words. That is not the important number.
+
+   The important number is the size of the PHRASE SPACE — every meaningful
+   combination of those 13 words with each other and with the punctuation.
+   That space is large and growable without adding vocabulary.
+
+   Each word is deliberately overloaded. The same word carries several
+   meanings, each unambiguous in its context:
+
+     not          — negate a value
+     has not      — remove from a collection
+     is not       — not-equal comparison
+     show not     — clear the canvas
+     show not tell — activate invisible input mode
+     be x not ""  — empty a string via negation
+     has not more — subtract
+     is not more  — less-than-or-equal
+
+   These are not puns. They are the genuine semantic overlap of the English
+   words, exposed rather than hidden under symbols. "Have more" IS addition.
+   "Again" IS multiplication (repeated addition). "Is not more" IS less-or-
+   equal. The language refuses to invent new syntax for things English
+   already has words for.
+
+   Consequence: the language grows by adding PHRASES, not WORDS. Every new
+   feature is a combination of the existing 13 that wasn't assigned a
+   meaning yet. You never expand the vocabulary; you expand the grammar.
+
+   ----------------------------------------------------------------------------
+   HOW TO ADD A NEW WORD MODIFIER
+   ----------------------------------------------------------------------------
+
+   Example: we added `show not tell` to make input invisible/nonblocking.
+   Here is the recipe, in order:
+
+   1. CHOOSE A PHRASE THAT DOESN'T ALREADY MEAN SOMETHING.
+      Look through existing patterns. Does the phrase currently parse as
+      something else? `show not tell` parsed as "show (nothing), tell (name)"
+      which was an error (tell needs an identifier). Safe to reassign.
+
+   2. FIND THE PARSER BRANCH FOR THE LEAD WORD.
+      For show-prefixed phrases, it's showStmt() in the Interp class.
+      For tell- or be- prefixed, it's tellStmt() / beStmt(). Etc.
+
+   3. PEEK AHEAD BEFORE THE NORMAL PARSE.
+      At the top of the statement handler, look at the next few tokens.
+      If they match your new phrase, handle it and return early. Otherwise
+      fall through to the normal parse.
+
+      Example from showStmt():
+        if(this.match('kw','not')){
+          const nextT = this.t[this.p+1];
+          if(nextT && nextT.type === 'kw' && nextT.val === 'tell'){
+            // matched "show not tell" — handle the new meaning
+            this.eat('kw','not');
+            this.eat('kw','tell');
+            this.invisibleInput = true;
+            activateInvisibleInput();
+            return;
+          }
+          // fall through: "show not" alone still means clear canvas
+        }
+
+   4. MIRROR THE CHANGE IN THE SYNC VARIANT.
+      Many statements have both async (stmt) and sync (stmtSync) forms —
+      sync is used inside function bodies. If the phrase is legal inside
+      functions, add the same branch to the sync version. If not, leave it;
+      users will get a sensible error.
+
+   5. ADD STATE TO THE INTERPRETER IF NEEDED.
+      New phrases often flip a mode (this.invisibleInput = true). Initialize
+      the flag in the Interp constructor so it starts false. Reset it where
+      appropriate (e.g. between runs).
+
+   6. UPDATE THE REFERENCE.
+      The REFERENCE array near the bottom of this file drives the "ref"
+      modal. Add an entry under the most relevant section so users can
+      discover the phrase.
+
+   7. ADD AN EXAMPLE.
+      The examples array drives the "examples" menu. A small working
+      program using the new phrase teaches it in one click.
+
+   ----------------------------------------------------------------------------
+   DESIGN DISCIPLINE
+   ----------------------------------------------------------------------------
+
+   The temptation when extending thirteen is to add a 14th word. Resist it.
+   Every time you want a new word, ask:
+
+     "Is there a combination of existing words that already reads naturally
+      for what I want?"
+
+   Almost always, there is. Examples of what NOT to add, and the phrase that
+   already means the same thing:
+
+     DON'T ADD          USE INSTEAD
+     --------           -----------
+     else               two `think` blocks with inverted conditions
+     and                nested `think` blocks
+     or                 two `think` blocks with the same body
+     break              set the loop condition false
+     minus              `has not more` (subtract)
+     divide             `has not again`
+     length             `more X` (where X is a collection or string)
+     return             `stop value`
+     clear              `show not` (canvas) or `be x not ""` (value)
+
+   The 13 words are a seed. The language grows by composition, not by
+   addition. Keep it that way.
+
+   ============================================================================ */
+
+// ============ STANDARD LIBRARY ============
+// All functions below are pre-loaded into every program.
+// They are written in thirteen itself — no cheating.
+const LIBRARY_SOURCE = `know pi,
+  be p 355
+  be p has not again 113
+  stop p
+.
+
+know tau,
+  be t pi
+  be t has again 2
+  stop t
+.
+
+know e,
+  be v 2718
+  be v has not again 1000
+  stop v
+.
+
+know neg n,
+  stop n has again not 1
+.
+
+know abs n,
+  think n is more 0,
+    stop n
+  .
+  stop neg n
+.
+
+know sq n,
+  stop n has again n
+.
+
+know max a b,
+  think a is more b,
+    stop a
+  .
+  stop b
+.
+
+know min a b,
+  think a is more b,
+    stop b
+  .
+  stop a
+.
+
+know pow b n,
+  be r 1
+  go n is more 0,
+    be r has again b
+    be n has not more 1
+  .
+  stop r
+.
+
+know mod a b,
+  go a has more 1 is more b,
+    be a has not more b
+  .
+  stop a
+.
+
+know floor n,
+  think n is not more 0,
+    be r 0
+    go r is more n,
+      be r has not more 1
+    .
+    stop r
+  .
+  be r 0
+  go r has more 1 is not more n,
+    be r has more 1
+  .
+  stop r
+.
+
+know sin x,
+  be t1 x
+  be t3 x has again x has again x has not again 6
+  be t5 x has again x has again x has again x has again x has not again 120
+  be t7 x has again x has again x has again x has again x has again x has again x has not again 5040
+  stop t1 has not more t3 has more t5 has not more t7
+.
+
+know cos x,
+  be t0 1
+  be t2 x has again x has not again 2
+  be t4 x has again x has again x has again x has not again 24
+  be t6 x has again x has again x has again x has again x has again x has not again 720
+  stop t0 has not more t2 has more t4 has not more t6
+.
+
+// sqrt — Newton's method, 10 iterations
+know sqrt n,
+  think n is not more 0,
+    stop 0
+  .
+  be x n
+  be i 0
+  go i is not more 10,
+    be q n
+    be q has not again x
+    be s x has more q
+    be x s has not again 2
+    be i has more 1
+  .
+  stop x
+.
+
+// ceil — smallest integer >= n
+know ceil n,
+  be f floor n
+  think f is n,
+    stop f
+  .
+  stop f has more 1
+.
+
+// round — nearest integer (half up)
+know round n,
+  be half 1
+  be half has not again 2
+  be shifted n has more half
+  stop floor shifted
+.
+
+// sign — -1, 0, or 1
+know sign n,
+  think n is more 0,
+    stop 1
+  .
+  think n is not 0,
+    stop neg 1
+  .
+  stop 0
+.
+
+// clamp x between lo and hi
+know clamp x lo hi,
+  stop min hi max lo x
+.
+
+// linear interpolation: a at t=0, b at t=1
+know lerp a b t,
+  be d b has not more a
+  be d has again t
+  stop a has more d
+.
+
+// map x from range [a b] to range [c d]
+know map x a b c d,
+  be range b has not more a
+  be t x has not more a
+  be t has not again range
+  stop lerp c d t
+.
+
+// sin with full-range argument reduction (works for any x)
+know sin2 x,
+  be shifted x has more pi
+  be reduced mod shifted tau
+  be y reduced has not more pi
+  // y is in [-pi, pi], but Taylor sin is only good near 0
+  // fold [pi/2, pi] → pi - y, and [-pi, -pi/2] → -pi - y
+  be half pi
+  be half has not again 2
+  think y is more half,
+    be y pi has not more y
+  .
+  think y is not more neg half,
+    be negpi neg pi
+    be y negpi has not more y
+  .
+  stop sin y
+.
+
+// cos with full-range argument reduction (uses cos(x) = sin(x + pi/2))
+know cos2 x,
+  be half pi
+  be half has not again 2
+  be shifted x has more half
+  stop sin2 shifted
+.
+
+// tan — sin over cos
+know tan x,
+  be s sin2 x
+  be c cos2 x
+  stop s has not again c
+.
+
+// exp — e^x via Taylor series (good for small |x|)
+know exp x,
+  be t0 1
+  be t1 x
+  be t2 x has again x has not again 2
+  be t3 x has again x has again x has not again 6
+  be t4 x has again x has again x has again x has not again 24
+  be t5 x has again x has again x has again x has again x has not again 120
+  be t6 x has again x has again x has again x has again x has again x has not again 720
+  stop t0 has more t1 has more t2 has more t3 has more t4 has more t5 has more t6
+.
+
+// ln — natural log via atanh identity: ln(n) = 2 * atanh((n-1)/(n+1))
+// good for n near 1; for other n, scale first
+know ln n,
+  be num n has not more 1
+  be den n has more 1
+  be u num
+  be u has not again den
+  be u2 u has again u
+  be t1 u
+  be u3 u has again u2
+  be t3 u3 has not again 3
+  be u5 u3 has again u2
+  be t5 u5 has not again 5
+  be u7 u5 has again u2
+  be t7 u7 has not again 7
+  be s t1 has more t3 has more t5 has more t7
+  be result s has again 2
+  stop result
+.
+
+// hypot — sqrt(a^2 + b^2)
+know hypot a b,
+  be sa sq a
+  be sb sq b
+  be s sa has more sb
+  stop sqrt s
+.
+
+// dist — Euclidean distance between two points
+know dist x1 y1 x2 y2,
+  be dx x2 has not more x1
+  be dy y2 has not more y1
+  stop hypot dx dy
+.
+
+// phi — golden ratio, (1 + sqrt 5) / 2
+know phi,
+  be r sqrt 5
+  be r has more 1
+  be r has not again 2
+  stop r
+.
+
+// asin via Taylor series (valid for |x| <= ~0.9)
+know asin x,
+  be x2 x has again x
+  be t1 x
+  be t3 x has again x2 has not again 6
+  be t5 x has again x2 has again x2 has again 3 has not again 40
+  be t7 x has again x2 has again x2 has again x2 has again 15 has not again 336
+  stop t1 has more t3 has more t5 has more t7
+.
+
+// acos — pi/2 - asin x
+know acos x,
+  be h pi
+  be h has not again 2
+  be a asin x
+  stop h has not more a
+.
+
+// atan via Taylor series (accurate for |x| ≤ ~0.5; converges slowly near 1)
+// for better range, reduce argument first: atan(x) = pi/2 - atan(1/x) when |x|>1
+know atan x,
+  be x2 x has again x
+  be t1 x
+  be u3 x has again x2
+  be t3 u3 has not again 3
+  be u5 u3 has again x2
+  be t5 u5 has not again 5
+  be u7 u5 has again x2
+  be t7 u7 has not again 7
+  stop t1 has not more t3 has more t5 has not more t7
+.
+
+// atan2 y x — full-quadrant arctangent
+// note: inherits atan's limited accuracy near |ratio|=1
+know atan2 y x,
+  be ar2 0
+  // x > 0: main branch, atan(y/x)
+  think x is more 0,
+    be q y has not again x
+    be ar2 atan q
+  .
+  // x == 0 and y > 0: pi/2
+  think x is 0,
+    think y is more 0,
+      be ar2 pi
+      be ar2 has not again 2
+    .
+  .
+  // x == 0 and y < 0: -pi/2
+  think x is 0,
+    think y is not more 0,
+      think y is not 0,
+        be ar2 pi
+        be ar2 has not again 2
+        be ar2 neg ar2
+      .
+    .
+  .
+  // x < 0: shift by +/-pi  (y≥0 → +pi, y<0 → -pi, by convention)
+  think x is not more 0,
+    think x is not 0,
+      be q y has not again x
+      be a atan q
+      think y is more 0,
+        be ar2 a has more pi
+      .
+      think y is 0,
+        be ar2 a has more pi
+      .
+      think y is not more 0,
+        think y is not 0,
+          be ar2 a has not more pi
+        .
+      .
+    .
+  .
+  stop ar2
+.
+
+// deg — radians to degrees
+know deg r,
+  be x r has again 180
+  stop x has not again pi
+.
+
+// rad — degrees to radians
+know rad d,
+  be x d has again pi
+  stop x has not again 180
+.
+
+be spin_seed 100
+
+know spin lo hi,
+  be spin_seed has again 10
+  be big spin_seed
+  be big has not again 13
+  be big floor big
+  be span hi has not more lo has more 1
+  be tenth big
+  be tenth has not again span
+  be tenth floor tenth
+  be tenth has again span
+  be r big has not more tenth
+  be r has more lo
+  stop r
+.
+`;
+
+// ============ CANVAS ENGINE ============
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function clearCanvas(){
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+clearCanvas();
+
+function rgbStr(r,g,b){
+  const clamp = v => Math.max(0, Math.min(255, Math.round(Number(v) || 0)));
+  return `rgb(${clamp(r)},${clamp(g)},${clamp(b)})`;
+}
+
+// draw a pixel at (x,y) with color (r,g,b)
+function drawPixel(x, y, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+}
+
+// draw a line from (x1,y1) to (x2,y2) via Bresenham; if dotted, skip every other pixel
+function drawLine(x1, y1, x2, y2, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  x1 = Math.floor(x1); y1 = Math.floor(y1);
+  x2 = Math.floor(x2); y2 = Math.floor(y2);
+  const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+  const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
+  let err = dx - dy;
+  let step = 0;
+  while(true){
+    if(solid || step % 2 === 0) ctx.fillRect(x1, y1, 1, 1);
+    if(x1 === x2 && y1 === y2) break;
+    const e2 = 2*err;
+    if(e2 > -dy){ err -= dy; x1 += sx; }
+    if(e2 < dx){ err += dx; y1 += sy; }
+    step++;
+  }
+}
+
+function drawBox(x, y, w, h, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  x = Math.floor(x); y = Math.floor(y);
+  w = Math.floor(w); h = Math.floor(h);
+  if(solid){
+    ctx.fillRect(x, y, w, h);
+  } else {
+    // outlined (dotted): draw 4 dashed edges
+    drawLine(x,     y,     x+w-1, y,     false, r, g, b);
+    drawLine(x+w-1, y,     x+w-1, y+h-1, false, r, g, b);
+    drawLine(x+w-1, y+h-1, x,     y+h-1, false, r, g, b);
+    drawLine(x,     y+h-1, x,     y,     false, r, g, b);
+  }
+}
+
+function drawCircle(cx, cy, radius, solid, r, g, b){
+  ctx.fillStyle = rgbStr(r,g,b);
+  cx = Math.floor(cx); cy = Math.floor(cy);
+  const rad = Math.max(0, Math.floor(radius));
+  if(solid){
+    for(let yy = -rad; yy <= rad; yy++){
+      for(let xx = -rad; xx <= rad; xx++){
+        if(xx*xx + yy*yy <= rad*rad) ctx.fillRect(cx+xx, cy+yy, 1, 1);
+      }
+    }
+  } else {
+    // midpoint circle, dotted
+    let x = rad, y = 0, err = 0, step = 0;
+    while(x >= y){
+      [[x,y],[y,x],[-y,x],[-x,y],[-x,-y],[-y,-x],[y,-x],[x,-y]].forEach(([ox,oy])=>{
+        if(step % 2 === 0) ctx.fillRect(cx+ox, cy+oy, 1, 1);
+      });
+      y++; step++;
+      if(err <= 0){ err += 2*y + 1; }
+      if(err > 0){ x--; err -= 2*x + 1; }
+    }
+  }
+}
+
+// ============ SOUND ENGINE ============
+// Web Audio is created lazily on first sound (browsers block autoplay).
+let _audioCtx = null;
+function getAudio(){
+  if(!_audioCtx){
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e){ return null; }
+  }
+  // some browsers start the context suspended
+  if(_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+const SHAPES = ['sine', 'square', 'sawtooth', 'triangle'];
+
+// Play a tone. freq Hz, dur ms, vol 0-100, shape 0-3.
+// If modFreq/modDepth are provided, adds an FM modulator.
+function playTone(freq, durMs, vol, shapeIdx, modFreq, modDepth){
+  const ac = getAudio();
+  if(!ac) return;
+  const now = ac.currentTime;
+  const dur = Math.max(0.01, durMs / 1000);
+  const shape = SHAPES[Math.max(0, Math.min(3, Math.floor(shapeIdx || 0)))];
+  const gain = ac.createGain();
+  const g = Math.max(0, Math.min(1, (vol == null ? 50 : vol) / 100));
+  // simple attack/release envelope to avoid clicks
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(g, now + 0.01);
+  gain.gain.setValueAtTime(g, now + dur - 0.02);
+  gain.gain.linearRampToValueAtTime(0, now + dur);
+  gain.connect(ac.destination);
+
+  const osc = ac.createOscillator();
+  osc.type = shape;
+  osc.frequency.setValueAtTime(Math.max(0.01, freq), now);
+  osc.connect(gain);
+
+  // Optional FM: modulator oscillator drives carrier's frequency
+  let mod, modGain;
+  if(modFreq != null && modDepth != null){
+    mod = ac.createOscillator();
+    mod.frequency.setValueAtTime(Math.max(0.01, modFreq), now);
+    modGain = ac.createGain();
+    modGain.gain.setValueAtTime(modDepth, now);
+    mod.connect(modGain);
+    modGain.connect(osc.frequency);
+    mod.start(now);
+    mod.stop(now + dur);
+  }
+
+  osc.start(now);
+  osc.stop(now + dur);
+}
+
+// Given a list of args (numbers or flags), try to draw or play. Returns true if handled.
+function tryDraw(args){
+  const nums = [];
+  let styleFlag = null;
+  let flagIdx = -1;
+  for(let i = 0; i < args.length; i++){
+    const a = args[i];
+    if(typeof a === 'number'){ nums.push(a); }
+    else if(a === '__IS__' || a === '__NOT__'){
+      if(styleFlag !== null) return false;
+      styleFlag = (a === '__IS__') ? 'is' : 'not';
+      flagIdx = nums.length;
+    } else {
+      return false;
+    }
+  }
+
+  const n = nums.length;
+  const solid = styleFlag === 'is';
+
+  // tone: 2 numbers, no flag → freq dur
+  if(n === 2 && styleFlag === null){
+    playTone(nums[0], nums[1], 50, 0);
+    return true;
+  }
+  // tone with volume: 3 numbers, no flag → freq dur vol
+  if(n === 3 && styleFlag === null){
+    playTone(nums[0], nums[1], nums[2], 0);
+    return true;
+  }
+  // tone with shape: 4 numbers, no flag → freq dur vol shape (0=sine 1=square 2=saw 3=triangle)
+  if(n === 4 && styleFlag === null){
+    playTone(nums[0], nums[1], nums[2], nums[3]);
+    return true;
+  }
+  // pixel: 5 numbers, no flag → x y r g b
+  if(n === 5 && styleFlag === null){
+    drawPixel(nums[0], nums[1], nums[2], nums[3], nums[4]);
+    return true;
+  }
+  // FM tone: 6 numbers, no flag → freq dur vol shape modfreq moddepth
+  if(n === 6 && styleFlag === null){
+    playTone(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
+    return true;
+  }
+  // line: 4 pos + flag + 3 color → x1 y1 x2 y2 [is|not] r g b
+  if(n === 7 && styleFlag !== null && flagIdx === 4){
+    drawLine(nums[0], nums[1], nums[2], nums[3], solid, nums[4], nums[5], nums[6]);
+    return true;
+  }
+  // circle: 3 pos + flag + 3 color → x y radius [is|not] r g b
+  if(n === 6 && styleFlag !== null && flagIdx === 3){
+    drawCircle(nums[0], nums[1], nums[2], solid, nums[3], nums[4], nums[5]);
+    return true;
+  }
+
+  return false;
+}
+
+// ============ ORIGINAL SCRIPT ============
+const words = ['be','is','has','not','more','again','think','go','stop','show','tell','know','guess'];
+
+const code = document.getElementById('code');
+
+// typing mode — on phone, when keyboard opens, collapse the other quadrants
+// so the editor takes the full grid. CSS handles it via body.typing.
+code.addEventListener('focus', () => document.body.classList.add('typing'));
+code.addEventListener('blur', () => document.body.classList.remove('typing'));
+
+function insertAtCursor(text){
+  const s = code.selectionStart, e = code.selectionEnd;
+  const before = code.value.slice(0,s), after = code.value.slice(e);
+  const needsSpaceBefore = before.length && !/\s$/.test(before) && !/[,.]/.test(text);
+  const insert = (needsSpaceBefore ? ' ' : '') + text;
+  code.value = before + insert + after;
+  const pos = s + insert.length;
+  code.focus();
+  code.setSelectionRange(pos,pos);
+  code.dispatchEvent(new Event('input', {bubbles:true}));
+}
+
+// punctuation and op chips removed — only word chips remain
+
+// ============ AUTOCOMPLETE ============
+const acBar = document.getElementById('ac-bar');
+
+function getCurrentWordFragment(){
+  const s = code.selectionStart;
+  const before = code.value.slice(0, s);
+  const m = before.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  return m ? m[1] : '';
+}
+
+function updateAutocomplete(){
+  const frag = getCurrentWordFragment();
+  acBar.innerHTML = '';
+  if(!frag){ acBar.classList.remove('show'); return; }
+  const matches = words.filter(w => w.startsWith(frag.toLowerCase()));
+  if(matches.length === 0 || (matches.length === 1 && matches[0] === frag)){
+    acBar.classList.remove('show');
+    return;
+  }
+  matches.forEach(w => {
+    const chip = document.createElement('button');
+    chip.className = 'ac-chip';
+    chip.innerHTML = '<span class="match">' + w.slice(0, frag.length) + '</span>' + w.slice(frag.length);
+    chip.onmousedown = (e) => { e.preventDefault(); completeWord(w); };
+    chip.ontouchstart = (e) => { e.preventDefault(); completeWord(w); };
+    acBar.appendChild(chip);
+  });
+  acBar.classList.add('show');
+}
+
+function completeWord(word){
+  const frag = getCurrentWordFragment();
+  const s = code.selectionStart;
+  const before = code.value.slice(0, s - frag.length);
+  const after = code.value.slice(s);
+  const insert = word + ' ';
+  code.value = before + insert + after;
+  const pos = before.length + insert.length;
+  code.focus();
+  code.setSelectionRange(pos, pos);
+  code.dispatchEvent(new Event('input', {bubbles:true}));
+}
+
+code.addEventListener('input', updateAutocomplete);
+code.addEventListener('keyup', updateAutocomplete);
+code.addEventListener('click', updateAutocomplete);
+
+// ============ OUTPUT HELPERS ============
+const out = document.getElementById('out');
+const status = document.getElementById('status');
+
+function log(text, cls='out-line'){
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  out.appendChild(d);
+  out.scrollTop = out.scrollHeight;
+}
+function clearOutput(){
+  out.innerHTML = '';
+  status.textContent = 'ready';
+  status.classList.remove('err');
+}
+
+// ============ INPUT MODAL ============
+let inputResolver = null;
+function askInput(prompt){
+  return new Promise(resolve=>{
+    inputResolver = resolve;
+    document.getElementById('modal-prompt').textContent = prompt;
+    document.getElementById('modal-input').value = '';
+    document.getElementById('modal').classList.add('show');
+    setTimeout(()=>document.getElementById('modal-input').focus(),100);
+  });
+}
+function submitInput(){
+  const val = document.getElementById('modal-input').value;
+  document.getElementById('modal').classList.remove('show');
+  if(inputResolver){ inputResolver(val); inputResolver=null; }
+}
+document.getElementById('modal-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); submitInput(); }
+});
+
+// ============ INVISIBLE INPUT (for `show not tell`) ============
+// A single shared buffer. Canvas taps write "l" or "r" based on which
+// half was tapped. Keys write the raw key. Reading via tell clears it.
+let invisibleBuffer = '';
+let invisibleActive = false;
+
+function activateInvisibleInput(){
+  if(invisibleActive) return;
+  invisibleActive = true;
+  const cv = document.getElementById('canvas');
+  cv.addEventListener('pointerdown', handleCanvasTap);
+  window.addEventListener('keydown', handleInvisibleKey);
+}
+function deactivateInvisibleInput(){
+  invisibleActive = false;
+  invisibleBuffer = '';
+  const cv = document.getElementById('canvas');
+  cv.removeEventListener('pointerdown', handleCanvasTap);
+  window.removeEventListener('keydown', handleInvisibleKey);
+}
+function handleCanvasTap(e){
+  const cv = document.getElementById('canvas');
+  const rect = cv.getBoundingClientRect();
+  const relX = e.clientX - rect.left;
+  invisibleBuffer = (relX < rect.width / 2) ? 'l' : 'r';
+}
+function handleInvisibleKey(e){
+  // Ignore modifier-only keys
+  if(e.key.length === 1){
+    invisibleBuffer = e.key.toLowerCase();
+  } else if(e.key === 'ArrowLeft'){
+    invisibleBuffer = 'l';
+  } else if(e.key === 'ArrowRight'){
+    invisibleBuffer = 'r';
+  } else if(e.key === 'ArrowUp'){
+    invisibleBuffer = 'u';
+  } else if(e.key === 'ArrowDown'){
+    invisibleBuffer = 'd';
+  }
+}
+function readInvisible(){
+  const v = invisibleBuffer;
+  invisibleBuffer = '';
+  return v;
+}
+function peekInvisible(){
+  return invisibleBuffer;
+}
+function clearInvisibleIf(match){
+  if(invisibleBuffer === match) invisibleBuffer = '';
+}
+function clearInvisible(){
+  invisibleBuffer = '';
+}
+
+// ============ LEXER ============
+function tokenize(src){
+  const toks = [];
+  let line = 1;
+  src = src.replace(/\/\/[^\n]*/g,'');
+  let i = 0;
+  while(i < src.length){
+    const ch = src[i];
+    if(ch === '\n'){
+      // only emit if last token isn't already a newline (collapse blanks)
+      if(toks.length && toks[toks.length-1].type !== 'nl'){
+        toks.push({type:'nl', val:'\n', line});
+      }
+      line++; i++; continue;
+    }
+    if(/\s/.test(ch)){ i++; continue; }
+    if(ch === ',' || ch === '.'){ toks.push({type:'punct', val:ch, line}); i++; continue; }
+    // string literal
+    if(ch === '"'){
+      let j = i+1, str = '';
+      while(j < src.length && src[j] !== '"'){
+        if(src[j] === '\n') line++;
+        str += src[j];
+        j++;
+      }
+      if(j >= src.length) throw new Error(`line ${line}: unclosed string`);
+      toks.push({type:'str', val:str, line});
+      i = j+1;
+      continue;
+    }
+    // number
+    if(/[0-9]/.test(ch)){
+      let j = i;
+      while(j < src.length && /[0-9.]/.test(src[j]) && !(src[j]==='.' && (j+1>=src.length || !/[0-9]/.test(src[j+1])))){
+        j++;
+      }
+      const numStr = src.slice(i,j);
+      toks.push({type:'num', val:parseFloat(numStr), line});
+      i = j;
+      continue;
+    }
+    if(/[a-zA-Z_]/.test(ch)){
+      let j = i;
+      while(j < src.length && /[a-zA-Z0-9_]/.test(src[j])) j++;
+      const w = src.slice(i,j);
+      if(words.includes(w)){
+        toks.push({type:'kw', val:w, line});
+      } else {
+        toks.push({type:'id', val:w, line});
+      }
+      i = j;
+      continue;
+    }
+    throw new Error(`unexpected "${ch}" on line ${line}`);
+  }
+  return toks;
+}
+
+// ============ COLLECTIONS ============
+// Items in a collection can be numbers or strings. When pushing via `has "X"`,
+// coerce the quoted string to a number if it parses cleanly. Text items stay
+// as strings.
+function coerceItem(s){
+  if(typeof s !== 'string') return s;
+  const t = s.trim();
+  if(t === '') return s;
+  const n = parseFloat(t);
+  if(!isNaN(n) && isFinite(n) && String(n) === t) return n;
+  return s;
+}
+function itemEq(a, b){
+  if(a === b) return true;
+  // allow 10 == "10" for remove-by-value
+  if(typeof a !== typeof b){
+    return String(a) === String(b);
+  }
+  return false;
+}
+
+// ============ INTERPRETER ============
+// Grammar (informal):
+// program      := stmt*
+// stmt         := be-stmt | show-stmt | tell-stmt | think-block | run-block | stop-stmt
+// be-stmt      := "be" IDENT expr
+// show-stmt    := "show" expr
+// tell-stmt    := "tell" IDENT
+// think-block  := "think" bool "," stmt* "."
+// run-block    := "run" bool "," stmt* "."
+// stop-stmt    := "stop"
+// bool         := expr ("is" ("not")? ("more")? expr)?
+// expr         := atom ("has" op)*      ← "has" chains ops onto current value
+// op           := ("not")? ("more"|"again") expr
+// atom         := NUMBER | IDENT
+
+class Interp {
+  constructor(tokens, ask, emit){
+    this.t = tokens;
+    this.p = 0;
+    this.vars = {};
+    this.funcs = {};
+    this.ask = ask;
+    this.emit = emit;
+    this.halted = false;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction = 0;
+    this.scopeStack = [];
+    this.invisibleInput = false;
+    // No native functions — everything is written in thirteen itself.
+    this.natives = {};
+  }
+  peek(o=0){ return this.t[this.p+o]; }
+  skipNL(){ while(this.peek() && this.peek().type === 'nl') this.p++; }
+  eat(type,val){
+    const tk = this.t[this.p];
+    if(!tk) throw new Error('unexpected end of program');
+    if(tk.type !== type) throw new Error(`line ${tk.line}: expected ${type} ${val||''}, got "${tk.val}"`);
+    if(val !== undefined && tk.val !== val) throw new Error(`line ${tk.line}: expected "${val}", got "${tk.val}"`);
+    this.p++;
+    return tk;
+  }
+  match(type,val){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type !== type) return false;
+    if(val !== undefined && tk.val !== val) return false;
+    return true;
+  }
+
+  async run(){
+    while(this.p < this.t.length && !this.halted){
+      await this.stmt();
+    }
+  }
+
+  async stmt(){
+    if(this.halted || this.returning) return;
+    // skip statement separators
+    while(this.peek() && this.peek().type === 'nl') this.p++;
+    const tk = this.peek();
+    if(!tk) return;
+    if(tk.type === 'kw'){
+      switch(tk.val){
+        case 'be': return await this.beStmt();
+        case 'show': return await this.showStmt();
+        case 'tell': return await this.tellStmt();
+        case 'think': return await this.thinkBlock();
+        case 'go': return await this.goBlock();
+        case 'know': return await this.knowStmt();
+        case 'guess': {
+          // evaluate guess, discard result (unusual but allowed)
+          this.guessValue();
+          return;
+        }
+        case 'again': {
+          // Statement-level tick: wait one animation frame (or N frames).
+          // Synchronizes with the browser's paint cycle so canvas draws
+          // before/after the tick are visible on screen.
+          this.p++;
+          let count = 1;
+          if(this.isExprStart()){
+            count = this.expr();
+            if(typeof count !== 'number') count = 1;
+            count = Math.max(1, Math.floor(count));
+          }
+          for(let i = 0; i < count; i++){
+            await new Promise(r => {
+              if(typeof requestAnimationFrame === 'function'){
+                requestAnimationFrame(() => r());
+              } else {
+                setTimeout(() => r(), 16);
+              }
+            });
+            if(this.halted || this.returning) break;
+          }
+          return;
+        }
+        case 'stop':
+          this.p++;
+          if(this.inFunction > 0){
+            // inside a function: optional value, then return
+            if(this.isExprStart()){
+              this.returnValue = this.expr();
+            } else {
+              this.returnValue = undefined;
+            }
+            this.returning = true;
+          } else {
+            // top-level: halt everything
+            this.halted = true;
+          }
+          return;
+        default: throw new Error(`line ${tk.line}: unexpected keyword "${tk.val}" at statement start`);
+      }
+    }
+    // identifier at statement start = function call
+    if(tk.type === 'id'){
+      if(tk.val in this.natives){
+        this.callNative(tk.val);
+        return;
+      }
+      if(tk.val in this.funcs){
+        return await this.callStmt();
+      }
+      throw new Error(`line ${tk.line}: "${tk.val}" is not defined`);
+    }
+    throw new Error(`line ${tk.line}: unexpected "${tk.val}" at statement start`);
+  }
+
+  async beStmt(){
+    this.eat('kw','be');
+    const id = this.eat('id').val;
+    // Bare "be x" with no expression → empty collection
+    if(!this.isExprStart() && !this.match('kw','has')){
+      this.assignVar(id, []);
+      return;
+    }
+    const val = this.expr(id, true);  // allow collection literal in be context
+    this.assignVar(id, val);
+  }
+
+  // Assign a variable. If inside a function and the name exists in the
+  // outer (enclosing) scope, update it there too. This gives us "global-ish"
+  // variables without needing a new keyword — any variable defined outside
+  // a function is visible and mutable from inside.
+  assignVar(id, val){
+    this.vars[id] = val;
+    // propagate to outer scopes where this variable already exists
+    for(let i = this.scopeStack.length - 1; i >= 0; i--){
+      const scope = this.scopeStack[i];
+      if(id in scope) scope[id] = val;
+    }
+  }
+
+  async showStmt(){
+    this.eat('kw','show');
+    // Special case: "show not" alone = clear canvas
+    // Special case: "show not tell" = activate invisible input mode
+    if(this.match('kw','not')){
+      const nextT = this.t[this.p+1];
+      // "show not tell" — turn tell into nonblocking invisible input
+      if(nextT && nextT.type === 'kw' && nextT.val === 'tell'){
+        this.eat('kw','not');
+        this.eat('kw','tell');
+        this.invisibleInput = true;
+        if(typeof activateInvisibleInput === 'function') activateInvisibleInput();
+        return;
+      }
+      // "show not" + end = clear canvas
+      const isEnd = !nextT || nextT.type === 'nl' || (nextT.type === 'punct');
+      if(isEnd){
+        this.eat('kw','not');
+        clearCanvas();
+        return;
+      }
+    }
+    const args = [];
+    // Track whether current context looks drawable (only numbers so far)
+    let pureNumbers = true;
+    while(this.isShowArgStart()){
+      if(this.match('kw','is')){
+        this.eat('kw','is');
+        args.push('__IS__');
+      } else if(this.match('kw','not')){
+        // In a pure-numbers context, "not" is the dotted-style flag.
+        // Otherwise (a string is in the mix), treat as prefix on next value.
+        if(pureNumbers){
+          this.eat('kw','not');
+          args.push('__NOT__');
+        } else {
+          args.push(this.expr());
+        }
+      } else {
+        const v = this.expr();
+        if(typeof v !== 'number') pureNumbers = false;
+        args.push(v);
+      }
+    }
+    if(tryDraw(args)) return;
+    // Otherwise, treat as text: stringify non-flag args, ignore flags.
+    // Collections render space-separated.
+    const text = args
+      .filter(a => a !== '__IS__' && a !== '__NOT__')
+      .map(v => Array.isArray(v) ? v.join(' ') : String(v))
+      .join('');
+    this.emit(text);
+  }
+
+  isShowArgStart(){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type === 'num' || tk.type === 'str' || tk.type === 'id') return true;
+    if(tk.type === 'kw' && (tk.val === 'not' || tk.val === 'is' || tk.val === 'guess' || tk.val === 'more')) return true;
+    return false;
+  }
+
+  isExprStart(){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type === 'num' || tk.type === 'str' || tk.type === 'id') return true;
+    if(tk.type === 'kw' && (tk.val === 'not' || tk.val === 'guess' || tk.val === 'more')) return true;
+    return false;
+  }
+
+  async tellStmt(){
+    this.eat('kw','tell');
+    const id = this.eat('id').val;
+    let s;
+    if(this.invisibleInput && typeof readInvisible === 'function'){
+      // Nonblocking: return last captured key/tap, or empty if none
+      s = readInvisible();
+    } else {
+      s = await this.ask(`tell ${id}:`);
+    }
+    // if it parses cleanly as a number, store as number; otherwise as string
+    const n = parseFloat(s);
+    const clean = String(s).trim();
+    if(clean !== '' && !isNaN(n) && isFinite(n) && String(n) === clean){
+      this.vars[id] = n;
+    } else {
+      this.vars[id] = s;
+    }
+  }
+
+  async thinkBlock(){
+    this.eat('kw','think');
+    const cond = this.bool();
+    this.eat('punct',',');
+    if(cond){
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        const tk = this.peek();
+        if(!tk) throw new Error('think block never closed with "."');
+        if(tk.type === 'punct' && tk.val === '.') break;
+        await this.stmt();
+      }
+      this.skipNL();
+      this.eat('punct','.');
+    } else {
+      this.skipToDot();
+    }
+  }
+
+  async goBlock(){
+    this.eat('kw','go');
+    const condStart = this.p;
+    // Evaluate the condition slot. If it's a simple identifier AND the value
+    // is a collection, we iterate; otherwise we fall back to while-loop mode.
+    const iterShape = this.isIterationShape(condStart);
+    let firstEval;
+    if(iterShape){
+      // Read as raw expression (not coerced to bool)
+      firstEval = this.expr();
+    } else {
+      firstEval = this.bool();
+    }
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    let depth = 1;
+    let scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error('go block never closed with "."');
+    const bodyEnd = scan;
+
+    if(iterShape && Array.isArray(firstEval)){
+      const items = firstEval.slice();
+      const idTok = this.t[condStart];
+      const collName = idTok.val;
+      const savedVal = this.vars[collName];
+      const hadIt = (collName in this.vars);
+      for(const item of items){
+        if(this.halted || this.returning) break;
+        this.vars[collName] = item;
+        this.p = bodyStart;
+        while(!this.halted && !this.returning){
+          this.skipNL();
+          if(this.p >= bodyEnd) break;
+          const tk = this.peek();
+          if(tk && tk.type === 'punct' && tk.val === '.') break;
+          await this.stmt();
+        }
+      }
+      if(hadIt) this.vars[collName] = savedVal;
+      else delete this.vars[collName];
+      this.p = bodyEnd + 1;
+      return;
+    }
+
+    // While-loop mode (also falls here if "go nums," but nums isn't a collection —
+    // then it treats truthy value as condition).
+    let safety = 0;
+    let cond = iterShape ? !!firstEval : firstEval;
+    while(!this.halted && !this.returning){
+      if(++safety > 100000) throw new Error('go loop exceeded 100000 iterations');
+      if(!cond) break;
+      this.p = bodyStart;
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        if(this.p >= bodyEnd) break;
+        const tk = this.peek();
+        if(tk && tk.type === 'punct' && tk.val === '.') break;
+        await this.stmt();
+      }
+      this.p = condStart;
+      cond = this.bool();
+      this.eat('punct',',');
+    }
+    this.p = bodyEnd + 1;
+  }
+
+  // Iteration shape: the condition slot is exactly "IDENT ," (one identifier,
+  // then the comma that terminates the condition). Helpers for both async
+  // and sync go-block evaluators.
+  isIterationShape(condStart){
+    const a = this.t[condStart];
+    const b = this.t[condStart + 1];
+    if(!a || !b) return false;
+    if(a.type !== 'id') return false;
+    if(b.type !== 'punct' || b.val !== ',') return false;
+    return true;
+  }
+
+  // know name param1 param2 ... , body .
+  async knowStmt(){
+    this.eat('kw','know');
+    const nameTok = this.eat('id');
+    const params = [];
+    while(this.peek() && this.peek().type === 'id'){
+      params.push(this.eat('id').val);
+    }
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    // find matching .
+    let depth = 1;
+    let scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error(`line ${nameTok.line}: know block never closed with "."`);
+    this.funcs[nameTok.val] = { params, bodyStart, bodyEnd: scan };
+    this.p = scan + 1; // skip past the closing .
+  }
+
+  async callStmt(){
+    return await this.callAsValue();
+  }
+
+  // Function call that returns a value (used both as statement and as expression)
+  async callAsValue(){
+    const nameTok = this.eat('id');
+    const fn = this.funcs[nameTok.val];
+    const args = [];
+    while(this.isExprStart()){
+      args.push(this.expr());
+    }
+    if(args.length !== fn.params.length){
+      throw new Error(`line ${nameTok.line}: "${nameTok.val}" expects ${fn.params.length} arg(s), got ${args.length}`);
+    }
+    const savedVars = this.vars;
+    const resumeP = this.p;
+    const savedReturning = this.returning;
+    const savedReturnValue = this.returnValue;
+    this.scopeStack.push(savedVars);
+    this.vars = Object.assign({}, savedVars);
+    fn.params.forEach((name,i)=>{ this.vars[name] = args[i]; });
+    this.p = fn.bodyStart;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction++;
+    while(!this.halted && !this.returning){
+      this.skipNL();
+      if(this.p >= fn.bodyEnd) break;
+      const tk = this.peek();
+      if(tk && tk.type === 'punct' && tk.val === '.') break;
+      await this.stmt();
+    }
+    this.inFunction--;
+    const result = this.returnValue;
+    this.scopeStack.pop();
+    this.vars = savedVars;
+    this.p = resumeP;
+    this.returning = savedReturning;
+    this.returnValue = savedReturnValue;
+    return result;
+  }
+
+  skipToDot(){
+    let depth = 1;
+    while(this.p < this.t.length && depth > 0){
+      const tk = this.t[this.p++];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; }
+    }
+  }
+
+  // boolean expression: expr (is (not)? (more)? expr)?
+  bool(){
+    const left = this.expr();
+    if(this.match('kw','is')){
+      this.eat('kw','is');
+      let negate = false, gt = false;
+      if(this.match('kw','not')){ this.eat('kw','not'); negate = true; }
+      if(this.match('kw','more')){ this.eat('kw','more'); gt = true; }
+      const right = this.expr();
+      let result;
+      if(gt) result = left > right;
+      else result = left === right;
+      return negate ? !result : result;
+    }
+    return !!left;
+  }
+
+  // expression with "has" chains:
+  //   atom (has (not)? (more|again) atom | has [not] QUOTED | has not)*
+  //
+  // New in v11: quoted values after "has" mean PUSH to collection.
+  //   x has "10"           — push 10 onto collection x
+  //   x has not "10"       — remove 10 from collection x
+  //   x has not            — clear collection x (bare, no rhs)
+  //
+  // Also: multiple quoted atoms in a row build a collection literal:
+  //   be nums "10" "20" "30"   → nums = [10, 20, 30]
+  //
+  // And: indexing with a bare number after a collection:
+  //   show nums 0              → first item
+  expr(selfIdent, allowCollLiteral){
+    let val;
+    if(this.match('kw','has')){
+      if(selfIdent === undefined) throw new Error(`line ${this.peek().line}: "has" with no subject`);
+      val = this.vars[selfIdent];
+      if(val === undefined) val = 0;
+    } else {
+      val = this.atom();
+      // Collection literal: quoted atom followed by more quoted atoms → array.
+      // Only forms when allowCollLiteral is true — i.e. in `be` context.
+      // In other contexts (show, think conditions, function args), adjacent
+      // strings stay as separate tokens so they can be separate args.
+      if(allowCollLiteral && typeof val === 'string' && this.peek() && this.peek().type === 'str'){
+        const coll = [coerceItem(val)];
+        while(this.peek() && this.peek().type === 'str'){
+          const s = this.eat('str').val;
+          coll.push(coerceItem(s));
+        }
+        val = coll;
+      }
+      // Index access: collection followed by a bare number → item at index.
+      while(Array.isArray(val) && this.peek() && this.peek().type === 'num'){
+        const idx = this.eat('num').val;
+        const i = Math.floor(idx);
+        val = (i >= 0 && i < val.length) ? val[i] : undefined;
+      }
+      // Key access: collection followed by a quoted string → value paired with
+      // that key. Scans the collection as pairs (key, value, key, value, ...).
+      while(Array.isArray(val) && this.peek() && this.peek().type === 'str'){
+        const keyTok = this.eat('str');
+        const key = keyTok.val;
+        let found;
+        for(let i = 0; i + 1 < val.length; i += 2){
+          if(itemEq(val[i], key)){ found = val[i+1]; break; }
+        }
+        val = found;
+      }
+    }
+    while(this.match('kw','has')){
+      this.eat('kw','has');
+      let negate = false;
+      if(this.match('kw','not')){ this.eat('kw','not'); negate = true; }
+      let op = null;
+      if(this.match('kw','more')){ this.eat('kw','more'); op = 'more'; }
+      else if(this.match('kw','again')){ this.eat('kw','again'); op = 'again'; }
+
+      if(op === null){
+        // No more/again — either push, remove, or bare "has not" = clear
+        if(!this.isExprStart()){
+          if(!negate) throw new Error(`line ${this.peek()?.line||'?'}: expected "more" or "again" after "has"`);
+          val = [];
+          continue;
+        }
+        const nxt = this.peek();
+        // Quoted string literal → push/remove the literal value.
+        if(nxt && nxt.type === 'str'){
+          const itemTok = this.eat('str');
+          const item = coerceItem(itemTok.val);
+          if(!Array.isArray(val)) val = [];
+          if(negate){
+            val = val.filter(x => !itemEq(x, item));
+          } else {
+            val = val.concat([item]);
+          }
+          continue;
+        }
+        // Number literal → push/remove that number.
+        if(nxt && nxt.type === 'num'){
+          const n = this.eat('num').val;
+          if(!Array.isArray(val)) val = [];
+          if(negate){
+            val = val.filter(x => !itemEq(x, n));
+          } else {
+            val = val.concat([n]);
+          }
+          continue;
+        }
+        // Bare identifier → push/remove the VALUE of that variable.
+        if(nxt && nxt.type === 'id'){
+          const v = this.atom(); // lookup variable value
+          if(!Array.isArray(val)) val = [];
+          if(negate){
+            val = val.filter(x => !itemEq(x, v));
+          } else {
+            val = val.concat([v]);
+          }
+          continue;
+        }
+        throw new Error(`line ${this.peek()?.line||'?'}: expected "more", "again", a literal, or a name after "has"`);
+      }
+
+      const rhs = this.atom();
+      if(op === 'more'){
+        // PAIR-PUSH: detect by shape — if rhs is a string (a key) and
+        // another expression atom follows, treat as (key, value) pair.
+        //   be bob has more "name" "Bob"    → push pair ("name", "Bob")
+        //   be bob has not more "hp"        → remove pair by key
+        // Works whether bob was already a collection or is being upgraded.
+        const isPairShape =
+          typeof rhs === 'string' &&
+          !negate &&
+          this.isExprStart();
+        if(isPairShape){
+          if(!Array.isArray(val)) val = [];
+          const value = this.atom();
+          val = val.concat([rhs, value]);
+          continue;
+        }
+        // REMOVE-BY-KEY: `has not more "key"` with no value following.
+        if(negate && typeof rhs === 'string' && Array.isArray(val)){
+          const out = [];
+          for(let i = 0; i + 1 < val.length; i += 2){
+            if(!itemEq(val[i], rhs)) out.push(val[i], val[i+1]);
+          }
+          val = out;
+          continue;
+        }
+        // ARITHMETIC/CONCAT: string concat if either side is a string
+        if(typeof val === 'string' || typeof rhs === 'string'){
+          if(negate){
+            const s = String(val), r = String(rhs);
+            if(s.endsWith(r)) val = s.slice(0, s.length - r.length);
+            else val = s.split(r).join('');
+          } else {
+            val = String(val) + String(rhs);
+          }
+        } else {
+          val = negate ? (val - rhs) : (val + rhs);
+        }
+      } else { // again
+        if(typeof val === 'string'){
+          val = negate ? val : String(val).repeat(Math.max(0, Math.floor(rhs)));
+        } else {
+          val = negate ? (val / rhs) : (val * rhs);
+        }
+      }
+    }
+    return val;
+  }
+
+  // Call a native (JS-implemented) function.
+  callNative(name){
+    const nativeTok = this.eat('id');
+    const spec = this.natives[name];
+    const args = [];
+    for(let i = 0; i < spec.arity; i++){
+      args.push(this.atom());
+    }
+    return spec.fn(...args);
+  }
+
+  // guess min max → random integer in [min, max] inclusive
+  guessValue(){
+    this.eat('kw','guess');
+    const lo = this.atom();
+    const hi = this.atom();
+    if(typeof lo !== 'number' || typeof hi !== 'number'){
+      throw new Error('guess expects two numbers: min and max');
+    }
+    const a = Math.min(lo, hi), b = Math.max(lo, hi);
+    return Math.floor(Math.random() * (Math.floor(b) - Math.ceil(a) + 1)) + Math.ceil(a);
+  }
+
+  atom(){
+    const tk = this.peek();
+    if(!tk) throw new Error('unexpected end of expression');
+    if(tk.type === 'num'){ this.p++; return tk.val; }
+    if(tk.type === 'str'){ this.p++; return tk.val; }
+    if(tk.type === 'id'){
+      // native function?
+      if(tk.val in this.natives){
+        return this.callNative(tk.val);
+      }
+      // user-defined function?
+      if(tk.val in this.funcs){
+        return this.callFnSync(tk.val, tk.line);
+      }
+      this.p++;
+      if(!(tk.val in this.vars)) throw new Error(`line ${tk.line}: unknown name "${tk.val}"`);
+      return this.vars[tk.val];
+    }
+    if(tk.type === 'kw' && tk.val === 'not'){
+      this.p++;
+      const v = this.atom();
+      if(typeof v === 'string') return '';
+      if(Array.isArray(v)) return [];
+      return -v;
+    }
+    if(tk.type === 'kw' && tk.val === 'more'){
+      // "more X" at atom position → length-of-collection (or string length)
+      this.p++;
+      const v = this.atom();
+      if(Array.isArray(v)) return v.length;
+      if(typeof v === 'string') return v.length;
+      return 0;
+    }
+    if(tk.type === 'kw' && tk.val === 'guess'){
+      return this.guessValue();
+    }
+    throw new Error(`line ${tk.line}: expected a number, string, or name, got "${tk.val}"`);
+  }
+
+  // Synchronous function call used inside expressions.
+  // Works because our function bodies don't actually need async except for tell.
+  // If a function uses tell, that's a limitation we accept for now.
+  callFnSync(name, line){
+    this.eat('id');
+    const fn = this.funcs[name];
+    const args = [];
+    while(this.isExprStart()){
+      args.push(this.expr());
+    }
+    if(args.length !== fn.params.length){
+      throw new Error(`line ${line}: "${name}" expects ${fn.params.length} arg(s), got ${args.length}`);
+    }
+    const savedVars = this.vars;
+    const resumeP = this.p;
+    const savedReturning = this.returning;
+    const savedReturnValue = this.returnValue;
+    this.scopeStack.push(savedVars);
+    this.vars = Object.assign({}, savedVars);
+    fn.params.forEach((pname,i)=>{ this.vars[pname] = args[i]; });
+    this.p = fn.bodyStart;
+    this.returning = false;
+    this.returnValue = undefined;
+    this.inFunction++;
+    // sync body loop — dispatch statements synchronously
+    while(!this.halted && !this.returning){
+      this.skipNL();
+      if(this.p >= fn.bodyEnd) break;
+      const tk = this.peek();
+      if(tk && tk.type === 'punct' && tk.val === '.') break;
+      this.stmtSync();
+    }
+    this.inFunction--;
+    const result = this.returnValue;
+    this.scopeStack.pop();
+    this.vars = savedVars;
+    this.p = resumeP;
+    this.returning = savedReturning;
+    this.returnValue = savedReturnValue;
+    return result;
+  }
+
+  // Synchronous statement dispatcher (for use inside function calls from expressions).
+  // Does not support tell (which requires await).
+  stmtSync(){
+    if(this.halted || this.returning) return;
+    while(this.peek() && this.peek().type === 'nl') this.p++;
+    const tk = this.peek();
+    if(!tk) return;
+    if(tk.type === 'kw'){
+      switch(tk.val){
+        case 'be': {
+          this.eat('kw','be');
+          const id = this.eat('id').val;
+          if(!this.isExprStart() && !this.match('kw','has')){
+            this.assignVar(id, []);
+            return;
+          }
+          const val = this.expr(id, true);
+          this.assignVar(id, val);
+          return;
+        }
+        case 'show': {
+          // reuse async showStmt but inline — we skip canvas draws here too
+          return this.showStmtSync();
+        }
+        case 'tell':
+          throw new Error(`line ${tk.line}: "tell" not allowed inside a function used as an expression`);
+        case 'think': return this.thinkBlockSync();
+        case 'go': return this.goBlockSync();
+        case 'know': return this.knowStmt();
+        case 'guess': { this.guessValue(); return; }
+        case 'again':
+          throw new Error(`line ${tk.line}: "again" (tick/wait) is not allowed inside a function used as an expression`);
+        case 'stop':
+          this.p++;
+          if(this.inFunction > 0){
+            if(this.isExprStart()){ this.returnValue = this.expr(); }
+            else { this.returnValue = undefined; }
+            this.returning = true;
+          } else {
+            this.halted = true;
+          }
+          return;
+        default: throw new Error(`line ${tk.line}: unexpected keyword "${tk.val}"`);
+      }
+    }
+    if(tk.type === 'id'){
+      if(tk.val in this.natives){
+        this.callNative(tk.val);
+        return;
+      }
+      if(tk.val in this.funcs){
+        this.callFnSync(tk.val, tk.line);
+        return;
+      }
+      throw new Error(`line ${tk.line}: "${tk.val}" is not defined`);
+    }
+    throw new Error(`line ${tk.line}: unexpected "${tk.val}"`);
+  }
+
+  showStmtSync(){
+    this.eat('kw','show');
+    if(this.match('kw','not')){
+      const nextT = this.t[this.p+1];
+      if(nextT && nextT.type === 'kw' && nextT.val === 'tell'){
+        this.eat('kw','not');
+        this.eat('kw','tell');
+        this.invisibleInput = true;
+        if(typeof activateInvisibleInput === 'function') activateInvisibleInput();
+        return;
+      }
+      const isEnd = !nextT || nextT.type === 'nl' || (nextT.type === 'punct');
+      if(isEnd){
+        this.eat('kw','not');
+        clearCanvas();
+        return;
+      }
+    }
+    const args = [];
+    let pureNumbers = true;
+    while(this.isShowArgStart()){
+      if(this.match('kw','is')){ this.eat('kw','is'); args.push('__IS__'); }
+      else if(this.match('kw','not')){
+        if(pureNumbers){ this.eat('kw','not'); args.push('__NOT__'); }
+        else { args.push(this.expr()); }
+      } else {
+        const v = this.expr();
+        if(typeof v !== 'number') pureNumbers = false;
+        args.push(v);
+      }
+    }
+    if(tryDraw(args)) return;
+    const text = args
+      .filter(a => a !== '__IS__' && a !== '__NOT__')
+      .map(v => Array.isArray(v) ? v.join(' ') : String(v))
+      .join('');
+    this.emit(text);
+  }
+
+  thinkBlockSync(){
+    this.eat('kw','think');
+    const cond = this.bool();
+    this.eat('punct',',');
+    if(cond){
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        const tk = this.peek();
+        if(!tk) throw new Error('think block never closed with "."');
+        if(tk.type === 'punct' && tk.val === '.') break;
+        this.stmtSync();
+      }
+      this.skipNL();
+      this.eat('punct','.');
+    } else {
+      this.skipToDot();
+    }
+  }
+
+  goBlockSync(){
+    this.eat('kw','go');
+    const condStart = this.p;
+    const iterShape = this.isIterationShape(condStart);
+    let firstEval;
+    if(iterShape){
+      firstEval = this.expr();
+    } else {
+      firstEval = this.bool();
+    }
+    this.eat('punct',',');
+    const bodyStart = this.p;
+    let depth = 1, scan = bodyStart;
+    while(scan < this.t.length && depth > 0){
+      const tk = this.t[scan];
+      if(tk.type==='punct' && tk.val===','){ depth++; }
+      else if(tk.type==='punct' && tk.val==='.'){ depth--; if(depth===0) break; }
+      scan++;
+    }
+    if(depth !== 0) throw new Error('go block never closed with "."');
+    const bodyEnd = scan;
+
+    if(iterShape && Array.isArray(firstEval)){
+      const items = firstEval.slice();
+      const idTok = this.t[condStart];
+      const collName = idTok.val;
+      const savedVal = this.vars[collName];
+      const hadIt = (collName in this.vars);
+      for(const item of items){
+        if(this.halted || this.returning) break;
+        this.vars[collName] = item;
+        this.p = bodyStart;
+        while(!this.halted && !this.returning){
+          this.skipNL();
+          if(this.p >= bodyEnd) break;
+          const tk = this.peek();
+          if(tk && tk.type === 'punct' && tk.val === '.') break;
+          this.stmtSync();
+        }
+      }
+      if(hadIt) this.vars[collName] = savedVal;
+      else delete this.vars[collName];
+      this.p = bodyEnd + 1;
+      return;
+    }
+
+    let safety = 0;
+    let cond = iterShape ? !!firstEval : firstEval;
+    while(!this.halted && !this.returning){
+      if(++safety > 100000) throw new Error('go loop exceeded 100000 iterations');
+      if(!cond) break;
+      this.p = bodyStart;
+      while(!this.halted && !this.returning){
+        this.skipNL();
+        if(this.p >= bodyEnd) break;
+        const tk = this.peek();
+        if(tk && tk.type === 'punct' && tk.val === '.') break;
+        this.stmtSync();
+      }
+      this.p = condStart;
+      cond = this.bool();
+      this.eat('punct',',');
+    }
+    this.p = bodyEnd + 1;
+  }
+}
+
+// ============ RUNNER ============
+async function runCode(){
+  clearOutput();
+  clearCanvas();
+  deactivateInvisibleInput();
+  status.textContent = 'running…';
+  status.classList.remove('err');
+  const userSrc = code.value;
+  const src = LIBRARY_SOURCE + '\n' + userSrc;
+  try {
+    const toks = tokenize(src);
+    const interp = new Interp(toks, askInput, (s)=>log(s));
+    await interp.run();
+    status.textContent = interp.halted ? 'stopped' : 'done';
+  } catch(e){
+    log('✗ ' + e.message, 'out-err');
+    status.textContent = 'error';
+    status.classList.add('err');
+  }
+  deactivateInvisibleInput();
+}
+
+// ============ EXAMPLES ============
+const examples = [
+  {
+    title: 'spin (pure PRNG)',
+    desc: 'random from 1/13 decimals — cycles every 6',
+    code: `show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100
+show spin 1 100`
+  },
+  {
+    title: 'dice roll',
+    desc: 'random number 1-6',
+    code: `be roll guess 1 6
+show "you rolled " roll`
+  },
+  {
+    title: 'guessing game',
+    desc: 'guess the secret 1-20',
+    code: `be secret guess 1 20
+tell answer
+think answer is secret,
+  show "got it!"
+.
+think answer is not secret,
+  show "nope, it was " secret
+.`
+  },
+  {
+    title: 'random pixels',
+    desc: '50 pixels in random places and colors',
+    code: `be i 0
+go i is not more 50,
+  be x guess 0 99
+  be y guess 0 99
+  be r guess 0 255
+  be g guess 0 255
+  be b guess 0 255
+  show x y r g b
+  be i has more 1
+.`
+  },
+  {
+    title: 'red pixel',
+    desc: 'draw one red pixel at (50,50)',
+    code: `show 50 50 255 0 0`
+  },
+  {
+    title: 'three dots',
+    desc: 'red, green, blue pixels',
+    code: `show 25 50 255 80 80
+show 50 50 80 255 80
+show 75 50 80 80 255`
+  },
+  {
+    title: 'diagonal line',
+    desc: 'solid yellow diagonal',
+    code: `show 10 10 90 90 is 255 255 0`
+  },
+  {
+    title: 'circles',
+    desc: 'solid and hollow circles',
+    code: `show 30 50 20 is 255 100 100
+show 75 50 15 not 100 200 255`
+  },
+  {
+    title: 'pi',
+    desc: 'library function',
+    code: `be x pi
+show "pi ~ " x`
+  },
+  {
+    title: 'squares',
+    desc: 'call sq from the library',
+    code: `show "1 squared = " sq 1
+show "5 squared = " sq 5
+show "9 squared = " sq 9`
+  },
+  {
+    title: 'abs',
+    desc: 'absolute value from library',
+    code: `show "abs(5) = " abs 5
+show "abs(-7) = " abs not 7`
+  },
+  {
+    title: 'min max',
+    desc: 'library comparisons',
+    code: `show "min(3,8) = " min 3 8
+show "max(3,8) = " max 3 8`
+  },
+  {
+    title: 'power of 2',
+    desc: 'pow from library',
+    code: `show "2^10 = " pow 2 10
+show "3^5 = " pow 3 5`
+  },
+  {
+    title: 'sine wave',
+    desc: 'sin from library, drawn',
+    code: `be i 0
+go i is not more 99,
+  be t i has again pi has not again 100
+  be y sin t
+  be y has again 40
+  be y has not more 50
+  be y has again not 1
+  show i y 0 255 150
+  be i has more 1
+.`
+  },
+  {
+    title: 'full wave',
+    desc: 'sin across 2pi',
+    code: `be i 0
+go i is not more 99,
+  be t i has again tau has not again 100
+  be y sin t
+  be y has again 30
+  be y has not more 50
+  be y has again not 1
+  show i y 255 200 0
+  be i has more 1
+.`
+  },
+  {
+    title: 'circle points',
+    desc: 'sin + cos = circle',
+    code: `be i 0
+go i is not more 99,
+  be t i has again tau has not again 100
+  be cx cos t
+  be cy sin t
+  be cx has again 30 has more 50
+  be cy has again 30 has more 50
+  show cx cy 255 100 200
+  be i has more 1
+.`
+  },
+  {
+    title: 'dot drawer',
+    desc: 'build your own function',
+    code: `know dot x y,
+  show x y 0 255 150
+.
+dot 25 25
+dot 50 50
+dot 75 75
+dot 25 75
+dot 75 25`
+  },
+  {
+    title: 'gradient line',
+    desc: 'red fades to blue across x',
+    code: `be x 0
+go x is not more 99,
+  be b 255 has not more x
+  show x 50 x 50 b
+  be x has more 1
+.`
+  },
+  {
+    title: 'hello world',
+    desc: 'the classic (text)',
+    code: `show "hello world"`
+  },
+  {
+    title: 'greet by name',
+    desc: 'ask a name, greet them',
+    code: `tell name
+show "hello " name "!"`
+  },
+  {
+    title: 'countdown',
+    desc: 'count from 5 down to 0',
+    code: `be x 5
+go x is more 0,
+  show x
+  be x has not more 1
+.
+show x`
+  },
+  {
+    title: 'sum 1 to 10',
+    desc: 'accumulate into a total',
+    code: `be i 1
+be t 0
+go i is not more 10,
+  be t has more i
+  be i has more 1
+.
+show "total is " t`
+  },
+  {
+    title: 'wireframe drive',
+    desc: 'boxes approach, grow, pass by — fake 3D',
+    code: `be z1 80
+be z2 55
+be z3 30
+be ox1 neg 8
+be ox2 10
+be ox3 neg 12
+be frame 0
+go frame is not more 120,
+  show not
+  show 0 50 99 50 is 60 60 60
+
+  be s1 800
+  be s1 has not again z1
+  be sx1 ox1 has again s1
+  be sx1 has not again 12
+  be cx1 50 has more sx1
+  be half1 s1
+  be half1 has not again 2
+  be l1 cx1 has not more half1
+  be r1 cx1 has more half1
+  be t1 50 has not more half1
+  be b1 50 has more half1
+  show l1 t1 l1 b1 is 255 150 50
+  show r1 t1 r1 b1 is 255 150 50
+  show l1 t1 r1 t1 is 255 150 50
+  show l1 b1 r1 b1 is 255 150 50
+
+  be s2 800
+  be s2 has not again z2
+  be sx2 ox2 has again s2
+  be sx2 has not again 12
+  be cx2 50 has more sx2
+  be half2 s2
+  be half2 has not again 2
+  be l2 cx2 has not more half2
+  be r2 cx2 has more half2
+  be t2 50 has not more half2
+  be b2 50 has more half2
+  show l2 t2 l2 b2 is 150 255 150
+  show r2 t2 r2 b2 is 150 255 150
+  show l2 t2 r2 t2 is 150 255 150
+  show l2 b2 r2 b2 is 150 255 150
+
+  be s3 800
+  be s3 has not again z3
+  be sx3 ox3 has again s3
+  be sx3 has not again 12
+  be cx3 50 has more sx3
+  be half3 s3
+  be half3 has not again 2
+  be l3 cx3 has not more half3
+  be r3 cx3 has more half3
+  be t3 50 has not more half3
+  be b3 50 has more half3
+  show l3 t3 l3 b3 is 150 200 255
+  show r3 t3 r3 b3 is 150 200 255
+  show l3 t3 r3 t3 is 150 200 255
+  show l3 b3 r3 b3 is 150 200 255
+
+  be z1 has not more 1
+  be z2 has not more 1
+  be z3 has not more 1
+  think z1 is not more 10,
+    be z1 90
+    be ox1 has again not 1
+  .
+  think z2 is not more 10,
+    be z2 90
+    be ox2 has again not 1
+  .
+  think z3 is not more 10,
+    be z3 90
+    be ox3 has again not 1
+  .
+  again 1
+  be frame has more 1
+.`
+  },
+  {
+    title: 'steer a box',
+    desc: 'tap left/right side of canvas to steer',
+    code: `show not tell
+be x 50
+be z 80
+go 1 is 1,
+  show not
+  show 0 50 99 50 is 60 60 60
+  be s 800
+  be s has not again z
+  be half s
+  be half has not again 2
+  be l x has not more half
+  be r x has more half
+  be t 50 has not more half
+  be b 50 has more half
+  show l t l b is 255 150 50
+  show r t r b is 255 150 50
+  show l t r t is 255 150 50
+  show l b r b is 255 150 50
+  tell move
+  think move is "l",
+    be x has not more 4
+  .
+  think move is "r",
+    be x has more 4
+  .
+  be z has not more 2
+  think z is not more 10,
+    be z 80
+  .
+  again 3
+.`
+  },
+  {
+    title: 'beep',
+    desc: '2 numbers = tone (freq, ms)',
+    code: `show 440 200`
+  },
+  {
+    title: 'scale',
+    desc: 'play a C major scale',
+    code: `show 262 200
+again 12
+show 294 200
+again 12
+show 330 200
+again 12
+show 349 200
+again 12
+show 392 200
+again 12
+show 440 200
+again 12
+show 494 200
+again 12
+show 523 400`
+  },
+  {
+    title: 'synth shapes',
+    desc: 'sine, square, saw, triangle at same pitch',
+    code: `show 330 300 50 0
+again 20
+show 330 300 50 1
+again 20
+show 330 300 50 2
+again 20
+show 330 300 50 3`
+  },
+  {
+    title: 'fm bell',
+    desc: 'freq dur vol shape modfreq moddepth',
+    code: `show 440 600 40 0 880 200`
+  }
+];
+const exEl = document.getElementById('examples');
+examples.forEach(ex=>{
+  const d = document.createElement('div');
+  d.className = 'ex-item';
+  d.innerHTML = `<div class="ex-title">${ex.title}</div><div class="ex-desc">${ex.desc}</div>`;
+  d.onclick = ()=>{
+    code.value = ex.code;
+    exEl.classList.remove('show');
+    // Programmatic .value changes don't fire 'input' — dispatch manually
+    // so the graph (and any other input listeners) can react.
+    code.dispatchEvent(new Event('input', {bubbles:true}));
+  };
+  exEl.appendChild(d);
+});
+function toggleExamples(){
+  exEl.classList.toggle('show');
+}
+
+// ============ LIBRARY VIEWER ============
+function highlightLibrarySource(src){
+  const kws = ['know','be','is','has','not','more','again','think','go','stop','show','tell','guess'];
+  // escape HTML
+  let html = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // numbers
+  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="lib-num">$1</span>');
+  // keywords
+  kws.forEach(kw => {
+    const re = new RegExp('\\b' + kw + '\\b', 'g');
+    html = html.replace(re, '<span class="lib-kw">' + kw + '</span>');
+  });
+  // function names after "know"
+  html = html.replace(/<span class="lib-kw">know<\/span> (\w+)/g,
+    '<span class="lib-kw">know</span> <span class="lib-fn-name">$1</span>');
+  return html;
+}
+
+function extractFnNames(src){
+  const names = [];
+  const re = /know\s+(\w+)/g;
+  let m;
+  while((m = re.exec(src)) !== null) names.push(m[1]);
+  return names;
+}
+
+function showLibrary(){
+  const src = LIBRARY_SOURCE;
+  const fns = extractFnNames(src);
+  const toc = document.getElementById('lib-toc');
+  toc.innerHTML = '';
+  fns.forEach(name => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = name;
+    chip.onclick = () => scrollToFn(name);
+    toc.appendChild(chip);
+  });
+  document.getElementById('lib-src').innerHTML = highlightLibrarySource(src);
+  document.getElementById('library-modal').classList.add('show');
+}
+
+function hideLibrary(){
+  document.getElementById('library-modal').classList.remove('show');
+}
+
+// ============ REFERENCE ============
+const REFERENCE = [
+  {
+    section: 'The 13 Words',
+    entries: [
+      { word: 'be', meaning: 'assign a variable',
+        code: 'be x 5           → x = 5\nbe x has more 1  → x = x + 1' },
+      { word: 'is', meaning: 'equals (==) · also: solid-style flag in drawing',
+        code: 'think x is 5,                 → if x equals 5\nshow 10 10 90 90 is 255 0 0   → solid line' },
+      { word: 'has', meaning: 'the current value of the variable being assigned',
+        code: 'be x has more 1  → x becomes x + 1\nbe x has again 2 → x becomes x * 2' },
+      { word: 'not', meaning: 'negate · opposite · also: dotted-style flag · clears things',
+        code: 'think x is not 5,   → if x ≠ 5\nbe x has not more 1 → x = x - 1\nshow not            → clear canvas\nbe s not ""         → empty string' },
+      { word: 'more', meaning: 'greater than · plus · add',
+        code: 'think x is more 5,  → if x > 5\nbe x has more 3     → x = x + 3' },
+      { word: 'again', meaning: 'repeat · multiply · repeat a string · as a statement: wait one tick (animation frame)',
+        code: 'be x has again 3       → x = x × 3\nbe s has again 3       → s repeated 3 times\nagain                  → wait 1 tick (animation frame)\nagain 10               → wait 10 ticks' },
+      { word: 'think', meaning: 'if · conditional',
+        code: 'think x is 5,\n  show "yes"\n.' },
+      { word: 'go', meaning: 'while loop',
+        code: 'be i 0\ngo i is not more 5,\n  show i\n  be i has more 1\n.' },
+      { word: 'stop', meaning: 'halt program · or return a value from a function',
+        code: 'stop           → halt everything\nstop 5         → return 5 from a function' },
+      { word: 'show', meaning: 'output · text, numbers, or canvas draws',
+        code: 'show "hi " name          → print\nshow 50 50 255 0 0       → red pixel\nshow 10 10 90 90 is 0 255 0 → solid green line' },
+      { word: 'tell', meaning: 'input · ask user for a value',
+        code: 'tell name  → prompts user, stores answer in name' },
+      { word: 'know', meaning: 'define a function',
+        code: 'know greet who,\n  show "hi " who\n.\ngreet "alice"' },
+      { word: 'guess', meaning: 'random integer between min and max (inclusive)',
+        code: 'be roll guess 1 6       → dice roll 1-6\nbe c guess 0 255        → random color channel\nbe secret guess 1 100   → random number 1-100' },
+    ]
+  },
+  {
+    section: 'Collections (new in v11)',
+    entries: [
+      { word: 'be list', meaning: 'empty collection (no value)',
+        code: 'be nums          → empty collection\nbe nums has 5    → now contains 5\nshow more nums   → 1' },
+      { word: 'be list "x" "y"', meaning: 'collection literal · multiple quoted items',
+        code: 'be nums "10" "20" "30"\nshow nums        → 10 20 30\nshow more nums   → 3' },
+      { word: 'has "item"', meaning: 'push a literal onto a collection',
+        code: 'be nums\nbe nums has "10"\nbe nums has "20"\nshow nums        → 10 20' },
+      { word: 'has name', meaning: 'push the value of a variable',
+        code: 'be g 7\nbe tries has g   → tries now contains 7' },
+      { word: 'has not value', meaning: 'remove matching items',
+        code: 'be nums "1" "2" "3" "2"\nbe nums has not 2\nshow nums        → 1 3' },
+      { word: 'has not', meaning: 'clear the collection (no rhs)',
+        code: 'be nums "1" "2" "3"\nbe nums has not\nshow more nums   → 0' },
+      { word: 'more list', meaning: 'length · how many items',
+        code: 'be nums "10" "20" "30"\nshow more nums   → 3\nshow more "hello" → 5' },
+      { word: 'list N', meaning: 'item at index N (zero-based)',
+        code: 'be nums "10" "20" "30"\nshow nums 0      → 10\nshow nums 2      → 30' },
+      { word: 'go list,', meaning: 'iterate · the name becomes the current item',
+        code: 'be nums "1" "2" "3"\ngo nums,\n  show nums\n.\n→ 1 2 3 on separate lines' },
+    ]
+  },
+  {
+    section: 'Pairs (key → value)',
+    entries: [
+      { word: 'has more "key" value', meaning: 'push a key–value pair into a collection',
+        code: 'be bob\nbe bob has more "name" "Bob"\nbe bob has more "hp" 100\nbe bob has more "pos" 5' },
+      { word: 'list "key"', meaning: 'read the value paired with that key',
+        code: 'show bob "name"   → Bob\nshow bob "hp"     → 100' },
+      { word: 'has not more "key"', meaning: 'remove the pair with that key',
+        code: 'be bob has not more "hp"\nshow more bob    → 4 (2 pairs left)' },
+      { word: 'pairs live in a collection', meaning: 'a "struct" is just a list of alternating keys and values',
+        code: '// bob is [ "name", "Bob", "hp", 100, "pos", 5 ]\n// more bob → 6 (items). 3 pairs total.\n// Duplicate keys: first match wins.' },
+    ]
+  },
+  {
+    section: 'Punctuation',
+    entries: [
+      { word: ',', meaning: 'opens a block (if, while, function body)',
+        code: 'think x is 5,\n  show x\n.' },
+      { word: '.', meaning: 'closes a block',
+        code: 'go i is more 0,\n  be i has not more 1\n.' },
+      { word: '" "', meaning: 'string literal',
+        code: 'show "hello world"\nbe s "greeting"' },
+    ]
+  },
+  {
+    section: 'Math Combinations',
+    entries: [
+      { word: 'has more', meaning: 'add · concat · or push a key/value pair (see Pairs)',
+        code: 'be x has more 3        → x += 3\nbe s has more " world" → concat\nbe b has more "k" 5    → pair push' },
+      { word: 'has not more', meaning: 'subtract',
+        code: 'be x has not more 3   → x -= 3' },
+      { word: 'has again', meaning: 'multiply',
+        code: 'be x has again 3  → x *= 3' },
+      { word: 'has not again', meaning: 'divide',
+        code: 'be x has not again 3  → x /= 3' },
+    ]
+  },
+  {
+    section: 'Comparison Combinations',
+    entries: [
+      { word: 'is', meaning: 'equal (==)',
+        code: 'think x is 5,' },
+      { word: 'is not', meaning: 'not equal (≠)',
+        code: 'think x is not 5,' },
+      { word: 'is more', meaning: 'greater than (>)',
+        code: 'think x is more 5,' },
+      { word: 'is not more', meaning: 'less or equal (≤)',
+        code: 'think x is not more 5,' },
+    ]
+  },
+  {
+    section: 'Drawing with show',
+    entries: [
+      { word: 'pixel', meaning: '5 numbers: x y r g b',
+        code: 'show 50 50 255 0 0   → red pixel at (50,50)' },
+      { word: 'line', meaning: '4 position + is/not flag + 3 color',
+        code: 'show 10 10 90 90 is 255 255 0    → solid yellow\nshow 10 10 90 90 not 0 255 255   → dotted cyan' },
+      { word: 'circle', meaning: '3 position (x y radius) + is/not flag + 3 color',
+        code: 'show 50 50 20 is 255 0 0    → solid red circle\nshow 50 50 20 not 255 0 0   → hollow red circle' },
+      { word: 'clear', meaning: 'show not wipes the canvas',
+        code: 'show not   → clear canvas' },
+    ]
+  },
+  {
+    section: 'Sound with show',
+    entries: [
+      { word: 'tone', meaning: '2 numbers: freq(Hz) dur(ms) · default volume, sine wave',
+        code: 'show 440 200   → A4 for 200ms' },
+      { word: 'tone + volume', meaning: '3 numbers: freq dur vol(0-100)',
+        code: 'show 440 200 80   → louder A4' },
+      { word: 'tone + shape', meaning: '4 numbers: freq dur vol shape · 0=sine 1=square 2=saw 3=triangle',
+        code: 'show 440 200 50 1   → square wave A4' },
+      { word: 'fm tone', meaning: '6 numbers: freq dur vol shape modfreq moddepth · frequency modulation',
+        code: 'show 440 600 40 0 880 200   → bell-like' },
+    ]
+  },
+  {
+    section: 'Library (tap library button to read source)',
+    entries: [
+      { word: 'constants', meaning: 'pi · tau · e · phi',
+        code: 'show pi    → 3.1415...\nshow tau   → 6.2831...\nshow phi   → 1.6180...' },
+      { word: 'basic', meaning: 'neg · abs · sq · sqrt · floor · ceil · round · sign',
+        code: 'show sqrt 2      → 1.4142...\nshow floor 7.8   → 7\nshow round 3.6   → 4\nshow sign neg 5  → -1' },
+      { word: 'pair', meaning: 'min · max · clamp · lerp · map · hypot · dist · mod · pow',
+        code: 'show clamp 15 0 10     → 10\nshow lerp 0 100 0.25    → 25\nshow hypot 3 4          → 5\nshow mod 17 5           → 2' },
+      { word: 'trig', meaning: 'sin · cos · sin2 · cos2 · tan · asin · acos · atan · atan2',
+        code: 'show sin2 10      → works for any angle\nshow atan2 1 1    → pi/4\nshow tan rad 45   → 1' },
+      { word: 'exp/log', meaning: 'exp · ln (ln is accurate near 1)',
+        code: 'show exp 1    → e\nshow ln e     → ~1' },
+      { word: 'angles', meaning: 'deg · rad — convert between radians and degrees',
+        code: 'show deg pi     → 180\nshow rad 90     → pi/2' },
+      { word: 'random', meaning: 'spin — deterministic PRNG (easter egg; prefer guess)',
+        code: 'show spin 1 6   → reproducible "dice"' },
+    ]
+  }
+];
+
+function showRef(){
+  const body = document.getElementById('ref-body');
+  body.innerHTML = '';
+  REFERENCE.forEach(sec => {
+    const sdiv = document.createElement('div');
+    sdiv.className = 'ref-section';
+    const h = document.createElement('h4');
+    h.textContent = sec.section;
+    sdiv.appendChild(h);
+    sec.entries.forEach(en => {
+      const e = document.createElement('div');
+      e.className = 'ref-entry';
+      const head = document.createElement('div');
+      head.innerHTML = '<span class="ref-word">' + escapeHtml(en.word) + '</span><span class="ref-meaning">' + escapeHtml(en.meaning) + '</span>';
+      e.appendChild(head);
+      if(en.code){
+        const c = document.createElement('pre');
+        c.className = 'ref-code';
+        c.textContent = en.code;
+        e.appendChild(c);
+      }
+      sdiv.appendChild(e);
+    });
+    body.appendChild(sdiv);
+  });
+  document.getElementById('ref-modal').classList.add('show');
+}
+
+function hideRef(){
+  document.getElementById('ref-modal').classList.remove('show');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function scrollToFn(name){
+  const pre = document.getElementById('lib-src');
+  const src = LIBRARY_SOURCE;
+  // re-render with this function highlighted
+  const lines = src.split('\n');
+  let inFn = false;
+  let highlighted = '';
+  for(const line of lines){
+    const opens = new RegExp('^know\\s+' + name + '\\b').test(line);
+    const closes = inFn && line.trim() === '.';
+    if(opens) inFn = true;
+    const rendered = highlightLibrarySource(line);
+    if(inFn) highlighted += '<div class="lib-hit">' + rendered + '</div>';
+    else highlighted += rendered + '\n';
+    if(closes){ inFn = false; }
+  }
+  pre.innerHTML = highlighted;
+  // scroll to first highlighted line
+  const first = pre.querySelector('.lib-hit');
+  if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
+}
+
+// ============================================================================
+// GRAPH VIEW (from thirteen-visual)
+// ============================================================================
+// We reuse the tokenizer that the interpreter already uses (tokenize above).
+// A separate, simpler parser turns tokens into a display-only AST — it does
+// not execute anything, just collects statements and their token streams so
+// we can draw them as nodes and wires.
+//
+// Design note: the graph view parses ONLY the user's source (not the library).
+// Showing 30+ library function definitions behind every tiny program would
+// drown the user's code in a sea of nodes. Library functions that the user
+// calls still appear in the graph as "call" nodes — you see that you're
+// using `pi` or `atan2`, you just don't see their internals unless you paste
+// the source into the editor yourself.
+
+// Shared variable-color palette. The editor highlighter and the graph wires
+// both pull from this list so a variable's color is the same in both views.
+// Palette picks are tuned for readability on the dark paper background.
+const VAR_COLORS = [
+  '#ffd166', // gold
+  '#7dd3fc', // sky
+  '#9cde6e', // green
+  '#ff6b6b', // coral
+  '#c4a7ff', // lavender
+  '#ff9d5c', // orange
+  '#5ceded', // cyan
+  '#ffb3d9', // pink
+  '#b5cf4f', // lime
+  '#f2a2b8', // rose
+];
+
+// Single source of truth for which names count as "real variables" (assigned
+// at least once) and what color each gets. Uses order of first assignment.
+// On parse error we fall back to empty — the editor still renders, it just
+// won't color variables until the source parses.
+function computeVarColors(src){
+  let stmts;
+  try { stmts = graphParse(src); }
+  catch(e){ return { colorOf: {}, orderedVars: [], error: e }; }
+  const uses = analyzeVars(stmts);
+  const orderedVars = [];
+  for(const [name, refs] of Object.entries(uses)){
+    if(refs.some(r => r.role === 'write')) orderedVars.push({name, firstIdx: refs[0].stmtIdx});
+  }
+  // stable order: by first statement index, then insertion order (tie-break)
+  orderedVars.sort((a,b) => a.firstIdx - b.firstIdx);
+  const colorOf = {};
+  orderedVars.forEach((v,i) => { colorOf[v.name] = VAR_COLORS[i % VAR_COLORS.length]; });
+  return { colorOf, orderedVars: orderedVars.map(v=>v.name) };
+}
+
+class GraphParser {
+  constructor(toks){ this.t = toks; this.p = 0; }
+  peek(o=0){ return this.t[this.p+o]; }
+  eat(type,val){
+    const tk = this.t[this.p];
+    if(!tk) throw new Error('unexpected end');
+    if(tk.type !== type) throw new Error(`line ${tk.line}: expected ${type} ${val||''}, got "${tk.val}"`);
+    if(val !== undefined && tk.val !== val) throw new Error(`line ${tk.line}: expected "${val}", got "${tk.val}"`);
+    this.p++;
+    return tk;
+  }
+  match(type,val){
+    const tk = this.peek();
+    if(!tk) return false;
+    if(tk.type !== type) return false;
+    if(val !== undefined && tk.val !== val) return false;
+    return true;
+  }
+  skipNL(){ while(this.peek() && this.peek().type === 'nl') this.p++; }
+
+  // Read a flat expression: consume tokens until newline / ',' / '.'.
+  readExpr(){
+    const out = [];
+    while(this.peek()){
+      const tk = this.peek();
+      if(tk.type === 'nl') break;
+      if(tk.type === 'punct') break;
+      out.push(tk); this.p++;
+    }
+    return out;
+  }
+
+  parseProgram(){
+    const stmts = [];
+    this.skipNL();
+    while(this.peek()){
+      this.skipNL();
+      if(!this.peek()) break;
+      if(this.peek().type === 'punct' && this.peek().val === '.') break;
+      const s = this.parseStmt();
+      if(s) stmts.push(s);
+      this.skipNL();
+    }
+    return stmts;
+  }
+
+  parseBlockBody(){
+    const stmts = [];
+    this.skipNL();
+    while(this.peek()){
+      this.skipNL();
+      if(!this.peek()) throw new Error('block never closed with "."');
+      if(this.peek().type === 'punct' && this.peek().val === '.'){
+        this.p++; return stmts;
+      }
+      const s = this.parseStmt();
+      if(s) stmts.push(s);
+      this.skipNL();
+    }
+    throw new Error('block never closed with "."');
+  }
+
+  parseStmt(){
+    const tk = this.peek();
+    if(!tk) return null;
+    const line = tk.line;
+
+    if(tk.type === 'kw'){
+      switch(tk.val){
+        case 'be': {
+          this.eat('kw','be');
+          const target = this.eat('id').val;
+          const expr = this.readExpr();
+          return {kind:'be', target, expr, line};
+        }
+        case 'show': {
+          this.eat('kw','show');
+          const args = this.readExpr();
+          return {kind:'show', args, line};
+        }
+        case 'tell': {
+          this.eat('kw','tell');
+          if(this.peek() && this.peek().type === 'id'){
+            const target = this.eat('id').val;
+            return {kind:'tell', target, line};
+          }
+          return {kind:'tell', target:null, line};
+        }
+        case 'think': {
+          this.eat('kw','think');
+          const cond = this.readExpr();
+          this.eat('punct',',');
+          const body = this.parseBlockBody();
+          return {kind:'think', cond, body, line};
+        }
+        case 'go': {
+          this.eat('kw','go');
+          const cond = this.readExpr();
+          this.eat('punct',',');
+          const body = this.parseBlockBody();
+          return {kind:'go', cond, body, line};
+        }
+        case 'know': {
+          this.eat('kw','know');
+          const name = this.eat('id').val;
+          const params = [];
+          while(this.peek() && this.peek().type === 'id'){
+            params.push(this.eat('id').val);
+          }
+          this.eat('punct',',');
+          const body = this.parseBlockBody();
+          return {kind:'know', name, params, body, line};
+        }
+        case 'stop': {
+          this.eat('kw','stop');
+          const expr = this.readExpr();
+          return {kind:'stop', expr:expr.length?expr:null, line};
+        }
+        case 'again': {
+          this.eat('kw','again');
+          const count = this.readExpr();
+          return {kind:'again', count:count.length?count:null, line};
+        }
+        case 'guess': {
+          const args = this.readExpr();
+          return {kind:'expr-stmt', tokens:[tk, ...args], line};
+        }
+      }
+    }
+    if(tk.type === 'id'){
+      const name = this.eat('id').val;
+      const args = this.readExpr();
+      return {kind:'call', name, args, line};
+    }
+    const tokens = this.readExpr();
+    return {kind:'expr-stmt', tokens, line};
+  }
+}
+
+function graphParse(src){
+  const toks = tokenize(src);
+  const p = new GraphParser(toks);
+  return p.parseProgram();
+}
+
+// For each variable, find every statement that writes or reads it.
+// DFS pre-order assigns a linear index to every statement, even those
+// nested inside think/go/know bodies. Lets us sort uses chronologically.
+function analyzeVars(stmts){
+  const uses = {};
+  function addUse(name, stmtIdx, role){
+    if(!uses[name]) uses[name] = [];
+    uses[name].push({stmtIdx, role});
+  }
+  function scanTokens(tokens, stmtIdx){
+    if(!tokens) return;
+    for(const tk of tokens){
+      if(tk.type === 'id') addUse(tk.val, stmtIdx, 'read');
+    }
+  }
+  let idx = 0;
+  function walk(stmts){
+    const myIndices = [];
+    for(const s of stmts){
+      s._idx = idx++;
+      myIndices.push(s._idx);
+      switch(s.kind){
+        case 'be': addUse(s.target, s._idx, 'write'); scanTokens(s.expr, s._idx); break;
+        case 'show': scanTokens(s.args, s._idx); break;
+        case 'tell': if(s.target) addUse(s.target, s._idx, 'write'); break;
+        case 'stop': scanTokens(s.expr, s._idx); break;
+        case 'again': scanTokens(s.count, s._idx); break;
+        case 'call': scanTokens(s.args, s._idx); break;
+        case 'expr-stmt': scanTokens(s.tokens, s._idx); break;
+        case 'think':
+          scanTokens(s.cond, s._idx);
+          s._childIndices = walk(s.body);
+          break;
+        case 'go':
+          scanTokens(s.cond, s._idx);
+          s._childIndices = walk(s.body);
+          break;
+        case 'know':
+          for(const p of s.params) addUse(p, s._idx, 'write');
+          s._childIndices = walk(s.body);
+          break;
+      }
+    }
+    return myIndices;
+  }
+  walk(stmts);
+  return uses;
+}
+
+// Layout constants
+const GRAPH_SVG_NS = 'http://www.w3.org/2000/svg';
+const GRAPH_LAYOUT = {
+  rowHeight: 44,
+  rowGap: 4,
+  leftPad: 20,
+  rightPad: 20,
+  blockIndent: 28,
+  nodeWidth: 70,
+  nodeHeight: 30,
+  exprGap: 4,
+  exprPieceHeight: 26,
+  wireLane: 14,
+  blockFramePad: 6,
+};
+
+function flattenStmts(stmts, depth=0, out=null){
+  if(!out) out = [];
+  for(const s of stmts){
+    out.push({stmt:s, depth});
+    if(s.kind === 'think' || s.kind === 'go' || s.kind === 'know'){
+      flattenStmts(s.body, depth+1, out);
+      out.push({stmt:null, depth, close:s._idx});
+    }
+  }
+  return out;
+}
+
+function renderGraph(){
+  const src = document.getElementById('code').value;
+  const status = document.getElementById('graph-status');
+  const err = document.getElementById('graph-err');
+  const svg = document.getElementById('graph');
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  err.style.display = 'none';
+  err.textContent = '';
+  status.classList.remove('err');
+
+  let stmts;
+  try {
+    stmts = graphParse(src);
+  } catch(e){
+    status.textContent = 'parse error';
+    status.classList.add('err');
+    err.textContent = '✗ ' + e.message;
+    err.style.display = 'block';
+    return;
+  }
+
+  if(stmts.length === 0){
+    status.textContent = 'empty';
+    err.textContent = '(nothing to graph — write some thirteen code first)';
+    err.style.display = 'block';
+    return;
+  }
+
+  const uses = analyzeVars(stmts);
+  status.textContent = 'rendering…';
+
+  const flat = flattenStmts(stmts);
+
+  // Assign y to each row.
+  let y = 20;
+  const rowY = {};
+  const frameOpen = {};
+  const frameClose = {};
+  const rowDepth = {};
+  for(const item of flat){
+    if(item.stmt){
+      rowY[item.stmt._idx] = y;
+      rowDepth[item.stmt._idx] = item.depth;
+      if(item.stmt.kind === 'think' || item.stmt.kind === 'go' || item.stmt.kind === 'know'){
+        frameOpen[item.stmt._idx] = y;
+      }
+      y += GRAPH_LAYOUT.rowHeight + GRAPH_LAYOUT.rowGap;
+    } else if(item.close !== undefined){
+      frameClose[item.close] = y;
+      y += 14;
+    }
+  }
+  const totalHeight = y + 20;
+
+  // Real vars = any var with at least one write. Pure reads (like pi, sin,
+  // atan — names resolved via the library at runtime) don't get wires.
+  // Color assignment comes from computeVarColors so editor + graph agree.
+  const realVars = {};
+  for(const [name, refs] of Object.entries(uses)){
+    if(refs.some(r => r.role === 'write')) realVars[name] = refs;
+  }
+  const { colorOf, orderedVars } = computeVarColors(src);
+  const varNames = orderedVars;
+  const laneOf = {};
+  varNames.forEach((v,i)=>{ laneOf[v] = i; });
+
+  const wireAreaWidth = Math.max(40, varNames.length * GRAPH_LAYOUT.wireLane + 12);
+  const contentLeftX = GRAPH_LAYOUT.leftPad + wireAreaWidth;
+
+  // Estimate width. We don't know expression widths exactly until we draw,
+  // so we walk once without rendering to measure. Cheap — we reuse the
+  // same width formula from drawExprPiece.
+  function measureRow(s){
+    let w = GRAPH_LAYOUT.nodeWidth + GRAPH_LAYOUT.exprGap;
+    function widthOfToken(tk){
+      let label;
+      if(tk.type === 'num') label = String(tk.val);
+      else if(tk.type === 'str') label = '"' + tk.val + '"';
+      else label = tk.val;
+      return Math.max(22, 7 * label.length + 10) + GRAPH_LAYOUT.exprGap;
+    }
+    if(s.kind === 'be' || (s.kind === 'tell' && s.target)){
+      w += Math.max(22, 7 * s.target.length + 10) + GRAPH_LAYOUT.exprGap;
+    }
+    if(s.kind === 'know'){
+      w += Math.max(22, 7 * s.name.length + 10) + GRAPH_LAYOUT.exprGap;
+      for(const p of s.params) w += Math.max(22, 7 * p.length + 10) + GRAPH_LAYOUT.exprGap;
+      w += 22 + GRAPH_LAYOUT.exprGap; // ','
+    }
+    const tokList =
+      s.kind === 'be' ? s.expr :
+      s.kind === 'show' ? s.args :
+      s.kind === 'stop' ? s.expr :
+      s.kind === 'again' ? s.count :
+      s.kind === 'call' ? s.args :
+      s.kind === 'expr-stmt' ? s.tokens :
+      (s.kind === 'think' || s.kind === 'go') ? s.cond :
+      null;
+    if(tokList){
+      for(const tk of tokList) w += widthOfToken(tk);
+      if(s.kind === 'think' || s.kind === 'go') w += 22 + GRAPH_LAYOUT.exprGap;
+    }
+    return w;
+  }
+  let maxRowWidth = 200;
+  for(const item of flat){
+    if(!item.stmt) continue;
+    const rowW = item.depth * GRAPH_LAYOUT.blockIndent + measureRow(item.stmt);
+    if(rowW > maxRowWidth) maxRowWidth = rowW;
+  }
+  const estimatedWidth = contentLeftX + maxRowWidth + GRAPH_LAYOUT.rightPad;
+
+  svg.setAttribute('viewBox', `0 0 ${estimatedWidth} ${totalHeight}`);
+  svg.setAttribute('width', estimatedWidth);
+  svg.setAttribute('height', totalHeight);
+
+  // Block frames (dashed containers around think/go/know bodies)
+  for(const [idx, openY] of Object.entries(frameOpen)){
+    const closeY = frameClose[idx] || (openY + GRAPH_LAYOUT.rowHeight);
+    const depth = rowDepth[idx] || 0;
+    const frameX = contentLeftX + depth * GRAPH_LAYOUT.blockIndent - GRAPH_LAYOUT.blockFramePad;
+    const frameW = estimatedWidth - frameX - 10;
+    const frameY = openY + GRAPH_LAYOUT.rowHeight - 4;
+    const frameH = closeY - frameY - 2;
+    const rect = document.createElementNS(GRAPH_SVG_NS, 'rect');
+    rect.setAttribute('class','block-frame');
+    rect.setAttribute('x', frameX);
+    rect.setAttribute('y', frameY);
+    rect.setAttribute('width', frameW);
+    rect.setAttribute('height', frameH);
+    svg.appendChild(rect);
+  }
+
+  // Main vertical wire per variable: from first use to last use.
+  for(const [name, refs] of Object.entries(realVars)){
+    if(refs.length === 0) continue;
+    const lane = laneOf[name];
+    const x = GRAPH_LAYOUT.leftPad + lane * GRAPH_LAYOUT.wireLane + 6;
+    const color = colorOf[name];
+    const sorted = refs.slice().sort((a,b)=>a.stmtIdx - b.stmtIdx);
+    const firstY = rowY[sorted[0].stmtIdx] + GRAPH_LAYOUT.rowHeight/2;
+    const lastY  = rowY[sorted[sorted.length-1].stmtIdx] + GRAPH_LAYOUT.rowHeight/2;
+    const line = document.createElementNS(GRAPH_SVG_NS, 'line');
+    line.setAttribute('x1', x); line.setAttribute('y1', firstY);
+    line.setAttribute('x2', x); line.setAttribute('y2', lastY);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('opacity', '0.85');
+    svg.appendChild(line);
+    const lbl = document.createElementNS(GRAPH_SVG_NS, 'text');
+    lbl.setAttribute('class','wire-label');
+    lbl.setAttribute('x', x);
+    lbl.setAttribute('y', firstY - 6);
+    lbl.setAttribute('text-anchor','middle');
+    lbl.setAttribute('fill', color);
+    lbl.textContent = name;
+    svg.appendChild(lbl);
+    for(const r of sorted){
+      const rY = rowY[r.stmtIdx] + GRAPH_LAYOUT.rowHeight/2;
+      const dot = document.createElementNS(GRAPH_SVG_NS, 'circle');
+      dot.setAttribute('cx', x);
+      dot.setAttribute('cy', rY);
+      dot.setAttribute('r', r.role === 'write' ? 3 : 2);
+      dot.setAttribute('fill', color);
+      dot.setAttribute('opacity', '0.95');
+      svg.appendChild(dot);
+    }
+  }
+
+  // Row nodes
+  const rowNodeX = {};
+  for(const item of flat){
+    if(!item.stmt) continue;
+    const s = item.stmt;
+    const rY = rowY[s._idx];
+    const depth = item.depth;
+    const xStart = contentLeftX + depth * GRAPH_LAYOUT.blockIndent;
+    rowNodeX[s._idx] = xStart;
+    drawStmtRow(svg, s, xStart, rY);
+  }
+
+  // Horizontal connectors from lane to each row's node
+  for(const [name, refs] of Object.entries(realVars)){
+    const lane = laneOf[name];
+    const laneX = GRAPH_LAYOUT.leftPad + lane * GRAPH_LAYOUT.wireLane + 6;
+    const color = colorOf[name];
+    for(const r of refs){
+      const rY = rowY[r.stmtIdx] + GRAPH_LAYOUT.rowHeight/2;
+      const targetX = rowNodeX[r.stmtIdx] - 2;
+      const conn = document.createElementNS(GRAPH_SVG_NS, 'line');
+      conn.setAttribute('x1', laneX);
+      conn.setAttribute('y1', rY);
+      conn.setAttribute('x2', targetX);
+      conn.setAttribute('y2', rY);
+      conn.setAttribute('stroke', color);
+      conn.setAttribute('stroke-width', '1.5');
+      conn.setAttribute('opacity', '0.7');
+      if(r.role !== 'write') conn.setAttribute('stroke-dasharray','3,2');
+      svg.appendChild(conn);
+    }
+  }
+
+  const nStmts = flat.filter(x=>x.stmt).length;
+  status.textContent = `${nStmts} statement${nStmts===1?'':'s'} · ${varNames.length} variable${varNames.length===1?'':'s'}`;
+}
+
+function drawStmtRow(svg, s, x, y){
+  const midY = y + GRAPH_LAYOUT.rowHeight/2;
+  let label = s.kind;
+  let cls = s.kind;
+  if(s.kind === 'call'){ label = s.name; cls = 'call'; }
+  if(s.kind === 'expr-stmt'){ label = '·'; cls = 'expr'; }
+
+  drawGraphNode(svg, label, x, y + (GRAPH_LAYOUT.rowHeight - GRAPH_LAYOUT.nodeHeight)/2,
+    GRAPH_LAYOUT.nodeWidth, GRAPH_LAYOUT.nodeHeight, cls);
+
+  let cursorX = x + GRAPH_LAYOUT.nodeWidth + GRAPH_LAYOUT.exprGap;
+
+  if(s.kind === 'be' || (s.kind === 'tell' && s.target)){
+    cursorX = drawExprPiece(svg, s.target, cursorX, midY, 'var');
+  }
+  if(s.kind === 'know'){
+    cursorX = drawExprPiece(svg, s.name, cursorX, midY, 'var');
+    for(const p of s.params){
+      cursorX = drawExprPiece(svg, p, cursorX, midY, 'var');
+    }
+    cursorX = drawExprPiece(svg, ',', cursorX, midY, 'op');
+  }
+
+  const tokList =
+    s.kind === 'be' ? s.expr :
+    s.kind === 'show' ? s.args :
+    s.kind === 'stop' ? s.expr :
+    s.kind === 'again' ? s.count :
+    s.kind === 'call' ? s.args :
+    s.kind === 'expr-stmt' ? s.tokens :
+    (s.kind === 'think' || s.kind === 'go') ? s.cond :
+    null;
+
+  if(tokList) cursorX = drawExprChain(svg, tokList, cursorX, midY);
+  if(s.kind === 'think' || s.kind === 'go'){
+    cursorX = drawExprPiece(svg, ',', cursorX, midY, 'op');
+  }
+}
+
+function drawGraphNode(svg, label, x, y, w, h, cls){
+  const rect = document.createElementNS(GRAPH_SVG_NS, 'rect');
+  rect.setAttribute('class', 'node-body ' + cls);
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', 3);
+  svg.appendChild(rect);
+  const txt = document.createElementNS(GRAPH_SVG_NS, 'text');
+  txt.setAttribute('class', 'node-label ' + cls);
+  txt.setAttribute('x', x + w/2);
+  txt.setAttribute('y', y + h/2 + 5);
+  txt.setAttribute('text-anchor','middle');
+  txt.textContent = label;
+  svg.appendChild(txt);
+}
+
+function drawExprChain(svg, tokens, startX, midY){
+  let x = startX;
+  for(const tk of tokens){
+    let label, cls;
+    if(tk.type === 'num'){ label = String(tk.val); cls = 'num'; }
+    else if(tk.type === 'str'){ label = '"' + tk.val + '"'; cls = 'str'; }
+    else if(tk.type === 'id'){ label = tk.val; cls = 'var'; }
+    else if(tk.type === 'kw'){ label = tk.val; cls = 'op'; }
+    else continue;
+    x = drawExprPiece(svg, label, x, midY, cls);
+  }
+  return x;
+}
+
+function drawExprPiece(svg, label, x, midY, cls){
+  const w = Math.max(22, 7 * label.length + 10);
+  const h = GRAPH_LAYOUT.exprPieceHeight;
+  const y = midY - h/2;
+  const rect = document.createElementNS(GRAPH_SVG_NS, 'rect');
+  rect.setAttribute('class', 'node-body expr');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', 3);
+  svg.appendChild(rect);
+  const txt = document.createElementNS(GRAPH_SVG_NS, 'text');
+  txt.setAttribute('class', 'expr-text expr-' + cls);
+  txt.setAttribute('x', x + w/2);
+  txt.setAttribute('y', midY + 4);
+  txt.setAttribute('text-anchor','middle');
+  txt.textContent = label;
+  svg.appendChild(txt);
+  const connector = document.createElementNS(GRAPH_SVG_NS, 'line');
+  connector.setAttribute('x1', x + w);
+  connector.setAttribute('y1', midY);
+  connector.setAttribute('x2', x + w + GRAPH_LAYOUT.exprGap);
+  connector.setAttribute('y2', midY);
+  connector.setAttribute('stroke', 'var(--dim)');
+  connector.setAttribute('stroke-width', '1');
+  connector.setAttribute('opacity', '0.5');
+  svg.appendChild(connector);
+  return x + w + GRAPH_LAYOUT.exprGap;
+}
+
+// ============================================================================
+// EDITOR SYNTAX HIGHLIGHTER
+// ============================================================================
+// A transparent textarea sits over a highlight div. Every input event, we
+// re-tokenize the source and rebuild the highlight div's HTML. Variable names
+// get inline colors from computeVarColors — the SAME colors the graph uses
+// for their wires. Run your eyes from "be x" in the source to the "x" lane
+// in the graph: same hue, same variable.
+//
+// The highlighter is lenient: it's a simple character-by-character classifier
+// that doesn't need to parse. It keeps working even when the source has
+// mid-edit syntax errors — the graph goes blank at that point, but the
+// editor's colors stay sane.
+
+const hlLayer = document.getElementById('hl-layer');
+
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+const HL_KEYWORDS = new Set(['be','is','has','not','more','again','think','go','stop','show','tell','know','guess']);
+// Library function names come from the LIBRARY_SOURCE string at the top
+// of the file. Computed once at load — the library doesn't change at runtime.
+const HL_LIB_NAMES = new Set(extractFnNames(LIBRARY_SOURCE));
+
+// Per-line tokenize + render. Walks the text, emits spans with classes.
+// Returns a string of HTML (with a trailing newline so the height matches).
+function highlightSource(src, colorOf){
+  let html = '';
+  let i = 0;
+  while(i < src.length){
+    const ch = src[i];
+    // newlines kept literally
+    if(ch === '\n'){ html += '\n'; i++; continue; }
+    // whitespace (non-newline) kept literally
+    if(ch === ' ' || ch === '\t'){ html += ch; i++; continue; }
+    // comments: // to end of line
+    if(ch === '/' && src[i+1] === '/'){
+      let j = i;
+      while(j < src.length && src[j] !== '\n') j++;
+      html += '<span class="hl-cmt">' + escHtml(src.slice(i, j)) + '</span>';
+      i = j;
+      continue;
+    }
+    // punctuation , and .
+    if(ch === ',' || ch === '.'){
+      html += '<span class="hl-punct">' + ch + '</span>';
+      i++; continue;
+    }
+    // string literals
+    if(ch === '"'){
+      let j = i + 1;
+      while(j < src.length && src[j] !== '"' && src[j] !== '\n') j++;
+      if(j < src.length && src[j] === '"') j++;
+      html += '<span class="hl-str">' + escHtml(src.slice(i, j)) + '</span>';
+      i = j; continue;
+    }
+    // numbers
+    if(ch >= '0' && ch <= '9'){
+      let j = i;
+      while(j < src.length && ((src[j] >= '0' && src[j] <= '9') || src[j] === '.')) j++;
+      html += '<span class="hl-num">' + escHtml(src.slice(i, j)) + '</span>';
+      i = j; continue;
+    }
+    // identifiers / keywords
+    if((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_'){
+      let j = i;
+      while(j < src.length && ((src[j] >= 'a' && src[j] <= 'z') || (src[j] >= 'A' && src[j] <= 'Z') || (src[j] >= '0' && src[j] <= '9') || src[j] === '_')) j++;
+      const word = src.slice(i, j);
+      if(HL_KEYWORDS.has(word)){
+        html += '<span class="hl-kw">' + word + '</span>';
+      } else if(colorOf[word]){
+        // Variable: inline color matches its wire in the graph. Precedence:
+        // variable color wins over library color (a user `know pi` would
+        // shadow the library's pi and should show as a variable, not lib).
+        html += '<span class="hl-id" style="color:' + colorOf[word] + '">' + escHtml(word) + '</span>';
+      } else if(HL_LIB_NAMES.has(word)){
+        html += '<span class="hl-lib">' + escHtml(word) + '</span>';
+      } else {
+        // Unknown name: user-defined function, parameter, or typo. Leave ink.
+        html += '<span class="hl-id">' + escHtml(word) + '</span>';
+      }
+      i = j; continue;
+    }
+    // anything else (shouldn't happen in valid source) — emit as-is
+    html += escHtml(ch);
+    i++;
+  }
+  // trailing newline so the highlight layer has the same height as the
+  // textarea when the last line is empty
+  return html + '\n';
+}
+
+function updateHighlight(){
+  const src = code.value;
+  const { colorOf } = computeVarColors(src);
+  hlLayer.innerHTML = highlightSource(src, colorOf);
+  // keep the highlight layer's scroll position in sync with the textarea
+  hlLayer.scrollTop = code.scrollTop;
+  hlLayer.scrollLeft = code.scrollLeft;
+}
+
+// Scroll sync: when you scroll the textarea, the highlight layer has to
+// follow or the glyphs fall out of alignment. We don't attach this to input
+// (input fires on typing, not scrolling) — we attach to scroll directly.
+code.addEventListener('scroll', () => {
+  hlLayer.scrollTop = code.scrollTop;
+  hlLayer.scrollLeft = code.scrollLeft;
+});
+
+// Render the graph live. Debounced so we don't reparse on every keystroke.
+let _graphRedrawTimer = null;
+function scheduleGraphRedraw(){
+  clearTimeout(_graphRedrawTimer);
+  _graphRedrawTimer = setTimeout(renderGraph, 180);
+}
+// Highlighter updates IMMEDIATELY (no debounce) — it's cheap and the visual
+// lag of waiting 180ms to recolor what you're typing would feel broken.
+document.getElementById('code').addEventListener('input', () => {
+  updateHighlight();
+  scheduleGraphRedraw();
+});
+// initial render (once all DOM is ready)
+updateHighlight();
+renderGraph();
+
+// initial friendly output
+log('thirteen — 13 words, 2 punctuation, quotes.', 'out-info');
+log('editor · graph · canvas · output — all live.', 'out-info');
+log('tap ▶ run to execute. tap examples to load one.', 'out-info');
+</script>
+</body>
+</html>
