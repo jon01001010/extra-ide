@@ -1,0 +1,2349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Combinator Foundry — Factorio circuits to Verilog</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    /* Factorio-flavored palette: rusty industrial + signal green/red */
+    --steel:#1a1c1e; --steel-2:#232629; --panel:#2b2f33; --edge:#3a4046; --edge-2:#4a525a;
+    --label:#9aa3ab; --ink:#f2ede3;
+    --green:#5ed25e;   /* green wire */
+    --red:#e8564a;     /* red wire */
+    --amber:#f5a524;   /* arithmetic */
+    --cyan:#3ec5d6;    /* decider */
+    --violet:#c792ea;  /* constant */
+    --live:#7ee787;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--steel);color:var(--ink);
+    font-family:'JetBrains Mono',monospace;font-size:13px;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;
+  }
+  header{
+    padding:12px 18px;border-bottom:1px solid var(--edge);
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--steel-2),var(--steel));
+  }
+  .mark{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:17px;letter-spacing:-0.01em}
+  .mark b{color:var(--amber)}
+  .tagline{font-family:'Space Grotesk',sans-serif;color:var(--label);font-size:11.5px}
+  .spacer{margin-left:auto}
+  .hbtn{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11px;letter-spacing:.06em;
+    background:transparent;color:var(--ink);border:1px solid var(--edge-2);border-radius:3px;
+    padding:5px 11px;cursor:pointer}
+  .hbtn:hover{border-color:var(--amber);color:var(--amber)}
+
+  .toolbar{
+    display:flex;gap:8px;padding:10px 18px;border-bottom:1px solid var(--edge);
+    background:var(--steel-2);align-items:center;flex-wrap:wrap;
+  }
+  .tool{
+    font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:600;
+    background:var(--panel);border:1px solid var(--edge-2);border-radius:4px;
+    padding:7px 12px;cursor:pointer;display:flex;align-items:center;gap:7px;color:var(--ink);
+    transition:border-color .12s,transform .06s;
+  }
+  .tool:hover{border-color:var(--edge-2);transform:translateY(-1px)}
+  .tool.sel{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+  .tool .sw{width:10px;height:10px;border-radius:2px}
+  .tool.arith .sw{background:var(--amber)} .tool.decide .sw{background:var(--cyan)} .tool.const .sw{background:var(--violet)}
+  .tool.wire .sw{background:var(--green)} .tool.del .sw{background:var(--red)} .tool.erase .sw{background:var(--label)}
+  .tool.select .sw{background:var(--red)}
+  .tool.memory .sw{background:var(--green)}
+  #bpPicker{font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:600;
+    background:var(--panel);color:var(--violet);border:1px solid var(--violet);border-radius:4px;
+    padding:7px 10px;cursor:pointer;outline:none}
+  #bpPicker option{background:var(--steel-2);color:var(--ink)}
+  .comb.inst{border-color:var(--violet);width:132px;height:auto}
+  .comb.inst .cap{color:var(--violet)}
+  .instcore{display:flex;flex-direction:column;padding:5px 7px;gap:3px;font-size:10px}
+  .instname{color:var(--violet);font-weight:700;text-align:center;font-family:'Space Grotesk';font-size:11px}
+  .instdesc{color:var(--edge-2);font-size:8.5px;text-align:center;line-height:1.3}
+  .instports{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+  .iport{display:flex;align-items:center;gap:5px;color:var(--label);cursor:pointer;padding:1px 2px;border-radius:2px}
+  .iport:hover{background:rgba(199,146,234,.12);color:var(--ink)}
+  .iport .pdot{width:9px;height:9px;border-radius:50%;background:var(--violet);border:1px solid var(--steel);flex-shrink:0}
+  .instrepeat{text-align:center;font-size:9px;color:var(--label);border-top:1px solid var(--edge);padding-top:3px;margin-top:2px}
+  .instrepeat input{width:24px;background:var(--steel);border:1px solid var(--edge);color:var(--violet);font-size:10px;text-align:center;border-radius:2px;font-weight:700}
+  .node-label{font-size:9px;color:var(--amber);text-align:center;padding:1px 4px;font-family:'Space Grotesk';font-weight:600;letter-spacing:.2px}
+  .opcore{display:flex;flex-direction:column;gap:3px;padding:4px 6px;width:100%}
+  .opport{display:flex;align-items:center;gap:4px}
+  .opport .pdot{width:9px;height:9px;border-radius:50%;background:var(--amber);border:1px solid var(--steel);flex-shrink:0;cursor:pointer}
+  .opport input{background:var(--steel);border:1px solid var(--edge);color:var(--ink);font-size:11px;border-radius:2px;padding:1px 3px;width:46px;font-family:'JetBrains Mono'}
+  .opport .wfrom{color:var(--cyan);font-size:10px;font-weight:700;font-family:'JetBrains Mono'}
+  .opport .taptf{width:32px;color:var(--amber);text-align:center}
+  /* multi-source (concat) operand port: sources stack vertically, MSB on top */
+  .opport.multi{flex-direction:column;align-items:stretch;gap:2px;border-left:2px solid var(--edge-2);padding-left:5px;margin-left:2px}
+  .opport.multi .srcrow{display:flex;align-items:center;gap:3px}
+  .opport.multi .concat-brace{color:var(--label);font-size:9px;letter-spacing:.04em;padding-left:1px}
+  .opport .srcdel{color:var(--red);cursor:pointer;font-size:10px;font-weight:700;flex-shrink:0;padding:0 2px}
+  .opport .srcdel:hover{color:var(--ink);background:var(--red);border-radius:2px}
+  .opport .addsrc{color:var(--green);cursor:pointer;font-size:9px;font-weight:700;letter-spacing:.03em;opacity:.85}
+  .opport .addsrc:hover{opacity:1;text-decoration:underline}
+  .opsel{align-self:center;background:var(--steel);border:1px solid var(--edge);color:var(--ink);font-size:11px;border-radius:2px;font-weight:700}
+  .tsep{width:1px;height:22px;background:var(--edge);margin:0 4px}
+  .wire-colors{display:flex;gap:4px;align-items:center;padding:0 4px}
+  .wire-colors .wc{width:16px;height:16px;border-radius:4px;cursor:pointer;border:2px solid transparent;transition:transform .08s}
+  .wire-colors .wc:hover{transform:scale(1.15)}
+  .wire-colors .wc.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--steel)}
+
+  main{flex:1;display:grid;grid-template-columns:1.35fr 1fr;gap:1px;background:var(--edge);min-height:0}
+  .left{background:var(--steel);display:flex;flex-direction:column;min-height:0}
+  .right{background:var(--steel);display:flex;flex-direction:column;min-height:0}
+  .phead{padding:8px 14px;border-bottom:1px solid var(--edge);background:var(--steel-2);
+    font-family:'Space Grotesk',sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--label);
+    display:flex;align-items:center;gap:8px}
+  .phead .t{font-weight:700;color:var(--amber)}
+  .phead .sub{margin-left:auto;text-transform:none;letter-spacing:0;font-size:10px;color:var(--edge-2)}
+  .vtabs{display:flex;gap:4px;margin-left:14px}
+  .vtab{font-family:'JetBrains Mono';font-size:10px;padding:2px 9px;border-radius:3px;cursor:pointer;
+    color:var(--label);border:1px solid transparent;text-transform:none;letter-spacing:0}
+  .vtab:hover{color:var(--ink)}
+  .vtab.sel{background:var(--steel);border-color:var(--edge-2);color:var(--amber)}
+  .dl{cursor:pointer;color:var(--green);border:1px solid var(--edge-2);border-radius:3px;padding:2px 9px}
+  .dl:hover{border-color:var(--green);filter:brightness(1.1)}
+  #cName{background:var(--steel);border:1px solid var(--edge-2);color:var(--amber);font-family:'JetBrains Mono';
+    font-size:10px;border-radius:3px;padding:2px 7px;width:74px;outline:none;margin-right:2px}
+  #cName:focus{border-color:var(--amber)}
+
+  #grid{flex:1;position:relative;overflow:auto;background:var(--steel);cursor:crosshair}
+  #canvas{
+    position:absolute;top:0;left:0;width:4000px;height:3000px;
+    transform-origin:0 0;
+    background:
+      linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px),
+      linear-gradient(0deg,rgba(255,255,255,0.025) 1px,transparent 1px);
+    background-size:60px 60px;
+  }
+  svg#wires{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+
+  .zoombar{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .zbtn{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;line-height:1;
+    background:var(--panel);color:var(--ink);border:1px solid var(--edge-2);border-radius:3px;
+    width:22px;height:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .zbtn:hover{border-color:var(--amber);color:var(--amber)}
+  .zbtn.zfit{width:auto;padding:0 8px;font-size:10px;letter-spacing:.05em}
+  .zlvl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--label);
+    min-width:38px;text-align:center;cursor:pointer;user-select:none}
+  .zlvl:hover{color:var(--amber)}
+
+  .comb{
+    position:absolute;width:104px;height:76px;border-radius:6px;
+    background:var(--panel);border:2px solid var(--edge-2);
+    display:flex;flex-direction:column;cursor:grab;user-select:none;
+    box-shadow:0 3px 10px rgba(0,0,0,.35);
+  }
+  .comb.arith{border-color:var(--amber)}
+  .comb.decide{border-color:var(--cyan)}
+  .comb.const{border-color:var(--violet)}
+  .comb.select{border-color:var(--red);width:190px;height:auto}
+  .comb.mem{border-color:var(--green);width:150px;height:auto}
+  .comb.mem .cap{color:var(--green)}
+  .memcore{display:flex;flex-direction:column;padding:5px 7px;gap:4px;width:100%;font-size:10px}
+  .memsize{color:var(--green);font-weight:700;text-align:center;font-family:'Space Grotesk'}
+  .memsize input{width:22px;background:var(--steel);border:1px solid var(--edge);color:var(--green);font-size:10px;text-align:center;border-radius:2px;font-weight:700}
+  .memports{display:flex;flex-direction:column;gap:3px}
+  .mport{display:flex;align-items:center;gap:5px;color:var(--label);cursor:pointer;padding:1px 2px;border-radius:2px}
+  .mport:hover{background:rgba(94,210,94,.1);color:var(--ink)}
+  .mport .pdot{width:9px;height:9px;border-radius:50%;background:var(--green);border:1px solid var(--steel);flex-shrink:0}
+  .memdepth{color:var(--edge-2);font-size:9px;text-align:center}
+  .memdepth input{width:30px;background:var(--steel);border:1px solid var(--edge);color:var(--ink);font-size:9px;text-align:center;border-radius:2px}
+  .comb.tall{height:auto}
+  .comb.select .cap{color:var(--red)}
+  .selrows{display:flex;flex-direction:column;padding:5px 6px;gap:3px;width:100%}
+  .selrow{display:flex;align-items:center;gap:3px;font-size:10px;font-family:'JetBrains Mono'}
+  .selrow .rw{color:var(--label);font-size:9px}
+  .selrow select{background:var(--steel);border:1px solid var(--edge);color:var(--red);font-size:10px;border-radius:2px;padding:0 1px;width:34px;font-weight:700}
+  .selrow input{background:var(--steel);border:1px solid var(--edge);color:var(--ink);font-size:10px;text-align:center;border-radius:2px;padding:1px;width:26px;font-weight:700}
+  .selrow .rowdel{color:var(--label);cursor:pointer;font-size:9px;margin-left:auto}
+  .selrow .rowdel:hover{color:var(--red)}
+  .selrow.elserow{border-top:1px solid var(--edge);padding-top:4px;margin-top:2px}
+  .addrow{color:var(--live);cursor:pointer;font-size:9px;margin-left:auto;font-weight:700}
+  .addrow:hover{filter:brightness(1.3)}
+  .comb .cap{font-family:'Space Grotesk',sans-serif;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    padding:3px 6px;color:var(--label);border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:5px}
+  .comb.arith .cap{color:var(--amber)} .comb.decide .cap{color:var(--cyan)} .comb.const .cap{color:var(--violet)}
+  .comb .core{flex:1;display:flex;align-items:center;justify-content:center;gap:3px;font-family:'JetBrains Mono';font-weight:700;font-size:15px}
+  .comb .core input,.comb .core select{
+    width:30px;background:var(--steel);border:1px solid var(--edge);color:var(--ink);
+    font-family:'JetBrains Mono';font-size:12px;font-weight:700;text-align:center;border-radius:3px;padding:2px 1px;
+  }
+  .comb .core select{width:38px;color:var(--amber)}
+  .comb.decide .core select{color:var(--cyan)}
+  .comb .out-badge{position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);
+    background:var(--steel);border:1px solid var(--edge-2);border-radius:9px;padding:1px 7px;
+    font-size:10px;color:var(--live);white-space:nowrap}
+  .mode-toggle{margin-left:auto;font-size:8.5px;padding:1px 5px;border-radius:7px;cursor:pointer;
+    font-family:'JetBrains Mono';font-weight:700;letter-spacing:0}
+  .mode-toggle.clk{background:rgba(62,197,214,.18);color:var(--cyan)}
+  .mode-toggle.inst{background:rgba(126,231,135,.18);color:var(--live)}
+  .mode-toggle:hover{filter:brightness(1.3)}
+  .wbits{color:var(--label);font-size:9px}
+  .wbits .winput{width:20px;background:var(--steel);border:1px solid var(--edge);color:var(--amber);
+    font-family:'JetBrains Mono';font-size:9px;font-weight:700;text-align:center;border-radius:2px;padding:0 1px}
+  .port{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--green);
+    border:2px solid var(--steel);cursor:pointer;z-index:5}
+  .port.in{left:-7px;top:50%;transform:translateY(-50%)}
+  .port.out{right:-7px;top:50%;transform:translateY(-50%)}
+  .port:hover{background:var(--live);transform:translateY(-50%) scale(1.25)}
+  .comb.wiring .port.out{background:var(--live);box-shadow:0 0 0 3px rgba(126,231,135,.3)}
+
+  .val-tag{position:absolute;font-family:'JetBrains Mono';font-size:11px;font-weight:700;
+    color:var(--live);background:rgba(10,12,14,.85);padding:1px 5px;border-radius:8px;pointer-events:none;z-index:6}
+
+  /* right side: verilog + sim controls */
+  #verilog{flex:1;overflow:auto;padding:14px 16px;font-size:12px;line-height:1.6;white-space:pre;color:#c7d0da}
+  .vk{color:var(--amber)} .vw{color:var(--cyan)} .vn{color:var(--violet)} .vc{color:#5a626c}
+
+  .simbar{border-top:1px solid var(--edge);background:var(--steel-2);padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+  .simrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  button.play{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;letter-spacing:.05em;
+    background:var(--green);color:#08240a;border:none;padding:8px 16px;border-radius:3px;cursor:pointer}
+  button.play:hover{filter:brightness(1.08)}
+  button.tick{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;
+    background:transparent;color:var(--green);border:1px solid var(--green);padding:7px 14px;border-radius:3px;cursor:pointer}
+  button.tick:hover{background:rgba(94,210,94,.1)}
+  button.rst{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;
+    background:transparent;color:var(--label);border:1px solid var(--edge-2);padding:7px 14px;border-radius:3px;cursor:pointer}
+  .ticknum{font-family:'Space Grotesk',sans-serif;font-size:13px;color:var(--label)}
+  .ticknum b{color:var(--live);font-size:16px}
+  .zbtn:disabled{opacity:.3;cursor:default;pointer-events:none}
+  .zsep{width:1px;height:14px;background:var(--edge);display:inline-block;margin:0 2px;vertical-align:middle}
+  .watch{display:flex;gap:8px;flex-wrap:wrap;font-size:11px}
+  /* ---- wire flow pulses: dashes travel FROM source TO destination ----
+     idle = faint slow drift (direction always readable); active = the source
+     value changed THIS tick, so this wire is carrying new data right now. */
+  #wires .wflow{stroke-dasharray:5 11;animation:wireflow .9s linear infinite;opacity:.30;pointer-events:none}
+  #wires .wflow.active{opacity:1;animation-duration:.35s;filter:drop-shadow(0 0 3px currentColor)}
+  @keyframes wireflow{to{stroke-dashoffset:-16}}   /* period = dash+gap, so the loop is seamless */
+  @media (prefers-reduced-motion: reduce){ #wires .wflow{animation:none;opacity:0} }
+  .watch .wchip{background:var(--steel);border:1px solid var(--edge);border-radius:4px;padding:3px 8px;color:var(--label)}
+  .watch .wchip b{color:var(--live)}
+  .watch .carrychip{border-color:var(--amber)}
+  .bppanel{position:absolute;top:44px;right:12px;z-index:60;width:380px;background:var(--panel);
+    border:1px solid var(--edge-2);border-radius:6px;padding:10px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .bphead{font-size:11px;color:var(--ink);font-weight:600;margin-bottom:6px}
+  .bppanel textarea{width:100%;height:70px;background:var(--steel);border:1px solid var(--edge);border-radius:4px;
+    color:var(--ink);font-family:'JetBrains Mono';font-size:10px;padding:6px;resize:vertical}
+  .bpghost{display:block;font-size:10px;color:var(--label);margin:7px 0;line-height:1.5;cursor:pointer}
+  .bprow{display:flex;gap:6px}
+  .bprow button{background:var(--steel);border:1px solid var(--edge-2);border-radius:4px;color:var(--ink);
+    font-family:'JetBrains Mono';font-size:10px;padding:4px 10px;cursor:pointer}
+  .bprow button:hover{border-color:var(--amber)}
+  .bpreport{font-size:10px;color:var(--label);margin-top:7px;max-height:110px;overflow-y:auto;line-height:1.5}
+  .comb.ghostn{opacity:.55;border-style:dashed;border-color:#58c7fa;background:rgba(88,199,250,.06)}
+  .comb.ghostn .cap{color:#58c7fa}
+  .buildbtn{float:right;background:rgba(88,199,250,.15);border:1px solid #58c7fa;border-radius:3px;color:#9fdcff;
+    font-family:'JetBrains Mono';font-size:9px;padding:1px 6px;cursor:pointer;margin-left:6px}
+  .buildbtn:hover{background:rgba(88,199,250,.3)}
+  @keyframes shakex{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+  .comb.shake{animation:shakex .15s 2}
+  .resbadge{font-family:'JetBrains Mono';font-size:10px;color:var(--label);margin-left:10px;
+    background:var(--steel);border:1px solid var(--edge);border-radius:3px;padding:2px 7px;cursor:help}
+  .carrylbl{margin-left:6px;font-size:9px;color:var(--amber);cursor:pointer;white-space:nowrap}
+  .carrylbl input{vertical-align:middle;margin-right:2px}
+  .port.out.cout{top:52px;background:var(--amber);border-color:var(--amber)}
+  .ticksctl{margin-left:auto;font-size:10px;color:var(--label);display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono'}
+  .ticksctl input{width:56px;background:var(--steel);border:1px solid var(--edge);border-radius:3px;color:var(--ink);
+    font-family:'JetBrains Mono';font-size:11px;padding:2px 5px}
+  .wavewrap{margin-top:8px;border:1px solid var(--edge);border-radius:5px;background:rgba(0,0,0,.18);overflow:hidden}
+  .wavehead{font-size:10px;color:var(--label);padding:4px 8px;border-bottom:1px solid var(--edge);
+    font-family:'JetBrains Mono';letter-spacing:.4px}
+  .wavehead .wavetip{opacity:.55;margin-left:8px;letter-spacing:0}
+  #waves{overflow-x:auto;max-height:220px;overflow-y:auto}
+  #waves svg{display:block;cursor:crosshair}
+  .hint{font-size:11px;color:var(--edge-2);line-height:1.5}
+  .race-warn{background:rgba(232,86,74,.12);border:1px solid var(--red);border-radius:4px;
+    padding:8px 12px;font-size:11.5px;color:#ffb3ad;line-height:1.5}
+  .race-warn b{color:var(--red)}
+
+  /* help */
+  .scrim{position:fixed;inset:0;background:rgba(6,8,10,.62);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:min(500px,92vw);background:var(--steel-2);
+    border-left:1px solid var(--edge-2);box-shadow:-24px 0 60px rgba(0,0,0,.5);transform:translateX(100%);
+    transition:transform .24s cubic-bezier(.4,0,.2,1);z-index:50;display:flex;flex-direction:column}
+  .drawer.open{transform:translateX(0)}
+  .dtop{display:flex;align-items:center;padding:15px 18px;border-bottom:1px solid var(--edge);background:var(--steel)}
+  .dtop b{font-family:'Space Grotesk',sans-serif;font-size:15px}
+  .dclose{margin-left:auto;background:transparent;border:none;color:var(--label);font-size:16px;cursor:pointer}
+  .dbody{flex:1;overflow-y:auto;padding:18px;font-size:12.5px;line-height:1.65;color:#c7d0da}
+  .dbody h4{font-family:'Space Grotesk',sans-serif;font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--amber);margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--edge)}
+  .dbody h4:first-child{margin-top:0}
+  .dbody code{font-family:'JetBrains Mono';color:var(--ink);background:var(--steel);padding:1px 5px;border-radius:3px;font-size:11px}
+  .maptbl{width:100%;border-collapse:collapse;margin:6px 0;font-size:11.5px}
+  .maptbl td{padding:4px 6px;border-bottom:1px solid rgba(58,64,70,.5);vertical-align:top}
+  .maptbl td:first-child{color:var(--amber);white-space:nowrap}
+  .dbody .note{background:var(--steel);border-left:2px solid var(--green);padding:9px 12px;margin:10px 0;border-radius:0 3px 3px 0;font-size:11.5px}
+  .dbody .note b{color:var(--green)}
+
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:var(--steel)}
+  ::-webkit-scrollbar-thumb{background:var(--edge);border-radius:5px;border:2px solid var(--steel)}
+  @media (max-width:900px){main{grid-template-columns:1fr}.right{min-height:340px}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark"><b>⚙</b> Combinator Foundry</span>
+  <span class="tagline">build a Factorio circuit &rarr; get real Verilog · watch it tick <span style="color:var(--live);font-weight:600">v2.12</span></span>
+  <span class="spacer"></span>
+  <button class="hbtn" id="helpBtn">? HELP</button>
+</header>
+
+<div class="toolbar">
+  <div class="tool const" data-tool="constant"><span class="sw"></span>Constant</div>
+  <div class="tool arith sel" data-tool="arithmetic"><span class="sw"></span>Arithmetic</div>
+  <div class="tool decide" data-tool="decider"><span class="sw"></span>Decider</div>
+  <div class="tool select" data-tool="selector"><span class="sw"></span>Selector</div>
+  <div class="tool memory" data-tool="memory"><span class="sw"></span>Memory</div>
+  <div class="tsep"></div>
+  <select id="bpPicker" title="stamp a ready-made blueprint">
+    <option value="">＋ Blueprint…</option>
+    <option value="Register">Register</option>
+    <option value="Incrementer">Incrementer</option>
+    <option value="Adder">Adder</option>
+    <option value="Doubler">Doubler</option>
+  </select>
+  <div class="tsep"></div>
+  <div class="tool wire" data-tool="wire"><span class="sw"></span>Wire</div>
+  <div class="wire-colors" id="wireColors" title="pick a color for new wires">
+    <span class="wc sel" data-wc="#5ed25e" style="background:#5ed25e"></span>
+    <span class="wc" data-wc="#e8564a" style="background:#e8564a"></span>
+    <span class="wc" data-wc="#3ec5d6" style="background:#3ec5d6"></span>
+    <span class="wc" data-wc="#f5a524" style="background:#f5a524"></span>
+    <span class="wc" data-wc="#c792ea" style="background:#c792ea"></span>
+  </div>
+  <div class="tool erase" data-tool="erase"><span class="sw"></span>Delete</div>
+  <div class="tsep"></div>
+  <div class="tool" data-tool="sample" style="border-color:var(--edge-2)">↺ Load counter</div>
+  <div class="tool" data-tool="recorder" style="border-color:var(--edge-2)">↺ Tick recorder</div>
+  <div class="tool" data-tool="dice" style="border-color:var(--edge-2)">🎲 Dice roller</div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="phead"><span class="t">◈</span> circuit grid <span class="sub">click to place · drag to move · wire out→in</span>
+      <span class="zoombar">
+        <button class="zbtn" id="undoBtn" title="undo (⌘/Ctrl+Z)" disabled>↶</button>
+        <button class="zbtn" id="redoBtn" title="redo (⌘/Ctrl+Shift+Z)" disabled>↷</button>
+        <span class="zsep"></span>
+        <button class="zbtn" id="zOut" title="zoom out (⌘/Ctrl + scroll)">−</button>
+        <span class="zlvl" id="zLvl" title="click to reset to 100%">100%</span>
+        <button class="zbtn" id="zIn" title="zoom in (⌘/Ctrl + scroll)">+</button>
+        <button class="zbtn zfit" id="zFit" title="fit all combinators in view">fit</button>
+      </span>
+    </div>
+    <div id="grid">
+      <div id="canvas">
+        <svg id="wires"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="phead"><span class="t">▸</span> verilog
+      <span class="vtabs">
+        <span class="vtab sel" data-view="circuit">circuit.v</span>
+        <span class="vtab" data-view="tb">tb.v</span>
+      </span>
+      <span class="resbadge" id="resBadge" title="FPGA resource estimate. FF is exact (registers can't optimize away). LUT₄ is a structural upper bound — a synthesizer only does better, often much better. Division/modulo cost ~3·W²: the expensive ops."></span>
+      <span class="sub" style="margin-left:auto"><input id="cName" placeholder="name…" title="name this circuit → module circuit«name»" maxlength="20"><span class="dl" id="saveBtn" title="save this circuit as a shareable .foundry.json file">💾 save</span><span class="dl" id="loadBtn" title="load a saved .foundry.json circuit">📂 load</span><span class="dl" id="bpBtn" title="import a Factorio blueprint string">📋 import print</span><span class="dl" id="dlBtn" title="download circuit.v + tb.v">⬇ download bundle</span><input type="file" id="loadFile" accept=".json,application/json" style="display:none"></span>
+      <div id="bpPanel" class="bppanel" style="display:none">
+        <div class="bphead">Import a Factorio blueprint string</div>
+        <textarea id="bpText" placeholder="paste a blueprint string (starts with 0eNq...)" spellcheck="false"></textarea>
+        <label class="bpghost"><input type="checkbox" id="bpGhostChk" checked> place as <b>ghosts</b> — the print shows where everything goes and how it's wired; you set each combinator's operation and values, then 🔨 build it. The print checks you.</label>
+        <div class="bprow">
+          <button id="bpImport">import</button>
+          <button id="bpReveal" title="give up: fill every ghost from the print">👁 reveal all ghosts</button>
+          <button id="bpClose">close</button>
+        </div>
+        <div id="bpReport" class="bpreport"></div>
+      </div>
+    </div>
+    <div id="verilog"></div>
+    <div class="simbar">
+      <div class="simrow">
+        <button class="play" id="playBtn">▶ RUN</button>
+        <button class="tick" id="tickBtn">TICK ▸</button>
+        <button class="rst" id="rstBtn">RESET</button>
+        <span class="ticknum">tick <b id="tickNum">0</b></span>
+        <label class="ticksctl" title="simulation horizon — how many ticks to compute (testbench runs the same count)">ticks <input id="simTicksInp" type="number" min="1" max="1024" step="1" value="64"></label>
+      </div>
+      <div class="watch" id="watch"></div>
+      <div class="wavewrap">
+        <div class="wavehead">waveform <span class="wavetip">each row is one signal over time — click a column to seek</span></div>
+        <div id="waves"></div>
+      </div>
+      <div class="race-warn" id="raceWarn" style="display:none"></div>
+      <div class="hint">Each combinator updates one tick after its inputs — that 1-tick delay is a hardware register. Watch a value take one tick per stage to flow through. That staged flow is the clock.</div>
+    </div>
+  </section>
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dtop"><b>Factorio → Verilog, 1:1</b><button class="dclose" id="dclose">✕</button></div>
+  <div class="dbody" id="dbody"></div>
+</aside>
+
+<script>
+/* ============================================================
+   Combinator Foundry
+   Real Factorio circuit-network vocabulary, mapped 1:1 to synchronous
+   digital logic, emitted as Verilog and simulated tick-by-tick.
+
+   The core truth: a Factorio combinator's output appears ONE TICK after
+   its input. That one-tick delay is exactly a clocked register. So a
+   combinator circuit IS a synchronous digital circuit, the tick IS the
+   clock, and the Verilog below is a faithful translation, not a metaphor.
+   ============================================================ */
+
+const grid=document.getElementById('grid');
+const canvas=document.getElementById('canvas');
+const svg=document.getElementById('wires');
+let zoom=1;   // canvas scale factor; screen px = model px * zoom
+let tool='arithmetic';
+let combs=[];        // {id,type,x,y, ...fields}
+let wireLinks=[];    // {from:id, to:id}  (out of `from` feeds in of `to`)
+let idc=1;
+let wiringFrom=null; // id we're dragging a wire from
+let wiringFromPort=null; // null = main out, 'cout' = carry-out (O1)
+let appendMode=null; // {id,port}: next wire to this operand port appends to a concat instead of replacing
+let currentWireColor='#5ed25e';   // color new wires adopt
+let circuitName='';   // optional label shown as module circuit«name»; parser strips «...» for real Verilog
+
+/* ---------- signal naming: each combinator OUTPUTS a signal named S<id> ---------- */
+const sigName=id=>'S'+id;
+// a wire's source SIGNAL: the node's output, or its 1-bit carry-out (O1)
+const srcName=w=>sigName(w.from)+(w.fromPort==='cout'?'_c':'');
+// O1: turning carry off orphans any wires drawn from the cout port — cull them
+function setCarry(c,on){
+  c.carry=!!on;
+  if(!c.carry) wireLinks=wireLinks.filter(w=>!(w.from===c.id && w.fromPort==='cout'));
+}
+
+/* transient status banner (reuses the race-warn element) */
+let raceHintTimer=null;
+function raceHint(msg){
+  const warn=document.getElementById('raceWarn');
+  if(!warn) return;
+  warn.style.display='block';
+  warn.innerHTML=msg;
+  clearTimeout(raceHintTimer);
+  raceHintTimer=setTimeout(()=>{ regen(); }, 4000); // regen() restores the real loop-warning state
+}
+
+/* ---------- ready-made blueprint library (Step 5) ----------
+   Each blueprint is a reusable sub-module: named ports in, one out.
+   Stamping one places an instance; each becomes a Verilog module + instantiation. */
+const BLUEPRINTS={
+  Register:    { inputs:['IN'],   comb:false, desc:'holds input, 1-tick delay',
+                 body:['    if (rst) OUT <= 0; else OUT <= IN;'] },
+  Incrementer: { inputs:['IN'],   comb:false, desc:'output = input + 1',
+                 body:['    if (rst) OUT <= 0; else OUT <= IN + 1;'] },
+  Adder:       { inputs:['A','B'],comb:false, desc:'output = A + B',
+                 body:['    if (rst) OUT <= 0; else OUT <= A + B;'] },
+  Doubler:     { inputs:['IN'],   comb:true,  desc:'output = input × 2 (instant)',
+                 assign:'IN << 1' }
+};
+function bpModule(name, width){
+  const bp=BLUEPRINTS[name]; const range=`[${width-1}:0]`;
+  const ins=bp.inputs.map(i=>`input ${range} ${i}`).join(', ');
+  const L=[];
+  if(bp.comb){
+    L.push(`module ${name.toLowerCase()}(input clk, input rst, ${ins}, output ${range} OUT);`);
+    L.push(`  assign OUT = ${bp.assign};`);
+  } else {
+    L.push(`module ${name.toLowerCase()}(input clk, input rst, ${ins}, output reg ${range} OUT);`);
+    L.push('  always @(posedge clk or posedge rst) begin');
+    bp.body.forEach(l=>L.push(l));
+    L.push('  end');
+  }
+  L.push('endmodule');
+  return L.join('\n');
+}
+
+/* ---------- placement ---------- */
+grid.addEventListener('click',e=>{
+  if(e.target!==grid && e.target!==canvas && e.target.tagName!=='svg') return;   // only empty canvas
+  if(tool==='wire'||tool==='erase') return;
+  const r=grid.getBoundingClientRect();
+  // screen -> model: undo scroll, then undo zoom, then offset so the node centers on the cursor
+  const x=(e.clientX-r.left+grid.scrollLeft)/zoom-52, y=(e.clientY-r.top+grid.scrollTop)/zoom-38;
+  addComb(tool,x,y);
+});
+
+function addComb(type,x,y){
+  const c={id:idc++, type, x:Math.max(4,x), y:Math.max(4,y), clocked:true, width:32};
+  if(type==='constant'){ c.value=1; c.sig='S'+c.id; }
+  if(type==='arithmetic'){ c.inL='', c.op='+', c.inR=1; }
+  if(type==='decider'){ c.inL='', c.cmp='>', c.inR=0, c.outputVal=1; c.width=1; } // conditions are 1-bit
+  if(type==='selector'){
+    c.width=8;
+    c.rows=[ {cmp:'>', val:10, out:3}, {cmp:'>', val:5, out:2}, {cmp:'>', val:0, out:1} ];
+    c.elseOut=0;
+  }
+  if(type==='memory'){
+    c.width=8; c.depth=8;   // 8 cells, 8 bits each
+    c.clocked=true;         // memory is inherently clocked
+    // four inputs identified by port name: waddr, wdata, we, raddr
+    // its output signal = value read at raddr
+  }
+  if(type==='instance'){
+    c.width=8; c.clocked=true;
+    // c.bp (blueprint name) is assigned by the caller before render
+    // inputs wired by blueprint port name via toPort
+  }
+  combs.push(c);
+  render();
+  regen();
+}
+function addInstance(bpName,x,y){
+  const c={id:idc++, type:'instance', bp:bpName, x:Math.max(4,x), y:Math.max(4,y), width:8, clocked:true, count:1};
+  combs.push(c); render(); regen();
+}
+
+/* ---------- render one operand port (A/B): literal, single wire, or concat ---------- */
+function opPortHtml(c, port, field){
+  const pws=portWires(c, port);
+  if(pws.length===0){
+    // no wire: plain literal/expression input
+    return `<span class="pdot in"></span><input data-f="${field}" value="${c[field]}" placeholder="${port}">`;
+  }
+  if(pws.length===1){
+    const w=pws[0];
+    // single wire: signal + optional bit-tap, plus a "+cat" to start a concat
+    return `<span class="pdot in"></span>`+
+      `<span class="wfrom">${srcName(w)}</span>`+
+      `<input class="taptf" data-tap="${port}" data-slot="${w.slot||0}" value="${w.bitTap||''}" placeholder="bits" title="tap bits e.g. 3:2">`+
+      `<span class="srcdel" data-delsrc="${port}" data-slot="${w.slot||0}" title="remove this source">✕</span>`+
+      `<span class="addsrc" data-addsrc="${port}" title="add another source to concat with this one">+cat</span>`;
+  }
+  // multiple wires: a concatenation {msb, ..., lsb}. Top row = most significant.
+  const rows=pws.map((w,i)=>`
+    <div class="srcrow">
+      <span class="pdot in"></span>
+      <span class="wfrom">${srcName(w)}</span>
+      <input class="taptf" data-tap="${port}" data-slot="${w.slot||0}" value="${w.bitTap||''}" placeholder="bits" title="tap bits e.g. 3:2">
+      <span class="srcdel" data-delsrc="${port}" data-slot="${w.slot||0}" title="remove this source">✕</span>
+    </div>`).join('');
+  return `<span class="concat-brace">{ concat · top = MSB }</span>${rows}`+
+    `<span class="addsrc" data-addsrc="${port}" title="add another source (becomes least significant)">+ add source</span>`;
+}
+
+/* ---------- render combinators + wires ---------- */
+function render(){
+  // remove old comb DOM
+  [...grid.querySelectorAll('.comb, .val-tag')].forEach(n=>n.remove());
+  for(const c of combs){
+    const el=document.createElement('div');
+    el.className='comb '+(c.type==='arithmetic'?'arith':c.type==='decider'?'decide':c.type==='selector'?'select':'const');
+    if(wiringFrom===c.id) el.classList.add('wiring');
+    if(c.type==='selector') el.classList.add('tall');
+    if(c.type==='memory'){ el.classList.add('tall'); el.classList.add('mem'); }
+    if(c.type==='instance'){ el.classList.add('tall'); el.classList.add('inst'); }
+    el.style.left=c.x+'px'; el.style.top=c.y+'px';
+    const capName = c.type==='constant'?'Constant':c.type==='arithmetic'?'Arithmetic':c.type==='selector'?'Selector':c.type==='memory'?'Memory':c.type==='instance'?'Blueprint':'Decider';
+    const modeBtn = (c.type==='constant'||c.type==='memory'||c.type==='instance') ? '' :
+      `<span class="mode-toggle ${c.clocked?'clk':'inst'}" data-mode="1" title="${c.clocked?'clocked: 1-tick delay (reg)':'instant: no delay (wire/assign)'}">${c.clocked?'⏱ clk':'⚡ inst'}</span>`;
+    let core='';
+    if(c.type==='constant'){
+      core=`<span style="color:var(--violet)">=</span><input data-f="value" value="${c.value}" size="3">`;
+    } else if(c.type==='arithmetic'){
+      const mA=portWires(c,'A').length>1?' multi':'', mB=portWires(c,'B').length>1?' multi':'';
+      core=`<div class="opcore">
+        <div class="opport${mA}" data-oport="A">
+          ${opPortHtml(c,'A','inL')}
+        </div>
+        <select class="opsel" data-f="op">${['+','-','*','/','%','<<','>>','&','|','^'].map(o=>`<option ${o===c.op?'selected':''}>${o}</option>`).join('')}</select>
+        <div class="opport${mB}" data-oport="B">
+          ${opPortHtml(c,'B','inR')}
+        </div>
+      </div>`;
+    } else if(c.type==='memory'){
+      // four labeled input ports on the left; output = value at read address
+      core=`<div class="memcore">
+        <div class="memsize">${c.depth} × <input data-f="width" value="${c.width}" size="2">b RAM</div>
+        <div class="memports">
+          <div class="mport" data-mport="waddr"><span class="pdot in"></span>wr addr</div>
+          <div class="mport" data-mport="wdata"><span class="pdot in"></span>wr data</div>
+          <div class="mport" data-mport="we"><span class="pdot in"></span>wr enable</div>
+          <div class="mport" data-mport="raddr"><span class="pdot in"></span>rd addr</div>
+        </div>
+        <div class="memdepth">cells: <input data-f="depth" value="${c.depth}" size="3"></div>
+      </div>`;
+    } else if(c.type==='instance'){
+      const bp=BLUEPRINTS[c.bp]||{inputs:[],desc:''};
+      const ports=bp.inputs.map(p=>`<div class="iport" data-iport="${p}"><span class="pdot in"></span>${p}</div>`).join('');
+      core=`<div class="instcore">
+        <div class="instname">${c.bp}</div>
+        <div class="instdesc">${bp.desc||''}</div>
+        <div class="instports">${ports}</div>
+        <div class="instrepeat">repeat ×<input data-f="count" value="${c.count||1}" size="2"></div>
+      </div>`;
+    } else if(c.type==='selector'){
+      // if IN <cmp> <val> -> <out>, first match wins; else -> elseOut
+      const rows=c.rows.map((r,idx)=>`
+        <div class="selrow" data-row="${idx}">
+          <span class="rw">if in</span>
+          <select data-rf="cmp" data-ri="${idx}">${['>','<','=','>=','<=','!='].map(o=>`<option ${o===r.cmp?'selected':''}>${o}</option>`).join('')}</select>
+          <input data-rf="val" data-ri="${idx}" value="${r.val}" size="2">
+          <span class="rw">→</span>
+          <input data-rf="out" data-ri="${idx}" value="${r.out}" size="2">
+          <span class="rowdel" data-ri="${idx}" title="remove row">✕</span>
+        </div>`).join('');
+      core=`<div class="selrows">${rows}
+        <div class="selrow elserow"><span class="rw">else →</span><input data-f="elseOut" value="${c.elseOut}" size="2"><span class="addrow" title="add a branch">+ row</span></div>
+      </div>`;
+    } else {
+      const mA=portWires(c,'A').length>1?' multi':'', mB=portWires(c,'B').length>1?' multi':'';
+      core=`<div class="opcore">
+        <div class="opport${mA}" data-oport="A">
+          ${opPortHtml(c,'A','inL')}
+        </div>
+        <select class="opsel" data-f="cmp">${['>','<','=','>=','<=','!='].map(o=>`<option ${o===c.cmp?'selected':''}>${o}</option>`).join('')}</select>
+        <div class="opport${mB}" data-oport="B">
+          ${opPortHtml(c,'B','inR')}
+        </div>
+      </div>`;
+    }
+    const labelLine = c.label ? `<div class="node-label">${c.label}</div>` : '';
+    if(c.ghost) el.classList.add('ghostn');
+    const canCarry = c.type==='arithmetic' && (c.op==='+'||c.op==='-');
+    const carryUi = canCarry ? `<label class="carrylbl" title="also output the carry (borrow for −) as a 1-bit signal ${sigName(c.id)}_c"><input type="checkbox" class="carrychk"${c.carry?' checked':''}>+carry</label>` : '';
+    const buildBtn = c.ghost ? `<button class="buildbtn" title="check your settings against the print and build">\ud83d\udd28 build</button>` : '';
+    el.innerHTML=`<div class="cap">${capName} · ${sigName(c.id)}${modeBtn}${buildBtn}</div>${labelLine}<div class="core">${core}</div>
+      <div class="out-badge">out: ${sigName(c.id)} <span class="wbits" title="bit width of this signal">[<input class="winput" data-f="width" value="${c.width}" size="3">b]</span>${carryUi}</div>
+      ${(c.type==='selector')?'<div class="port in" data-port="in"></div>':''}
+      <div class="port out" data-port="out"></div>
+      ${c.carry?`<div class="port out cout" data-port="cout" title="carry-out: ${sigName(c.id)}_c (1 bit)"></div>`:''}`;
+    canvas.appendChild(el);
+
+    // dragging to move
+    const cap=el.querySelector('.cap');
+    cap.addEventListener('mousedown',ev=>startDrag(ev,c,el));
+
+    // field edits
+    el.querySelectorAll('[data-f]').forEach(inp=>{
+      inp.addEventListener('input',()=>{
+        const f=inp.dataset.f; let v=inp.value;
+        if(f==='op' && c.carry && v!=='+' && v!=='-'){   // carry is defined only for +/- (O1)
+          setCarry(c,false);
+          raceHint(`<b>note:</b> ${sigName(c.id)}\u2019s carry-out was removed \u2014 carry is only defined for + and \u2212.`);
+        }
+        if(f==='width'){ v=Math.max(1,Math.min(512,parseInt(v,10)||1)); }   // O8: BigInt sim — no 32-bit wall
+        if(f==='depth'){ v=Math.max(2,Math.min(1024,parseInt(v,10)||2));
+          v=1<<Math.round(Math.log2(v));   // snap to a power of two — address truncation is then total
+        }
+        if(f==='count'){ v=Math.max(1,Math.min(64,parseInt(v,10)||1)); }
+        c[f]=v;
+        // update badge live without full re-render churn
+        regen();
+        if(f==='op') render();   // carry toggle visibility depends on the op
+      });
+      inp.addEventListener('click',e=>e.stopPropagation());
+    });
+
+    // clocked/instant toggle
+    const mt=el.querySelector('.mode-toggle');
+    if(mt) mt.addEventListener('click',ev=>{ ev.stopPropagation(); c.clocked=!c.clocked; render(); regen(); });
+
+    // selector row edits
+    el.querySelectorAll('[data-rf]').forEach(inp=>{
+      inp.addEventListener('input',()=>{
+        const ri=+inp.dataset.ri, rf=inp.dataset.rf;
+        c.rows[ri][rf]=inp.value; regen();
+      });
+      inp.addEventListener('click',e=>e.stopPropagation());
+    });
+    el.querySelectorAll('.rowdel').forEach(b=>b.addEventListener('click',ev=>{
+      ev.stopPropagation(); const ri=+b.dataset.ri; c.rows.splice(ri,1); render(); regen();
+    }));
+    const addr=el.querySelector('.addrow');
+    if(addr) addr.addEventListener('click',ev=>{ ev.stopPropagation(); c.rows.push({cmp:'>',val:0,out:0}); render(); regen(); });
+
+    // ghost build check
+    const bb=el.querySelector('.buildbtn');
+    if(bb) bb.addEventListener('click',ev=>{
+      ev.stopPropagation();
+      const r=buildGhost(c);
+      if(!r.ok){
+        const nice={op:'operation',inL:'left input',inR:'right input',value:'value',cmp:'comparison',outputVal:'output',elseOut:'else output'};
+        raceHint(`<b>\ud83d\udc7b not quite:</b> check ${r.wrong.map(k=>nice[k]||k).join(', ')} on ${sigName(c.id)} \u2014 the print disagrees.`);
+        el.classList.add('shake'); setTimeout(()=>el.classList.remove('shake'),400);
+      } else {
+        raceHint(`<b>\u2705 built ${sigName(c.id)}</b> \u2014 matches the print.`);
+      }
+    });
+
+    // carry toggle (O1)
+    const cchk=el.querySelector('.carrychk');
+    if(cchk) cchk.addEventListener('change',ev=>{
+      ev.stopPropagation();
+      setCarry(c, cchk.checked);
+      render(); regen();
+    });
+    if(cchk) cchk.addEventListener('click',e=>e.stopPropagation());
+
+    // ports
+    const outP=el.querySelector('.port.out:not(.cout)');
+    outP.addEventListener('click',ev=>{ ev.stopPropagation(); wiringFrom=c.id; wiringFromPort=null; render(); });
+    const coutP=el.querySelector('.port.cout');
+    if(coutP) coutP.addEventListener('click',ev=>{ ev.stopPropagation(); wiringFrom=c.id; wiringFromPort='cout'; render(); });
+    const inP=el.querySelector('.port.in');
+    if(inP) inP.addEventListener('click',ev=>{
+      ev.stopPropagation();
+      if(wiringFrom!==null && wiringFrom!==c.id){
+        // connect: out of wiringFrom feeds in of c
+        if(!wireLinks.some(w=>w.from===wiringFrom&&w.to===c.id&&(w.fromPort||null)===(wiringFromPort||null))) wireLinks.push({from:wiringFrom,to:c.id,fromPort:wiringFromPort||undefined,color:currentWireColor});
+        wiringFrom=null; wiringFromPort=null; render(); regen();
+      }
+    });
+
+    // memory: four labeled input ports
+    el.querySelectorAll('.mport').forEach(mp=>{
+      mp.addEventListener('click',ev=>{
+        ev.stopPropagation();
+        if(wiringFrom!==null && wiringFrom!==c.id){
+          const port=mp.dataset.mport;
+          // one wire per memory port — replace if reconnecting the same port
+          wireLinks=wireLinks.filter(w=>!(w.to===c.id && w.toPort===port));
+          wireLinks.push({from:wiringFrom, to:c.id, toPort:port, fromPort:wiringFromPort||undefined, color:currentWireColor});
+          wiringFrom=null; render(); regen();
+        }
+      });
+    });
+
+    // arithmetic / decider: A and B operand ports (draw a wire into either)
+    el.querySelectorAll('.opport').forEach(op=>{
+      // clicking the port (dot / empty area) connects the pending wire
+      op.addEventListener('click',ev=>{
+        // ignore clicks that originate on interactive children (tap field, buttons)
+        if(ev.target.closest('.taptf,.srcdel,.addsrc,input')) return;
+        ev.stopPropagation();
+        if(wiringFrom!==null && wiringFrom!==c.id){
+          const port=op.dataset.oport;   // 'A' or 'B'
+          const existing=portWires(c,port);
+          const arming = appendMode && appendMode.id===c.id && appendMode.port===port;
+          if(arming){
+            // append as a new least-significant concat source
+            const nextSlot=existing.length? Math.max(...existing.map(w=>w.slot||0))+1 : 0;
+            wireLinks.push({from:wiringFrom, to:c.id, toPort:port, slot:nextSlot, fromPort:wiringFromPort||undefined, color:currentWireColor});
+          } else {
+            // default: replace whatever was on the port with a single source
+            wireLinks=wireLinks.filter(w=>!(w.to===c.id && w.toPort===port));
+            wireLinks.push({from:wiringFrom, to:c.id, toPort:port, slot:0, fromPort:wiringFromPort||undefined, color:currentWireColor});
+          }
+          appendMode=null; wiringFrom=null; render(); regen();
+        }
+      });
+    });
+    // "+cat" / "+ add source": arm the next connection to append to this port's concat
+    el.querySelectorAll('.addsrc').forEach(b=>{
+      b.addEventListener('click',ev=>{
+        ev.stopPropagation();
+        const port=b.dataset.addsrc;
+        appendMode={id:c.id, port};
+        // if no wire is being dragged yet, prompt the user to pick a source
+        raceHint(`Concat armed on ${sigName(c.id)} port ${port}: click a source combinator’s ▸ out, then this port.`);
+        render();
+      });
+    });
+    // remove one source from a port (by slot)
+    el.querySelectorAll('.srcdel').forEach(b=>{
+      b.addEventListener('click',ev=>{
+        ev.stopPropagation();
+        const port=b.dataset.delsrc, slot=+b.dataset.slot;
+        wireLinks=wireLinks.filter(w=>!(w.to===c.id && w.toPort===port && (w.slot||0)===slot));
+        // re-pack remaining slots so they stay contiguous 0..n-1
+        portWires(c,port).forEach((w,i)=>w.slot=i);
+        render(); regen();
+      });
+    });
+    // bit-tap fields on a wired operand port (per-slot)
+    el.querySelectorAll('.taptf').forEach(tf=>{
+      tf.addEventListener('input',()=>{
+        const port=tf.dataset.tap, slot=+(tf.dataset.slot||0);
+        const w=wireLinks.find(x=>x.to===c.id && x.toPort===port && (x.slot||0)===slot);
+        if(w){ w.bitTap=tf.value.replace(/[^0-9:]/g,''); regen(); }
+      });
+      tf.addEventListener('click',e=>e.stopPropagation());
+    });
+
+    // blueprint instance: labeled input ports (by blueprint port name)
+    el.querySelectorAll('.iport').forEach(ip=>{
+      ip.addEventListener('click',ev=>{
+        ev.stopPropagation();
+        if(wiringFrom!==null && wiringFrom!==c.id){
+          const port=ip.dataset.iport;
+          wireLinks=wireLinks.filter(w=>!(w.to===c.id && w.toPort===port));
+          wireLinks.push({from:wiringFrom, to:c.id, toPort:port, fromPort:wiringFromPort||undefined, color:currentWireColor});
+          wiringFrom=null; render(); regen();
+        }
+      });
+    });
+
+    // delete tool
+    el.addEventListener('click',ev=>{
+      if(tool==='erase'){ ev.stopPropagation();
+        combs=combs.filter(x=>x.id!==c.id);
+        wireLinks=wireLinks.filter(w=>w.from!==c.id&&w.to!==c.id);
+        render(); regen();
+      }
+    });
+  }
+  drawWires();
+  if(simHistory) overlayValues();
+}
+
+function startDrag(ev,c,el){
+  ev.preventDefault();
+  // record where in model-space the cursor grabbed the node
+  const sx0=ev.clientX, sy0=ev.clientY, cx0=c.x, cy0=c.y;
+  function mv(e){
+    // screen delta -> model delta by dividing out the zoom
+    c.x=Math.max(4, cx0+(e.clientX-sx0)/zoom);
+    c.y=Math.max(4, cy0+(e.clientY-sy0)/zoom);
+    el.style.left=c.x+'px'; el.style.top=c.y+'px'; drawWires(); if(simHistory) overlayValues();
+  }
+  function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); commitSnapshot(); }  // one undo step per drag
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+}
+
+function centerOf(id,side,port){
+  const c=combs.find(x=>x.id===id); if(!c) return {x:0,y:0};
+  const w = c.type==='memory'?150 : c.type==='selector'?190 : c.type==='instance'?132 : 104;
+  if(side==='out') return { x:c.x+w, y:c.y+38 };
+  if(side==='cout') return { x:c.x+w, y:c.y+60 };   // carry-out dot sits below the main out
+  // memory input ports are stacked; approximate their y by port order
+  if(c.type==='memory' && port){
+    const order={waddr:0,wdata:1,we:2,raddr:3};
+    const idx=order[port]!==undefined?order[port]:0;
+    return { x:c.x, y:c.y+52 + idx*18 };
+  }
+  if(c.type==='instance' && port){
+    const bp=BLUEPRINTS[c.bp];
+    const idx=bp?Math.max(0,bp.inputs.indexOf(port)):0;
+    return { x:c.x, y:c.y+62 + idx*15 };
+  }
+  // arithmetic / decider A and B operand ports (stacked, A above B)
+  if((c.type==='arithmetic'||c.type==='decider') && (port==='A'||port==='B')){
+    return { x:c.x, y:c.y+52 + (port==='B'?30:0) };
+  }
+  return { x:c.x, y:c.y+38 };
+}
+let wireFlowEls=[];   // {from, el}: the animated overlay of each wire, for per-tick activity updates
+function drawWires(){
+  svg.innerHTML='';
+  wireFlowEls=[];
+  svg.setAttribute('width', canvas.offsetWidth);
+  svg.setAttribute('height', canvas.offsetHeight);
+  for(const w of wireLinks){
+    const a=centerOf(w.from, w.fromPort==='cout'?'cout':'out'), b=centerOf(w.to,'in',w.toPort);
+    const midx=(a.x+b.x)/2;
+    const d=`M ${a.x} ${a.y} C ${midx} ${a.y}, ${midx} ${b.y}, ${b.x} ${b.y}`;
+    const color=w.color || 'var(--green)';
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width','2.5');
+    const gA=combs.find(c=>c.id===w.from), gB=combs.find(c=>c.id===w.to);
+    if((gA&&gA.ghost)||(gB&&gB.ghost)){ path.setAttribute('stroke-dasharray','4 5'); path.setAttribute('opacity','0.45'); }
+    else path.setAttribute('opacity','0.75');
+    svg.appendChild(path);
+    // flow overlay: same geometry, marching dashes. The path is authored
+    // source→destination, so the drift direction IS the data direction.
+    const flow=document.createElementNS('http://www.w3.org/2000/svg','path');
+    flow.setAttribute('d',d);
+    flow.setAttribute('fill','none');
+    flow.setAttribute('stroke', color);
+    flow.setAttribute('stroke-width','2.5');
+    flow.style.color=color;               // lets .active's drop-shadow glow in the wire's color
+    flow.classList.add('wflow');
+    if((gA&&gA.ghost)||(gB&&gB.ghost)) flow.style.display='none';   // no data flows through a ghost
+    svg.appendChild(flow);
+    wireFlowEls.push({from:w.from, sig:srcName(w), el:flow});
+  }
+  updateWireFlow();
+}
+/* activity: a wire is "carrying" when its SOURCE signal changed into the
+   current tick — light those up so each tick visibly propagates stage by stage. */
+function updateWireFlow(){
+  const t=simHistory?Math.min(tick,simHistory.length-1):0;
+  const cur=simHistory?simHistory[t]:null, prev=simHistory?simHistory[Math.max(0,t-1)]:null;
+  for(const f of wireFlowEls){
+    const S=f.sig||sigName(f.from);
+    const changed = !!cur && t>0 && String(cur[S]??0)!==String(prev[S]??0);   // works for Number AND BigInt
+    if(changed) f.el.classList.add('active'); else f.el.classList.remove('active');
+  }
+}
+
+/* ---------- zoom ---------- */
+const ZMIN=0.25, ZMAX=1.6;
+function applyZoom(){
+  canvas.style.transform=`scale(${zoom})`;
+  const lvl=document.getElementById('zLvl');
+  if(lvl) lvl.textContent=Math.round(zoom*100)+'%';
+}
+// zoom toward a focal screen point (cx,cy relative to the grid viewport),
+// keeping the model point under the cursor fixed as scale changes.
+function setZoom(nz, cx, cy){
+  nz=Math.max(ZMIN,Math.min(ZMAX,nz));
+  const r=grid.getBoundingClientRect();
+  if(cx===undefined){ cx=r.width/2; cy=r.height/2; }
+  // model coords under the focal point before zooming
+  const mx=(grid.scrollLeft+cx)/zoom, my=(grid.scrollTop+cy)/zoom;
+  zoom=nz; applyZoom();
+  // rescroll so that same model point sits back under the focal point
+  grid.scrollLeft=mx*zoom-cx;
+  grid.scrollTop=my*zoom-cy;
+}
+function zoomFit(){
+  if(!combs.length){ setZoom(1); return; }
+  // bounding box of all nodes in model space (generous right/bottom margins for node bodies)
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(const c of combs){
+    const w=c.type==='memory'?150:c.type==='selector'?190:c.type==='instance'?132:104;
+    const h=c.type==='selector'||c.type==='memory'||c.type==='instance'?150:100;
+    minx=Math.min(minx,c.x); miny=Math.min(miny,c.y);
+    maxx=Math.max(maxx,c.x+w); maxy=Math.max(maxy,c.y+h);
+  }
+  const pad=40, r=grid.getBoundingClientRect();
+  const bw=(maxx-minx)+pad*2, bh=(maxy-miny)+pad*2;
+  const z=Math.max(ZMIN,Math.min(ZMAX, Math.min(r.width/bw, r.height/bh)));
+  zoom=z; applyZoom();
+  grid.scrollLeft=(minx-pad)*z;
+  grid.scrollTop=(miny-pad)*z;
+}
+
+function overlayValues(){
+  [...grid.querySelectorAll('.val-tag')].forEach(n=>n.remove());
+  if(!simHistory) return;
+  const w=simHistory[Math.min(tick,simHistory.length-1)];
+  for(const c of combs){
+    if(c.ghost) continue;   // ghosts aren't in the sim
+    const v=w[sigName(c.id)]||0;
+    const tag=document.createElement('div');
+    tag.className='val-tag';
+    if(c.type==='instance' && (c.count||1)>1 && w[sigName(c.id)+'_bank']){
+      const bank=w[sigName(c.id)+'_bank'];
+      tag.textContent='['+bank.slice(0,6).join(',')+(bank.length>6?'…':'')+']';
+    } else {
+      tag.textContent=v;
+    }
+    const wNode = c.type==='memory'?150 : c.type==='selector'?190 : c.type==='instance'?132 : 104;
+    tag.style.left=(c.x+wNode-6)+'px'; tag.style.top=(c.y-10)+'px';
+    canvas.appendChild(tag);
+  }
+  updateWireFlow();   // relight wires whose source changed into this tick
+}
+
+/* ---------- resolve an input field to a signal name, literal, slice, or concat ---------- */
+// Each operand port ('A'->inL, 'B'->inR) can be fed three ways, in priority:
+//   1. a drawn wire into that port (optionally bit-tapped, e.g. S1[3:2])
+//   2. an explicit slice/concat typed in the field (S1[3:0] or {S1,S2})
+//   3. a literal number or bare signal typed in the field
+// On silicon a bit-tap is just which wires of the bundle you connect to, so the
+// tap lives at the destination port — exactly here.
+function portField(field){ return field==='inL'?'A':'B'; }
+function tapExpr(sig, tap){
+  // tap like "3:2" or "3" -> S1[3:2] / S1[3]; empty -> whole signal
+  const t=(tap||'').toString().trim();
+  if(!t) return sig;
+  if(/^\d+$/.test(t)) return `${sig}[${t}]`;
+  if(/^\d+:\d+$/.test(t)) return `${sig}[${t}]`;
+  return sig;
+}
+function portWires(c, port){
+  // all wires feeding this operand port, ordered by slot (left = most significant)
+  return wireLinks
+    .filter(w=>w.to===c.id && w.toPort===port)
+    .sort((a,b)=>(a.slot||0)-(b.slot||0));
+}
+function inputExpr(c, field){
+  const port=portField(field);
+  // 1. wire(s) drawn into this specific operand port.
+  //    one wire -> the (optionally bit-tapped) signal;
+  //    many wires -> a concat {s0, s1, ...} in slot order (left = MSB).
+  const pws=portWires(c, port);
+  if(pws.length===1) return tapExpr(srcName(pws[0]), pws[0].bitTap);
+  if(pws.length>1){
+    const parts=pws.map(w=>tapExpr(srcName(w), w.bitTap));
+    return `{${parts.join(',')}}`;
+  }
+  const val=(c[field]||'').toString().trim();
+  // 2. explicit slice or concat typed by the user
+  if(/^S\d+\[\d+:\d+\]$/.test(val)) return val;          // slice e.g. S1[3:0]
+  if(/^S\d+\[\d+\]$/.test(val)) return val;               // single bit S1[3]
+  if(/^\{.+\}$/.test(val)) return val;                    // concat e.g. {S1,S2}
+  // 3. legacy: an untargeted wire feeding the A (left) operand
+  const feed=wireLinks.find(w=>w.to===c.id && !w.toPort);
+  if(field==='inL' && feed) return srcName(feed);
+  if(/^-?\d+$/.test(val)) return val;                     // literal number — kept as the exact decimal string (O8)
+  if(/^S\d+$/.test(val)) return val;                      // explicit signal ref
+  return 0;
+}
+
+/* ---------- memory: resolve which signal feeds a given port ---------- */
+function memFeed(c, port){
+  const feed=wireLinks.find(w=>w.to===c.id && w.toPort===port);
+  return feed? srcName(feed) : null;
+}
+
+/* ---------- selector -> if/else-if ladder or case ---------- */
+function selectorInput(c){
+  const feed=wireLinks.find(w=>w.to===c.id && !w.toPort);
+  return feed? srcName(feed) : 0;
+}
+// returns {mode:'case'|'ladder', lines:[...] } for a clocked always block (uses <=)
+function selectorClockedLines(c, indent){
+  const S=sigName(c.id), IN=selectorInput(c);
+  const allEq = c.rows.length>0 && c.rows.every(r=>r.cmp==='=');
+  const pad=indent;
+  const out=[];
+  if(allEq){
+    out.push(`${pad}case (${IN})`);
+    for(const r of c.rows) out.push(`${pad}  ${parseInt(r.val,10)||0}: ${S} <= ${parseInt(r.out,10)||0};`);
+    out.push(`${pad}  default: ${S} <= ${parseInt(c.elseOut,10)||0};`);
+    out.push(`${pad}endcase`);
+  } else {
+    c.rows.forEach((r,i)=>{
+      const cmp = r.cmp==='='?'==':r.cmp;
+      const kw = i===0?'if':'else if';
+      out.push(`${pad}${kw} (${IN} ${cmp} ${parseInt(r.val,10)||0}) ${S} <= ${parseInt(r.out,10)||0};`);
+    });
+    out.push(`${pad}else ${S} <= ${parseInt(c.elseOut,10)||0};`);
+  }
+  return out;
+}
+// nested ternary for an instant (assign) selector
+function selectorAssign(c){
+  const IN=selectorInput(c);
+  let expr = (parseInt(c.elseOut,10)||0).toString();
+  for(let i=c.rows.length-1;i>=0;i--){
+    const r=c.rows[i]; const cmp=r.cmp==='='?'==':r.cmp;
+    expr = `(${IN} ${cmp} ${parseInt(r.val,10)||0}) ? ${parseInt(r.out,10)||0} : (${expr})`;
+  }
+  return expr;
+}
+
+/* ---------- race detector: combinational loops (Step 7) ----------
+   A cycle among INSTANT (unclocked) nodes with no register to break it is a
+   combinational loop — a real hardware error (oscillation / undefined value).
+   A clocked node anywhere in the cycle is legal: that's a register, and its
+   1-tick delay breaks the loop. This is the blocking-vs-non-blocking hazard
+   made concrete. Returns an array of cycles (each a list of node ids). */
+function detectCombLoops(){ return withLive(_detectCombLoops); }
+function _detectCombLoops(){
+  const isInstant=c=> (c.type==='arithmetic'||c.type==='decider'||c.type==='selector') && !c.clocked;
+  const instantIds=new Set(combs.filter(isInstant).map(c=>c.id));
+  const adj={}; instantIds.forEach(id=>adj[id]=[]);
+  for(const w of wireLinks){
+    if(instantIds.has(w.from) && instantIds.has(w.to)) adj[w.from].push(w.to);
+  }
+  const WHITE=0,GRAY=1,BLACK=2; const color={}; instantIds.forEach(id=>color[id]=WHITE);
+  const cycles=[];
+  function dfs(u,path){
+    color[u]=GRAY; path.push(u);
+    for(const v of adj[u]){
+      if(color[v]===GRAY){ cycles.push([...path.slice(path.indexOf(v)), v]); }
+      else if(color[v]===WHITE) dfs(v,path);
+    }
+    path.pop(); color[u]=BLACK;
+  }
+  for(const id of instantIds) if(color[id]===WHITE) dfs(id,[]);
+  return cycles;
+}
+
+/* ---------- generate Verilog ---------- */
+function toVerilog(){ return withLive(_toVerilog); }
+function _toVerilog(){
+  const lines=[];
+  lines.push('// generated from your combinator circuit');
+  lines.push('// TIMING RULE — the heart of correct Verilog:');
+  lines.push('//   clocked (⏱)  -> reg + always @(posedge clk),  uses <=  (non-blocking):');
+  lines.push('//                   all update together on the edge, from LAST tick\u2019s values.');
+  lines.push('//   instant (⚡)  -> wire + assign,  combinational: settles WITHIN the tick.');
+  lines.push('// The tool picks <= vs assign for you, so the timing is always correct.');
+  // emit a module definition for each distinct blueprint used
+  const usedBps=[...new Set(combs.filter(c=>c.type==='instance').map(c=>c.bp))];
+  for(const name of usedBps){
+    // pick a representative width (first instance of this blueprint)
+    const inst=combs.find(c=>c.type==='instance'&&c.bp===name);
+    lines.push(bpModule(name, inst.width||8));
+    lines.push('');
+  }
+  const modName = circuitName.trim() ? `circuit\u00ab${circuitName.trim()}\u00bb` : 'circuit';
+  lines.push(`module ${modName}(input clk, input rst);`);
+  // declare: reg for clocked outputs, wire for instant + constants-as-instant
+  for(const c of combs){
+    const w=(c.width||32);
+    const range = w>1 ? `[${w-1}:0] ` : '';           // 1-bit signals need no range
+    if(c.type==='memory'){
+      lines.push(`  reg ${range}${sigName(c.id)}_mem [0:${(c.depth||8)-1}];  // ${c.depth}×${w}b RAM`);
+      lines.push(`  reg ${range}${sigName(c.id)};  // read-data output`);
+      continue;
+    }
+    if(c.type==='instance'){
+      const n=c.count||1;
+      if(n>1){
+        lines.push(`  wire ${range}${sigName(c.id)} [0:${n-1}];  // ${n}× ${c.bp} bank`);
+      } else {
+        lines.push(`  wire ${range}${sigName(c.id)};  // output of ${c.bp} instance`);
+      }
+      continue;
+    }
+    const isClk = c.type!=='constant' && c.clocked;
+    lines.push(`  ${isClk?'reg ':'wire'} ${range}${sigName(c.id)};`);
+    if(c.type==='arithmetic'&&c.carry)
+      lines.push(`  ${isClk?'reg':'wire'} ${sigName(c.id)}_c;  // carry-out of ${sigName(c.id)}`);
+  }
+  lines.push('');
+  // combinational assigns first (instant combinators + constants)
+  for(const c of combs){
+    const S=sigName(c.id);
+    if(c.type==='memory'||c.type==='instance') continue;   // these emit their own blocks/instantiations
+    if(c.type==='constant'){
+      const W=c.width||32;
+      let cv; try{ cv=BigInt(String(c.value??'').trim()||'0'); }catch(e){ cv=BigInt(parseInt(c.value,10)||0); }
+      if(cv<0n) cv&=(1n<<BigInt(W))-1n;
+      // >32-bit: a bare decimal literal is 32-bit in Verilog — size it explicitly
+      lines.push(`  assign ${S} = ${W>32?`${W}'d${cv}`:cv};`);
+    } else if(!c.clocked){
+      if(c.type==='arithmetic'){
+        if(c.carry) lines.push(`  assign {${S}_c, ${S}} = ${inputExpr(c,'inL')} ${c.op} ${inputExpr(c,'inR')};   // carry = bit ${c.width||32} of the full result`);
+        else lines.push(`  assign ${S} = ${inputExpr(c,'inL')} ${c.op} ${inputExpr(c,'inR')};`);
+      } else if(c.type==='selector'){
+        lines.push(`  assign ${S} = ${selectorAssign(c)};`);
+      } else {
+        lines.push(`  assign ${S} = (${inputExpr(c,'inL')} ${c.cmp==='='?'==':c.cmp} ${inputExpr(c,'inR')}) ? ${parseInt(c.outputVal,10)||1} : 0;`);
+      }
+    }
+  }
+  // clocked block for reg combinators (not memory/instance — they have their own blocks)
+  const clocked=combs.filter(c=>c.type!=='constant'&&c.clocked&&c.type!=='memory'&&c.type!=='instance');
+  if(clocked.length){
+    lines.push('');
+    lines.push('  always @(posedge clk or posedge rst) begin');
+    lines.push('    if (rst) begin');
+    for(const c of clocked){ lines.push(`      ${sigName(c.id)} <= 0;`);
+      if(c.type==='arithmetic'&&c.carry) lines.push(`      ${sigName(c.id)}_c <= 0;`); }
+    lines.push('    end else begin');
+    for(const c of clocked){
+      const S=sigName(c.id);
+      if(c.type==='arithmetic'){
+        if(c.carry) lines.push(`      {${S}_c, ${S}} <= ${inputExpr(c,'inL')} ${c.op} ${inputExpr(c,'inR')};   // carry = bit ${c.width||32} of the full result`);
+        else lines.push(`      ${S} <= ${inputExpr(c,'inL')} ${c.op} ${inputExpr(c,'inR')};`);
+      } else if(c.type==='selector'){
+        selectorClockedLines(c,'      ').forEach(l=>lines.push(l));
+      } else {
+        lines.push(`      ${S} <= (${inputExpr(c,'inL')} ${c.cmp==='='?'==':c.cmp} ${inputExpr(c,'inR')}) ? ${parseInt(c.outputVal,10)||1} : 0;`);
+      }
+    }
+    lines.push('    end');
+    lines.push('  end');
+  }
+  // one always-block per memory: write port (gated by write-enable) + read port
+  for(const c of combs.filter(x=>x.type==='memory')){
+    const S=sigName(c.id), depth=c.depth||8;
+    const waddrE=memFeed(c,'waddr'), wdata=memFeed(c,'wdata'), we=memFeed(c,'we'), raddrE=memFeed(c,'raddr');
+    const K=Math.max(1,Math.ceil(Math.log2(depth)));   // address width — depth is a power of two
+    const arange=K>1?`[${K-1}:0] `:'';
+    // sized address wires: the index is EXPLICITLY truncated to the address
+    // width, so out-of-range addresses wrap identically in sim and silicon
+    // plain-signal addresses get an explicit slice (lint-clean); complex
+    // expressions go through a sized wire (still an explicit truncation)
+    const slc=(e)=>{ const m=/^S\d+(_c)?$/.exec(e); if(!m) return null;
+      const src=combs.find(x=>sigName(x.id)===e); const sw=e.endsWith('_c')?1:(src?(src.width||32):32);
+      return sw>K ? `${e}[${K-1}:0]` : e; };
+    let waddr=null, raddr=null;
+    if(waddrE){ waddr=slc(waddrE); if(!waddr){ waddr=`${S}_wa`; lines.push(`  wire ${arange}${S}_wa = ${waddrE};  // write address (truncated to ${K} bits)`); } }
+    if(raddrE){ raddr=slc(raddrE); if(!raddr){ raddr=`${S}_ra`; lines.push(`  wire ${arange}${S}_ra = ${raddrE};  // read address (truncated to ${K} bits)`); } }
+    lines.push('');
+    lines.push(`  // memory ${S}: ${depth}×${c.width||8}b RAM`);
+    lines.push('  integer '+S+'_i;');
+    lines.push('  always @(posedge clk or posedge rst) begin');
+    lines.push('    if (rst) begin');
+    lines.push(`      ${S} <= 0;`);
+    lines.push(`      for (${S}_i=0; ${S}_i<${depth}; ${S}_i=${S}_i+1) ${S}_mem[${S}_i] <= 0;`);
+    lines.push('    end else begin');
+    if(waddr && wdata){
+      const cond = we ? `if (${we}) ` : '';   // write-enable optional; if unwired, always write
+      lines.push(`      ${cond}${S}_mem[${waddr}] <= ${wdata};   // write port`);
+    } else {
+      lines.push(`      // (wire wr addr + wr data to enable writing)`);
+    }
+    lines.push(`      ${S} <= ${S}_mem[${raddr||0}];   // read port`);
+    lines.push('    end');
+    lines.push('  end');
+  }
+  // instantiate each blueprint (stamp the module, wire its ports)
+  for(const c of combs.filter(x=>x.type==='instance')){
+    const bp=BLUEPRINTS[c.bp]; if(!bp) continue;
+    const S=sigName(c.id), n=c.count||1;
+    if(n>1){
+      // parameter + generate-for loop: each copy i is fed (input + i) — a tiled bank.
+      // Each bank uses its own uniquely-named genvar (S<id>_g), so every bank
+      // declares one — the loop index can't be shared across generate blocks.
+      lines.push('');
+      lines.push(`  localparam ${S}_N = ${n};   // how many copies to stamp`);
+      lines.push(`  genvar ${S}_g;`);
+      lines.push(`  generate for (${S}_g = 0; ${S}_g < ${S}_N; ${S}_g = ${S}_g + 1) begin : ${S}_bank`);
+      const conns=bp.inputs.map(p=>{
+        const feed=wireLinks.find(w=>w.to===c.id && w.toPort===p);
+        const base=feed?srcName(feed):0;
+        // tile: offset each copy by its index. The genvar is elaboration-time
+        // integer-width, so the port truncates the sum to its width on connection
+        // — that truncation is exactly the intended tiled/overflow behavior.
+        return `.${p}(${base} + ${S}_g)`;
+      }).join(', ');
+      lines.push(`    ${c.bp.toLowerCase()} inst(.clk(clk), .rst(rst), ${conns}, .OUT(${S}[${S}_g]));`);
+      lines.push(`  end endgenerate`);
+    } else {
+      const conns=bp.inputs.map(p=>{
+        const feed=wireLinks.find(w=>w.to===c.id && w.toPort===p);
+        return `.${p}(${feed?srcName(feed):0})`;
+      }).join(', ');
+      lines.push(`  ${c.bp.toLowerCase()} ${S}_i(.clk(clk), .rst(rst), ${conns}, .OUT(${S}));`);
+    }
+  }
+  lines.push('endmodule');
+  return lines.join('\n')+'\n';
+}
+
+/* ---------- synthesis top: circuit_synth.v ----------
+   The plain circuit.v has NO output ports — the testbench observes signals
+   hierarchically (dut.S1), which simulation allows but synthesis does not:
+   an unobservable design optimizes to zero cells. This variant promotes every
+   combinator signal (and carry) to a module output so the real toolchain
+   (yosys -> nextpnr -> icepack) has something to keep. Bank instances emit
+   Verilog arrays, which cannot be ports — they stay internal. */
+function toVerilogSynth(){ return withLive(_toVerilogSynth); }
+function _toVerilogSynth(){
+  const ports=[], drop=[];
+  for(const c of combs){
+    const W=c.width||32, range=W>1?`[${W-1}:0] `:'', S=sigName(c.id);
+    if(c.type==='instance' && (c.count||1)>1) continue;
+    if(c.type==='memory'){ ports.push(`output reg ${range}${S}`); drop.push(`  reg ${range}${S};  // read-data output`); continue; }
+    if(c.type==='instance'){ ports.push(`output ${range}${S}`); drop.push(`  wire ${range}${S};  // output of ${c.bp} instance`); continue; }
+    const isReg=c.type!=='constant'&&c.clocked;
+    ports.push(`output ${isReg?'reg ':''}${range}${S}`);
+    drop.push(`  ${isReg?'reg ':'wire'} ${range}${S};`);
+    if(c.type==='arithmetic'&&c.carry){
+      ports.push(`output ${isReg?'reg ':''}${S}_c`);
+      drop.push(`  ${isReg?'reg':'wire'} ${S}_c;  // carry-out of ${S}`);
+    }
+  }
+  let v=toVerilog().replace(/\u00ab[^\u00bb]*\u00bb/g,'');
+  v=v.replace('module circuit(input clk, input rst);',
+              `module circuit(input clk, input rst${ports.map(p=>', '+p).join('')});`);
+  for(const d of drop) v=v.replace(d+'\n','');
+  return v;
+}
+// the exact open-source flow, ready to run (iCE40 hx8k; swap device/PCF for your board)
+function buildScript(){
+  return [
+    '#!/bin/sh',
+    '# Combinator Foundry -> real silicon (open-source iCE40 flow)',
+    '# needs: yosys, nextpnr-ice40, icestorm  (apt-get install yosys nextpnr-ice40 fpga-icestorm)',
+    '#',
+    '# circuit_synth.v exposes every signal as an output port so synthesis',
+    '# cannot optimize the design away. Without a .pcf pin-constraints file,',
+    '# nextpnr auto-places the I/O — fine for timing/utilization studies.',
+    '# For a real board, write a .pcf mapping clk/rst/outputs to physical pins',
+    '# and add:  --pcf yourboard.pcf',
+    'set -e',
+    'yosys -p "read_verilog circuit_synth.v; synth_ice40 -top circuit -json circuit.json"',
+    'nextpnr-ice40 --hx8k --package ct256 --json circuit.json --asc circuit.asc',
+    'icepack circuit.asc circuit.bin',
+    'echo "circuit.bin ready — program with: iceprog circuit.bin"',
+  ].join('\n');
+}
+
+/* ---------- generate a companion testbench ---------- */
+// Drives clk + rst, runs N ticks, prints every signal, dumps a VCD waveform.
+// circuit.v + tb.v compile and run together in Icarus with no edits.
+function toTestbench(ticks){ return withLive(()=>_toTestbench(ticks)); }
+function _toTestbench(ticks){
+  ticks=ticks||12;
+  const L=[];
+  L.push('// testbench — the "inserter" that drives the circuit and reads results');
+  L.push('// run with:  iverilog -o sim circuit.v tb.v   &&   vvp sim');
+  L.push('`timescale 1ns/1ps');
+  L.push('module tb;');
+  L.push('  reg clk = 0;');
+  L.push('  reg rst = 1;');
+  const modName = circuitName.trim() ? `circuit\u00ab${circuitName.trim()}\u00bb` : 'circuit';
+  L.push(`  ${modName} dut(.clk(clk), .rst(rst));`);
+  L.push('');
+  L.push('  always #5 clk = ~clk;      // 10ns clock period');
+  L.push('');
+  L.push('  integer t;');
+  L.push('  initial begin');
+  L.push('    $dumpfile("circuit.vcd");  // waveform, open in GTKWave');
+  L.push('    $dumpvars(0, tb);');
+  L.push('    #12 rst = 0;               // release reset after 2 cycles');
+  // build a printable watch list: a repeated instance's signal is an ARRAY,
+  // which $display can't print whole — show its first element instead.
+  const watch=[];
+  for(const c of combs){
+    const S=sigName(c.id);
+    if(c.type==='instance' && (c.count||1)>1) watch.push({label:S+'[0]', expr:'dut.'+S+'[0]'});
+    else watch.push({label:S, expr:'dut.'+S});
+    if(c.type==='arithmetic'&&c.carry) watch.push({label:S+'_c', expr:'dut.'+S+'_c'});
+  }
+  if(watch.length){
+    const fmt=watch.map(w=>w.label+'=%0d').join(' ');
+    const args=watch.map(w=>w.expr).join(', ');
+    L.push(`    for (t = 0; t < ${ticks}; t = t + 1) begin`);
+    L.push('      @(posedge clk); #1;');
+    L.push(`      $display("tick %0d: ${fmt}", t+1, ${args});`);
+    L.push('    end');
+  } else {
+    L.push(`    for (t = 0; t < ${ticks}; t = t + 1) @(posedge clk);`);
+  }
+  L.push('    $finish;');
+  L.push('  end');
+  L.push('endmodule');
+  return L.join('\n')+'\n';
+}
+
+function hlVerilog(code){
+  return code.split('\n').map(l=>{
+    let s=l.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    s=s.replace(/(\/\/.*)$/,'<span class="vc">$1</span>');
+    s=s.replace(/\b(module|endmodule|input|output|reg|wire|assign|always|begin|end|if|else|posedge|case|endcase|default)\b/g,'<span class="vk">$1</span>');
+    s=s.replace(/\b(clk|rst)\b/g,'<span class="vw">$1</span>');
+    s=s.replace(/\b(S\d+)\b/g,'<span class="vn">$1</span>');
+    return s;
+  }).join('\n');
+}
+
+/* ---------- FPGA resource estimate ----------
+   FF count is EXACT: observed registers can't be optimized away, so it equals
+   what synthesis reports (verified against yosys in the test harness).
+   LUT count is a STRUCTURAL UPPER BOUND per node (LUT4, calibrated against
+   yosys generic 'synth -lut 4'): a real synthesizer only does better — often
+   far better when operand widths are narrow or values fold (the dice example
+   synthesizes to ~7 LUTs). Division and modulo are the expensive ones: ~3·W².
+*/
+function resourceEstimate(){ return withLive(_resourceEstimate); }
+function _resourceEstimate(){
+  let lut=0, ff=0, memBits=0;
+  const litBits=e=>{ try{ let v=BigInt(String(e)); if(v<0n)v=-v; let n=1; while(v>1n){v>>=1n;n++;} return n; }catch(err){ return 32; } };
+  const isLit=e=>typeof e==='number'||/^-?\d+$/.test(String(e));
+  const opndW=(c,f)=>{ const e=String(inputExpr(c,f));
+    const m=/^S(\d+)(?:_c)?$/.exec(e);
+    if(m){ const s=combs.find(x=>x.id===+m[1]); return e.endsWith('_c')?1:(s?(s.width||32):32); }
+    if(isLit(e)) return litBits(e);
+    return c.width||32; };
+  const log2=w=>Math.max(1,Math.ceil(Math.log2(Math.max(2,w))));
+  for(const c of combs){
+    const W=c.width||32;
+    if(c.type==='constant') continue;
+    if(c.type==='memory'){
+      const D=c.depth||8;
+      lut += W*D + D;                       // read mux + address decode
+      ff  += D*W + W;                       // the array + the registered read port
+      memBits += D*W;
+      continue;
+    }
+    if(c.type==='instance'){
+      const n=c.count||1;
+      const costs={Register:[0,W], Incrementer:[2*W,W], Adder:[3*W,W], Doubler:[0,0]};
+      const [l,f]=costs[c.bp]||[0,0];
+      lut+=l*n; ff+=f*n;
+      continue;
+    }
+    if(c.type==='arithmetic'){
+      const aL=isLit(inputExpr(c,'inL')), bL=isLit(inputExpr(c,'inR'));
+      const eW=Math.min(W, Math.max(opndW(c,'inL'), opndW(c,'inR')));   // quadratic ops scale with real operand width
+      switch(c.op){
+        case '+': case '-': lut += (aL||bL) ? 2*W : 3*W; break;
+        case '*': lut += Math.ceil(1.5*eW*eW); break;
+        case '/': case '%': lut += 3*eW*eW; break;
+        case '<<': case '>>': lut += bL ? 0 : W*(log2(W)+1); break;
+        default: {                          // & | ^ — scale by EFFECTIVE width, and identities are wiring
+          const litE = aL ? inputExpr(c,'inL') : bL ? inputExpr(c,'inR') : null;
+          let bw = Math.min(W, eW);
+          if (litE !== null) {
+            let lv; try{ lv = BigInt(String(litE)); }catch(e){ lv = null; }
+            const full = (1n << BigInt(W)) - 1n;
+            if (lv !== null && (((c.op==='|'||c.op==='^') && lv===0n) || (c.op==='&' && (lv&full)===full)))
+              bw = 0;                       // |0, ^0, &all-ones: pure wiring
+          }
+          lut += bw;
+        }
+      }
+      if(c.carry) lut += 3;
+      if(c.clocked){ ff += W + (c.carry?1:0); }
+      continue;
+    }
+    if(c.type==='selector'){
+      lut += (c.rows.length)*(W+2) + W;
+      if(c.clocked) ff += W;
+      continue;
+    }
+    // decider
+    lut += W+2;
+    if(c.clocked) ff += W;
+  }
+  return {lut, ff, memBits};
+}
+function updateResBadge(){
+  const el=document.getElementById('resBadge'); if(!el) return;
+  if(!combs.length){ el.textContent=''; return; }
+  const r=resourceEstimate();
+  el.innerHTML=`\u2264${r.lut} LUT\u2084 \u00b7 ${r.ff} FF${r.memBits?` \u00b7 ${r.memBits} RAM bits`:''}`;
+}
+
+let verilogView='circuit';
+function regen(){
+  const code = verilogView==='tb' ? toTestbench(simTicks) : toVerilog();
+  document.getElementById('verilog').innerHTML=hlVerilog(code);
+  // check for combinational loops (a real hardware race)
+  const loops=detectCombLoops();
+  const warn=document.getElementById('raceWarn');
+  if(loops.length){
+    const names=loops[0].map(id=>sigName(id)).join(' → ');
+    warn.style.display='block';
+    warn.innerHTML=`<b>⚠ combinational loop:</b> ${names} — instant combinators feeding each other with no register to break the cycle. In real hardware this oscillates (undefined value). Make one of them <b>⏱ clocked</b> to fix it — the register\u2019s 1-tick delay breaks the loop.`;
+  } else {
+    warn.style.display='none';
+  }
+  updateResBadge();
+  // regenerating invalidates the current simulation
+  simHistory=null; buildSim();
+  render();
+  captureUndo();   // O5: every structural edit funnels through regen — snapshot here
+}
+
+/* ---------- O5: undo / redo ----------
+   Snapshots are the serialized document (combs + wireLinks) — v2_5's save format
+   made these free. Rather than instrumenting every mutation site, we capture at
+   the choke point: regen() runs after every structural edit, so captureUndo()
+   diffs against the last-known doc and pushes the PRE-edit state. Drags don't
+   regen (position-only), so mouse-up commits explicitly. Scope: canvas structure
+   — circuit name and sim horizon are session prefs, not undoable edits.
+   Granularity note: typed field edits regen per keystroke, so each keystroke is
+   one undo step — deliberate (deterministic, simple); the deep stack absorbs it. */
+const UNDO_MAX=200;
+let undoStack=[], redoStack=[], suppressUndo=false;   // suppress: batch loaders into ONE undo step
+function snapshotDoc(){ return JSON.stringify({combs, wireLinks}); }
+let lastDoc=snapshotDoc();   // combs/wireLinks are [] at script load — the empty baseline
+function captureUndo(){
+  if(suppressUndo) return;                      // inside a batched load — capture at its end
+  const doc=snapshotDoc();
+  if(doc===lastDoc) return;                     // nothing structural changed
+  undoStack.push(lastDoc);
+  if(undoStack.length>UNDO_MAX) undoStack.shift();
+  redoStack.length=0;                           // a new edit forks history
+  lastDoc=doc;
+  updateUndoBtns();
+}
+function commitSnapshot(){ captureUndo(); }     // for mutations that bypass regen (drag)
+function restoreDoc(doc){
+  const d=JSON.parse(doc);
+  combs=d.combs; wireLinks=d.wireLinks;
+  idc=combs.reduce((m,c)=>Math.max(m,c.id),0)+1;
+  lastDoc=doc;              // set BEFORE regen so its captureUndo sees no diff
+  tick=0; stopPlay();
+  render(); regen(); reset();
+}
+function undo(){
+  if(!undoStack.length) return false;
+  redoStack.push(snapshotDoc());
+  restoreDoc(undoStack.pop());
+  updateUndoBtns();
+  return true;
+}
+function redo(){
+  if(!redoStack.length) return false;
+  undoStack.push(snapshotDoc());
+  restoreDoc(redoStack.pop());
+  updateUndoBtns();
+  return true;
+}
+function updateUndoBtns(){
+  const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
+  if(u) u.disabled=!undoStack.length;
+  if(r) r.disabled=!redoStack.length;
+}
+document.addEventListener('keydown',e=>{
+  if(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName||'')) return;  // don't hijack typing
+  if(!(e.metaKey||e.ctrlKey)) return;
+  if(e.key==='z'||e.key==='Z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
+  else if(e.key==='y'||e.key==='Y'){ e.preventDefault(); redo(); }
+});
+
+/* ---------- simulation (matches Factorio tick semantics exactly) ---------- */
+let simHistory=null, tick=0, playing=null;
+let simTicks=64;   // O3: simulation horizon — how many ticks buildSim computes (was hard-coded 64)
+function buildSim(){ return withLive(_buildSim); }
+function _buildSim(){
+  const widthOf=(sig)=>{ const c=combs.find(x=>sigName(x.id)===sig); return c?(c.width||32):32; };
+  // O8: the simulator is BigInt end-to-end — no 32-bit wall. History stores
+  // plain Numbers for signals of width<=32 (exact, keeps display + old files
+  // byte-identical) and BigInt above.
+  let RDdeps=null;
+  const V=x=> typeof x==='bigint' ? x : BigInt(Math.trunc(x||0));   // history value -> BigInt
+  const toBig=x=>{ if(typeof x==='bigint') return x; if(typeof x==='number') return BigInt(Math.trunc(x)||0);
+    const t=String(x==null?'':x).trim(); if(!t) return 0n;
+    try{ return BigInt(t); }catch(e){ const n=parseInt(t,10); return Number.isFinite(n)?BigInt(n):0n; } };
+  // PERF: expressions are COMPILED once per buildSim into closures with
+  // precomputed BigInt constants and direct key lookups — the tick loop does
+  // zero string parsing, zero regex work, zero wireLinks searches. Semantics
+  // are pinned byte-for-byte by the test suite (histories must not change).
+  // when RDdeps is set to a Set, RD records every signal key it will read
+  const dep=k=>{ if(RDdeps) RDdeps.add(k); return k; };
+  const RD=(s)=>{
+    if(typeof s==='number'){ const k=BigInt(Math.trunc(s)); return ()=>k; }
+    s=String(s);
+    if(/^-?\d+$/.test(s)){ const k=toBig(s); return ()=>k; }        // exact decimal literal at any size
+    let m=/^S(\d+)\[(\d+):(\d+)\]$/.exec(s);                    // slice: S1[hi:lo]
+    if(m){ const key=dep('S'+m[1]), lo=BigInt(m[3]), M=(1n<<(BigInt(m[2])-BigInt(m[3])+1n))-1n;
+      return w=>(V(w[key])>>lo)&M; }
+    let sb=/^S(\d+)\[(\d+)\]$/.exec(s);                          // single bit: S1[3]
+    if(sb){ const key=dep('S'+sb[1]), b=BigInt(sb[2]); return w=>(V(w[key])>>b)&1n; }
+    if(/^\{.+\}$/.test(s)){                                        // concat, left = MSB
+      const parts=s.slice(1,-1).split(',').map(x=>x.trim());
+      const comp=[]; let bits=0n;
+      for(let i=parts.length-1;i>=0;i--){ // build from least-significant
+        const p=parts[i]; let rd, w=1n;
+        let sm=/^S(\d+)\[(\d+):(\d+)\]$/.exec(p);
+        let sbit=/^S(\d+)\[(\d+)\]$/.exec(p);
+        if(sm){ rd=RD(p); w=BigInt(sm[2])-BigInt(sm[3])+1n; }
+        else if(sbit){ rd=RD(p); w=1n; }
+        else if(/^S\d+$/.test(p)){ const key=dep(p); rd=x=>V(x[key]); w=BigInt(widthOf(p)); }
+        else if(/^S\d+_c$/.test(p)){ const key=dep(p); rd=x=>V(x[key]); w=1n; }   // a carry bit in a concat
+        else if(/^\d+'b[01]+$/.test(p)){ const b=p.split("'b")[1]; const k=BigInt('0b'+b); rd=()=>k; w=BigInt(b.length); }
+        else if(/^-?\d+$/.test(p)){ const k=toBig(p); rd=()=>k; w=32n; }
+        else { rd=()=>0n; }
+        comp.push({rd, mask:(1n<<w)-1n, shift:bits}); bits+=w;
+      }
+      return w=>{ let out=0n; for(const q of comp) out |= (q.rd(w)&q.mask)<<q.shift; return out; };
+    }
+    const key=dep(s); return w=>V(w[key]);                          // plain signal / carry / unknown -> 0
+  };
+  const maskW=(v,w)=>{ w=w||32; return v & ((1n<<BigInt(w))-1n); };   // pure unsigned wrap at ANY width — matches Verilog regs
+  const CMP={'>':(a,b)=>a>b,'<':(a,b)=>a<b,'=':(a,b)=>a===b,'>=':(a,b)=>a>=b,'<=':(a,b)=>a<=b,'!=':(a,b)=>a!==b};
+  const compileNode=(c)=>{
+    const W=c.width||32, M=(1n<<BigInt(W))-1n;
+    if(c.type==='constant'){ const k=toBig(c.value)&M; return {fn:()=>k}; }
+    if(c.type==='arithmetic'){
+      const a=RD(inputExpr(c,'inL')), b=RD(inputExpr(c,'inR'));
+      let fn;
+      switch(c.op){
+        case '+': fn=w=>(a(w)+b(w))&M; break;
+        case '-': fn=w=>(a(w)-b(w))&M; break;
+        case '*': fn=w=>(a(w)*b(w))&M; break;
+        case '/': fn=w=>{ const bb=b(w); return bb?(a(w)/bb)&M:0n; }; break;   // BigInt / truncates toward zero, like before
+        case '%': fn=w=>{ const bb=b(w); return bb?(a(w)%bb)&M:0n; }; break;
+        case '<<': fn=w=>(a(w)<<b(w))&M; break;
+        case '>>': fn=w=>(a(w)>>b(w))&M; break;
+        case '&': fn=w=>(a(w)&b(w))&M; break;
+        case '|': fn=w=>(a(w)|b(w))&M; break;
+        default:  fn=w=>(a(w)^b(w))&M;
+      }
+      const plan={fn};
+      if(c.carry){ // O1: carry-out = bit W of the full-precision +/- result (borrow for '-')
+        const sh=BigInt(W), plus=c.op==='+', minus=c.op==='-';
+        plan.carryFn = plus ? (w=>((a(w)+b(w))>>sh)&1n)
+                     : minus ? (w=>((a(w)-b(w))>>sh)&1n)
+                     : (()=>0n);
+      }
+      return plan;
+    }
+    if(c.type==='selector'){
+      const feed=wireLinks.find(w=>w.to===c.id && !w.toPort);
+      const inRd = feed ? (x=>{ const key=dep(srcName(feed)); return V(x[key]); }) : (()=>0n);
+      const rows=c.rows.map(r=>({cmp:CMP[r.cmp]||CMP['>'], rv:toBig(r.val), out:toBig(r.out)&M}));
+      const els=toBig(c.elseOut)&M;
+      return {fn:w=>{ const inVal=inRd(w);
+        for(const r of rows){ if(r.cmp(inVal,r.rv)) return r.out; }
+        return els; }};
+    }
+    // decider — note ||1n preserves the historical 'empty/zero output means 1'
+    const a=RD(inputExpr(c,'inL')), b=RD(inputExpr(c,'inR'));
+    const cmp=CMP[c.cmp]||CMP['>'], out=(toBig(c.outputVal)||1n)&M;
+    return {fn:w=>cmp(a(w),b(w))?out:0n};
+  };
+  const instant=combs.filter(c=>c.type==='constant'||(!c.clocked&&c.type!=='memory'&&c.type!=='instance'));
+  const clocked=combs.filter(c=>c.type!=='constant'&&c.clocked&&c.type!=='memory'&&c.type!=='instance');
+  const memories=combs.filter(c=>c.type==='memory');
+  const instances=combs.filter(c=>c.type==='instance');
+  // evaluate a blueprint instance's output from its wired inputs
+  const instFeed={};   // c.id -> {port: signal key | null}, resolved once
+  for(const c of combs.filter(x=>x.type==='instance')){
+    const bp=BLUEPRINTS[c.bp]; if(!bp) continue;
+    instFeed[c.id]={};
+    for(const p of bp.inputs){ const f=wireLinks.find(w=>w.to===c.id&&w.toPort===p); instFeed[c.id][p]=f?srcName(f):null; }
+  }
+  const instPort=(c,port,wires)=>{ const k=(instFeed[c.id]||{})[port]; return k?V(wires[k]):0n; };
+  const evalInstance=(c,wires,offset)=>{
+    const W=c.width||8; offset=BigInt(offset||0);
+    const base=(port)=>instPort(c,port,wires)+offset;   // tiled: copy i sees input+i
+    switch(c.bp){
+      case 'Register':    return maskW(base('IN'), W);
+      case 'Incrementer': return maskW(base('IN')+1n, W);
+      case 'Adder':       return maskW(base('A')+base('B'), W);
+      case 'Doubler':     return maskW(base('IN')<<1n, W);
+      default: return 0n;
+    }
+  };
+  const evalInstanceBank=(c,wires)=>{
+    const n=c.count||1; const bank=[];
+    for(let i=0;i<n;i++) bank.push(evalInstance(c,wires,i));
+    return bank;
+  };
+  // settle combinational (instant) signals given the current clocked state
+  const combInstances=instances.filter(c=>BLUEPRINTS[c.bp]&&BLUEPRINTS[c.bp].comb);
+  const clkInstances=instances.filter(c=>!(BLUEPRINTS[c.bp]&&BLUEPRINTS[c.bp].comb));
+  const store=(c,v)=> (c.width||32)<=32 ? Number(v) : v;   // exact Number for narrow, BigInt for wide
+  // compile every evaluated node once; the loops below never parse again
+  const plan={}, deps={};
+  for(const c of instant){ RDdeps=new Set(); plan[c.id]=compileNode(c); deps[c.id]=RDdeps; RDdeps=null; }
+  for(const c of clocked) plan[c.id]=compileNode(c);
+  let instantPlans=instant.map(c=>({c, S:sigName(c.id), Sc:sigName(c.id)+'_c', p:plan[c.id], hasCarry:c.type==='arithmetic'&&!!c.carry}));
+  const clockedPlans=clocked.map(c=>({c, S:sigName(c.id), Sc:sigName(c.id)+'_c', p:plan[c.id], hasCarry:c.type==='arithmetic'&&!!c.carry}));
+  // The instant graph is a DAG (combinational loops are refused by design), so
+  // evaluating in TOPOLOGICAL order converges in one pass + one check pass —
+  // same fixpoint as the old depth-many passes, just reached immediately.
+  // Kahn's algorithm on instant->instant edges; on any residual cycle, fall
+  // back to original order (the fixpoint loop below is still correct, only slower).
+  {
+    const byS={}; instantPlans.forEach(q=>{ byS[q.S]=q; if(q.hasCarry) byS[q.Sc]=q; });
+    const indeg=new Map(instantPlans.map(q=>[q,0]));
+    const outs=new Map(instantPlans.map(q=>[q,[]]));
+    for(const q of instantPlans) for(const k of deps[q.c.id]){
+      const src=byS[k]; if(src && src!==q){ outs.get(src).push(q); indeg.set(q, indeg.get(q)+1); }
+    }
+    const queue=instantPlans.filter(q=>indeg.get(q)===0), order=[];
+    while(queue.length){ const q=queue.shift(); order.push(q);
+      for(const nxt of outs.get(q)){ indeg.set(nxt, indeg.get(nxt)-1); if(indeg.get(nxt)===0) queue.push(nxt); } }
+    if(order.length===instantPlans.length) instantPlans=order;
+  }
+  const settle=(wires)=>{
+    const w={...wires};
+    for(let pass=0;pass<combs.length+2;pass++){
+      let changed=false;
+      for(const q of instantPlans){ const v=store(q.c,q.p.fn(w)); if(w[q.S]!==v){w[q.S]=v;changed=true;}
+        if(q.hasCarry){ const cy=Number(q.p.carryFn(w)); if(w[q.Sc]!==cy){w[q.Sc]=cy;changed=true;} } }
+      // combinational blueprint instances (e.g. Doubler) also settle within the tick
+      for(const c of combInstances){ const S=sigName(c.id); const bank=evalInstanceBank(c,w).map(v=>store(c,v)); const v=bank[0]; if(w[S]!==v){w[S]=v;w[S+'_bank']=bank;changed=true;} }
+      if(!changed) break;
+    }
+    return w;
+  };
+  const memFeedKey={};   // memory port feeds, resolved once
+  for(const c of memories){
+    memFeedKey[c.id]={};
+    for(const p of ['waddr','wdata','we','raddr']){
+      const f=wireLinks.find(w=>w.to===c.id && w.toPort===p);
+      memFeedKey[c.id][p]=f?srcName(f):null;
+    }
+  }
+  const readSigMem=(wires,port,c)=>{
+    const k=memFeedKey[c.id][port];
+    return k ? V(wires[k]) : (port==='we'? null : 0n);
+  };
+
+  let wires={};
+  for(const c of combs) wires[sigName(c.id)]=0;
+  for(const c of memories) wires[sigName(c.id)+'_mem']=new Array(c.depth||8).fill(0);
+  wires=settle(wires);                 // initial combinational settle
+  const hist=[{...wires, ...memSnapshot(wires,memories)}];
+  for(let t=0;t<simTicks;t++){
+    const next={...wires};
+    // clocked combinators (compiled)
+    for(const q of clockedPlans){ next[q.S]=store(q.c,q.p.fn(wires));
+      if(q.hasCarry) next[q.Sc]=Number(q.p.carryFn(wires)); }
+    // clocked blueprint instances (Register, Incrementer, Adder)
+    for(const c of clkInstances){ const S=sigName(c.id); const bank=evalInstanceBank(c,wires).map(v=>store(c,v)); next[S]=bank[0]; next[S+'_bank']=bank; }
+    // memories: write (gated by we) then read, using THIS tick's values
+    for(const c of memories){
+      const S=sigName(c.id), W=c.width||32, depth=c.depth||8;
+      const arr=(wires[S+'_mem']||new Array(depth).fill(0)).slice();
+      const waddrB=readSigMem(wires,'waddr',c), wdata=readSigMem(wires,'wdata',c), we=readSigMem(wires,'we',c);
+      const aM=BigInt(depth-1);   // depth is a power of two: truncation == mask, same as the sized address wires
+      const waddr=Number(waddrB & aM), raddr=Number((readSigMem(wires,'raddr',c)||0n) & aM);
+      // READ FIRST, from the array as it stands at the start of this tick —
+      // this matches Verilog non-blocking (<=) semantics: a same-address
+      // read/write on one edge returns the OLD value.
+      next[S]=store(c, maskW(V(arr[raddr]), W));   // raddr already truncated — always in range
+      // THEN write (takes effect for next tick's reads)
+      if(memFeedKey[c.id].waddr && memFeedKey[c.id].wdata){
+        const doWrite = (we===null) ? true : (we!==0n);  // we unwired = always write
+        if(doWrite) arr[waddr]=store(c, maskW(wdata,W));  // waddr already truncated — writes wrap like silicon
+      }
+      next[S+'_mem']=arr;
+    }
+    const settled=settle(next);
+    wires=settled; hist.push({...wires, ...memSnapshot(wires,memories)});
+  }
+  simHistory=hist;
+  renderWaves();
+  updateWatch();
+}
+// keep only scalar signals for history display (arrays copied by ref otherwise)
+function memSnapshot(wires,memories){
+  const o={};
+  for(const c of memories){ const k=sigName(c.id)+'_mem'; if(wires[k]) o[k]=wires[k].slice(); }
+  return o;
+}
+function updateWatch(){
+  const w=simHistory?simHistory[Math.min(tick,simHistory.length-1)]:{};
+  document.getElementById('watch').innerHTML = combs.length?
+    combs.map(c=>{
+      let chip=`<span class="wchip">${sigName(c.id)} <b>${w[sigName(c.id)]||0}</b></span>`;
+      if(c.type==='arithmetic'&&c.carry) chip+=`<span class="wchip carrychip">${sigName(c.id)}_c <b>${w[sigName(c.id)+'_c']||0}</b></span>`;
+      return chip;
+    }).join('')
+    : '<span class="hint">Place combinators to begin.</span>';
+  document.getElementById('tickNum').textContent=tick;
+  positionWaveCursor();
+}
+
+/* ---------- O4: waveform view over the tick history ----------
+   The sim already stores every tick; each row draws one signal's step trace.
+   Rebuilt only when simHistory changes (renderWaves); the tick cursor moves
+   independently (positionWaveCursor), so scrubbing is cheap. */
+let waveColW=12, waveLabelW=52;   // geometry shared with the click-to-seek handler
+const WROW=26, WPAD=4, WBAND=18;  // row height, vertical pad, trace band height
+function waveSvg(){
+  if(!simHistory || !combs.length) return '';
+  const N=simHistory.length;
+  waveColW=Math.max(5, Math.min(16, Math.floor(880/N)));
+  const rows=[];
+  for(const c of combs){ rows.push({S:sigName(c.id)});
+    if(c.type==='arithmetic'&&c.carry) rows.push({S:sigName(c.id)+'_c'}); }
+  const width=waveLabelW + N*waveColW + 6, height=rows.length*WROW + 6;
+  const x=t=>waveLabelW + t*waveColW;
+  const parts=[`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`];
+  // tick grid: a faint line every 8 ticks so delays are countable
+  for(let t=0;t<N;t+=8)
+    parts.push(`<line x1="${x(t)}" y1="0" x2="${x(t)}" y2="${height}" stroke="var(--edge)" stroke-width="1" opacity="${t%32===0?0.7:0.35}"/>`);
+  rows.forEach((row,i)=>{
+    const S=row.S, top=i*WROW+3;
+    const vals=simHistory.map(w=>{ const v=w[S]; return typeof v==='bigint'?Number(v):(v||0); });
+    let vmin=Infinity,vmax=-Infinity;
+    for(const v of vals){ if(v<vmin)vmin=v; if(v>vmax)vmax=v; }
+    const span=vmax-vmin;
+    const y=v=> span===0 ? top+WPAD+WBAND/2 : top+WPAD + (1-(v-vmin)/span)*WBAND;
+    // step trace: hold each value for its full tick, then step at the edge —
+    // this IS the register-update-on-the-edge lesson, drawn.
+    let d=`M${x(0)} ${y(vals[0])}`;
+    for(let t=1;t<N;t++){ d+=`H${x(t)}V${y(vals[t])}`; }
+    d+=`H${x(N-1)+waveColW}`;
+    parts.push(`<line x1="${waveLabelW}" y1="${top+WPAD+WBAND}" x2="${width-4}" y2="${top+WPAD+WBAND}" stroke="var(--edge)" stroke-width="1" opacity="0.5"/>`);
+    parts.push(`<path d="${d}" fill="none" stroke="var(--amber)" stroke-width="1.5" data-sig="${S}"/>`);
+    parts.push(`<text x="4" y="${top+WPAD+WBAND-4}" fill="var(--label)" font-size="10" font-family="JetBrains Mono">${S}</text>`);
+  });
+  // the tick cursor — a translucent column at the current tick (moved by positionWaveCursor)
+  parts.push(`<rect id="wcursor" x="${x(Math.min(tick,N-1))}" y="0" width="${waveColW}" height="${height}" fill="var(--live)" opacity="0.14"/>`);
+  parts.push('</svg>');
+  return parts.join('');
+}
+function renderWaves(){
+  const el=document.getElementById('waves'); if(!el) return;
+  el.innerHTML=waveSvg();
+}
+function positionWaveCursor(){
+  const cur=document.getElementById('wcursor'); if(!cur||!simHistory) return;
+  cur.setAttribute('x', waveLabelW + Math.min(tick,simHistory.length-1)*waveColW);
+}
+function doTick(){ if(!simHistory) buildSim(); tick=Math.min(tick+1, simHistory.length-1); overlayValues(); updateWatch(); }
+function reset(){ tick=0; stopPlay(); overlayValues(); updateWatch(); }
+function stopPlay(){ if(playing){clearInterval(playing);playing=null;document.getElementById('playBtn').textContent='▶ RUN';} }
+function play(){
+  if(playing){stopPlay();return;}
+  if(!simHistory) buildSim();
+  document.getElementById('playBtn').textContent='❚❚ PAUSE';
+  playing=setInterval(()=>{
+    tick++; if(tick>=simHistory.length-1){ tick=simHistory.length-1; overlayValues(); updateWatch(); stopPlay(); return; }
+    overlayValues(); updateWatch();
+  }, 550);
+}
+
+/* ---------- toolbar ---------- */
+document.querySelectorAll('.tool').forEach(t=>{
+  t.addEventListener('click',()=>{
+    const tl=t.dataset.tool;
+    if(tl==='sample'){ loadCounter(); return; }
+    if(tl==='recorder'){ loadRecorder(); return; }
+    if(tl==='dice'){ loadDice(); return; }
+    tool=tl;
+    document.querySelectorAll('.tool').forEach(x=>x.classList.remove('sel'));
+    if(tl!=='sample') t.classList.add('sel');
+    grid.style.cursor = (tl==='wire')?'cell':(tl==='erase')?'not-allowed':'crosshair';
+    if(tl!=='wire'){ wiringFrom=null; wiringFromPort=null; }
+    render();
+  });
+});
+
+/* ---------- circuit name → module circuit[name] ---------- */
+document.getElementById('cName').addEventListener('input',function(){
+  // keep it identifier-friendly (letters, digits, underscore)
+  circuitName=this.value.replace(/[^A-Za-z0-9_]/g,'');
+  if(this.value!==circuitName) this.value=circuitName;
+  document.getElementById('verilog').innerHTML=hlVerilog(verilogView==='tb'?toTestbench(simTicks):toVerilog());
+});
+
+/* ---------- wire color palette ---------- */
+document.querySelectorAll('#wireColors .wc').forEach(sw=>{
+  sw.addEventListener('click',()=>{
+    currentWireColor=sw.dataset.wc;
+    document.querySelectorAll('#wireColors .wc').forEach(x=>x.classList.remove('sel'));
+    sw.classList.add('sel');
+  });
+});
+
+/* ---------- blueprint picker: stamp an instance ---------- */
+document.getElementById('bpPicker').addEventListener('change',function(){
+  const bp=this.value; if(!bp) return;
+  // place near top-left of the visible grid area, offset by instance count
+  const n=combs.filter(c=>c.type==='instance').length;
+  addInstance(bp, 40 + (n%4)*150, 40 + Math.floor(n/4)*140 + (n%2)*10);
+  this.value='';   // reset picker
+});
+
+/* ---------- sample: a self-feeding counter (classic Factorio) ---------- */
+function loadCounter(){
+  suppressUndo=true;                            // whole load = one undo step
+  combs=[]; wireLinks=[]; idc=1; tick=0;
+  // constant K=1, arithmetic C = C + K feeding itself
+  addComb('arithmetic',300,140);            // S1: the accumulator
+  const acc=combs[0];
+  acc.inL=''; acc.op='+'; acc.inR=1;        // C = (wired C) + 1
+  // wire its own output back to its input -> self-increment
+  wireLinks.push({from:acc.id, to:acc.id});
+  suppressUndo=false; render(); regen(); reset();
+}
+
+/* ---------- sample: TICK RECORDER — count ticks, store them in memory ---------- */
+function loadRecorder(){
+  suppressUndo=true;                            // whole load = one undo step
+  combs=[]; wireLinks=[]; idc=1; tick=0;
+  // S1: a counter (self +1) — counts clock ticks
+  addComb('arithmetic',60,50);
+  const cnt=combs[0]; cnt.inL=''; cnt.op='+'; cnt.inR=1; cnt.width=8;
+  // S2: a Register that delays the count by one tick (for the read address)
+  addInstance('Register', 60, 230);
+  const reg=combs[1]; reg.width=8;
+  // S3: a memory that stores each count
+  addComb('memory',380,60);
+  const mem=combs[2]; mem.width=8; mem.depth=16;
+  // wiring:
+  wireLinks.push({from:cnt.id, to:cnt.id});                    // counter self-increment
+  wireLinks.push({from:cnt.id, to:reg.id, toPort:'IN'});       // register delays the count
+  wireLinks.push({from:cnt.id, to:mem.id, toPort:'waddr'});    // store at current count
+  wireLinks.push({from:cnt.id, to:mem.id, toPort:'wdata'});    // store the count value
+  wireLinks.push({from:reg.id, to:mem.id, toPort:'raddr'});    // read the PREVIOUS count's slot
+  suppressUndo=false; render(); regen(); reset();
+}
+
+/* ---------- sample: DICE ROLLER — an LFSR making pseudo-random 1..6 ---------- */
+function loadDice(){
+  suppressUndo=true;                            // whole load = one undo step
+  combs=[]; wireLinks=[]; idc=1; tick=0;
+  const RED='#e8564a', CYAN='#3ec5d6';
+  // S1: LFSR shift register. Its next value is {S1[2:0], S3} — the low 3 bits
+  // shifted up, with the feedback bit S3 shifted into the bottom. This concat is
+  // now built from TWO REAL WIRES into port A (slot 0 = MSB, slot 1 = LSB),
+  // so nothing lives in a text field anymore — the whole LFSR is wired.
+  addComb('arithmetic',120,80);
+  const lf=combs[0]; lf.width=4; lf.inL=''; lf.op='|'; lf.inR=0; lf.label='LFSR shift register';
+  // S2: XOR of two taps — BOTH inputs drawn from S1, bit-tapped at the port
+  addComb('arithmetic',120,240);
+  const xr=combs[1]; xr.width=1; xr.clocked=false; xr.op='^'; xr.label='XOR taps';
+  // S3: XNOR = flip S2 (drawn wire on A, literal 1 on B)
+  addComb('arithmetic',120,380);
+  const xn=combs[2]; xn.width=1; xn.clocked=false; xn.op='^'; xn.inR=1; xn.label='XNOR feedback';
+  // S4: value mod 6 (drawn wire from S1 on A, literal 6 on B)
+  addComb('arithmetic',470,80);
+  const md=combs[3]; md.width=8; md.clocked=false; md.op='%'; md.inR=6; md.label='map to 0-5';
+  // S5: die = S4 + 1 (drawn wire from S4 on A, literal 1 on B)
+  addComb('arithmetic',470,240);
+  const die=combs[4]; die.width=8; die.clocked=false; die.op='+'; die.inR=1; die.label='🎲 ROLL (1-6)';
+  // ---- every connection below is a real drawn wire ----
+  // the shift concat {S1[2:0], S3} on S1.A, as two slotted wires:
+  wireLinks.push({from:lf.id, to:lf.id, toPort:'A', slot:0, bitTap:'2:0', color:CYAN}); // MSBs: S1[2:0]
+  wireLinks.push({from:xn.id, to:lf.id, toPort:'A', slot:1, color:RED});                // LSB: feedback S3
+  wireLinks.push({from:lf.id, to:xr.id, toPort:'A', bitTap:'3', color:RED});   // S1[3] -> S2.A
+  wireLinks.push({from:lf.id, to:xr.id, toPort:'B', bitTap:'2', color:RED});   // S1[2] -> S2.B
+  wireLinks.push({from:xr.id, to:xn.id, toPort:'A', color:RED});               // S2 -> S3.A (feedback)
+  wireLinks.push({from:lf.id, to:md.id, toPort:'A', color:CYAN});              // S1 -> S4.A
+  wireLinks.push({from:md.id, to:die.id, toPort:'A', color:CYAN});             // S4 -> S5.A (roll)
+  suppressUndo=false; render(); regen(); reset();
+}
+
+document.getElementById('playBtn').addEventListener('click',play);
+document.getElementById('tickBtn').addEventListener('click',doTick);
+document.getElementById('rstBtn').addEventListener('click',reset);
+/* O3: simulation horizon control — rebuilds the sim (and tb.v) to the new length */
+document.getElementById('simTicksInp').addEventListener('change',function(){
+  let v=parseInt(this.value,10); if(isNaN(v)) v=64;
+  v=Math.max(1,Math.min(1024,v)); this.value=v;
+  simTicks=v; tick=Math.min(tick,simTicks);
+  stopPlay(); regen(); overlayValues(); updateWatch();
+});
+/* O4: click a waveform column to seek the sim to that tick */
+document.getElementById('waves').addEventListener('click',e=>{
+  if(!simHistory) return;
+  const svgEl=e.currentTarget.querySelector('svg'); if(!svgEl) return;
+  const r=svgEl.getBoundingClientRect();
+  const t=Math.floor((e.clientX-r.left-waveLabelW)/waveColW);
+  if(t>=0&&t<simHistory.length){ tick=t; stopPlay(); overlayValues(); updateWatch(); }
+});
+
+/* zoom controls */
+document.getElementById('undoBtn').addEventListener('click',undo);
+document.getElementById('redoBtn').addEventListener('click',redo);
+document.getElementById('zOut').addEventListener('click',()=>setZoom(zoom/1.25));
+document.getElementById('zIn').addEventListener('click',()=>setZoom(zoom*1.25));
+document.getElementById('zFit').addEventListener('click',zoomFit);
+document.getElementById('zLvl').addEventListener('click',()=>setZoom(1));
+// ⌘/Ctrl + wheel zooms toward the cursor; plain wheel scrolls as usual
+grid.addEventListener('wheel',e=>{
+  if(!(e.ctrlKey||e.metaKey)) return;
+  e.preventDefault();
+  const r=grid.getBoundingClientRect();
+  const factor=Math.exp(-e.deltaY*0.0015);   // smooth, trackpad-friendly
+  setZoom(zoom*factor, e.clientX-r.left, e.clientY-r.top);
+},{passive:false});
+applyZoom();
+
+/* verilog view tabs (circuit.v / tb.v) */
+document.querySelectorAll('.vtab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    verilogView=t.dataset.view;
+    document.querySelectorAll('.vtab').forEach(x=>x.classList.remove('sel'));
+    t.classList.add('sel');
+    document.getElementById('verilog').innerHTML=hlVerilog(verilogView==='tb'?toTestbench(simTicks):toVerilog());
+  });
+});
+
+/* download circuit.v + tb.v as separate files */
+function downloadFile(name, text){
+  const blob=new Blob([text],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
+}
+// the parser: erase «...» labels so the module name is valid Verilog.
+// Guillemets never appear anywhere in Verilog, so a global strip is safe —
+// no risk of touching bit-widths [7:0] or slices S1[3:0]. circuit«dice» -> circuit.
+function stripBrackets(v){ return v.replace(/\u00ab[^\u00bb]*\u00bb/g, ''); }
+/* ---------- Factorio blueprint import (v2_12) ----------
+   Decodes REAL blueprint strings (version byte + base64 + zlib) with zero
+   dependencies via the browser-native DecompressionStream. Maps arithmetic,
+   decider, and constant combinators plus red/green wiring (both the 1.1
+   'connections' and 2.0 'wires' formats).
+   Honest translation notes, reported to the user:
+   - Factorio signal TYPES are erased — this tool is single-valued per wire.
+   - Factorio wires SUM merged signals for free; hardware does not. Networks
+     with multiple sources import with real '+' adder nodes inserted: the
+     free lunch becomes visible LUTs. That is a lesson, not a limitation.
+   - Every Factorio combinator has a 1-tick delay, so everything imports
+     CLOCKED — the founding insight of this tool, straight from the game.
+   Ghost mode ('place as ghosts'): nodes arrive translucent with wiring
+   visible but the print's settings hidden. Configure each one and hit build;
+   the print checks you. Classic in-game mechanic, now a puzzle. */
+async function decodeBlueprintString(str){
+  str=String(str||'').trim();
+  if(!str||str[0]!=='0') throw new Error('not a version-0 blueprint string');
+  const bin=atob(str.slice(1));
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  const buf=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+const FAC_OPS={'+':'+','-':'-','*':'*','/':'/','%':'%','<<':'<<','>>':'>>','AND':'&','OR':'|','XOR':'^'};
+const FAC_CMP={'>':'>','<':'<','=':'=','≥':'>=','≤':'<=','≠':'!=','>=':'>=','<=':'<=','!=':'!='};
+function importBlueprintDoc(doc, asGhosts){
+  const bp=doc.blueprint||doc; const ents=(bp.entities||[]);
+  const report=[]; const note=m=>report.push(m);
+  // 1) keep the combinators we understand
+  const keep=[], skip={};
+  for(const e of ents){
+    if(['arithmetic-combinator','decider-combinator','constant-combinator'].includes(e.name)) keep.push(e);
+    else skip[e.name]=(skip[e.name]||0)+1;
+  }
+  for(const [n,k] of Object.entries(skip)) note(`skipped ${k}\u00d7 ${n} (not a combinator this tool models)`);
+  if(!keep.length){ note('no combinators found'); return {ok:false, report}; }
+  // 2) build wire networks: node = (entity, side in|out, color)
+  //    2.0 'wires': [e1, conn1, e2, conn2]; connector ids 1=in-red 2=in-green 3=out-red 4=out-green
+  //    1.1 'connections': per-entity {'1'(in)|'2'(out): {red:[{entity_id,circuit_id}], green:[...]}}
+  const byNum={}; keep.forEach(e=>byNum[e.entity_number]=e);
+  const links=[];   // {a:{num,side,color}, b:{num,side,color}} both ends among kept combinators
+  const connSide=id=>({1:['in','red'],2:['in','green'],3:['out','red'],4:['out','green']}[id]);
+  if(Array.isArray(bp.wires)){
+    for(const [e1,c1,e2,c2] of bp.wires){
+      const s1=connSide(c1), s2=connSide(c2);
+      if(!s1||!s2||!byNum[e1]||!byNum[e2]) continue;
+      links.push({a:{num:e1,side:s1[0],color:s1[1]}, b:{num:e2,side:s2[0],color:s2[1]}});
+    }
+  } else {
+    for(const e of keep){
+      const cs=e.connections||{};
+      for(const [cid,colors] of Object.entries(cs)){
+        const side = cid==='2' ? 'out' : 'in';   // constant combinators use '1' for their (output) point
+        for(const color of ['red','green']){
+          for(const peer of (colors[color]||[])){
+            if(!byNum[peer.entity_id]) continue;
+            const pside = peer.circuit_id===2 ? 'out' : (byNum[peer.entity_id].name==='constant-combinator'?'out':'in');
+            links.push({a:{num:e.entity_number,side,color}, b:{num:peer.entity_id,side:pside,color}});
+          }
+        }
+      }
+    }
+  }
+  // constant combinators have only an output point regardless of encoding
+  for(const l of links) for(const end of [l.a,l.b])
+    if(byNum[end.num] && byNum[end.num].name==='constant-combinator') end.side='out';
+  // 3) union links into networks (per color); each network gathers sources (out ends) and sinks (in ends)
+  const key=e=>e.num+':'+e.side+':'+e.color;
+  const parent={}; const find=k=>{ while(parent[k]!==k) k=parent[k]=parent[parent[k]]; return k; };
+  const seen=new Set();
+  for(const l of links){ for(const e of [l.a,l.b]){ const k=key(e); if(!seen.has(k)){seen.add(k);parent[k]=k;} }
+    const ra=find(key(l.a)), rb=find(key(l.b)); if(ra!==rb) parent[ra]=rb; }
+  const nets={};
+  for(const k of seen){ const r=find(k); (nets[r]=nets[r]||{sources:[],sinks:[],color:k.split(':')[2]});
+    const [num,side]=k.split(':');
+    (nets[r][side==='out'?'sources':'sinks']).push(+num); }
+  // 4) place tool nodes (scaled from tile coords), all clocked, optionally ghosts
+  const xs=keep.map(e=>e.position.x), ys=keep.map(e=>e.position.y);
+  const x0=Math.min(...xs), y0=Math.min(...ys);
+  const SCALE=85, MX=60, MY=60;
+  const idOf={}; let signalErased=0;
+  suppressUndo=true;
+  for(const e of keep){
+    const x=MX+(e.position.x-x0)*SCALE, y=MY+(e.position.y-y0)*SCALE;
+    const cb=e.control_behavior||{};
+    let truth=null;
+    if(e.name==='constant-combinator'){
+      addComb('constant', x, y);
+      const c=combs.at(-1); idOf[e.entity_number]=c.id;
+      const filters=cb.filters || (cb.sections&&cb.sections.sections&&cb.sections.sections.flatMap(s=>s.filters||[])) || [];
+      let sum=0n; for(const f of filters){ sum+=BigInt(f.count||0); }
+      if(filters.length>1){ signalErased++; note(`constant #${e.entity_number}: ${filters.length} signals summed to one value`); }
+      truth={value:sum.toString()};
+    } else if(e.name==='arithmetic-combinator'){
+      addComb('arithmetic', x, y);
+      const c=combs.at(-1); idOf[e.entity_number]=c.id; c.clocked=true;
+      const a=cb.arithmetic_conditions||{};
+      const op=FAC_OPS[a.operation];
+      if(op===undefined) note(`arithmetic #${e.entity_number}: operation '${a.operation}' unsupported \u2192 '+'`);
+      if(a.first_signal&&a.second_signal) signalErased++;
+      truth={op:op||'+',
+             inL: a.first_signal? '' : String(a.first_constant??0),
+             inR: a.second_signal? '' : String(a.second_constant??0)};
+    } else {
+      addComb('decider', x, y);
+      const c=combs.at(-1); idOf[e.entity_number]=c.id; c.clocked=true;
+      const d=cb.decider_conditions||{};
+      if(d.copy_count_from_input) note(`decider #${e.entity_number}: copy-count-from-input approximated as output 1`);
+      truth={cmp:FAC_CMP[d.comparator]||'>',
+             inL: d.first_signal? '' : String(d.first_constant??0),
+             inR: d.second_signal? '' : String(d.constant??d.second_constant??0),
+             outputVal:'1'};
+    }
+    const c=combs.at(-1);
+    if(asGhosts){ c.ghost=true; c.print=truth; }
+    else Object.assign(c, truth);
+  }
+  if(signalErased) note(`signal types erased on ${signalErased} entities (this tool is single-valued per wire)`);
+  // 5) realize networks: single source wires directly; multiple sources get a
+  //    real '+' adder chain — Factorio's free wire-sum becomes visible LUTs
+  let addersIn=0;
+  const netSource=(net)=>{
+    const srcs=[...new Set(net.sources)].map(n=>idOf[n]).filter(Boolean);
+    if(!srcs.length) return null;
+    if(srcs.length===1) return srcs[0];
+    let acc=srcs[0];
+    for(let i=1;i<srcs.length;i++){
+      addComb('arithmetic', 40, 40+60*addersIn);
+      const add=combs.at(-1); add.clocked=false; add.op='+'; add.inL=''; add.inR='';
+      wireLinks.push({from:acc, to:add.id, toPort:'A', color:'var(--'+net.color+')'});
+      wireLinks.push({from:srcs[i], to:add.id, toPort:'B', color:'var(--'+net.color+')'});
+      acc=add.id; addersIn++;
+    }
+    return acc;
+  };
+  for(const net of Object.values(nets)){
+    const src=netSource(net); if(src==null) continue;
+    for(const sinkNum of new Set(net.sinks)){
+      const sinkId=idOf[sinkNum]; if(!sinkId) continue;
+      const sink=combs.find(c=>c.id===sinkId);
+      // Factorio operands read the one input network; wire it to A (and to B
+      // when the second operand is also a signal)
+      const t=(sink.ghost?sink.print:sink);
+      wireLinks.push({from:src, to:sinkId, toPort:'A', color:'var(--'+net.color+')'});
+      if(t && t.inR==='') wireLinks.push({from:src, to:sinkId, toPort:'B', color:'var(--'+net.color+')'});
+    }
+  }
+  if(addersIn) note(`${addersIn} adder(s) inserted: Factorio wires sum merged signals for free \u2014 hardware pays LUTs for it`);
+  suppressUndo=false; render(); regen(); reset();
+  return {ok:true, report, placed:keep.length, ghosts:!!asGhosts};
+}
+async function importBlueprint(str, asGhosts){
+  const doc=await decodeBlueprintString(str);
+  return importBlueprintDoc(doc, asGhosts);
+}
+/* ghost build-check: the print knows the truth; the learner's settings must
+   match (numerics compared as values, not strings) */
+function buildGhost(c){
+  if(!c.ghost||!c.print) return {ok:false, wrong:['not a ghost']};
+  const wrong=[];
+  const numeric=k=>['inL','inR','value','outputVal','elseOut'].includes(k);
+  for(const [k,v] of Object.entries(c.print)){
+    const mine=c[k];
+    const same = numeric(k) ? (()=>{ try{return BigInt(String(mine??'').trim()||'0')===BigInt(String(v).trim()||'0');}catch(e){return String(mine??'')===String(v);} })()
+                            : String(mine??'')===String(v);
+    if(!same) wrong.push(k);
+  }
+  if(wrong.length) return {ok:false, wrong};
+  c.ghost=false; delete c.print;
+  render(); regen();
+  return {ok:true};
+}
+function revealGhosts(){
+  for(const c of combs) if(c.ghost&&c.print){ Object.assign(c,c.print); c.ghost=false; delete c.print; }
+  render(); regen();
+}
+/* ghosts are drawings, not circuits: everything that computes, emits, or
+   counts sees only LIVE nodes and wires between live nodes */
+function withLive(fn){
+  const C=combs, W=wireLinks;
+  const liveIds=new Set(combs.filter(c=>!c.ghost).map(c=>c.id));
+  combs=combs.filter(c=>!c.ghost);
+  wireLinks=wireLinks.filter(w=>liveIds.has(w.from)&&liveIds.has(w.to));
+  try{ return fn(); } finally { combs=C; wireLinks=W; }
+}
+
+/* ---------- O2: save / load circuits as shareable JSON files ----------
+   The whole document is just {combs, wireLinks} plus a little session state —
+   all plain data, so serialization is a straight JSON round-trip. loadCircuit
+   validates before touching anything, so a bad file can't clobber your work. */
+const CIRCUIT_FORMAT='combinator-foundry-circuit';
+function serializeCircuit(){
+  return JSON.stringify({
+    format: CIRCUIT_FORMAT,
+    formatVersion: 1,
+    tool: 'v2.5',
+    saved: new Date().toISOString(),
+    circuitName, simTicks,
+    combs, wireLinks,
+  }, null, 2);
+}
+function loadCircuit(json){
+  let d;
+  try{ d=JSON.parse(json); }catch(e){ return {ok:false, error:'not valid JSON'}; }
+  if(!d || d.format!==CIRCUIT_FORMAT) return {ok:false, error:'not a circuit file (missing format tag)'};
+  if(!Array.isArray(d.combs) || !Array.isArray(d.wireLinks)) return {ok:false, error:'circuit file is missing combs/wireLinks'};
+  for(const c of d.combs){
+    if(typeof c.id!=='number' || typeof c.type!=='string') return {ok:false, error:'malformed combinator entry'};
+  }
+  for(const w of d.wireLinks){
+    if(typeof w.from!=='number' || typeof w.to!=='number') return {ok:false, error:'malformed wire entry'};
+  }
+  // validated — now (and only now) replace the document
+  suppressUndo=true;                            // the load lands as ONE undo step
+  combs=d.combs; wireLinks=d.wireLinks;
+  idc=combs.reduce((m,c)=>Math.max(m,c.id),0)+1;            // no id collisions on later adds
+  circuitName=typeof d.circuitName==='string'?d.circuitName:'';
+  const cn=document.getElementById('cName'); if(cn) cn.value=circuitName;
+  if(typeof d.simTicks==='number') simTicks=Math.max(1,Math.min(1024,d.simTicks));
+  const st=document.getElementById('simTicksInp'); if(st) st.value=simTicks;
+  tick=0; stopPlay();
+  suppressUndo=false; render(); regen(); reset();
+  return {ok:true};
+}
+document.getElementById('saveBtn').addEventListener('click',()=>{
+  const name=(circuitName.trim()||'circuit')+'.foundry.json';
+  downloadFile(name, serializeCircuit());
+});
+document.getElementById('loadBtn').addEventListener('click',()=>document.getElementById('loadFile').click());
+document.getElementById('bpBtn').addEventListener('click',()=>{
+  const p=document.getElementById('bpPanel');
+  p.style.display = p.style.display==='none' ? 'block' : 'none';
+});
+document.getElementById('bpClose').addEventListener('click',()=>{ document.getElementById('bpPanel').style.display='none'; });
+document.getElementById('bpReveal').addEventListener('click',()=>{ revealGhosts(); raceHint('<b>\ud83d\udc41 revealed:</b> every ghost filled from the print.'); });
+document.getElementById('bpImport').addEventListener('click',async ()=>{
+  const rep=document.getElementById('bpReport');
+  try{
+    const res=await importBlueprint(document.getElementById('bpText').value,
+                                    document.getElementById('bpGhostChk').checked);
+    rep.innerHTML = res.ok
+      ? `placed <b>${res.placed}</b> combinator(s)${res.ghosts?' as ghosts \u2014 configure each and \ud83d\udd28 build':''}.`
+        + (res.report.length?'<br>'+res.report.map(r=>'\u2022 '+r).join('<br>'):'')
+      : 'import failed: '+res.report.join('; ');
+  }catch(e){ rep.textContent='could not decode: '+e.message; }
+});
+document.getElementById('loadFile').addEventListener('change',function(){
+  const f=this.files && this.files[0]; this.value='';
+  if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    const res=loadCircuit(r.result);
+    if(!res.ok) raceHint(`<b>⚠ couldn\u2019t load circuit:</b> ${res.error}. Your current circuit is untouched.`);
+  };
+  r.readAsText(f);
+});
+
+document.getElementById('dlBtn').addEventListener('click',()=>{
+  // downloaded files must compile: strip the display-only [name] labels
+  downloadFile('circuit.v', stripBrackets(toVerilog()));
+  setTimeout(()=>downloadFile('tb.v', stripBrackets(toTestbench(simTicks))), 200);
+  setTimeout(()=>downloadFile('circuit_synth.v', toVerilogSynth()), 400);
+  setTimeout(()=>downloadFile('build_ice40.sh', buildScript()), 600);
+});
+
+/* ---------- help ---------- */
+document.getElementById('dbody').innerHTML=`
+<h4>The 1:1 mapping</h4>
+<p>Every piece here uses Factorio's own vocabulary and maps to exactly one hardware idea:</p>
+<table class="maptbl">
+<tr><td>Constant combinator</td><td>a fixed value driven onto a wire (a literal).</td></tr>
+<tr><td>Arithmetic combinator</td><td>a math circuit: <code>A op B → out</code> — an adder, multiplier, shifter…</td></tr>
+<tr><td>Decider combinator</td><td>a comparator + gate: <code>(A cmp B) ? val : 0</code>.</td></tr>
+<tr><td>Wire</td><td>a net carrying a signal from one combinator's output to another's input.</td></tr>
+<tr><td>Signal (S1, S2…)</td><td>the named value a combinator outputs onto its wire.</td></tr>
+<tr><td>The tick</td><td>the clock. Everything updates once per tick, together.</td></tr>
+</table>
+
+<h4>Why it's real, not a metaphor</h4>
+<p>In Factorio a combinator's output appears <b>one tick after</b> its inputs. That one-tick delay is <b>exactly</b> a clocked register (a flip-flop) in hardware. So a combinator network <i>is</i> a synchronous digital circuit, and the tick <i>is</i> the clock. That's why players build real CPUs in Factorio — and why the Verilog on the right is a faithful translation.</p>
+<div class="note"><b>Watch the delay:</b> load the counter, then TICK. The value climbs by one each tick because the output feeds back to the input — a self-incrementing loop, which in hardware is a counter register. Build a chain and you'll see a value take one tick per stage to flow through. That staged flow is the register delay made visible.</div>
+
+<h4>Two input ports & bit-taps <span style="color:var(--live)">v2.0</span></h4>
+<p>Arithmetic and Decider nodes now have <b>two input ports — A and B</b> — each a real place to draw a wire, instead of one port plus a typed box. This is how you'd actually wire it, and how it's laid out on silicon: both operands arrive as wire bundles.</p>
+<p>Each port still accepts a typed number if you leave it unwired (so <code>A + 1</code> works with A wired and B typed). When you draw a wire in, a small <b>bits</b> field appears: type <code>3:2</code> to tap bits 3–2 of that signal, or <code>3</code> for a single bit. Leave it blank for the whole signal.</p>
+<div class="note"><b>Why bit-taps live on the port:</b> on silicon a slice like <code>S1[3:2]</code> isn't an operation — it's just <i>which wires of the bundle you physically connect to</i>. There's no "slicer" component; the slice is the wiring. So the tap belongs at the destination port, which is exactly where it is here. The <b>🎲 Dice roller</b> now shows this: the XOR-taps node draws two wires from the LFSR, tapping bit 3 and bit 2 — the feedback loop is a visible red wire, not text hidden in a field.</div>
+
+<h4>Naming & wire colors <span style="color:var(--live)">v1.9</span></h4>
+<p><b>Name the circuit:</b> type in the <b>name…</b> box by the download button and the module header becomes <code>module circuit«dice»(…)</code>. The guillemets <code>«»</code> are a visible label — they never appear in real Verilog, so when you download, the parser strips <code>«…»</code> cleanly and you get a compilable <code>module circuit</code>. (Bit-widths like <code>[7:0]</code> and slices like <code>S1[3:0]</code> are untouched — that's why guillemets, not brackets.)</p>
+<p><b>Wire colors:</b> pick a color from the palette next to the Wire tool before drawing — new wires take that color. Colors are purely visual: they don't change the Verilog (every signal already has its own name). They're for <i>your</i> eyes — trace a feedback loop, group a data path, tell control from data at a glance, like using wire colors to read a busy factory.</p>
+<p>This differs from Factorio's red/green, which are two separate networks carrying possibly-different values. In hardware every wire is already its own named net, so color here is just a highlighter. The <b>🎲 Dice roller</b> sample uses it: red is the feedback loop that scrambles the value, cyan is the path out to the roll.</p>
+
+<h4>Timing — the ⏱/⚡ rule <span style="color:var(--live)">v1.8</span></h4>
+<p>This is the concept real Verilog engineers get wrong most often, and the Foundry gets right for you. There are two ways a value updates:</p>
+<table class="maptbl">
+<tr><td>⏱ clocked</td><td>Verilog <code>&lt;=</code> (non-blocking). Every clocked value updates <b>together</b> on the tick edge, all reading <i>last</i> tick's values. This is exactly how Factorio combinators behave — everyone acts on the previous tick's state.</td></tr>
+<tr><td>⚡ instant</td><td>Verilog <code>assign</code> (combinational). Settles <b>within</b> the tick, in order, like a chain of bare wires resolving before the tick completes.</td></tr>
+</table>
+<p>Getting <code>&lt;=</code> vs <code>=</code> wrong is the #1 source of real Verilog bugs. The Foundry picks correctly by construction from each node's ⏱/⚡ toggle — the generated code's header spells out the rule.</p>
+<p><b>The guard-rail:</b> if you wire instant combinators into a cycle with no clocked node to break it, you've made a <b>combinational loop</b> — which in real hardware oscillates and produces an undefined value (Icarus shows <code>x</code>). The tool detects this and warns you, pointing at the loop. The fix is always the same: make one node in the cycle ⏱ clocked, and its 1-tick delay breaks the loop into a proper register feedback (which is how a counter legally feeds itself).</p>
+<div class="note"><b>Try it:</b> wire two ⚡ instant combinators into each other — the red warning appears. Flip one to ⏱ clocked and it clears. That's the difference between a broken circuit and a working register, made visible.</div>
+
+<h4>Repeat — tiled blueprints <span style="color:var(--live)">v1.7</span></h4>
+<p>Every blueprint instance has a <b>repeat ×N</b> field. Set it above 1 and the tool stamps N copies — like tiling a blueprint down a row in Factorio. Each copy <b>i</b> is fed <code>input + i</code>, so the tiles differ across the bank (copy 0 gets input+0, copy 1 gets input+1, and so on).</p>
+<p>In Verilog this becomes a <b>parameter</b> and a <b>generate-for</b> loop — the hardware way to say "make N of these" without copy-pasting:</p>
+<p style="font-family:'JetBrains Mono';font-size:10.5px;background:var(--steel);padding:8px 10px;border-radius:4px;color:#c7d0da">parameter N = 4;<br>generate for (g=0; g&lt;N; g=g+1) begin<br>&nbsp;&nbsp;incrementer inst(.IN(base + g), .OUT(bank[g]));<br>end endgenerate</p>
+<p>The instance's output on the grid shows the whole bank <code>[v0,v1,v2,…]</code>. Change N in one place and the design scales — building 16 identical units by hand is the same mistake as copy-pasting code.</p>
+<div class="note"><b>Try it:</b> stamp an Incrementer, wire a counter into it, set repeat to 5, and watch the output become a bank of five values each one higher than the last.</div>
+
+<h4>Blueprints — reusable modules <span style="color:var(--live)">v1.6</span></h4>
+<p>A <b>Blueprint</b> is a saved sub-circuit you stamp into a bigger design — exactly like a Factorio blueprint. Pick one from the <b>＋ Blueprint…</b> menu to place an instance. Each instance is a self-contained box with named input ports and one output; wire it like any node.</p>
+<p>The ready-made library:</p>
+<table class="maptbl">
+<tr><td>Register</td><td>holds its input, output appears one tick later (a memory cell).</td></tr>
+<tr><td>Incrementer</td><td>output = input + 1.</td></tr>
+<tr><td>Adder</td><td>output = A + B (two input ports).</td></tr>
+<tr><td>Doubler</td><td>output = input × 2, instant (no delay).</td></tr>
+</table>
+<p>In Verilog this is <b>hierarchy</b>: each blueprint becomes its own <code>module</code>, and each instance becomes a module instantiation wired into the top <code>circuit</code>. Stamp the same blueprint many times and you get many instances of one module — the single biggest step toward real-scale designs, where nothing is built as one flat file.</p>
+<div class="note"><b>Coming later:</b> defining your <i>own</i> blueprints by grouping combinators. For now the library above covers the core idea — reuse and hierarchy — with modules that compile and run.</div>
+
+<h4>Memory — RAM <span style="color:var(--live)">v1.5</span></h4>
+<p>A <b>Memory</b> node is a block of storage — an array of cells, each holding one value. In Factorio terms it's a bank of memory cells addressed by a signal; in hardware it's RAM. Set its size (cells × bit-width).</p>
+<p>It has <b>four input ports</b> — click your source's output port, then the memory port you want:</p>
+<table class="maptbl">
+<tr><td>wr addr</td><td>which cell to write to</td></tr>
+<tr><td>wr data</td><td>the value to store there</td></tr>
+<tr><td>wr enable</td><td>write only when this is nonzero (leave unwired to always write)</td></tr>
+<tr><td>rd addr</td><td>which cell to read; the memory's output signal is that cell's value</td></tr>
+</table>
+<p>Verilog: <code>reg [W-1:0] mem [0:depth-1]</code> with a write port <code>mem[waddr] &lt;= wdata</code> and a read port <code>out &lt;= mem[raddr]</code>.</p>
+<div class="note"><b>The one-tick rule:</b> a value written this tick is readable <i>next</i> tick — writes land on the clock edge. And reading a cell the same tick you write it returns the OLD value (read-before-write). This is real RAM timing, and the simulator matches it exactly. The address math (<code>y×W + x</code> for a 2-D screen) is just an arithmetic combinator feeding the address port — which is how the drawing demo's framebuffer worked.</div>
+
+<h4>Testbench & download <span style="color:var(--live)">v1.4</span></h4>
+<p>The <b>tb.v</b> tab shows a generated <b>testbench</b> — the "inserter" that feeds your circuit a clock and reset, runs it for a set number of ticks, and prints every signal. It's the harness that proves a circuit works, exactly like the setup you'd build to verify a factory before committing to it.</p>
+<p>Hit <b>⬇ download bundle</b> to get two files: <code>circuit.v</code> (your design) and <code>tb.v</code> (the testbench). They run together in Icarus Verilog with no edits:</p>
+<p style="font-family:'JetBrains Mono';font-size:11px;background:var(--steel);padding:8px 10px;border-radius:4px;color:var(--live)">iverilog -o sim circuit.v tb.v<br>vvp sim</p>
+<p>That prints each signal per tick and also writes <code>circuit.vcd</code> — a waveform file you can open in GTKWave to <i>see</i> the signals rise and fall. The testbench uses <code>initial</code>, <code>$display</code>, <code>$dumpvars</code>, <code>$finish</code> — the whole verification half of Verilog.</p>
+<div class="note"><b>Why this step matters:</b> until now the Foundry checked your circuit internally. Now <i>you</i> can check it, on real tools, outside the browser. Every circuit you build here is now independently verifiable — which is what makes hardware trustworthy.</div>
+
+<h4>Selector — multi-way control <span style="color:var(--live)">v1.3</span></h4>
+<p>A single decider is one yes/no test. A <b>Selector</b> is a stack of tests with priority — the Factorio pattern of a bank of deciders each gated on a different condition, routing a signal by which condition matches.</p>
+<p>Each row reads the wired input: <code>if in &gt; 10 → 3</code>. Rows are checked <b>top to bottom, first match wins</b> (that's an <code>if / else if</code> ladder). If nothing matches, the <code>else</code> row's value is used.</p>
+<table class="maptbl">
+<tr><td>priority rows</td><td>Verilog <code>if / else if / else</code> — first matching row wins.</td></tr>
+<tr><td>all rows use <code>=</code></td><td>the tool emits a <code>case</code> statement automatically — cleaner when every branch tests the same value.</td></tr>
+</table>
+<p>Wire a signal into the Selector's input, add or remove rows with <b>+ row</b> and <b>✕</b>, and set each condition and output. This is the heart of a state machine: "depending on the current state, do this."</p>
+<div class="note"><b>Try it:</b> wire a counter into a Selector and watch the output jump between values as the count crosses each threshold — a signal being classified into bands, live.</div>
+
+<h4>Bit widths <span style="color:var(--live)">v1.2</span></h4>
+<p>Each signal has a <b>width</b> — the <code>[Nb]</code> box in its output badge. This is the number of bits it holds, and it controls how many gates get built. Real hardware is obsessive about this.</p>
+<table class="maptbl">
+<tr><td>width 1</td><td>a flag — just 0 or 1. Deciders default to this (a condition is 1-bit). Verilog: a bare <code>reg</code>/<code>wire</code>, no range.</td></tr>
+<tr><td>width N</td><td>an N-bit number. Verilog: <code>[N-1:0]</code>. Values that exceed N bits <b>wrap</b> — a 4-bit counter goes 15 then back to 0, exactly as silicon does.</td></tr>
+</table>
+<p><b>Slicing</b> — type <code>S1[3:0]</code> in an input to read just the low 4 bits of signal S1. <b>Concatenation</b> — type <code>{S1,S2}</code> to join signals into a wider one. The <code>i&lt;&lt;4</code> trick from earlier is really <code>{i[3:0],4'b0000}</code>: four bits of i followed by four zeros. Both are valid Verilog and the simulator evaluates them live.</p>
+<div class="note"><b>Try it:</b> set a counter's width to 4 and run — watch it wrap at 16. That wrap is not a bug; it's what a 4-bit register physically does.</div>
+
+<h4>Clocked vs instant <span style="color:var(--live)">v1.1</span></h4>
+<p>Each combinator has a toggle: <b style="color:var(--cyan)">⏱ clk</b> (clocked) or <b style="color:var(--live)">⚡ inst</b> (instant).</p>
+<table class="maptbl">
+<tr><td>⏱ clocked</td><td>1-tick delay → Verilog <code>reg</code> + <code>always @(posedge clk)</code>. This is a normal Factorio combinator.</td></tr>
+<tr><td>⚡ instant</td><td>no delay → Verilog <code>wire</code> + <code>assign</code>. Pure combinational gates — the result appears in the same tick, like a bare wire connection with no combinator in the path.</td></tr>
+</table>
+<p>Real hardware mixes both: instant logic computes within a cycle, clocked logic holds state across cycles. A counter needs a clocked register (to remember its value); a "double this signal" step can be instant. This toggle is the single biggest step from "a narrow slice" toward real Verilog — it adds the entire un-clocked half of the language.</p>
+
+<h4>How to build</h4>
+<p>Pick a tool from the toolbar — <b>Constant</b>, <b>Arithmetic</b>, <b>Decider</b>, <b>Selector</b>, or <b>Memory</b> — and click the grid to place it. Stamp a <b>Blueprint</b> from the ＋ menu. Set a node's fields, then click an <b>output port</b> (right side) and an <b>input port</b> (left side) to wire them. Press RUN to watch signals flow, or TICK to step one clock edge at a time. The Verilog updates live as you build, and you can download a runnable circuit.v + tb.v bundle.</p>
+
+<p>Two ready-made samples in the toolbar: <b>↺ Load counter</b> (a signal counting itself up) and <b>↺ Tick recorder</b> (a counter feeding a memory — it counts clock ticks and stores each one, so you can watch the saved history read back). The recorder is <i>pulse → count → hold</i> made real: the clock pulses, the counter turns pulses into a number, the memory keeps them.</p>
+<p><b>🎲 Dice roller</b> is an <b>LFSR</b> (linear-feedback shift register): a shift register whose feedback bit is an XOR/XNOR of two taps, wired back to the front. That feedback makes it walk a long scrambled sequence that looks random — then it's mapped to 1–6. It's the same controlled-feedback idea as a counter, but the feedback function scrambles instead of counts. Load it, press RUN, and watch the die jump around unpredictably.</p>
+
+<h4>Wiring & inputs</h4>
+<p>Most nodes have one input on the left and one output on the right. For Arithmetic and Decider, the <b>left input (A)</b> comes from the wire feeding it; the <b>right input (B)</b> can be a number typed in the box — so <code>A + 1</code> means "the wired signal plus one."</p>
+<p><b>Multi-port nodes</b> (Memory, Blueprints) have several labeled input ports instead — click your source's output, then the specific port you want (e.g. Memory's <i>wr addr</i>, or a blueprint's <i>IN</i>). Each node also carries its own controls: bit <b>width</b>, the <b>⏱/⚡</b> timing toggle, Memory's <b>cell count</b>, and a blueprint's <b>repeat ×N</b>.</p>
+
+<h4>What happens below Verilog</h4>
+<p>Verilog is a <b>description</b>, not a map: it says what must be true each tick and names no target hardware at all — which is exactly why one source can run in a simulator or on any chip. The maps come lower down, once there is structure on both ends:</p>
+<p><b>2 · Synthesis</b> turns the description into a generic netlist of gates and flip-flops — the first "territory." The <b>≤LUT₄ · FF</b> badge previews this stage: FF exact, LUTs an upper bound a real synthesizer only beats.<br>
+<b>3 · Technology mapping</b> — map #1: generic netlist → this chip's real primitives (LUTs, carry chains, block RAM, DSPs). Mostly mechanical.<br>
+<b>4 · Placement</b> — map #2: each primitive → a physical cell on the grid. No unique answer; an NP-hard optimization, not a translation.<br>
+<b>5 · Routing + timing closure</b> — map #3 plus physics: connect the cells, then verify every register-to-register path settles within one clock period. A logically perfect circuit can <i>fail here</i> — timing has no representation in the logical function, and the fix is redesign (pipeline it), not re-mapping.<br>
+<b>6 · Bitstream</b> serializes the result — an FPGA is mostly SRAM cells controlling muxes and LUT contents, and the bitstream is their values.<br>
+<b>7 · Configuration</b> loads it. The chip isn't "running your program" — it <b>becomes the circuit</b>. Every combinator updating on the same tick isn't a metaphor for FPGA behavior; it <i>is</i> the behavior.</p>
+<p>The <b>⬇ download bundle</b> includes <code>circuit_synth.v</code> (your circuit with signals exposed as ports, so synthesis can't optimize it away) and <code>build_ice40.sh</code> — the exact open-source flow (yosys → nextpnr → icepack) that takes it to a real iCE40 bitstream.</p>
+<div class="note">This is the same pipeline as everything else: your circuit → Verilog → (a simulator like Icarus, or an FPGA). No CPU runs your circuit — the gates <i>are</i> the circuit.</div>
+`;
+const drawer=document.getElementById('drawer'),scrim=document.getElementById('scrim');
+document.getElementById('helpBtn').addEventListener('click',()=>{drawer.classList.add('open');scrim.classList.add('open')});
+document.getElementById('dclose').addEventListener('click',()=>{drawer.classList.remove('open');scrim.classList.remove('open')});
+scrim.addEventListener('click',()=>{drawer.classList.remove('open');scrim.classList.remove('open')});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){drawer.classList.remove('open');scrim.classList.remove('open')}});
+
+/* ---------- boot with the counter loaded ---------- */
+loadCounter();
+// the boot document is the floor, not an edit: opening the app and pressing
+// undo should do nothing (not blank the canvas)
+undoStack.length=0; redoStack.length=0; lastDoc=snapshotDoc(); updateUndoBtns();
+</script>
+</body>
+</html>
