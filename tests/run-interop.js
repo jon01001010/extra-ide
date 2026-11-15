@@ -13,6 +13,9 @@ const path = require('path');
 // functions returning promises, functions that throw, a class, a function taking a callback.
 const FAKE_LIB = `
 window.typeNameG = function (x) { return x === null ? 'null' : typeof x; };
+// a global function that accepts anything, like numeral(…) / dayjs(…): reports what it was given
+window.describeArgs = function () { return [].map.call(arguments, function (a) { return (a === null ? 'null' : Array.isArray(a) ? 'array' : typeof a) + ':' + (typeof a === 'object' ? JSON.stringify(a) : String(a)); }).join(' '); };
+window.makeBox = function (v) { return { value: function () { return v; } }; };
 window.fakeLib = {
   fetchUser: function (id) { return new Promise(function (ok) { setTimeout(function () { ok({ id: id, name: 'user' + id }); }, 20); }); },
   failLater: function () { return new Promise(function (ok, fail) { setTimeout(function () { fail(new Error('server said no')); }, 20); }); },
@@ -25,6 +28,16 @@ window.fakeLib = {
   ident: function (x) { return x; },
   typeName: function (x) { return x === null ? 'null' : typeof x; },
   big: function (n) { return new Array(n + 1).join('x'); },
+  // plain functions with capitalised names (Phaser.Math.Distance.Between style)
+  Geom: { Between: function (x1, y1, x2, y2) { return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)); }, Label: function (n) { return 'label ' + n; } },
+  // ES5-style classes (three.js r128 style): a function with prototype members, one that only inherits, one with neither
+  OldPoint: (function () { function OldPoint(x, y) { this.x = x; this.y = y; } OldPoint.prototype.sum = function () { return this.x + this.y; }; return OldPoint; })(),
+  OldChild: (function () { function Base() {} Base.prototype.kind = function () { return 'child of base'; }; function OldChild() { Base.call(this); } OldChild.prototype = Object.create(Base.prototype); OldChild.prototype.constructor = OldChild; return OldChild; })(),
+  Bare: function (v) { this.v = v; },
+  // functions that return functions (d3.format / scales / curried APIs)
+  adder: function (a) { return function (b) { return a + b; }; },
+  fns: [function (x) { return x * 2; }, function (x) { return 'second ' + x; }],
+  format: function (digits) { return function (x) { return x.toFixed(digits); }; },
   config: { name: 'cfg', size: 2.5, count: 7, visible: true, hidden: false, nothing: null, list: [10, 20, 30, 40, 50], child: { label: 'kid' } }
 };
 `;
@@ -864,6 +877,254 @@ export fn run() {
   let p = fakeLib.config.js
   if (p == null) { printStr("no .js property") }
 }`, expect: ['> 6', '> no .js property'] },
+
+  // ── 14. Global JS functions: usable result, any arguments per call site ──
+  { name: 'global-function-result-without-member-call', src: `
+export fn run() {
+  printStr(toStr(parseInt("12")))
+}`, expect: ['> 12'] },
+
+  { name: 'global-function-result-in-typed-positions', src: `
+export fn run() {
+  let n = parseInt("40")
+  print(n + 2)
+  let f: num = parseFloat("2.5")
+  printNum(f * 2.0)
+  let s: str = encodeURIComponent("a b")
+  printStr(s)
+  if (isNaN(parseInt("x"))) { printStr("nan") }
+}`, expect: ['> 42', '> 5', '> a%20b', '> nan'] },
+
+  { name: 'global-function-different-arguments-per-call-site', src: `
+export fn run() {
+  printStr(toStr(describeArgs(1234.5)))
+  printStr(toStr(describeArgs("1,000")))
+  printStr(toStr(describeArgs()))
+  printStr(toStr(describeArgs(true, null, 3, "s", 2.5)))
+  let i = 7
+  printStr(toStr(describeArgs(i, fakeLib.config.child)))
+  // numeral(1234.5).format(…) then numeral("1,000").value(): a number at one call site, a string at the next
+  printNum(makeBox(1234.5).value())
+  printStr(makeBox("1,000").value())
+  // booleans reach JS as booleans
+  printStr(toStr(String(false)))
+  printStr(toStr(String(true)))
+}`, expect: ['> number:1234.5', '> string:1,000', '>', '> boolean:true null:null number:3 string:s number:2.5', '> number:7 object:{"label":"kid"}', '> 1234.5', '> 1,000', '> false', '> true'] },
+
+  { name: 'global-function-missing-is-a-warning-not-a-crash', src: `
+export fn run() {
+  let r = noSuchGlobalFunction(1)
+  if (r == null) { printStr("null result") }
+}`, expect: [/^⚠ noSuchGlobalFunction\(\.\.\.\) — window\.noSuchGlobalFunction is not loaded/, '> null result'] },
+
+  // ── 15. A call without new is a plain call unless the function is a constructor ──
+  { name: 'capitalised-plain-functions-are-plain-calls', src: `
+export fn run() {
+  printNum(fakeLib.Geom.Between(0.0, 0.0, 3.0, 4.0))
+  printStr(fakeLib.Geom.Label(3))
+  printStr(toStr(Math.max(1, 2)))
+  printStr(typeOf(String(5)))
+  printStr(toStr(String(5)))
+  print(Number("3") + 1)
+  printStr(typeOf(Number("3")))
+  printStr(typeOf(Boolean(1)))
+  printStr(typeOf(Date.now()))
+  printStr(toStr(JSON.stringify(JSON.parse("[1,2]"))))
+}`, expect: ['> 5', '> label 3', '> 2', '> string', '> 5', '> 4', '> number', '> boolean', '> number', '> [1,2]'] },
+
+  { name: 'constructors-still-construct-without-new', src: `
+export fn run() {
+  // class syntax
+  let c = fakeLib.Counter(5)
+  printStr(toStr(c.inc()))
+  // ES5-style: prototype members, inherited prototype, and a capitalised function that only assigns to this
+  let p = fakeLib.OldPoint(3, 4)
+  printStr(toStr(p.sum()))
+  printStr(toStr(fakeLib.OldChild().kind()))
+  let b = fakeLib.Bare(9)
+  printStr(toStr(b.v))
+  // natives
+  let d = Date(2020, 0, 15)
+  printStr(toStr(d.getFullYear()))
+  let m = Map()
+  m.set("k", 1)
+  printStr(toStr(m.size))
+  let K = fakeLib.OldPoint
+  let p2 = K(1, 2)
+  printStr(toStr(p2.sum()))
+  // explicit new on a plain capitalised function still constructs
+  let g = new fakeLib.Bare(2)
+  printStr(toStr(g.v))
+}`, expect: ['> 6', '> 7', '> child of base', '> 9', '> 2020', '> 1', '> 3', '> 2'] },
+
+  // ── 16. Calling a function value ──
+  { name: 'call-function-value', src: `
+mut saved: js = null
+fn apply(f: js, x: num) num {
+  return f(x)
+}
+export fn run() {
+  let f = fakeLib.format(2)
+  printStr(toStr(f(3.14159)))
+  printStr(toStr(fakeLib.format(1)(3.14159)))
+  let add10 = fakeLib.adder(10)
+  print(add10(5) + 0)
+  print(fakeLib.adder(1)(2) + 0)
+  printStr(toStr(fakeLib.fns[1]("x")))
+  print(fakeLib.fns[0](21) + 0)
+  printNum(apply(fakeLib.fns[0], 1.5))
+  saved = fakeLib.adder(100)
+  print(saved(1) + 0)
+  // a function held in a variable, called with different arguments
+  let d = describeArgs
+  printStr(toStr(d(1, "a")))
+  printStr(toStr(d(true)))
+}`, expect: ['> 3.14', '> 3.1', '> 15', '> 3', '> second x', '> 42', '> 3', '> 101', '> number:1 string:a', '> boolean:true'] },
+
+  { name: 'global-function-used-as-a-value-and-called', src: `
+export fn run() {
+  print(parseInt("3") + 1)
+  let p = parseInt
+  print(p("40") + 2)
+}`, expect: ['> 4', '> 42'] },
+
+  { name: 'call-non-function-value-is-reported', errors: true, src: `
+export fn run() {
+  let f = fakeLib.config.nothing
+  let r = f(1)
+  let g = fakeLib.config.name
+  g(2)
+  fakeLib.adder(1)(2)(3)
+  printStr("still running")
+}`, expect: ['✗ f(): is not a function (it is null)', '✗ g(): is not a function (it is string)', '✗ (value)(): is not a function (it is number)', '> still running'] },
+
+  { name: 'emit-functions-and-builtins-keep-their-names', src: `
+fn twice(x: int) int {
+  return x * 2
+}
+export fn run() {
+  print(twice(4))
+  print(max(3, 9))
+  let n = 5
+  print(twice(n))
+}`, expect: ['> 8', '> 9', '> 10'] },
+
+  { name: 'calling-a-non-js-variable-is-a-compile-error', status: 'Error', errors: true, src: `
+export fn run() {
+  let s = "text"
+  s(1)
+}`, expect: [/^✗ 3:3: 's' is a str variable, not a function/] },
+
+  // ── 17. Array literals handed to JS are JS arrays ──
+  { name: 'array-literal-as-js-value', src: `
+export fn run() {
+  printStr(toStr(JSON.stringify([1, 2, 3])))
+  printStr(toStr(JSON.stringify([1.5, "two", true, null, [3, [4]], fakeLib.config.child])))
+  printStr(toStr(JSON.stringify([])))
+  printStr(toStr(describeArgs([1, 2], "x")))
+  let o = emptyObj()
+  o.list = [1, 2]
+  o["names"] = ["a", "b"]
+  printStr(toStr(JSON.stringify(o)))
+  let a: js = [10, 20, 30]
+  print(a[1] + 1)
+  print(jsLen(a))
+  let m = new Map([["k", 1], ["j", 2]])
+  printStr(toStr(m.get("j")))
+  let n = 4
+  printStr(toStr(JSON.stringify([n, n + 1, n * 2.5])))
+  // more elements than the argument buffer has slots
+  let big: js = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]
+  print(jsLen(big))
+  print(big[39] + 0)
+  // Emit arrays are unchanged
+  let xs = [1, 2, 3]
+  print(getItem(xs, 2))
+  print(arrayLen(xs))
+  let nums = [1.5, 2.5]
+  printNum(getNumItem(nums, 1))
+  printStr(toStr(JSON.stringify(toJsArray(xs))))
+}`, expect: ['> [1,2,3]', '> [1.5,"two",true,null,[3,[4]],{"label":"kid"}]', '> []', '> array:[1,2] string:x', '> {"list":[1,2],"names":["a","b"]}', '> 21', '> 3', '> 2', '> [4,5,10]', '> 40', '> 39', '> 3', '> 3', '> 2.5', '> [1,2,3]'] },
+
+  // ── 18. Object literals ──
+  { name: 'object-literal', src: `
+fn make(n: int) js {
+  return {n: n, sq: n * n}
+}
+export fn run() {
+  let o = {a: 1, name: "x", nested: {b: 2}, list: [1, 2]}
+  printStr(toStr(JSON.stringify(o)))
+  printStr(o.name)
+  print(o.nested.b + 1)
+  let e = {}
+  printStr(toStr(JSON.stringify(e)))
+  let k = {"quoted key": true, 3: 1.5, type: null, new: "kw",}
+  printStr(toStr(JSON.stringify(k)))
+  printStr(toStr(JSON.stringify(make(3))))
+  printStr(toStr(describeArgs({x: 1}, {y: [{z: "deep"}]})))
+  let multi = {
+    first: fakeLib.config.name,
+    second: fakeLib.join("a", "b"),
+    third: {inner: [1, {four: 4}]}
+  }
+  printStr(toStr(JSON.stringify(multi)))
+  o.extra = {added: true}
+  o["more"] = {n: 1}
+  printStr(toStr(JSON.stringify(o.extra)))
+  let arr2: js = [{id: 1}, {id: 2}]
+  print(arr2[1].id + 0)
+  // blocks are still blocks; emptyObj() + assignment still works
+  if (true) {
+    { printStr("inner block") }
+  }
+  let old = emptyObj()
+  old.v = 1
+  printStr(toStr(JSON.stringify(old)))
+  // more properties than fit the argument buffer at once
+  let wide = {p0:0,p1:1,p2:2,p3:3,p4:4,p5:5,p6:6,p7:7,p8:8,p9:9,p10:10,p11:11,p12:12,p13:13,p14:14,p15:15,p16:16,p17:17,p18:18,p19:19}
+  print(jsLen(jsKeys(wide)))
+  print(wide.p19 + 0)
+}`, expect: ['> {"a":1,"name":"x","nested":{"b":2},"list":[1,2]}', '> x', '> 3', '> {}', '> {"3":1.5,"quoted key":true,"type":null,"new":"kw"}', '> {"n":3,"sq":9}', '> object:{"x":1} object:{"y":[{"z":"deep"}]}', '> {"first":"cfg","second":"a|b","third":{"inner":[1,{"four":4}]}}', '> {"added":true}', '> 2', '> inner block', '> {"v":1}', '> 20', '> 19'] },
+
+  { name: 'object-literal-syntax-error-is-readable', status: 'Error', errors: true, src: `
+export fn run() {
+  let o = {a 1}
+}`, expect: [/^✗ 2:14: Expected : after the property name "a"/] },
+
+  // ── 19. String + ──
+  { name: 'string-plus', src: `
+fn greet(name: str) str {
+  return "hello " + name + "!"
+}
+export fn run() {
+  let a = "ab"
+  let b = "cd"
+  printStr(a + b)
+  printStr("name=" + fakeLib.config.name)
+  printStr(fakeLib.config.name + "/" + fakeLib.config.count)
+  let i = 7
+  printStr("i=" + i)
+  printStr(i + " items")
+  printStr("n=" + 2.5 + " whole=" + 3.0)
+  printStr("b=" + true)
+  printStr("sum=" + (1 + 2))
+  printStr("a" + 1 + 2)
+  printStr(greet("bob"))
+  let s = "x"
+  s += "y"
+  s += 1
+  s += fakeLib.config.child.label
+  printStr(s)
+  let t: str = "len " + a.length
+  printStr(t)
+  printStr("null:[" + fakeLib.config.nothing + "]")
+  if ("a" + "b" == "ab") { printStr("eq") }
+  print(strLen("abc" + "de"))
+  // numbers still add
+  print(1 + 2)
+  printNum(1.5 + 2)
+  print(fakeLib.config.count + 1)
+}`, expect: ['> abcd', '> name=cfg', '> cfg/7', '> i=7', '> 7 items', '> n=2.5 whole=3', '> b=true', '> sum=3', '> a12', '> hello bob!', '> xy1kid', '> len 2', '> null:[]', '> eq', '> 5', '> 3', '> 3.5', '> 8'] },
 ];
 
 async function runTest(browser, fileUrl, t) {

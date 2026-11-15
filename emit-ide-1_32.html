@@ -225,7 +225,11 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p>Every <code>obj.method(args)</code> dispatches to the real JS object via the runtime handle table. Return values come back as handles you can chain off of.</p>
 
 <h2>Building JS Config Objects</h2>
-<p>Many JS libraries take an options object. Build one with <code>emptyObj()</code> + field assignment:</p>
+<p>Many JS libraries take an options object. Write it as an object literal:</p>
+<p><code>confetti({particleCount: 100, spread: 90, colors: ["#f00", "#0f0"], origin: {y: 0.6}})</code></p>
+<p><code>let opts = {title: "Hi", "quoted key": true, 3: 1.5, list: [1, 2],}</code> &mdash; keys are words, strings or numbers; values are any expression; nesting and a trailing comma are fine. The result is a <code>js</code> value. A <code>{</code> at the start of a statement is still a block.</p>
+<p><strong>Array literals handed to JS are JS arrays:</strong> <code>JSON.stringify([1, "two", [3]])</code>, <code>obj.list = [1, 2]</code>, <code>arr[0] = ["a"]</code>, <code>let a: js = [1, 2, 3]</code>, <code>new Map([["k", 1]])</code>. Only a literal written right there converts: <code>let xs = [1, 2, 3]</code> is still an Emit array (<code>getItem</code> / <code>toJsArray(xs)</code>).</p>
+<p>The older way still works &mdash; <code>emptyObj()</code> + field assignment:</p>
 <p><code>let opts = emptyObj()</code></p>
 <p><code>opts.particleCount = 100</code></p>
 <p><code>opts.spread = 90</code></p>
@@ -254,6 +258,9 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>let s: str = obj.name</code>, <code>let n: num = obj.x</code>, <code>let i: int = obj.count</code>, <code>printStr(obj.name)</code>, <code>return obj.x</code> &mdash; declared types convert.</p>
 <p><code>if (a == null) { }</code> null check &middot; <code>if (a == b) { }</code> same JS value &middot; <code>if (obj.name == "bob") { }</code> string equality.</p>
 <p>Passed to a JS call it is the value itself, and a <code>js</code> variable holding null arrives as <code>null</code>.</p>
+<p><strong>Global JS functions.</strong> Any name that is not an Emit function or builtin is called as <code>window.name(args)</code>: <code>parseInt("12")</code>, <code>dayjs()</code>, <code>dayjs("2024-03-15")</code>, <code>numeral(1234.5)</code>. Each call may pass different arguments (numbers, strings, <code>true</code>/<code>false</code>, <code>null</code>, <code>js</code> values) and the result is always a <code>js</code> value.</p>
+<p><strong>Calling a function value.</strong> A <code>js</code> variable or any expression can be called: <code>let f = d3.format(".2f")</code> &nbsp; <code>f(3.14159)</code>, <code>d3.format(",")(1234)</code>, <code>fns[0](x)</code>, <code>fn apply(cb: js) { cb(1) }</code>. A name that is an Emit function or a builtin always means that function.</p>
+<p><strong>String +.</strong> <code>+</code> with a string on either side concatenates; the other side may be a <code>str</code>, <code>js</code>, <code>int</code>, <code>num</code> or <code>bool</code>: <code>"name: " + obj.name</code>, <code>"n=" + count</code>, <code>s += "!"</code>. Numbers are written as JS writes them (<code>"x" + 3.0</code> is <code>x3</code>, unlike <code>numToStr(3.0)</code> = <code>3.0</code>); a null <code>js</code> value adds nothing.</p>
 <p><strong>Index.</strong> <code>let x = arr[i]</code>, <code>arr[i] = v</code>, <code>obj["key"] = v</code>, <code>grid[y][x]</code> &mdash; on <code>js</code> values and strings (Emit arrays from <code>newArray</code> / <code>[1, 2, 3]</code> keep <code>getItem</code> / <code>setItem</code>).</p>
 <p><strong>String methods.</strong> Emit strings accept JS methods: <code>"a,b".split(",")</code>, <code>s.toUpperCase()</code>, <code>s.length</code>, <code>s[0]</code>; numbers too: <code>x.toFixed(2)</code>. The result is a <code>js</code> value.</p>
 
@@ -269,7 +276,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>lib.load("x").then(fnRef(onDone)).catch(fnRef(onErr))</code></p>
 <p>A rejected promise with no <code>.catch</code> shows a red <code>&#10007; unhandled promise rejection: message</code> line in the output.</p>
 <p><strong>Null.</strong> JS <code>null</code> and <code>undefined</code> both come back as handle 0: <code>if (isNull(el)) { }</code> or <code>if (el == null) { }</code>. <code>typeOf(h)</code> gives <code>"object"</code>, <code>"array"</code>, <code>"string"</code>, <code>"number"</code>, <code>"boolean"</code>, <code>"function"</code> or <code>"null"</code>.</p>
-<p><strong>Constructors.</strong> <code>let d = new Date(2024, 0, 15)</code>, <code>let v = new BABYLON.Vector3(0.0, 1.0, 0.0)</code>.</p>
+<p><strong>Constructors.</strong> <code>let d = new Date(2024, 0, 15)</code>, <code>let v = new BABYLON.Vector3(0.0, 1.0, 0.0)</code>. Write <code>new</code> when you mean it. A call <em>without</em> <code>new</code> is a plain function call &mdash; <code>Math.max(1, 2)</code>, <code>String(5)</code>, <code>Phaser.Math.Distance.Between(0.0, 0.0, 3.0, 4.0)</code> &mdash; unless the function is recognisably a constructor, in which case it is constructed for you (<code>THREE.Scene()</code>, <code>Date(2024, 0, 15)</code>): it is written with <code>class</code>, or its <code>prototype</code> has members of its own or inherits from another class, or its name is capitalised and its body assigns to <code>this</code>. A plain call that fails with &ldquo;cannot be invoked without 'new'&rdquo; is retried with <code>new</code>.</p>
 <p><strong>Typed values from JS.</strong> See <em>The js type</em> above: <code>let s: str = obj.name</code>, <code>if (obj.visible) { }</code>, <code>obj.count + 1</code>. <code>toStr</code> / <code>toNum</code> / <code>toInt</code> convert explicitly.</p>
 <p><strong>Loops over JS arrays.</strong> <code>for (let i = 0; i &lt; jsLen(arr); i++) { let item = arr[i] }</code></p>
 <p><strong>Errors.</strong> If a JS call throws, a red <code>&#10007; jsCall .method(): message</code> line appears in the output, the call returns null (0) and the program carries on. There is no try/catch.</p>
@@ -294,7 +301,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <div class="sig">random() &rarr; num (0..1), randInt(min,max) &rarr; int</div>
 <div class="sig">PI() TAU() E() &mdash; constants</div>
 <p><strong>Strings:</strong></p>
-<div class="sig">intToStr(x), numToStr(x), strLen(s), strConcat(a,b)</div>
+<div class="sig">intToStr(x), numToStr(x), strLen(s), strConcat(a,b) &mdash; or <code>a + b</code></div>
 <div class="sig">substr(s, start, len), strEq(a,b), charAt(s, i)</div>
 <p><strong>Arrays:</strong></p>
 <div class="sig">newArray(size) &rarr; int &mdash; or use array literal [a, b, c]</div>
@@ -322,7 +329,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 
 <h2>How It Works</h2>
 <p>Emit compiles to real WebAssembly bytecode in your browser. Pipeline: lexer &rarr; parser &rarr; type annotator &rarr; type checker &rarr; WASM binary emitter. <code>int</code> = i64, <code>num</code> = f64. Strings stored in linear memory with length prefix.</p>
-<p>JS interop uses a runtime handle table: every JS object you reference gets an integer handle. Member calls dispatch through <code>__jsCall</code>, property access through <code>__jsGet</code>, field assignment through <code>__jsSet</code>. Args and field values are marshalled through a tagged buffer at offset 48640.</p>
+<p>JS interop uses a runtime handle table: every JS object you reference gets an integer handle. Member calls dispatch through <code>__jsCall</code>, global-function calls through <code>__jsCallG</code>, calls of function values through <code>__jsCallV</code>, property access through <code>__jsGet</code>, field assignment through <code>__jsSet</code>. Args and field values are marshalled through a tagged buffer at offset 48640.</p>
 
 <h2>Export</h2>
 <p>Use the File dropdown to download your program:</p>
@@ -402,6 +409,31 @@ Parser.prototype.parsePostfix=function(){
   }
   return e;
 };
+// {key: value, "key": value, 3: value} → ObjectLiteral, a new JS object (type js). parsePrimary is only
+// reached in expression position (after `=`, `(`, `,`, `:`, `return`, `[`…): a `{` at the start of a
+// statement is taken by parseStmt as a block before any expression is parsed, so the two cannot be confused.
+class ObjectLiteral extends Z{constructor(k,v,l){super('ObjectLiteral',l);this.keys=k;this.values=v}}
+(function(){
+  var primary0=Parser.prototype.parsePrimary;
+  Parser.prototype.parsePrimary=function(){
+    if(!this.check(TT.LBRACE))return primary0.call(this);
+    var t=this.adv(),keys=[],vals=[];
+    while(!this.check(TT.RBRACE)){
+      var k=this.cur();
+      if(k.type===TT.IDENTIFIER||k.type===TT.STRING||k.type===TT.KEYWORD||k.type===TT.TYPE||k.type===TT.BOOLEAN||k.type===TT.NULL)keys.push(String(k.value));
+      else if(k.type===TT.INTEGER||k.type===TT.FLOAT)keys.push(String(Number(k.value)));
+      else throw this.err('Expected a property name (a word, "a string" or a number) in { }, got "'+k.value+'"');
+      this.adv();
+      if(!this.check(TT.COLON))throw this.err('Expected : after the property name "'+keys[keys.length-1]+'" — an object literal is written {name: value, other: value}');
+      this.adv();
+      if(this.cur().type===TT.TYPE&&this.cur().value==='js')this.cur().type=TT.IDENTIFIER; /* a variable called js as the value */
+      vals.push(this.parseExpr());
+      if(!this.match(TT.COMMA))break;
+    }
+    this.expect(TT.RBRACE);
+    return new ObjectLiteral(keys,vals,{line:t.line,col:t.col});
+  };
+})();
 // Imports behind the `js` type (module "__js__"). The annotator adds only the ones a program needs.
 var _JS_CONV_IMPORTS={
   __jsNum:[[['h','int']],'num'],          // js → num (NaN/null → 0)
@@ -419,8 +451,19 @@ var _JS_CONV_IMPORTS={
   __jsIdx:[[['recv','js']],'js'],         // recv[arg slot 0]
   __jsIdxSet:[[['recv','js']],'void']     // recv[arg slot 0] = arg slot 1
 };
+// Calls that go through the argument buffer, JS literals and string `+`.
+_JS_CONV_IMPORTS.__jsCallG=[[['name','str'],['n','int'],['flags','int']],'js']; // window[name](args); flags&1: echo a primitive result as "< value"
+_JS_CONV_IMPORTS.__jsCallV=[[['f','js'],['label','str'],['n','int']],'js'];     // f(args) — f is a function value
+_JS_CONV_IMPORTS.__jsArr=[[['h','js'],['n','int']],'js'];                       // h=0: new [] ; push n arg slots; returns the array
+_JS_CONV_IMPORTS.__jsObj=[[['h','js'],['n','int']],'js'];                       // h=0: new {} ; set n (key,value) slot pairs; returns the object
+_JS_CONV_IMPORTS.__jsGlobal=[[['namePtr','str']],'js'];                         // window[name] (normally injected by injectBuiltins)
+_JS_CONV_IMPORTS.__strCat=[[['a','str'],['b','str']],'str'];
+_JS_CONV_IMPORTS.__strOfInt=[[['x','int']],'str'];
+_JS_CONV_IMPORTS.__strOfNum=[[['x','num']],'str'];
+_JS_CONV_IMPORTS.__strOfBool=[[['b','bool']],'str'];
 // Name of the import that performs a conversion recorded by TypeAnnotator.conv (node.jsConv).
 function _jsConvFn(c){
+  if(c.to==='str'&&c.from!=='js')return c.from==='bool'?'__strOfBool':(c.from==='num'||c.from==='f64')?'__strOfNum':'__strOfInt'; /* operand of str + … */
   if(c.to==='js')return c.from==='str'?'__jsFromStr':c.from==='bool'?'__jsFromBool':'__jsFromNum';
   return{str:'__jsStr',num:'__jsNum',bool:'__jsBool',int:'__jsInt',inth:'__jsIntH',cnum:'__jsCmpNum'}[c.to];
 }
@@ -461,6 +504,7 @@ class TypeAnnotator {
   // Contextual typing: the expression is used where type t is declared/required.
   want(e,t){
     if(!e||!t) return e&&e.exprType;
+    if(t==='js'&&e.type==='ArrayLiteral'&&!e.jsArr) return this.jsLit(e);
     const s=e.exprType;
     if(s==='js'){
       if(t==='str'||t==='bool') this.conv(e,t);
@@ -471,6 +515,15 @@ class TypeAnnotator {
     }
     return e.exprType;
   }
+  // An array literal written where a JS value goes (a JS call argument, a property/index assignment,
+  // a js-typed variable, an element of another such literal) is a real JS array, not an Emit array.
+  jsLit(e){
+    e.jsArr=true; e.exprType='js'; this.need('__jsArr');
+    for(const el of e.elements) if(el.type==='ArrayLiteral') this.jsLit(el);
+    return 'js';
+  }
+  // Annotate a value that is handed to JS.
+  jsArg(e){ const t=this.a(e); return e.type==='ArrayLiteral'?this.jsLit(e):t; }
   // A str/num/bool used as the receiver of a member call, property read or index becomes a JS value.
   recv(e){ const s=e.exprType; if(s==='str'||s==='bool'||this.isN(s)) this.conv(e,'js'); }
   // `a == b` / `a != b` compiled as a call: e.jsCmp={fn, args}
@@ -565,7 +618,11 @@ class TypeAnnotator {
         this.walk(n.body);
         this.pop();
         break;
-      case'ExprStmt': this.a(n.expression); break;
+      case'ExprStmt':
+        this.a(n.expression);
+        /* a bare `foo(1)` in a program without any other JS interop echoes a primitive result ("< 7"), as it always did */
+        if(n.expression.jsCall==='global'&&!this.hasJsInterop) n.expression.jsEcho=true;
+        break;
     }
   }
   // Annotate an expression and return its type
@@ -585,6 +642,7 @@ class TypeAnnotator {
         if(local){ t=local; }
         else if(this.globals.has(e.name)){ t=this.globals.get(e.name); }
         else if(this.hasJsInterop){ t='js'; /* JS global handle */ }
+        else if(this.functions.has(e.name)&&this.functions.get(e.name).node.auto){ t='js'; this.need('__jsGlobal'); /* a global function used as a value: `let f = parseInt` */ }
         else { t='int'; /* fallback; TypeChecker will report error */ }
         break;
       }
@@ -616,6 +674,16 @@ class TypeAnnotator {
           if(rj) this.conv(e.right,'cnum');
           t='bool';
         }
+        else if(e.op==='+'&&(lt==='str'||rt==='str')){
+          /* string concatenation: the other operand (js, int, num, bool) is converted to a string */
+          for(const o of [e.left,e.right]){
+            const ot=o.exprType;
+            if(ot==='str') continue;
+            if(ot==='js'||this.isI(ot)||this.isN(ot)||ot==='bool') this.conv(o,'str');
+            else this.fail("Can't add "+ot+" to a string with +",o.loc||e.loc);
+          }
+          e.strCat=true; this.need('__strCat'); t='str';
+        }
         else if(lj||rj){
           /* arithmetic on a JS value: with a num (or another JS value) → num, with an int → int */
           const o=lj?rt:lt;
@@ -628,7 +696,17 @@ class TypeAnnotator {
       case'CallExpr':{
         if(e.callee.type==='MemberExpr'){
           this.a(e.callee.object); this.recv(e.callee.object);
-          for(const arg of e.args) this.a(arg);
+          for(const arg of e.args) this.jsArg(arg);
+          t='js';
+        } else if(e.callee.type==='IdentifierExpr'&&!(this.functions.has(e.callee.name)&&!this.functions.get(e.callee.name).node.auto)){
+          /* not an Emit function, builtin or declared import: a variable holding a JS function → call
+             the value; anything else → window.name(args). Both take any arguments (argument buffer). */
+          const vt=this.look(e.callee.name);
+          if(vt){
+            if(vt!=='js'&&!this.isI(vt)) this.fail("'"+e.callee.name+"' is a "+vt+" variable, not a function — it cannot be called",e.loc);
+            this.a(e.callee); e.jsCall='value'; this.need('__jsCallV');
+          } else { e.jsCall='global'; this.need('__jsCallG'); }
+          for(const arg of e.args) this.jsArg(arg);
           t='js';
         } else if(e.callee.type==='IdentifierExpr'){
           const fn=this.functions.get(e.callee.name);
@@ -645,10 +723,19 @@ class TypeAnnotator {
           });
           t = fn ? fn.returnType : 'int';
         } else {
-          this.a(e.callee);
-          for(const arg of e.args) this.a(arg);
-          t='int';
+          /* a call on any other expression — f(x)(y), fns[0](x) — calls that JS function value */
+          const ct=this.a(e.callee);
+          if(ct!=='js'&&!this.isI(ct)) this.fail("This is a "+ct+", not a function — it cannot be called",e.loc);
+          e.jsCall='value'; this.need('__jsCallV');
+          for(const arg of e.args) this.jsArg(arg);
+          t='js';
         }
+        break;
+      }
+      case'ObjectLiteral':{
+        for(const v of e.values) this.jsArg(v);
+        this.need('__jsObj');
+        t='js';
         break;
       }
       case'MemberExpr':{
@@ -667,14 +754,14 @@ class TypeAnnotator {
       }
       case'AssignExpr':{
         const tt=this.a(e.target);
-        t=this.a(e.value);
+        t=(e.target.type==='MemberExpr'||e.target.type==='IndexExpr')?this.jsArg(e.value):this.a(e.value);
         if(e.target.type==='IdentifierExpr') t=this.want(e.value,tt);
         else if(e.target.type==='IndexExpr') this.need('__jsIdxSet');
         break;
       }
       case'NewExpr':{
         this.a(e.callee);
-        for(const arg of e.args) this.a(arg);
+        for(const arg of e.args) this.jsArg(arg);
         t='js'; /* handle to the constructed object */
         break;
       }
@@ -710,6 +797,8 @@ class TypeChecker{constructor(){this.scopes=[new Map()];this.functions=new Map()
   };
   P.inf=function(e){
     if(e&&e.type==='IndexExpr'){this.inf(e.object);this.inf(e.index);return e.exprType}
+    if(e&&e.type==='CallExpr'&&e.jsCall){if(e.jsCall==='value')this.inf(e.callee);for(var i=0;i<e.args.length;i++)this.inf(e.args[i]);return e.exprType}
+    if(e&&e.type==='ObjectLiteral'){for(var j=0;j<e.values.length;j++)this.inf(e.values[j]);return e.exprType}
     return inf0.call(this,e);
   };
 })();
@@ -850,6 +939,39 @@ WasmCodegen.prototype.jsCoerce=function(e,exp){};
       this.jsImportCall('__jsIdxSet');
       return;
     }
+    if(e.type==='CallExpr'&&e.jsCall==='global'){
+      /* name(args) on a JS global function → __jsCallG("name", n, flags), arguments in the arg buffer */
+      this.emit(Op.i32_const,...ei32(this.addString(e.callee.name)));
+      this.genJsArgs(e.args);
+      this.emit(Op.i64_const,...ei64(e.args.length));
+      this.emit(Op.i64_const,...ei64(e.jsEcho?1:0));
+      this.jsImportCall('__jsCallG');
+      return;
+    }
+    if(e.type==='CallExpr'&&e.jsCall==='value'){
+      /* f(args) where f is a JS function value → __jsCallV(f, "label for error messages", n) */
+      var c=e.callee;
+      var label=c.type==='IdentifierExpr'?c.name:(c.type==='CallExpr'&&c.callee&&c.callee.type==='MemberExpr')?c.callee.property+'(…)':(c.type==='CallExpr'&&c.callee&&c.callee.type==='IdentifierExpr')?c.callee.name+'(…)':'(value)';
+      this.genExpr(c,'int');
+      this.emit(Op.i32_const,...ei32(this.addString(label)));
+      this.genJsArgs(e.args);
+      this.emit(Op.i64_const,...ei64(e.args.length));
+      this.jsImportCall('__jsCallV');
+      return;
+    }
+    if(e.type==='ArrayLiteral'&&e.jsArr){this.genJsLit(e.elements,'__jsArr',1);return}
+    if(e.type==='ObjectLiteral'){
+      var kv=[];
+      for(var oi=0;oi<e.keys.length;oi++){kv.push({type:'StringLiteral',value:e.keys[oi],exprType:'str',loc:e.loc});kv.push(e.values[oi])}
+      this.genJsLit(kv,'__jsObj',2);
+      return;
+    }
+    if(e.type==='BinaryExpr'&&e.strCat){
+      this.genExpr(e.left,'str');
+      this.genExpr(e.right,'str');
+      this.jsImportCall('__strCat');
+      return;
+    }
     if(e.type==='BinaryExpr'&&e.jsCmp){
       /* == / != on JS values or strings: __jsSame / __jsEqStr / __jsStrEq */
       this.genExpr(e.jsCmp.args[0],e.jsCmp.args[0].exprType);
@@ -889,8 +1011,21 @@ WasmCodegen.prototype.jsCoerce=function(e,exp){};
     if(lt==='bool'&&rt==='bool')return'i32';
     return'int';
   };
+  // [a, b] / {k: v} as a JS value: fn(handle 0 = create, n) consumes `per` arg slots per item; long
+  // literals go through the 32-slot arg buffer in chunks, the handle staying on the WASM stack.
+  P.genJsLit=function(items,fn,per){
+    this.emit(Op.i64_const,...ei64(0));
+    var chunk=32;
+    for(var at=0;at<items.length||at===0;at+=chunk){
+      var part=items.slice(at,at+chunk);
+      this.genJsArgs(part);
+      this.emit(Op.i64_const,...ei64(part.length/per));
+      this.jsImportCall(fn);
+    }
+  };
   P.exprResType=function(e){
     if(e.type==='AssignExpr'&&e.target&&e.target.type==='IndexExpr')return'void';
+    if(e.type==='CallExpr'&&e.jsCall)return'int';
     return resType0.call(this,e);
   };
 })();
@@ -1278,7 +1413,13 @@ function injectBuiltins(ast){
       // unknown calls return int (handle) to enable method chains like dayjs().format(...).
       // Otherwise default to void (pure side effect, traditional behavior).
       var retType=hasJsInterop?'js':'void';
-      ast.body.unshift(new ImportDecl(name,params,retType,'js',{line:0,col:0}));
+      // A variable called like a function (`let f = d3.format(".2f")` … `f(3.14)`) is not a global function.
+      if(fnRefVarNames().has(name))continue;
+      // The call itself is compiled as window.name(args) through the argument buffer (__jsCallG: any
+      // argument count/types per call site, the result is always a js value). This declaration is never
+      // called; it only keeps the name in the import list (the "⚡ JS:" line, library auto-loading by name).
+      var _autoDecl=new ImportDecl(name,[],'void','js',{line:0,col:0});_autoDecl.auto=true;
+      ast.body.unshift(_autoDecl);
       injected.push(name);
       autoJs.push(name);
     }
@@ -1556,6 +1697,122 @@ function _handleVal(h){
 }
 // Implementations of the `js`-type conversion imports (see _JS_CONV_IMPORTS in the compiler).
 function _jsIndexKey(k){return(typeof k==='number'||typeof k==='string'||typeof k==='symbol')?k:String(k)}
+// Calling a JS function WITHOUT `new` (obj.f(args), f(args), a function value):
+//   construct it (as `new` would) when it is a constructor — written with `class`, or its prototype
+//   has members of its own / inherits from another class (ES5-style classes such as three.js r128),
+//   or a capitalised function whose body assigns to `this` — otherwise call it plainly.
+//   String/Number/Boolean/Symbol/BigInt are always plain calls (conversions).
+//   A plain call that throws "cannot be invoked without 'new'" is retried as a construction, and a
+//   construction that throws "is not a constructor" is retried as a plain call.
+function _jsIsCtor(fn,name){
+  if(fn===String||fn===Number||fn===Boolean||fn===Symbol||(typeof BigInt!=='undefined'&&fn===BigInt))return false;
+  var src='';
+  try{src=Function.prototype.toString.call(fn)}catch(e){}
+  if(/^class[\s{]/.test(src))return true;
+  var p;
+  try{p=fn.prototype}catch(e){return false}
+  if(!p||typeof p!=='object')return false;
+  try{
+    var names=Object.getOwnPropertyNames(p);
+    if(names.length>1||(names.length===1&&names[0]!=='constructor'))return true;
+    if(Object.getOwnPropertySymbols(p).length)return true;
+    var pp=Object.getPrototypeOf(p);
+    if(pp&&pp!==Object.prototype)return true;
+  }catch(e){}
+  name=name||fn.name||'';
+  var upper=name.length>0&&name[0]===name[0].toUpperCase()&&name[0]!==name[0].toLowerCase();
+  return upper&&/\bthis\s*(\.\s*[\w$]+|\[[^\]]*\])\s*=(?!=)/.test(src);
+}
+function _jsConstruct(fn,args){return new (Function.prototype.bind.apply(fn,[null].concat(args)))()}
+function _jsInvoke(fn,thisArg,args,name){
+  var triedNew=false;
+  if(_jsIsCtor(fn,name)){
+    triedNew=true;
+    try{return _jsConstruct(fn,args)}
+    catch(e){if(_errMsg(e).indexOf('is not a constructor')<0)throw e}
+  }
+  try{return fn.apply(thisArg,args)}
+  catch(e){
+    var msg=_errMsg(e);
+    if(!triedNew&&(msg.indexOf("without 'new'")>=0||msg.indexOf('without new')>=0||msg.indexOf('cannot be invoked')>=0||msg.indexOf('Illegal constructor')>=0||msg.indexOf("requires 'new'")>=0))return _jsConstruct(fn,args);
+    throw e;
+  }
+}
+function _jsArgTrace(label,args){
+  try{
+    var dbg=document.createElement('div');
+    dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
+    dbg.textContent='→ '+label+'('+args.map(function(a){
+      if(a===null||a===undefined)return String(a);
+      if(typeof a==='object'){try{return JSON.stringify(a).substring(0,200)}catch(e){return '[obj]'}}
+      return String(a);
+    }).join(', ')+')';
+    document.getElementById('tab-output').appendChild(dbg);
+  }catch(e){}
+}
+// Imports for calls that are not member calls, JS literals and string `+` (see _JS_CONV_IMPORTS).
+function _jsCallImport(name,outputLog){
+  function readArgs(nArgs){var n=Number(nArgs),args=[];for(var i=0;i<n;i++)args.push(_readArg(i));return args}
+  function logCall(fn,args){try{_log(outputLog,fn,args)}catch(e){}}
+  switch(name){
+    case'__jsCallG':return function(namePtr,nArgs,flags){
+      /* name(args) → window.name(args) */
+      var fname=_readStr(namePtr),args=readArgs(nArgs);
+      logCall(fname,args);
+      _jsArgTrace(fname,args);
+      var jsFn;
+      try{jsFn=window[fname]}catch(e){}
+      if(typeof jsFn!=='function'){
+        /* JS function not available — show a visible warning so silent failures stop happening */
+        try{
+          var w=document.createElement('div');
+          w.style.cssText='color:#fbbf24;padding:2px 12px;font-family:var(--mono);font-size:12px;';
+          w.textContent='⚠ '+fname+'(...) — window.'+fname+' is '+(jsFn===undefined?'not loaded':typeof jsFn)+'. CDN may have failed.';
+          document.getElementById('tab-output').appendChild(w);
+          console.warn('Auto-bridge: window.'+fname+' is not a function ('+typeof jsFn+'). Library not loaded?');
+        }catch(e){}
+        return 0n;
+      }
+      var ret;
+      try{ret=_jsInvoke(jsFn,window,args,fname)}
+      catch(e){logCall(fname+' ERROR',[_errMsg(e)]);_jsErr(fname+'()',e);return 0n}
+      if((Number(flags)&1)&&ret!==undefined&&ret!==null&&typeof ret!=='object'&&typeof ret!=='function'){
+        /* Show primitive results of a bare call in the output panel (preserves v1.x behavior) */
+        try{
+          var d=document.createElement('div');
+          d.style.cssText='font-family:var(--mono);font-size:13px;padding:2px 12px;color:#38bdf8;';
+          d.textContent='< '+String(ret);
+          document.getElementById('tab-output').appendChild(d);
+        }catch(e){}
+      }
+      return _js_returnWrap(ret);
+    };
+    case'__jsCallV':return function(fnH,labelPtr,nArgs){
+      /* f(args) — f is a JS function held in a variable or produced by an expression */
+      var label=_readStr(labelPtr),fn=_handleGet(fnH),args=readArgs(nArgs);
+      logCall(label,args);
+      _jsArgTrace(label,args);
+      if(typeof fn!=='function'){_jsErr(label+'()','is not a function (it is '+(fn===null||fn===undefined?'null':typeof fn)+')');return 0n}
+      try{return _js_returnWrap(_jsInvoke(fn,undefined,args,''))}
+      catch(e){_jsErr(label+'()',e);return 0n}
+    };
+    case'__jsArr':return function(h,nArgs){
+      var arr=(h===0n)?[]:_handleGet(h),args=readArgs(nArgs);
+      for(var i=0;i<args.length;i++)arr.push(args[i]);
+      return(h===0n)?_handleFor(arr):h;
+    };
+    case'__jsObj':return function(h,nPairs){
+      var o=(h===0n)?{}:_handleGet(h),n=Number(nPairs);
+      for(var i=0;i<n;i++)o[_readArg(i*2)]=_readArg(i*2+1);
+      return(h===0n)?_handleFor(o):h;
+    };
+    case'__strCat':return function(a,b){return _writeStr(_readStr(a)+_readStr(b))};
+    case'__strOfInt':return function(x){var v=_handleLive(Number(x));return _writeStr(v===undefined?x.toString():String(v))};
+    case'__strOfNum':return function(x){return _writeStr(String(x))};
+    case'__strOfBool':return function(b){return _writeStr(b?'true':'false')};
+  }
+  return null;
+}
 function _jsExtraImport(name){
   switch(name){
     case'__jsInt':return function(h){var n=Number(_handleVal(h));return isFinite(n)?BigInt(Math.trunc(n)):0n};
@@ -2148,7 +2405,10 @@ function buildImportObject(imports,outputLog){
         };break;
         case'bodyPlane':s.bodyPlane=function(){
           var b=new CANNON.Body({mass:0,shape:new CANNON.Plane()});
-          b.quaternion.setFromEulerAngles(-Math.PI/2,0,0);_cannon.world.addBody(b);
+          /* cannon.js 0.6.2 calls it setFromEuler; other builds setFromEulerAngles */
+          if(typeof b.quaternion.setFromEuler==='function')b.quaternion.setFromEuler(-Math.PI/2,0,0);
+          else if(typeof b.quaternion.setFromEulerAngles==='function')b.quaternion.setFromEulerAngles(-Math.PI/2,0,0);
+          _cannon.world.addBody(b);
           var id=_cannon.bodies.length;_cannon.bodies.push(b);return BigInt(id);
         };break;
         case'bodyForce':s.bodyForce=function(id,fx,fy,fz){
@@ -2332,31 +2592,9 @@ function buildImportObject(imports,outputLog){
           _log(outputLog,'__jsCall',[name,'('+args.map(function(a){return typeof a==='object'?'[obj]':JSON.stringify(a)}).join(', ')+')']);
           var fn=recv[name];
           if(typeof fn==='function'){
-            var isClass=false;
-            try{isClass=/^class\s/.test(Function.prototype.toString.call(fn))}catch(e){}
-            var nameStartsUpper=name.length>0&&name[0]===name[0].toUpperCase()&&name[0]!==name[0].toLowerCase();
-            var hasProtoMethods=false;
-            try{hasProtoMethods=fn.prototype&&Object.getOwnPropertyNames(fn.prototype).length>1}catch(e){}
-            var preferNew=isClass||nameStartsUpper||hasProtoMethods;
-            var triedNew=false;
-            if(preferNew){
-              triedNew=true;
-              try{return _js_returnWrap(new (Function.prototype.bind.apply(fn,[null].concat(args)))())}
-              catch(e){
-                var m=_errMsg(e);
-                if(m.indexOf('is not a constructor')>=0){/* fall through to plain */}
-                else{_jsCallErr(name,m);return 0n}
-              }
-            }
-            try{return _js_returnWrap(fn.apply(recv,args));}
-            catch(e){
-              var msg=_errMsg(e);
-              if(!triedNew&&(msg.indexOf("without 'new'")>=0||msg.indexOf('without new')>=0||msg.indexOf('cannot be invoked')>=0||msg.indexOf('Illegal constructor')>=0)){
-                try{return _js_returnWrap(new (Function.prototype.bind.apply(fn,[null].concat(args)))())}
-                catch(e2){_jsCallErr(name,_errMsg(e2));return 0n}
-              }
-              _jsCallErr(name,msg);return 0n;
-            }
+            /* plain call or construction: see _jsIsCtor / _jsInvoke */
+            try{return _js_returnWrap(_jsInvoke(fn,recv,args,name))}
+            catch(e){_jsCallErr(name,_errMsg(e));return 0n}
           }
           if(typeof recv[name]!=='undefined')return _js_returnWrap(recv[name]);
           _jsCallErr(name,'is not a function (the object has no such method)');
@@ -2409,7 +2647,7 @@ function buildImportObject(imports,outputLog){
           catch(e){_log(outputLog,'__jsNew ERROR',[name+': '+e.message]);_jsErr(label,e);return 0n}
         };
       }else{
-        obj[imp.module][imp.name]=_jsExtraImport(imp.name)||function(){return 0n};
+        obj[imp.module][imp.name]=_jsCallImport(imp.name,outputLog)||_jsExtraImport(imp.name)||function(){return 0n};
       }
     } else if(imp.module==='js'){
       // Auto-bridged JS function — try to call the real JS global
@@ -2450,14 +2688,8 @@ function buildImportObject(imports,outputLog){
           if(typeof jsFn==='function'){
             var ret;
             try{
-              // Detect constructor style (PascalCase, ES class, or has prototype methods)
-              var isClass=false;try{isClass=/^class\s/.test(Function.prototype.toString.call(jsFn))}catch(e){}
-              var nameUpper=impName.length>0&&impName[0]===impName[0].toUpperCase()&&impName[0]!==impName[0].toLowerCase();
-              var hasProto=false;try{hasProto=jsFn.prototype&&Object.getOwnPropertyNames(jsFn.prototype).length>1}catch(e){}
-              if(isClass||nameUpper||hasProto){
-                try{ret=new (Function.prototype.bind.apply(jsFn,[null].concat(realArgs)))()}
-                catch(e){ret=jsFn.apply(window,realArgs)}
-              }else{ret=jsFn.apply(window,realArgs)}
+              // plain call or construction: see _jsIsCtor / _jsInvoke
+              ret=_jsInvoke(jsFn,window,realArgs,impName);
             }catch(e){_log(outputLog,impName+' ERROR',[e.message]);_jsErr(impName+'()',e);return(impNode?.returnType==='int'||impNode?.returnType==='js')?0n:0}
             // If return type expects int (handle), wrap as handle
             if(impNode?.returnType==='int'||impNode?.returnType==='js'){

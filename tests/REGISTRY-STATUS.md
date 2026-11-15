@@ -141,6 +141,15 @@ Found while writing the call tests. Each has the smallest Emit program that show
 and 9 are also kept in `run-registry.js` as `known` entries: they are reported on every run without
 failing it, and the runner says so when one starts passing.
 
+**Update — fixed since this list was written:** problems 1, 2, 3, 4, 7, 8 and 9 (and 5 and 6 before
+them). Global JS functions are compiled as `window.name(args)` through the argument buffer (any
+arguments per call site, the result is always a `js` value, bools arrive as booleans); a call without
+`new` is a plain call unless the function is recognisably a constructor (see the help, *Constructors*);
+`f(x)` / `a.b(x)(y)` call a function value; array literals handed to JS are JS arrays; `{a: 1}` object
+literals exist; `bodyPlane()` uses `setFromEuler`. The four `known` entries of `run-registry.js` are
+now ordinary checks in the cannon.js, phaser, numeral, dayjs and d3 tests, and `run-interop.js` has a
+case for each. The text below is kept as the description of what each problem was.
+
 **1. The result of a global JS function cannot be used unless the program also has a member call.**
 WASM validation error (`not enough arguments on the stack for call (need 1, got 0)`): the function is
 imported as returning nothing.

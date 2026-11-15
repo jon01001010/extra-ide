@@ -301,14 +301,10 @@ export fn run() {
   bodyForce(id, 0.0, 10.0, 0.0)
   stepWorld(0.016)
   print(bx)
-}`, expect: ['> falling', '> 1'],
-    known: [{ title: 'bodyPlane() wrapper calls quaternion.setFromEulerAngles, which cannon.js 0.6.2 does not have (it is setFromEuler)', src: `
-use cannon.js
-export fn run() {
-  world3d(0.0, -9.8, 0.0)
+  // bodyPlane() used to throw (cannon.js 0.6.2 has quaternion.setFromEuler, not setFromEulerAngles)
   let p = bodyPlane()
   print(p)
-}`, expect: ['> 0'] }] },
+}`, expect: ['> falling', '> 1', '> 2'] },
 
   'peer.js': { pkg: 'peerjs', globals: ['Peer'], untested: 'everything that needs the PeerJS signalling server or a second peer (connect, send, receive); hostPeer/joinPeer wrappers not called', src: `
 use peer.js
@@ -335,14 +331,15 @@ export fn run() {
   cfg.width = 200
   cfg.height = 150
   cfg.banner = false
+  // plain functions with capitalised names are plain calls (they used to be called with "new")
+  printNum(Phaser.Math.Distance.Between(0.0, 0.0, 6.0, 8.0))
+  printNum(Phaser.Math.Clamp(15.0, 0.0, 12.0))
+  // …and a class called without new still constructs
+  let v2 = Phaser.Math.Vector2(6.0, 8.0)
+  printNum(v2.length() + 3.0)
   gameH = new Phaser.Game(cfg)
   setTimeout(fnRef(check), 1000)
-}`, expect: ['> 5', '> 5', '> booted'],
-    known: [{ title: 'a plain function whose name starts with a capital (most of Phaser.Math.*) is called with "new", so a number result is lost', src: `
-use phaser
-export fn run() {
-  printNum(Phaser.Math.Distance.Between(0.0, 0.0, 3.0, 4.0))
-}`, expect: ['> 5'] }] },
+}`, expect: ['> 5', '> 5', '> 10', '> 12', '> 13', '> booted'] },
 
   'leaflet': { pkg: 'leaflet', untested: 'map tiles (tile servers are network-bound); leaflet.css is not loaded by `use`', src: `
 use leaflet
@@ -504,7 +501,12 @@ export fn run() {
   printStr(toStr(d.format("YYYY/MM/DD")))
   printStr(toStr(d.add(1, "month").format("MMM")))
   printNum(d.year())
-}`, expect: ['> 2024/03/15', '> Apr', '> 2024'] },
+  // the same global function with no argument (now) and with an options-style second argument
+  if (dayjs().year() > 2024) { printStr("now is after 2024") }
+  printStr(toStr(dayjs("15-03-2024", "DD-MM-YYYY").isValid()))
+  // its result is usable without any member call on it
+  printStr(typeOf(dayjs()))
+}`, expect: ['> 2024/03/15', '> Apr', '> 2024', '> now is after 2024', /^> (true|false)$/, '> object'] },
 
   'fabric': { pkg: 'fabric', src: `
 use fabric
@@ -587,13 +589,11 @@ export fn run() {
   printStr(toStr(numeral(1234.5).format("$0,0.00")))
   printStr(toStr(numeral(0.256).format("0.0%")))
   printNum(numeral(1500.0).value())
-}`, expect: ['> $1,234.50', '> 25.6%', '> 1500'],
-    known: [{ title: 'a global library function called with a number at one call site and a string at another does not compile (WASM validation error)', src: `
-use numeral
-export fn run() {
+  // a number at one call site, a string at another, no argument at a third
   printStr(toStr(numeral(1234.5).format("0,0")))
   printNum(numeral("1,000").value())
-}`, expect: ['> 1,235', '> 1000'] }] },
+  printNum(numeral().value())
+}`, expect: ['> $1,234.50', '> 25.6%', '> 1500', '> 1,235', '> 1000', '> 0'] },
 
   'qrcode': { pkg: 'qrcodejs', instance: 'new QRCode(document.createElement("div"), "x")', src: `
 use qrcode
@@ -634,15 +634,15 @@ export fn run() {
   s.domain(toJsArray([0.0, 10.0]))
   s.range(toJsArray([0.0, 100.0]))
   printNum(s.call(null, 2.5))
+  // a function value is called directly; an array literal is a JS array
+  printStr(toStr(f(2.71828)))
+  printStr(toStr(d3.format(",")(1234567)))
+  let s2 = d3.scaleLinear().domain([0, 10]).range([0, 50])
+  printNum(s2(5))
+  printNum(d3.max([3, 9, 4]))
   d3.select("body").append("p").attr("id", "d3-made").text("from d3")
   printStr(toStr(d3.select("#d3-made").text()))
-}`, expect: ['> 6.5', '> 3.14', '> 25', '> from d3'],
-    known: [{ title: 'a function returned by a library (d3.format, d3 scales) cannot be called as f(x) — it needs f.call(null, x)', src: `
-use d3
-export fn run() {
-  let f = d3.format(".2f")
-  printStr(toStr(f(3.14159)))
-}`, expect: ['> 3.14'] }] },
+}`, expect: ['> 6.5', '> 3.14', '> 25', '> 2.72', '> 1,234,567', '> 25', '> 9', '> from d3'] },
 
   'apexcharts': { pkg: 'apexcharts', wait: 1500, instance: 'ApexCharts.prototype', src: `
 use apexcharts
