@@ -1,0 +1,11 @@
+{
+  "name": "emit-ide-tests",
+  "private": true,
+  "description": "Local copies of CDN libraries so the examples can run offline in headless Chromium",
+  "dependencies": {
+    "babylonjs": "*",
+    "canvas-confetti": "1.9.2",
+    "dayjs": "^1",
+    "three": "0.128.0"
+  }
+}
