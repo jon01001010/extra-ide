@@ -164,7 +164,19 @@ const names = p => p.rows.map(r => r.name);
   // Library panel
   await page.evaluate(() => toggleLibs());
   const live = await page.evaluate(() => [...document.querySelectorAll('#libsContent .lib-live')].map(e => e.textContent));
-  check('orbit: library panel shows "THREE · N members"', live.some(t => /THREE · \d+\+? members/.test(t)), live.join(' | '));
+  check('orbit: library panel shows "THREE · N members"', live.some(t => /THREE(?: ▾)? · \d+\+? members/.test(t)), live.join(' | '));
+  // Member browser: tapping the global's name lists the live members; a filter narrows them; a tap inserts.
+  await page.locator('.lib-card .lib-browse-btn').first().click();
+  const browseAll = await page.locator('.lib-browse-row').count();
+  await page.locator('.lib-browse-q').fill('sc');
+  await page.waitForTimeout(150);
+  const browseRows = (await page.locator('.lib-browse-row').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim());
+  check('orbit: member browser lists THREE members and filters them', browseAll > 20 && /^new THREE\.Scene\(\) class$/.test(browseRows[0] || ''), browseAll + ' rows; ' + browseRows.slice(0, 4).join(' | '));
+  await page.evaluate(() => { const ed = document.getElementById('editor'); ed.setSelectionRange(ed.value.length, ed.value.length); });
+  await page.locator('.lib-browse-row').first().click();
+  const browsePicked = await page.evaluate(() => ({ text: document.getElementById('editor').value.slice(-17), open: document.getElementById('libsOverlay').classList.contains('show') }));
+  check('orbit: tapping a member inserts it and closes the panel', browsePicked.text === 'new THREE.Scene()' && !browsePicked.open, JSON.stringify(browsePicked));
+  await page.evaluate(() => { const ed = document.getElementById('editor'); ed.value = ed.value.slice(0, -17); ed.dispatchEvent(new Event('input')); toggleLibs(); renderLibs(); });
   console.log('      panel: ' + live.join(' | '));
   check('orbit: no page errors', page.errors.length === 0, page.errors.join(' | '));
   await page.context().close();

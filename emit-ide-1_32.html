@@ -83,7 +83,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .ac-item .ac-name{color:var(--cyan);font-weight:600}
 .ac-item .ac-desc{color:var(--fg3);font-size:10px;text-align:right;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ac-item.ac-lib .ac-desc{color:var(--blue)}.ac-item.ac-hint .ac-name{color:var(--fg3);font-weight:400;font-style:italic}.lib-live{font-family:var(--mono);font-size:11px;color:var(--fg3);margin-top:6px}.lib-live b{color:var(--cyan);font-weight:600}
-.snip-overlay{position:fixed;inset:0;z-index:200;background:rgba(8,9,13,.97);display:none;overflow:auto;-webkit-overflow-scrolling:touch}
+.snip-overlay{position:fixed;inset:0;z-index:200;background:var(--bg);display:none;overflow:auto;-webkit-overflow-scrolling:touch}
 .snip-overlay.show{display:block}
 .snip-content{max-width:500px;margin:0 auto;padding:20px;padding-top:calc(20px + var(--safe-t))}
 .snip-close{position:fixed;top:calc(12px + var(--safe-t));right:16px;z-index:201;font-size:24px;color:var(--fg3);background:none;border:none;cursor:pointer}
@@ -105,6 +105,13 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .lib-method{font-family:var(--mono);font-size:11px;color:var(--fg2);background:var(--bg);padding:5px 8px;border-radius:4px;cursor:pointer;border:1px solid transparent;transition:border-color .12s}
 .lib-method:hover,.lib-method:active{border-color:var(--blue);color:var(--fg)}
 .lib-global{color:var(--blue)}
+.lib-browse-btn{color:var(--cyan);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.lib-browse{margin:8px 0 12px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)}
+.lib-browse-q{width:100%;font-family:var(--mono);font-size:13px;padding:8px 10px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;outline:none}
+.lib-browse-q:focus{border-color:var(--cyan)}
+.lib-browse-list{display:grid;gap:4px;margin-top:8px;max-height:46vh;overflow:auto;-webkit-overflow-scrolling:touch}
+.lib-browse-row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.lib-browse-kind{color:var(--fg3);flex-shrink:0}
 .lib-empty{color:var(--fg3);font-size:12px;padding:12px;text-align:center;font-style:italic}
 .welcome-overlay{position:fixed;inset:0;z-index:250;background:rgba(0,0,0,.92);display:none;overflow:auto;-webkit-overflow-scrolling:touch}
 .welcome-overlay.show{display:flex;align-items:center;justify-content:center}
@@ -121,7 +128,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .hdr-btn.run:hover{opacity:.9}
 .hdr-btn.run:active{transform:scale(.95)}
 .hdr-btn.run svg{width:16px;height:16px;fill:currentColor}
-.help-overlay{position:fixed;inset:0;z-index:200;background:rgba(8,9,13,.97);display:none;overflow:auto;-webkit-overflow-scrolling:touch}
+.help-overlay{position:fixed;inset:0;z-index:200;background:var(--bg);display:none;overflow:auto;-webkit-overflow-scrolling:touch}
 .help-overlay.show{display:block}
 .help-content{max-width:600px;margin:0 auto;padding:24px 20px;padding-top:calc(24px + var(--safe-t));font-family:var(--sans);color:var(--fg);line-height:1.7}
 .help-content h1{font-family:var(--mono);font-size:22px;color:var(--cyan);margin-bottom:16px;font-weight:700;letter-spacing:2px}
@@ -3404,15 +3411,71 @@ function _libPanelInfo(l){
   try{
     var gs=_libPanelGlobalsFor(l);
     if(!gs.length)return'';
-    return'<div class="lib-live">loaded: '+gs.slice(0,4).map(function(g){return'<b>'+g+'</b> · '+_libMemberCount(g)+' members'}).join(', ')+'</div>';
+    return'<div class="lib-live">loaded: '+gs.slice(0,4).map(function(g){return _libBrowseBtn(g)+' · '+_libMemberCount(g)+' members'}).join(', ')+' <span style="color:var(--fg3)">— tap the name to browse them</span></div>';
   }catch(e){return''}
 }
 function _libPanelLoaded(){
   try{
     var gs=_libGlobals();
     if(!gs.length)return'';
-    return'<div class="lib-live" style="margin:0 0 14px">Loaded now: '+gs.slice(0,12).map(function(g){return'<b>'+g+'</b> ('+_libMemberCount(g)+')'}).join(', ')+(gs.length>12?' +'+(gs.length-12)+' more':'')+' &mdash; type <b>Name.</b> in the editor for live suggestions.</div>';
+    return'<div class="lib-live" style="margin:0 0 14px">Loaded now: '+gs.slice(0,12).map(function(g){return _libBrowseBtn(g)+' ('+_libMemberCount(g)+')'}).join(', ')+(gs.length>12?' +'+(gs.length-12)+' more':'')+' &mdash; tap a name to browse its members, or type <b>Name.</b> in the editor for live suggestions.</div>';
   }catch(e){return''}
+}
+
+// Member browser for the 📚 panel: tap a loaded library's global name to list its real members
+// (read from the live object by _jsMembers), filter them, and tap one to insert it at the cursor.
+function _libBrowseOk(n){return/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(n)}
+function _libBrowseBtn(g){
+  if(!_libBrowseOk(g))return'<b>'+g+'</b>';
+  return'<b class="lib-browse-btn" onclick="_libBrowse(\''+g+'\',this)">'+g+' ▾</b>';
+}
+function _libBrowseText(g,m){
+  if(m.kind==='class')return'new '+g+'.'+m.name+'()';
+  if(m.kind==='fn')return g+'.'+m.name+'()';
+  return g+'.'+m.name;
+}
+function _libBrowse(g,btn){
+  var host=btn;while(host&&!(host.classList&&host.classList.contains('lib-live')))host=host.parentNode;
+  if(!host)return;
+  var next=host.nextSibling;
+  if(next&&next.classList&&next.classList.contains('lib-browse')){
+    var same=next.getAttribute('data-g')===g;next.parentNode.removeChild(next);if(same)return;
+  }
+  var box=document.createElement('div');box.className='lib-browse';box.setAttribute('data-g',g);
+  box.innerHTML='<input class="lib-browse-q" type="search" placeholder="Filter '+g+' members…" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"><div class="lib-browse-list"></div>';
+  host.parentNode.insertBefore(box,host.nextSibling);
+  var q=box.querySelector('.lib-browse-q');
+  q.addEventListener('input',function(){_libBrowseFill(box,g,q.value)});
+  _libBrowseFill(box,g,'');
+}
+function _libBrowseFill(box,g,query){
+  var list=box.querySelector('.lib-browse-list'),all=[];
+  try{all=_jsMembers(_jsOwnValue(window,g)).filter(function(m){return _libBrowseOk(m.name)})}catch(e){}
+  var ql=String(query||'').trim().toLowerCase();
+  var hits=ql?all.filter(function(m){return m.name.toLowerCase().indexOf(ql)>=0}):all;
+  if(ql)hits.sort(function(a,b){var pa=a.name.toLowerCase().indexOf(ql)===0?0:1,pb=b.name.toLowerCase().indexOf(ql)===0?0:1;return pa-pb||(a.name<b.name?-1:a.name>b.name?1:0)});
+  var max=60,h='';
+  hits.slice(0,max).forEach(function(m){
+    var hint=m.kind==='fn'?'fn('+(m.arity||0)+')':m.kind;
+    h+='<div class="lib-method lib-browse-row" data-n="'+m.name+'"><span>'+_libBrowseText(g,m).replace(g+'.','<span class="lib-global">'+g+'</span>.')+'</span><span class="lib-browse-kind">'+hint+'</span></div>';
+  });
+  if(!hits.length)h='<div class="lib-empty">No member of '+g+' matches.</div>';
+  else if(hits.length>max)h+='<div class="lib-empty">Showing '+max+' of '+hits.length+' — type to narrow.</div>';
+  else h+='<div class="lib-empty">'+hits.length+' of '+all.length+' members.</div>';
+  list.innerHTML=h;
+  var byName={};hits.forEach(function(m){byName[m.name]=m});
+  Array.prototype.forEach.call(list.querySelectorAll('.lib-browse-row'),function(row){
+    row.onclick=function(){var m=byName[row.getAttribute('data-n')];if(m)_libBrowsePick(g,m)};
+  });
+}
+function _libBrowsePick(g,m){
+  var text=_libBrowseText(g,m),pos=ed.selectionStart;
+  ed.value=ed.value.substring(0,pos)+text+ed.value.substring(pos);
+  // put the cursor inside the parentheses of a call, otherwise after the name
+  var caret=pos+text.length-(/\(\)$/.test(text)?1:0);
+  ed.selectionStart=ed.selectionEnd=caret;
+  toggleLibs();
+  updGutter();hlCode();ed.focus();
 }
 
 // Autocomplete state
