@@ -17,6 +17,7 @@ const CDN_MAP = [
   [/babylon/, 'babylonjs/babylon.js'],
   [/canvas-confetti/, 'canvas-confetti/dist/confetti.browser.js'],
   [/dayjs/, 'dayjs/dayjs.min.js'],
+  [/tinycolor2/, 'tinycolor2/cjs/tinycolor.js'],
 ];
 
 async function runExample(browser, fileUrl, name) {

@@ -6,6 +6,7 @@
     "babylonjs": "*",
     "canvas-confetti": "1.9.2",
     "dayjs": "^1",
-    "three": "0.128.0"
+    "three": "0.128.0",
+    "tinycolor2": "1.6.0"
   }
 }
