@@ -394,7 +394,8 @@ Parser.prototype.parsePostfix=function(){
       e=new CallExpr(e,a,e.loc);
     }else if(this.match(TT.DOT)){
       let pn;
-      if(this.check(TT.INTEGER)||this.check(TT.TYPE))pn=this.adv().value;
+      // After a dot any word is a member name, including keywords (gsap.from, obj.new, x.class)
+      if(this.check(TT.INTEGER)||this.check(TT.TYPE)||this.check(TT.KEYWORD)||this.check(TT.BOOLEAN)||this.check(TT.NULL))pn=String(this.adv().value);
       else pn=this.expect(TT.IDENTIFIER).value;
       e=new MemberExpr(e,pn,e.loc);
     }else if(this.check(TT.LBRACKET)&&this.p>0&&this.t[this.p-1].line===this.cur().line){
