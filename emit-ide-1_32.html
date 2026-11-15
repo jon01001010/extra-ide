@@ -3514,7 +3514,7 @@ function _exportLibs(source,imports){
   var libs=[],explicit=new Set();
   _parseUses(source).forEach(function(u){
     if(u.lib)explicit.add(u.lib.cdn);
-    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,lib:u.lib?{name:u.lib.name,global:u.lib.global||null}:null});
+    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,lib:u.lib?{name:u.lib.name,global:u.lib.global||null,needs:u.lib.needs||null}:null});
   });
   var needed=new Set();
   imports.forEach(function(imp){
