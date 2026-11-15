@@ -217,6 +217,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p>Not in the list? <code>use</code> loads <strong>any</strong> browser library:</p>
 <p><code>use tinycolor2@1.6.0</code> &mdash; any npm package (via jsDelivr), then call its global</p>
 <p><code>use "https://example.com/lib.js"</code> &mdash; any script URL (quotes optional)</p>
+<p><code>use "https://example.com/lib.css"</code> &mdash; a URL (or npm path) ending in <code>.css</code> loads a stylesheet instead of a script. Libraries from the list bring their own stylesheet (leaflet, flatpickr, swiper, notyf, nprogress), so <code>use leaflet</code> is enough. If a stylesheet cannot be loaded the program still runs and the output shows one amber <code>&#9888;</code> line.</p>
 <p><code>use nanoid as Nano</code> &mdash; ES module: its exports become <code>Nano.someFn()</code>. Works with URLs too.</p>
 <p>For library namespaces, use <strong>member access</strong>:</p>
 <p><code>use babylon.js</code></p>
@@ -275,7 +276,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><strong>Errors.</strong> If a JS call throws, a red <code>&#10007; jsCall .method(): message</code> line appears in the output, the call returns null (0) and the program carries on. There is no try/catch.</p>
 
 <h2>Library Panel &mdash; 📚 button</h2>
-<p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and shows method signatures for libraries with full metadata.</p>
+<p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
 <p><strong>Member autocomplete.</strong> Once a library has been loaded by a Run, the editor reads its real names: type <code>THREE.Sc</code> or <code>BABYLON.MeshBuilder.Cre</code> and pick from the popup (<code>class</code>, <code>fn(2)</code> = takes 2 arguments, <code>obj</code>, <code>value</code>). Library globals such as <code>confetti</code> are also suggested as you type, marked <code>lib</code>. After <code>let s = THREE.Scene()</code>, typing <code>s.</code> lists the class's methods (not fields set at run time). Before the first Run nothing is loaded yet, so the popup says &ldquo;Run once to load&rdquo;; the 📚 panel shows what is loaded and how many members each global has.</p>
 
 <h2>Built-in Functions</h2>
@@ -2499,7 +2500,34 @@ var _libFails={};            // URL -> failed attempts (makes a retried import()
 var _LIB_TIMEOUT=20000;
 function _libErr(msg){var e=new Error(msg);e.isLibError=true;return e}
 function _libLabel(url){var l=LIBS.find(function(x){return x.cdn===url});return l?l.name:url}
+// Stylesheets. _loadCss never rejects: it resolves to null, or to a warning text when the sheet could not be loaded
+// (a library without its CSS still runs, it only looks wrong — so that is a warning line, not a failed Run).
+var _cssLoaded=new Set();    // stylesheet URLs that loaded successfully
+var _CSS_TIMEOUT=10000;
+function _loadCss(url,label){
+  return new Promise(function(ok){
+    if(_cssLoaded.has(url)){ok(null);return}
+    Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')).forEach(function(t){if(t.getAttribute('href')===url)t.remove()});
+    var l=document.createElement('link'),done=false,timer;
+    function finish(why){if(done)return;done=true;clearTimeout(timer);if(why){l.remove();ok('Could not load the stylesheet '+url+(label&&label!==url?' for "'+label+'"':'')+' \u2014 '+why+'. The program still runs, but the library may look unstyled.')}else{_cssLoaded.add(url);ok(null)}}
+    l.rel='stylesheet';l.href=url;l.setAttribute('data-emit-lib-css','');
+    l.onload=function(){finish(null)};
+    l.onerror=function(){finish('the request failed (wrong URL, not a stylesheet, or no network)')};
+    timer=setTimeout(function(){finish('timed out after '+(_CSS_TIMEOUT/1000)+'s')},_CSS_TIMEOUT);
+    document.head.appendChild(l);
+  });
+}
+// A non-fatal library warning: one amber line in the output (IDE Output tab / exported page), never a "\u2717" error.
+function _libWarn(msg){
+  if(!msg)return;
+  try{console.warn(msg)}catch(e){}
+  var out=document.getElementById('tab-output');if(!out)return;
+  var d=document.createElement('div');d.className='emit-warning';d.style.cssText='color:#f59e0b;padding:2px 0;white-space:pre-wrap;word-break:break-word;';d.textContent='\u26a0 '+msg;out.appendChild(d);
+}
 function _loadLib(url,label){
+  // No label = a registry library auto-loaded because a builtin it provides is called without a `use` line:
+  // go through _loadUse so the entry's `needs` and `css` are loaded too.
+  if(!label){var _reg=LIBS.find(function(x){return x.cdn===url});if(_reg&&(_reg.needs||_reg.css))return _loadUse({lib:_reg,url:url,classicUrl:url,label:_reg.name,alias:null,module:false})}
   label=label||_libLabel(url);
   return new Promise(function(ok,fail){
     if(_libsLoaded.has(url)){ok();return}
@@ -2522,7 +2550,7 @@ function _importLib(url,label){
   var timeout=new Promise(function(_,fail){timer=setTimeout(function(){fail(new Error('timed out after '+(_LIB_TIMEOUT/1000)+'s'))},_LIB_TIMEOUT)});
   return Promise.race([load,timeout]).then(function(ns){clearTimeout(timer);_libModules.set(url,ns);return ns},function(e){clearTimeout(timer);_libFails[url]=n+1;throw _libErr('Could not load library "'+label+'" as an ES module from '+url+' — '+((e&&e.message)||e))});
 }
-// Find every `use` line. Returns [{line,spec,alias,label,url,classicUrl,module,lib}]
+// Find every `use` line. Returns [{line,spec,alias,label,url,classicUrl,module,lib,css}]  (css:true = the line names a stylesheet)
 function _parseUses(source){
   var uses=[];
   source.split('\n').forEach(function(text,idx){
@@ -2540,11 +2568,15 @@ function _parseUses(source){
     else if(lib){use.lib=lib;use.url=use.classicUrl=lib.cdn;use.module=false}
     else if(/^(@[a-z0-9~._-]+\/)?[a-z0-9~._-]+(@[^\s\/@]+)?(\/[^\s]*)?$/i.test(spec)){use.classicUrl='https://cdn.jsdelivr.net/npm/'+spec;use.module=!!alias;use.url=use.classicUrl+(alias?'/+esm':'')}
     else throw _libErr((idx+1)+':1: "'+spec+'" is not a library name, npm package or URL');
+    // A stylesheet instead of a script: use "https://…/x.css" (quoted or not), or an npm path ending in .css
+    if(!use.lib&&/\.css([?#].*)?$/i.test(spec)){if(alias)throw _libErr((idx+1)+':1: Bad use line — a stylesheet has nothing to name, drop "as '+alias+'"');use.css=true;use.module=false;use.url=use.classicUrl}
     uses.push(use);
   });
   return uses;
 }
 async function _loadUse(u){
+  if(u.css){_libWarn(await _loadCss(u.url,u.label));return}   // use "….css"
+  if(u.lib&&u.lib.css)for(var _css of u.lib.css)_libWarn(await _loadCss(_css,u.label));   // stylesheets a registry entry ships (e.g. leaflet.css)
   if(u.lib&&u.lib.needs)for(var _need of u.lib.needs)await _loadLib(_need,u.label);   // scripts a registry entry depends on (e.g. Popper for tippy)
   if(!u.alias){await _loadLib(u.url,u.label);return}
   var noGlobal='Library "'+u.label+'" loaded from '+u.classicUrl+', but it has no ES module exports and did not define a global named '+u.alias+'. After "as", use the global name the library defines — or drop "as '+u.alias+'".';
@@ -2611,72 +2643,92 @@ function newFile(){
 
 // Library registry — known JS libraries with CDN URLs and builtin functions
 var LIBS=[
-  {name:'three.js',desc:'3D scenes & objects — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+  {name:'three.js',desc:'3D scenes & objects — 1 line',cdn:'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
    fns:'scene3d box sphere plane color3d move3d rotate3d scale3d camera3d lookAt3d light3d fog3d render3d controls3d cylinder wallBox ambient3d bgColor3d cone torus grid3d pointLight3d spotLight3d metallic3d opacity3d shadow3d text3d',cat:'3d',global:'THREE'},
-  {name:'tone.js',desc:'Synths, drums, effects — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js',
-   fns:'synth drum playNote noteOff setBpm setSwing',cat:'audio',global:'Tone'},
-  {name:'matter.js',desc:'2D rigid body physics — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js',
-   fns:'physics physBox physCircle physGround physGravity physStep physDraw',cat:'physics',global:'Matter'},
+  {name:'tone.js',desc:'Synths, drums, effects — 1 line',cdn:'https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js',
+   fns:'synth drum playNote noteOff setBpm setSwing',cat:'audio',global:'Tone',
+   methods:['new Synth()','new PolySynth()','new Player(url)','start() — unlock audio after a click','now()','Frequency(value)','Transport.start()','Transport.stop()']},
+  {name:'matter.js',desc:'2D rigid body physics — 1 line',cdn:'https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js',
+   fns:'physics physBox physCircle physGround physGravity physStep physDraw',cat:'physics',global:'Matter',
+   methods:['Engine.create()','Engine.update(engine, delta)','Bodies.rectangle(x, y, w, h)','Bodies.circle(x, y, radius)','Composite.add(world, body)','Body.setVelocity(body, velocity)','Body.applyForce(body, position, force)']},
   {name:'chart.js',desc:'Bar, line, pie charts — 1 line',cdn:'https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js',
-   fns:'barChart lineChart pieChart chartLabel chartData chartColor chartRender',cat:'data',global:'Chart'},
-  {name:'gsap',desc:'Smooth animation tweens — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js',
-   fns:'tween',cat:'anim',global:'gsap'},
-  {name:'howler.js',desc:'Cross-browser audio — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js',
-   fns:'loadAudio playAudio stopAudio loopAudio volumeAudio',cat:'audio',global:'Howl'},
-  {name:'anime.js',desc:'Keyframe animation — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js',
-   fns:'animateEl',cat:'anim',global:'anime'},
-  {name:'pixi.js',desc:'Fast 2D WebGL sprites — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
-   fns:'pixiApp pixiRect pixiCircle pixiText pixiMove pixiRender',cat:'2d',global:'PIXI'},
-  {name:'cannon.js',desc:'3D physics engine — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js',
-   fns:'world3d bodyBox bodySphere bodyPlane bodyForce stepWorld',cat:'physics',global:'CANNON'},
-  {name:'peer.js',desc:'WebRTC P2P multiplayer — 1 line',cdn:'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js',
-   fns:'hostPeer joinPeer sendInt sendStr onRecvInt onRecvStr',cat:'net',global:'Peer'},
+   fns:'barChart lineChart pieChart chartLabel chartData chartColor chartRender',cat:'data',global:'Chart',
+   inst:'chart',
+   methods:['new Chart(canvasEl, config)','.update()','.destroy()']},
+  {name:'gsap',desc:'Smooth animation tweens — 1 line',cdn:'https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js',
+   fns:'tween',cat:'anim',global:'gsap',
+   methods:['to(target, vars)','fromTo(target, fromVars, toVars)','set(target, vars)','timeline(vars)','killTweensOf(target)']},
+  {name:'howler.js',desc:'Cross-browser audio — 1 line',cdn:'https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js',
+   fns:'loadAudio playAudio stopAudio loopAudio volumeAudio',cat:'audio',global:'Howl',
+   inst:'sound',
+   methods:['new Howl(opts) — opts.src is a JS array of URLs','.play()','.pause()','.stop()','.volume(level)','.fade(fromVol, toVol, ms)']},
+  {name:'anime.js',desc:'Keyframe animation — 1 line',cdn:'https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js',
+   fns:'animateEl',cat:'anim',global:'anime',
+   methods:['anime(params)','timeline(params)','stagger(value)','set(targets, values)','remove(targets)','random(min, max)']},
+  {name:'pixi.js',desc:'Fast 2D WebGL sprites — 1 line',cdn:'https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js',
+   fns:'pixiApp pixiRect pixiCircle pixiText pixiMove pixiRender',cat:'2d',global:'PIXI',
+   methods:['new Application(opts)','new Graphics()','new Text(text, style)','new Container()','new Sprite(texture)','new Point(x, y)','Texture.WHITE']},
+  {name:'cannon.js',desc:'3D physics engine — 1 line',cdn:'https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js',
+   fns:'world3d bodyBox bodySphere bodyPlane bodyForce stepWorld',cat:'physics',global:'CANNON',
+   methods:['new World()','new Body(opts)','new Sphere(radius)','new Box(halfExtents)','new Plane()','new Vec3(x, y, z)']},
+  {name:'peer.js',desc:'WebRTC P2P multiplayer — 1 line',cdn:'https://cdn.jsdelivr.net/npm/peerjs@1.5.1/dist/peerjs.min.js',
+   fns:'hostPeer joinPeer sendInt sendStr onRecvInt onRecvStr',cat:'net',global:'Peer',
+   inst:'peer',
+   methods:['new Peer()','new Peer(id)','.on(event, callback)','.connect(id)','.destroy()']},
   {name:'phaser',desc:'2D game engine — used via Phaser.* member calls',cdn:'https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js',
    fns:'Phaser',cat:'game',global:'Phaser',
-   methods:['Game(config)','Scene(config)','Math.Vector2(x, y)','Geom.Rectangle(x, y, width, height)','Geom.Circle(x, y, radius)']},
-  {name:'leaflet',desc:'Interactive maps — used via L.* member calls',cdn:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+   methods:['new Game(config)','new Scene(config)','new Math.Vector2(x, y)','new Geom.Rectangle(x, y, width, height)','new Geom.Circle(x, y, radius)','AUTO','CANVAS']},
+  {name:'leaflet',desc:'Interactive maps — used via L.* member calls',cdn:'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',css:['https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'],
    fns:'L',cat:'maps',global:'L',
-   methods:['map(element)','tileLayer(urlTemplate, opts)','marker(latlng)','circle(latlng, opts)','polygon(latlngs, opts)','latLng(lat, lng)']},
-  {name:'confetti',desc:'Confetti celebration — confetti(opts)',cdn:'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js',
+   inst:'map',
+   methods:['map(element)','tileLayer(urlTemplate, opts)','marker(latlng)','circle(latlng, opts)','polygon(latlngs, opts)','latLng(lat, lng)','.setView(latlng, zoom)','.addLayer(layer)','.getZoom()']},
+  {name:'confetti',desc:'Confetti celebration — confetti(opts)',cdn:'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.js',
    fns:'confetti',cat:'fx',global:'confetti',
-   methods:['confetti(opts)','reset()','create(canvas, opts)','shapeFromText(opts)','shapeFromPath(opts)']},
-  {name:'typed.js',desc:'Typewriter text — new Typed(element, opts)',cdn:'https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.16/typed.umd.js',
+   methods:['confetti(opts)','reset()','create(canvasEl, opts)','shapeFromText(opts)','shapeFromPath(opts)']},
+  {name:'typed.js',desc:'Typewriter text — new Typed(element, opts)',cdn:'https://cdn.jsdelivr.net/npm/typed.js@2.0.16/dist/typed.umd.js',
    fns:'Typed',cat:'fx',global:'Typed',
-   methods:['Typed(element, opts) — constructor','start()','stop()','toggle()','reset()','destroy()']},
+   inst:'typed',
+   methods:['new Typed(element, opts)','.start()','.stop()','.toggle()','.reset()','.destroy()']},
   {name:'socket.io',desc:'Real-time websockets — io(url, opts)',cdn:'https://cdn.jsdelivr.net/npm/socket.io-client@4.8.4/dist/socket.io.min.js',
    fns:'io',cat:'net',global:'io',
-   methods:['io(url, opts) — returns a socket','connect()','disconnect()','emit(event, data)','on(event, callback)','off(event)']},
-  {name:'p5.js',desc:'Creative coding — instance mode: new p5(fnRef(sketch))',cdn:'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js',
+   inst:'socket',
+   methods:['io(url, opts) — returns a socket','.connect()','.disconnect()','.emit(event, data)','.on(event, callback)','.off(event)']},
+  {name:'p5.js',desc:'Creative coding — instance mode: new p5(fnRef(sketch))',cdn:'https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js',
    fns:'p5',cat:'art',global:'p5',
-   methods:['p5(sketch) — constructor (instance mode)','Vector(x, y, z)','createCanvas(w, h)','background(r, g, b)','fill(r, g, b)','ellipse(x, y, w, h)','rect(x, y, w, h)','line(x1, y1, x2, y2)','noise(x)']},
-  {name:'lottie',desc:'JSON animations — lottie.loadAnimation(opts)',cdn:'https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js',
+   inst:'p',
+   methods:['new p5(sketch) — instance mode: sketch is fnRef(fn) and gets the p5 instance','new Vector(x, y, z)','.createCanvas(w, h)','.background(r, g, b)','.fill(r, g, b)','.ellipse(x, y, w, h)','.rect(x, y, w, h)','.line(x1, y1, x2, y2)','.noise(x)']},
+  {name:'lottie',desc:'JSON animations — lottie.loadAnimation(opts)',cdn:'https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js',
    fns:'lottie',cat:'anim',global:'lottie',
-   methods:['loadAnimation(opts)','play()','pause()','stop()','setSpeed(speed)','destroy()']},
+   inst:'anim',
+   methods:['loadAnimation(opts)','.play()','.pause()','.stop()','.setSpeed(speed)','.destroy()']},
   {name:'ml5.js',desc:'Machine learning — used via ml5.* member calls',cdn:'https://cdn.jsdelivr.net/npm/ml5@0.12.2/dist/ml5.min.js',
    fns:'ml5',cat:'ai',global:'ml5',
    methods:['neuralNetwork(opts)','imageClassifier(model, callback)','objectDetector(model, callback)','poseNet(video, callback)']},
   {name:'kaboom',desc:'Fun 2D game lib — let k = kaboom(opts)',cdn:'https://cdn.jsdelivr.net/npm/kaboom@3000.1.17/dist/kaboom.js',
    fns:'kaboom',cat:'game',global:'kaboom',
-   methods:['kaboom(opts) — returns the game context','add(components)','rect(w, h)','circle(radius)','text(str)','pos(x, y)','onKeyPress(key, callback)','onCollide(tagA, tagB, callback)','setGravity(g)']},
+   inst:'k',
+   methods:['kaboom(opts) — returns the game context','.add(components)','.rect(w, h)','.circle(radius)','.text(txt)','.pos(x, y)','.onKeyPress(key, callback)','.onCollide(tagA, tagB, callback)','.setGravity(g)']},
   {name:'planck.js',desc:'2D physics (Box2D) — used via planck.* member calls',cdn:'https://cdn.jsdelivr.net/npm/planck@1.4.2/dist/planck.min.js',
    fns:'planck',cat:'physics',global:'planck',
-   methods:['World(gravity)','Vec2(x, y)','Box(halfWidth, halfHeight)','Circle(radius)','Edge(v1, v2)']},
-  {name:'babylon.js',desc:'Powerful 3D engine — used via BABYLON.* member calls',cdn:'https://cdn.babylonjs.com/babylon.js',
+   methods:['new World(gravity)','new Vec2(x, y)','new Box(halfWidth, halfHeight)','new Circle(radius)','new Edge(v1, v2)']},
+  {name:'babylon.js',desc:'Powerful 3D engine — used via BABYLON.* member calls',cdn:'https://cdn.jsdelivr.net/npm/babylonjs@9.36.0/babylon.js',
    fns:'BABYLON',cat:'3d',global:'BABYLON',
-   methods:['Engine(canvas, antialias)','Scene(engine)','FreeCamera(name, position, scene)','ArcRotateCamera(name, alpha, beta, radius, target, scene)','HemisphericLight(name, direction, scene)','DirectionalLight(name, direction, scene)','PointLight(name, position, scene)','Vector3(x, y, z)','Color3(r, g, b)','MeshBuilder.CreateBox(name, options, scene)','MeshBuilder.CreateSphere(name, options, scene)','MeshBuilder.CreateGround(name, options, scene)','MeshBuilder.CreateCylinder(name, options, scene)','StandardMaterial(name, scene)'],
-   example:'use babylon.js\n\nmut sceneH = 0\n\nexport fn world() {\n  canvas(400, 300)\n  let cv = getCanvas()\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n  let cam = BABYLON.FreeCamera("cam", BABYLON.Vector3(0.0, 5.0, -10.0), scene)\n  cam.setTarget(BABYLON.Vector3(0.0, 0.0, 0.0))\n  cam.attachControl(cv, true)\n  BABYLON.HemisphericLight("light", BABYLON.Vector3(0.0, 1.0, 0.0), scene)\n  BABYLON.MeshBuilder.CreateSphere("ball", 0, scene)\n  sceneH = scene\n  animate()  // starts frame() loop\n}\n\nexport fn frame() {\n  sceneH.render()\n}'},
+   methods:['new Engine(canvasEl, antialias)','new Scene(engine)','new FreeCamera(name, position, scene)','new ArcRotateCamera(name, alpha, beta, radius, target, scene)','new HemisphericLight(name, direction, scene)','new DirectionalLight(name, direction, scene)','new PointLight(name, position, scene)','new Vector3(x, y, z)','new Color3(r, g, b)','MeshBuilder.CreateBox(name, options, scene)','MeshBuilder.CreateSphere(name, options, scene)','MeshBuilder.CreateGround(name, options, scene)','MeshBuilder.CreateCylinder(name, options, scene)','new StandardMaterial(name, scene)'],
+   example:'use babylon.js\n\nmut scene: js = null\n\nexport fn world() {\n  canvas(400, 300)\n  let engine = new BABYLON.Engine(getCanvas(), true)\n  scene = new BABYLON.Scene(engine)\n  let cam = new BABYLON.FreeCamera("cam", new BABYLON.Vector3(0.0, 2.0, -5.0), scene)\n  cam.setTarget(new BABYLON.Vector3(0.0, 0.0, 0.0))\n  let light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0.0, 1.0, 0.0), scene)\n  BABYLON.MeshBuilder.CreateSphere("ball", emptyObj(), scene)\n  animate()  // starts the frame() loop\n}\n\nexport fn frame() {\n  scene.render()\n}'},
   {name:'dayjs',desc:'Date formatting via chained calls — 1 line',cdn:'https://cdn.jsdelivr.net/npm/dayjs@1.11.23/dayjs.min.js',
    fns:'dayjs',cat:'data',global:'dayjs',
-   methods:['dayjs() — current time','format(str) — e.g. "YYYY-MM-DD HH:mm"','year()','month()','date()','day()','hour()','minute()','add(n, unit)','subtract(n, unit)','toISOString()']},
+   inst:'d',
+   methods:['dayjs() — current time','dayjs(dateStr)','.format(pattern) — e.g. "YYYY-MM-DD HH:mm"','.year()','.month()','.date()','.day()','.hour()','.minute()','.add(n, unit)','.subtract(n, unit)','.toISOString()']},
   {name:'fabric',desc:'Interactive canvas — drag, resize, rotate shapes',cdn:'https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js',
    fns:'fabric',cat:'2d',global:'fabric',
-   methods:['Canvas(elementId)','Rect(opts)','Circle(opts)','Triangle(opts)','Text(text, opts)','Image.fromURL(url, callback)','Group(objects, opts)','Path(svgPath, opts)']},
+   methods:['new Canvas(element)','new Rect(opts)','new Circle(opts)','new Triangle(opts)','new Text(text, opts)','Image.fromURL(url, callback)','new Group(objects, opts)','new Path(svgPath, opts)']},
   {name:'rough.js',desc:'Hand-drawn sketchy graphics on canvas/SVG',cdn:'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js',
    fns:'rough',cat:'2d',global:'rough',
-   methods:['canvas(canvasEl)','svg(svgEl)','rectangle(x, y, w, h, opts)','circle(x, y, diameter, opts)','line(x1, y1, x2, y2, opts)','polygon(points, opts)','ellipse(x, y, w, h, opts)']},
+   inst:'rc',
+   methods:['canvas(canvasEl)','svg(svgEl)','.rectangle(x, y, w, h, opts)','.circle(x, y, diameter, opts)','.line(x1, y1, x2, y2, opts)','.polygon(points, opts)','.ellipse(x, y, w, h, opts)']},
   {name:'konva',desc:'2D shapes, layers, transforms — Canvas API on steroids',cdn:'https://cdn.jsdelivr.net/npm/konva@9.3.0/konva.min.js',
    fns:'Konva',cat:'2d',global:'Konva',
-   methods:['Stage(opts)','Layer()','Rect(opts)','Circle(opts)','Text(opts)','Line(opts)','Group(opts)','Tween(opts)']},
+   methods:['new Stage(opts)','new Layer()','new Rect(opts)','new Circle(opts)','new Text(opts)','new Line(opts)','new Group(opts)','new Tween(opts)']},
   {name:'marked',desc:'Markdown to HTML — one call',cdn:'https://cdn.jsdelivr.net/npm/marked@11.1.0/marked.min.js',
    fns:'marked',cat:'data',global:'marked',
    methods:['parse(markdown)','parseInline(markdown)','setOptions(opts)']},
@@ -2689,9 +2741,10 @@ var LIBS=[
   {name:'numeral',desc:'Number formatting — currency, percentages, time',cdn:'https://cdn.jsdelivr.net/npm/numeral@2.0.6/min/numeral.min.js',
    fns:'numeral',cat:'data',global:'numeral',
    methods:['numeral(value).format("$0,0.00")','numeral(value).format("0.0%")','numeral(value).format("0a")','numeral(value).value()']},
-  {name:'qrcode',desc:'QR code generator — text → canvas QR',cdn:'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
+  {name:'qrcode',desc:'QR code generator — text → canvas QR',cdn:'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js',
    fns:'QRCode',cat:'data',global:'QRCode',
-   methods:['QRCode(elementId, text)','QRCode(elementId, opts)','clear()','makeCode(text)']},
+   inst:'qr',
+   methods:['new QRCode(element, text)','new QRCode(element, opts)','.clear()','.makeCode(text)']},
   {name:'papaparse',desc:'CSV parser — fast, streaming, auto-detect headers',cdn:'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js',
    fns:'Papa',cat:'data',global:'Papa',
    methods:['parse(csv)','parse(csv, opts)','unparse(data)','unparse(data, opts)']},
@@ -2703,7 +2756,8 @@ var LIBS=[
    methods:['select(selector)','selectAll(selector)','scaleLinear()','scaleOrdinal()','axisBottom(scale)','line()','arc()','pie()','interpolate(a, b)']},
   {name:'apexcharts',desc:'Modern interactive charts — bar, line, area, donut',cdn:'https://cdn.jsdelivr.net/npm/apexcharts@3.45.1/dist/apexcharts.min.js',
    fns:'ApexCharts',cat:'data',global:'ApexCharts',
-   methods:['ApexCharts(element, options) — constructor','render()','updateOptions(newOpts)','updateSeries(newSeries)','destroy()']},
+   inst:'chart',
+   methods:['new ApexCharts(element, options)','.render()','.updateOptions(newOpts)','.updateSeries(newSeries)','.destroy()']},
   {name:'plotly',desc:'Scientific plots — 3D, contour, statistics',cdn:'https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.27.1/plotly.min.js',
    fns:'Plotly',cat:'data',global:'Plotly',
    methods:['newPlot(div, data, layout)','react(div, data, layout)','update(div, dataUpdate, layoutUpdate)','restyle(div, update)','purge(div)']},
@@ -2712,38 +2766,131 @@ var LIBS=[
    methods:['animate(target, keyframes, opts)','timeline(sequence, opts)','scroll(callback)','inView(target, callback)']},
   {name:'excalibur',desc:'Beginner-friendly 2D game engine',cdn:'https://cdn.jsdelivr.net/npm/excalibur@0.29.0/build/dist/excalibur.min.js',
    fns:'ex',cat:'game',global:'ex',
-   methods:['Engine(opts)','Actor(opts)','Scene()','Vector(x, y)','Color.Red','Input.Keys.Space']},
+   methods:['new Engine(opts)','new Actor(opts)','new Scene()','new Vector(x, y)','Color.Red','Input.Keys.Space']},
   {name:'axios',desc:'HTTP client — Promise-based requests',cdn:'https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js',
    fns:'axios',cat:'net',global:'axios',
    methods:['get(url)','post(url, data)','put(url, data)','delete(url)','request(config)']},
   {name:'alpine',desc:'Lightweight reactive framework — declarative HTML',cdn:'https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js',
-   fns:'Alpine',cat:'ui',global:'Alpine'},
+   fns:'Alpine',cat:'ui',global:'Alpine',
+   methods:['store(name, value)','reactive(obj)','data(name, callback)','start()']},
   {name:'tippy',desc:'Tooltips, popovers, dropdowns',cdn:'https://cdn.jsdelivr.net/npm/tippy.js@6.3.7/dist/tippy-bundle.umd.min.js',
    fns:'tippy',cat:'ui',global:'tippy',needs:['https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js'],
-   methods:['tippy(target, opts) — attach to element','tippy.delegate(parent, opts)','tippy.hideAll()']},
-  {name:'flatpickr',desc:'Lightweight date and time picker',cdn:'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js',
+   methods:['tippy(target, opts) — attach to element','delegate(parent, opts)','hideAll()','setDefaultProps(props)']},
+  {name:'flatpickr',desc:'Lightweight date and time picker',cdn:'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js',css:['https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css'],
    fns:'flatpickr',cat:'ui',global:'flatpickr',
-   methods:['flatpickr(selector, opts)','flatpickr.l10ns','flatpickr.formatDate(date, format)']},
-  {name:'swiper',desc:'Touch carousels and sliders',cdn:'https://cdn.jsdelivr.net/npm/swiper@11.0.5/swiper-bundle.min.js',
+   inst:'picker',
+   methods:['flatpickr(element, opts)','formatDate(date, format)','parseDate(dateStr, format)','l10ns','.setDate(date)','.clear()','.open()','.close()']},
+  {name:'swiper',desc:'Touch carousels and sliders',cdn:'https://cdn.jsdelivr.net/npm/swiper@11.0.5/swiper-bundle.min.js',css:['https://cdn.jsdelivr.net/npm/swiper@11.0.5/swiper-bundle.min.css'],
    fns:'Swiper',cat:'ui',global:'Swiper',
-   methods:['Swiper(selector, opts) — constructor','slideNext()','slidePrev()','slideTo(index)','update()','destroy()']},
-  {name:'notyf',desc:'Toast notifications — minimal, dismissible',cdn:'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.js',
+   inst:'swiper',
+   methods:['new Swiper(element, opts)','.slideNext()','.slidePrev()','.slideTo(index)','.update()','.destroy()']},
+  {name:'notyf',desc:'Toast notifications — minimal, dismissible',cdn:'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.js',css:['https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.css'],
    fns:'Notyf',cat:'ui',global:'Notyf',
-   methods:['Notyf() — constructor','success(msg)','error(msg)','open(opts)','dismiss(notification)','dismissAll()']},
+   inst:'notyf',
+   methods:['new Notyf()','.success(msg)','.error(msg)','.open(opts)','.dismiss(notification)','.dismissAll()']},
   {name:'sweetalert2',desc:'Beautiful modal dialogs and alerts',cdn:'https://cdn.jsdelivr.net/npm/sweetalert2@11.10.1/dist/sweetalert2.all.min.js',
    fns:'Swal',cat:'ui',global:'Swal',
    methods:['fire(opts) — show alert','fire(title, text, icon)','close()','isVisible()','getInput()']},
-  {name:'nprogress',desc:'YouTube-style top-of-page loading bar',cdn:'https://cdnjs.cloudflare.com/ajax/libs/nprogress/0.2.0/nprogress.min.js',
+  {name:'nprogress',desc:'YouTube-style top-of-page loading bar',cdn:'https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js',css:['https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css'],
    fns:'NProgress',cat:'ui',global:'NProgress',
    methods:['start()','done()','set(0.4)','inc()','configure(opts)','remove()']},
   {name:'tsparticles',desc:'Particle system — confetti+, snow, fireworks',cdn:'https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.1/tsparticles.confetti.bundle.min.js',
    fns:'confetti tsParticles',cat:'fx',global:'tsParticles',
-   methods:['load(params) — {id, options} or {id, url}','dom() — get all instances','domItem(index)']},
+   methods:['confetti(opts)','load(params) — {id, options} or {id, url}','dom() — get all instances','domItem(index)']},
   {name:'vanta',desc:'Animated WebGL backgrounds — waves, fog, clouds',cdn:'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.waves.min.js',
-   fns:'VANTA',cat:'fx',global:'VANTA',needs:['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'],
-   methods:['VANTA.WAVES(opts) — other effects are separate files, e.g. use vanta@0.5.24/dist/vanta.fog.min.js']},
+   fns:'VANTA',cat:'fx',global:'VANTA',needs:['https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'],
+   methods:['WAVES(opts) — other effects are separate files, e.g. use vanta@0.5.24/dist/vanta.fog.min.js']},
 ];
-var _fnToCdn={};LIBS.forEach(function(lib){lib.fns.split(' ').forEach(function(fn){_fnToCdn[fn]=lib.cdn})});
+// Builtin / global-function name -> the registry URL that provides it (auto-load when it is called without a `use` line).
+// When several entries list the same name in `fns`: the entry whose own name or global IS that name wins
+// (confetti -> canvas-confetti, not the tsparticles bundle that also defines window.confetti); otherwise the first entry.
+var _fnToCdn={};
+LIBS.forEach(function(lib){lib.fns.split(' ').forEach(function(fn){if(fn&&!Object.prototype.hasOwnProperty.call(_fnToCdn,fn))_fnToCdn[fn]=lib.cdn})});
+LIBS.slice().reverse().forEach(function(lib){lib.fns.split(' ').forEach(function(fn){if(fn&&(fn===lib.name||fn===lib.name.replace(/\.js$/,'')||fn===lib.global))_fnToCdn[fn]=lib.cdn})});
+// Catalogue rows of a registry entry, as the \ud83d\udcda panel shows and inserts them. Each `methods` string is
+// "<signature> \u2014 <note>"; the signature is one of
+//   Global(args) / new Global(args) / Global(args).method(args)   the library's global itself
+//   member(args) / a.b.member(args) / a.b.CONSTANT                a member of the global    -> Global.member(args)
+//   new Member(args)                                              a class of the global     -> new Global.Member(args)
+//   .method(args)                                                 a method of the object the library hands back,
+//                                                                 written on the variable named by the entry's `inst`
+// A signature that starts with one of the entry's globals (`global`, or a non-builtin name in `fns`, e.g. confetti
+// in the tsparticles entry) is taken as written. Placeholder argument names must not be Emit type names (str, int …).
+// Wrapper builtins named in `fns` come first, with their parameter names.
+// Returns [{kind,ctor,root,path,args,text,note,params}]: kind 'builtin'|'self'|'member'|'inst'; root is the global
+// the row hangs off, path the dotted path below it; text is exactly what is shown and inserted.
+function _libCatRows(l){
+  var g=l.global||'',rows=[],roots=g?[g]:[];
+  (l.fns||'').split(' ').forEach(function(fn){
+    if(!fn)return;
+    var b=Object.prototype.hasOwnProperty.call(BUILTINS,fn)?BUILTINS[fn]:null;
+    if(!b||!b.params){if(roots.indexOf(fn)<0)roots.push(fn);return}
+    rows.push({kind:'builtin',ctor:false,root:'',path:fn,args:'',text:fn+'('+b.params.map(function(p){return p.name}).join(', ')+')',note:'',params:b.params.map(function(p){return{name:p.name,type:p.type}})});
+  });
+  (l.methods||[]).forEach(function(m){
+    var cut=m.search(/\s+\u2014/),sig=(cut<0?m:m.substring(0,cut)).trim(),note=cut<0?'':m.substring(cut).replace(/^\s+\u2014\s*/,'');
+    var inst=sig.charAt(0)==='.';if(inst)sig=sig.substring(1);
+    var ctor=/^new\s+/.test(sig);if(ctor)sig=sig.replace(/^new\s+/,'');
+    var q=sig.indexOf('('),path=q<0?sig:sig.substring(0,q),args=q<0?'':sig.substring(q);
+    var root=inst?(l.inst||'obj'):g,dot=path.indexOf('.'),first=dot<0?path:path.substring(0,dot);
+    if(!inst&&roots.indexOf(first)>=0){root=first;path=dot<0?'':path.substring(dot+1)}
+    rows.push({kind:inst?'inst':path?'member':'self',ctor:ctor,root:root,path:path,args:args,text:(ctor?'new ':'')+root+(root&&path?'.':'')+path+args,note:note,params:null});
+  });
+  return rows;
+}
+// Members of the entry's main global only, as "name(args) \u2014 note" — what the dot-autocomplete reads parameter names from.
+function _libCatMembers(l){return _libCatRows(l).filter(function(r){return r.kind==='member'&&r.root===l.global}).map(function(r){return r.path+r.args+(r.note?' \u2014 '+r.note:'')})}
+// Example programs for registry entries (the \ud83d\udcda panel's Example button; every one is compiled and run by
+// tests/run-registry.js). An `example` written in the entry itself wins.
+var _LIB_EXAMPLES={
+  'three.js':'use three.js\n\nexport fn scene() {\n  scene3d(400, 300)\n  bgColor3d(20, 20, 40)\n  grid3d(10, 10)\n  let cube = box(0.0, 0.5, 0.0)\n  color3d(cube, 45, 212, 191)\n  camera3d(3.0, 2.0, 3.0)\n  lookAt3d(0.0, 0.0, 0.0)\n  render3d()\n}',
+  'tone.js':'use tone.js\n\nexport fn run() {\n  let s = synth(1)\n  setBpm(120)\n  playNote(s, 440.0, 8.0)\n  printStr("playing A4 - its frequency in Hz:")\n  printNum(Tone.Frequency("A4").toFrequency())\n}',
+  'matter.js':'use matter.js\n\nexport fn run() {\n  physics(300, 200)\n  physGround(190.0)\n  physBox(150.0, 20.0, 30.0, 30.0)\n  physCircle(160.0, 70.0, 15.0)\n  animate()\n}\n\nexport fn frame() {\n  physStep()\n  physDraw()\n}',
+  'chart.js':'use chart.js\n\nexport fn run() {\n  barChart(300, 200)\n  chartLabel("Mon")\n  chartData(3.0)\n  chartLabel("Tue")\n  chartData(7.0)\n  chartLabel("Wed")\n  chartData(5.0)\n  chartColor(45, 212, 191)\n  chartRender()\n}',
+  'gsap':'use gsap\n\nexport fn run() {\n  button("gsap slides me to the right", 1)\n  let vars = emptyObj()\n  vars.x = 120.0\n  vars.duration = 1.0\n  gsap.to("#emit-el-1", vars)\n}',
+  'howler.js':'use howler.js\n\nfn loaded() {\n  printStr("sound loaded - playing it")\n}\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.src = toJsArray(["data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA=="])\n  opts.onload = fnRef(loaded)\n  let sound = new Howl(opts)\n  sound.play()\n}',
+  'anime.js':'use anime.js\n\nexport fn run() {\n  button("anime.js moves me", 1)\n  let p = emptyObj()\n  p.targets = "#emit-el-1"\n  p.translateX = 150\n  p.duration = 1000\n  p.easing = "easeInOutQuad"\n  anime(p)\n}',
+  'pixi.js':'use pixi.js\n\nexport fn run() {\n  pixiApp(300, 200)\n  pixiRect(20, 20, 80, 60, 45, 212, 191)\n  pixiCircle(200, 100, 40, 244, 114, 182)\n  pixiText("Hello PIXI", 20, 150, 18)\n  pixiRender()\n}',
+  'cannon.js':'use cannon.js\n\nexport fn run() {\n  let world = new CANNON.World()\n  world.gravity.set(0.0, -9.8, 0.0)\n  let opts = emptyObj()\n  opts.mass = 1.0\n  opts.shape = new CANNON.Sphere(0.5)\n  let ball = new CANNON.Body(opts)\n  world.addBody(ball)\n  for (let i = 0; i < 20; i++) { world.step(0.05) }\n  printNum(ball.position.y)\n}',
+  'peer.js':'use peer.js\n\nfn opened(id: str) {\n  printStr(strConcat("connected - my peer id: ", id))\n}\n\nexport fn run() {\n  let peer = new Peer()\n  peer.on("open", fnRef(opened))\n  printStr("asking the PeerJS server for an id ...")\n}',
+  'phaser':'use phaser\n\nexport fn run() {\n  let cfg = emptyObj()\n  cfg.type = Phaser.CANVAS\n  cfg.width = 300\n  cfg.height = 200\n  cfg.parent = "tab-output"\n  cfg.backgroundColor = "#2dd4bf"\n  let game = new Phaser.Game(cfg)\n  let v = new Phaser.Math.Vector2(3.0, 4.0)\n  printNum(v.length())\n}',
+  'leaflet':'use leaflet\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.style.height = "240px"\n  document.getElementById("tab-output").appendChild(el)\n  let map = L.map(el)\n  map.setView(toJsArray([51.5, -0.09]), 13)\n  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", emptyObj()).addTo(map)\n  L.marker(toJsArray([51.5, -0.09])).addTo(map)\n  printNum(map.getZoom())\n}',
+  'confetti':'use confetti\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 80\n  confetti(opts)\n  printStr("confetti!")\n}',
+  'typed.js':'use typed.js\n\nexport fn run() {\n  let el = document.createElement("span")\n  document.getElementById("tab-output").appendChild(el)\n  let opts = emptyObj()\n  opts.strings = toJsArray(["Hello from typed.js", "Typed by an Emit program"])\n  opts.typeSpeed = 40\n  let typed = new Typed(el, opts)\n}',
+  'socket.io':'use socket.io\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.autoConnect = false\n  let socket = io("http://localhost:3000", opts)\n  printStr(toStr(socket.io.uri))\n  if (!socket.connected) {\n    printStr("not connected - start a server, then call socket.connect()")\n  }\n}',
+  'p5.js':'use p5.js\n\nmut p: js = null\n\nfn setup() {\n  p.createCanvas(300, 200)\n  p.background(20, 20, 40)\n  p.fill(45, 212, 191)\n  p.ellipse(150, 100, 120, 120)\n  p.noLoop()\n}\n\nfn sketch(inst: js) {\n  p = inst\n  inst.setup = fnRef(setup)\n}\n\nexport fn run() {\n  let app = new p5(fnRef(sketch), document.getElementById("tab-output"))\n}',
+  'lottie':'use lottie\n\nexport fn run() {\n  let el = document.createElement("div")\n  document.getElementById("tab-output").appendChild(el)\n  let opts = emptyObj()\n  opts.container = el\n  opts.renderer = "svg"\n  opts.animationData = JSON.parse("{\\"v\\":\\"5.5.2\\",\\"fr\\":30,\\"ip\\":0,\\"op\\":60,\\"w\\":100,\\"h\\":100,\\"layers\\":[]}")\n  let anim = lottie.loadAnimation(opts)\n  printStr("frames in this (empty) animation:")\n  printNum(anim.totalFrames)\n}',
+  'ml5.js':'use ml5.js\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.task = "regression"\n  opts.inputs = 1\n  opts.outputs = 1\n  let nn = ml5.neuralNetwork(opts)\n  nn.addData(toJsArray([1.0]), toJsArray([2.0]))\n  nn.addData(toJsArray([2.0]), toJsArray([4.0]))\n  printStr("training examples added:")\n  print(jsLen(nn.neuralNetworkData.data.raw))\n}',
+  'kaboom':'use kaboom\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.global = false\n  opts.width = 300\n  opts.height = 200\n  opts.root = document.getElementById("tab-output")\n  let k = kaboom(opts)\n  let ball = k.add(new Array(k.circle(30.0), k.pos(150.0, 100.0), k.color(45, 212, 191)))\n  printNum(ball.pos.x)\n}',
+  'planck.js':'use planck.js\n\nexport fn run() {\n  let world = new planck.World(new planck.Vec2(0.0, -10.0))\n  let ball = world.createDynamicBody(new planck.Vec2(0.0, 10.0))\n  ball.createFixture(new planck.Circle(1.0), 1.0)\n  for (let i = 0; i < 20; i++) { world.step(0.05) }\n  printStr("the ball started at height 10 - after 1 second:")\n  printNum(ball.getPosition().y)\n}',
+  'dayjs':'use dayjs\n\nexport fn run() {\n  let d = dayjs()\n  printStr(toStr(d.format("YYYY-MM-DD HH:mm")))\n  printStr(toStr(d.add(7, "day").format("dddd, D MMMM")))\n  printNum(d.year())\n}',
+  'fabric':'use fabric\n\nexport fn run() {\n  let cv = document.createElement("canvas")\n  cv.width = 300\n  cv.height = 200\n  document.getElementById("tab-output").appendChild(cv)\n  let c = new fabric.Canvas(cv)\n  let opts = JSON.parse("{\\"left\\":60,\\"top\\":50,\\"width\\":120,\\"height\\":80,\\"fill\\":\\"#2dd4bf\\"}")\n  c.add(new fabric.Rect(opts))\n  printStr("drag or resize the rectangle")\n}',
+  'rough.js':'use rough.js\n\nexport fn run() {\n  canvas(300, 200)\n  let rc = rough.canvas(getCanvas())\n  let opts = emptyObj()\n  opts.stroke = "#2dd4bf"\n  opts.fill = "#f472b6"\n  rc.rectangle(20, 20, 120, 80, opts)\n  rc.circle(210, 110, 90, opts)\n  rc.line(20, 170, 280, 170, opts)\n}',
+  'konva':'use konva\n\nexport fn run() {\n  let so = emptyObj()\n  so.container = "tab-output"\n  so.width = 300\n  so.height = 200\n  let stage = new Konva.Stage(so)\n  let layer = new Konva.Layer()\n  stage.add(layer)\n  let co = JSON.parse("{\\"x\\":150,\\"y\\":100,\\"radius\\":60,\\"fill\\":\\"#2dd4bf\\",\\"draggable\\":true}")\n  layer.add(new Konva.Circle(co))\n}',
+  'marked':'use marked\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.innerHTML = marked.parse("# Hello\\n\\nThis is **bold** and this is *italic*.")\n  document.getElementById("tab-output").appendChild(el)\n  printStr(toStr(marked.parseInline("**bold**")))\n}',
+  'dompurify':'use dompurify\n\nexport fn run() {\n  let dirty = "<img src=x onerror=alert(1)><b>safe text</b>"\n  printStr(dirty)\n  printStr("after DOMPurify.sanitize:")\n  printStr(toStr(DOMPurify.sanitize(dirty)))\n}',
+  'mathjs':'use mathjs\n\nexport fn run() {\n  printStr(toStr(math.evaluate("2 + 3 * 4")))\n  printNum(math.sqrt(16))\n  printStr(toStr(math.derivative("x^2", "x").toString()))\n  printStr(toStr(math.format(math.unit(5, "cm").to("mm"))))\n}',
+  'numeral':'use numeral\n\nexport fn run() {\n  printStr(toStr(numeral(1234.5).format("$0,0.00")))\n  printStr(toStr(numeral(0.256).format("0.0%")))\n  printStr(toStr(numeral(1500000.0).format("0.0a")))\n}',
+  'qrcode':'use qrcode\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.style.background = "white"\n  el.style.padding = "12px"\n  el.style.display = "inline-block"\n  document.getElementById("tab-output").appendChild(el)\n  let qr = new QRCode(el, "https://example.com")\n}',
+  'papaparse':'use papaparse\n\nexport fn run() {\n  let res = Papa.parse("name,age\\nAda,36\\nAlan,41")\n  printStr("rows:")\n  print(jsLen(res.data))\n  let ada = jsAt(res.data, 1)\n  printStr(toStr(jsAt(ada, 0)))\n  printStr(toStr(Papa.unparse(res.data)))\n}',
+  'json5':'use json5\n\nexport fn run() {\n  let o = JSON5.parse("{name: \'emit\', version: 3, /* comments are fine */ }")\n  printStr(toStr(o.name))\n  printNum(o.version)\n  printStr(toStr(JSON5.stringify(o)))\n}',
+  'd3':'use d3\n\nexport fn run() {\n  let svg = d3.select("#tab-output").append("svg")\n  svg.attr("width", "300").attr("height", "120")\n  svg.append("circle").attr("cx", "60").attr("cy", "60").attr("r", "40").attr("fill", "#2dd4bf")\n  svg.append("rect").attr("x", "140").attr("y", "20").attr("width", "80").attr("height", "80").attr("fill", "#f472b6")\n  printNum(d3.sum(toJsArray([1.0, 2.0, 3.5])))\n}',
+  'apexcharts':'use apexcharts\n\nexport fn run() {\n  let el = document.createElement("div")\n  document.getElementById("tab-output").appendChild(el)\n  let opts = emptyObj()\n  opts.chart = JSON.parse("{\\"type\\":\\"bar\\",\\"height\\":220,\\"width\\":320}")\n  opts.series = JSON.parse("[{\\"name\\":\\"sales\\",\\"data\\":[3,7,5]}]")\n  let chart = new ApexCharts(el, opts)\n  chart.render()\n}',
+  'plotly':'use plotly\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.style.width = "360px"\n  el.style.height = "260px"\n  document.getElementById("tab-output").appendChild(el)\n  let trace = emptyObj()\n  trace.x = toJsArray([1.0, 2.0, 3.0, 4.0])\n  trace.y = toJsArray([2.0, 4.0, 8.0, 16.0])\n  trace.type = "scatter"\n  Plotly.newPlot(el, new Array(trace))\n}',
+  'motion':'use motion\n\nexport fn run() {\n  button("Motion moves and fades me", 1)\n  let el = document.getElementById("emit-el-1")\n  let kf = emptyObj()\n  kf.opacity = 0.4\n  kf.transform = "translateX(120px)"\n  let opts = emptyObj()\n  opts.duration = 1.0\n  Motion.animate(el, kf, opts)\n}',
+  'excalibur':'use excalibur\n\nexport fn run() {\n  let a = new ex.Vector(3.0, 4.0)\n  let b = new ex.Vector(1.0, 1.0)\n  printStr("length of (3, 4):")\n  printNum(a.size)\n  printStr("distance to (1, 1):")\n  printNum(a.distance(b))\n  printStr(toStr(ex.Color.Red.toHex()))\n}',
+  'axios':'use axios\n\nfn ok(res: js) {\n  printNum(res.status)\n  printStr(toStr(res.data.title))\n}\n\nfn failed(err: js) {\n  printStr(strConcat("request failed: ", toStr(err.message)))\n}\n\nexport fn run() {\n  axios.get("https://jsonplaceholder.typicode.com/todos/1").then(fnRef(ok)).catch(fnRef(failed))\n}',
+  'alpine':'use alpine\n\nexport fn run() {\n  Alpine.store("count", 5)\n  printNum(Alpine.store("count"))\n  let state = emptyObj()\n  state.n = 1\n  let r = Alpine.reactive(state)\n  r.n = 7\n  printNum(state.n)\n}',
+  'tippy':'use tippy\n\nexport fn run() {\n  button("hover me", 1)\n  let opts = emptyObj()\n  opts.content = "Hello from tippy"\n  let tip = tippy(document.getElementById("emit-el-1"), opts)\n  tip.show()\n}',
+  'flatpickr':'use flatpickr\n\nexport fn run() {\n  let el = document.createElement("input")\n  document.getElementById("tab-output").appendChild(el)\n  let opts = emptyObj()\n  opts.inline = true\n  let picker = flatpickr(el, opts)\n  picker.setDate("2024-03-15")\n  printStr(el.value)\n}',
+  'swiper':'use swiper\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.className = "swiper"\n  el.style.width = "260px"\n  el.innerHTML = "<div class=\'swiper-wrapper\'><div class=\'swiper-slide\'>Slide 1 - drag me</div><div class=\'swiper-slide\'>Slide 2</div><div class=\'swiper-slide\'>Slide 3</div></div>"\n  document.getElementById("tab-output").appendChild(el)\n  let swiper = new Swiper(el, emptyObj())\n  print(jsLen(swiper.slides))\n}',
+  'notyf':'use notyf\n\nexport fn run() {\n  let notyf = new Notyf()\n  notyf.success("Saved!")\n  notyf.error("Something went wrong")\n  printStr("two toasts at the bottom of the page")\n}',
+  'sweetalert2':'use sweetalert2\n\nexport fn run() {\n  Swal.fire("Hello!", "This dialog comes from SweetAlert2.", "success")\n  printStr(toStr(Swal.getTitle().textContent))\n}',
+  'nprogress':'use nprogress\n\nexport fn run() {\n  NProgress.start()\n  NProgress.set(0.6)\n  printStr("loading bar at the top of the page - progress:")\n  printNum(NProgress.status)\n}',
+  'tsparticles':'use tsparticles\n\nexport fn run() {\n  let opts = emptyObj()\n  opts.particleCount = 150\n  opts.spread = 100\n  confetti(opts)\n  printStr("tsparticles confetti!")\n}',
+  'vanta':'use vanta\n\nexport fn run() {\n  let el = document.createElement("div")\n  el.style.height = "220px"\n  document.getElementById("tab-output").appendChild(el)\n  let opts = emptyObj()\n  opts.el = el\n  opts.color = 2937023\n  let fx = VANTA.WAVES(opts)\n}'
+};
+LIBS.forEach(function(l){if(!l.example&&_LIB_EXAMPLES[l.name])l.example=_LIB_EXAMPLES[l.name]});
 
 // ═══ Library vocabulary — live autocomplete from whatever JS libraries are loaded ═══
 // Nothing here knows how a library was loaded: globals are found by diffing `window` against a
@@ -2927,7 +3074,7 @@ function _libACCheck(before){
     var sigs={};
     if(path.length===1){
       var lib=LIBS.find(function(l){return l.global===path[0]});
-      if(lib&&lib.methods)lib.methods.forEach(function(s){var q=s.indexOf('('),r=s.indexOf(')');if(q>0&&r>q&&s.substring(0,q).indexOf('.')<0)sigs[s.substring(0,q)]=s.substring(q,r+1)});
+      if(lib&&lib.methods)_libCatMembers(lib).forEach(function(s){var q=s.indexOf('('),r=s.indexOf(')');if(q>0&&r>q&&s.substring(0,q).indexOf('.')<0)sigs[s.substring(0,q)]=s.substring(q,r+1)});
     }
     if(!p)list=list.filter(function(e){return sigs[e.name]}).concat(list.filter(function(e){return!sigs[e.name]}));   // bare `Lib.` → curated names first
     var items=list.slice(0,40).map(function(e){
@@ -3227,7 +3374,7 @@ function checkAC(){
     // Find a library whose 'global' field matches the identifier
     var libMatch=LIBS.find(function(l){return l.global&&l.global.toLowerCase()===globalName.toLowerCase()});
     if(libMatch&&libMatch.methods&&libMatch.methods.length){
-      var methods=libMatch.methods.filter(function(m){
+      var methods=_libCatMembers(libMatch).filter(function(m){
         var sig=m.toLowerCase();
         return sig.indexOf(partial)===0||partial===''||sig.indexOf('.'+partial)>=0;
       });
@@ -3311,7 +3458,7 @@ function renderLibs(){
   var active=LIBS.filter(function(l){return used.has(l.name)});
   var available=LIBS.filter(function(l){return !used.has(l.name)});
   var html='<h1 style="font-family:var(--mono);color:var(--cyan);font-size:18px;margin-bottom:8px">&#x1F4DA; Libraries</h1>';
-  html+='<p style="color:var(--fg3);font-size:12px;margin-bottom:16px">Each library loads from CDN at runtime via <code style="color:var(--blue)">use &lt;name&gt;</code>. Tap a method to insert it.</p>';
+  html+='<p style="color:var(--fg3);font-size:12px;margin-bottom:16px">Each library loads from CDN at runtime via <code style="color:var(--blue)">use &lt;name&gt;</code>. Tap a line to insert it at the cursor; <b>Example</b> puts a small working program in the editor.</p>';
   html+=_libPanelLoaded();
   // Active section
   html+='<div class="snip-cat">Active in this file ('+active.length+')</div>';
@@ -3333,31 +3480,46 @@ function renderLibs(){
 function renderLibCard(l,isActive){
   var h='<div class="lib-card'+(isActive?' active':'')+'">';
   h+='<div class="lib-head"><div><div class="lib-name">'+l.name+'</div><div class="lib-desc">'+l.desc+'</div></div>';
+  var li=LIBS.indexOf(l);
+  h+='<div style="display:flex;gap:6px;flex-shrink:0;align-items:center">';
+  if(l.example)h+='<button class="lib-add" onclick="loadLibExample('+li+')" title="Put a small working '+l.name+' program in the editor">Example</button>';
   if(isActive){h+='<span class="lib-added">in use</span>';}
   else{h+='<button class="lib-add" onclick="addLibUse(\''+l.name+'\')">+ Add</button>';}
-  h+='</div>';
+  h+='</div></div>';
   h+=_libPanelInfo(l);
-  // Methods list (if metadata present)
-  if(l.methods&&l.methods.length){
+  // Catalogue: wrapper builtins, then the library's own names — each row shows exactly the text a tap inserts
+  var rows=_libCatRows(l);
+  if(rows.length){
+    var esc=function(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')};
     h+='<div class="lib-methods">';
-    var g=l.global||'';
-    l.methods.forEach(function(m){
-      // m is a signature string like "Engine(canvas, antialias)"
-      var safe=m.replace(/</g,'&lt;').replace(/'/g,'&#39;');
-      var display=g?('<span class="lib-global">'+g+'</span>.'+safe):safe;
-      h+='<div class="lib-method" onclick="insertMethod(\''+(g||'')+'\',\''+m.replace(/'/g,"\\'")+'\')">'+display+'</div>';
-    });
-    h+='</div>';
-  }else if(l.fns){
-    // Fall back to fns list for libs without method catalogs
-    h+='<div class="lib-methods">';
-    l.fns.split(' ').slice(0,12).forEach(function(fn){
-      h+='<div class="lib-method" onclick="insertMethod(\'\',\''+fn+'()\')">'+fn+'()</div>';
+    rows.forEach(function(r,ri){
+      var t=esc(r.text),k=r.ctor?4:0;
+      if(r.root&&r.kind!=='inst')t=esc(r.text.substring(0,k))+'<span class="lib-global">'+r.root+'</span>'+esc(r.text.substring(k+r.root.length));
+      h+='<div class="lib-method" onclick="insertLibRow('+li+','+ri+')">'+t+(r.note?' <span style="color:var(--fg3)">\u2014 '+esc(r.note)+'</span>':'')+'</div>';
     });
     h+='</div>';
   }
   h+='</div>';
   return h;
+}
+// Tap on a catalogue row: insert its text at the cursor.
+function insertLibRow(li,ri){
+  var l=LIBS[li],r=l&&_libCatRows(l)[ri];if(!r)return;
+  var pos=ed.selectionStart;
+  ed.value=ed.value.substring(0,pos)+r.text+ed.value.substring(pos);
+  ed.selectionStart=ed.selectionEnd=pos+r.text.length;
+  toggleLibs();
+  updGutter();hlCode();ed.focus();
+}
+// "Example" button: replace the editor contents with the entry's example program.
+function loadLibExample(li){
+  var l=LIBS[li];if(!l||!l.example)return;
+  if(ed.value.trim()&&ed.value.trim()!==l.example.trim()&&!confirm('Replace the program in the editor with the '+l.name+' example?'))return;
+  ed.value=l.example+'\n';
+  ed.selectionStart=ed.selectionEnd=0;
+  try{localStorage.setItem('emit-code',ed.value)}catch(e){}
+  toggleLibs();
+  updGutter();hlCode();ed.focus();
 }
 function addLibUse(name){
   // Insert `use <name>` at the top of the file (after any existing use lines).
@@ -3514,7 +3676,7 @@ function _exportLibs(source,imports){
   var libs=[],explicit=new Set();
   _parseUses(source).forEach(function(u){
     if(u.lib)explicit.add(u.lib.cdn);
-    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,lib:u.lib?{name:u.lib.name,global:u.lib.global||null,needs:u.lib.needs||null}:null});
+    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,css:!!u.css,lib:u.lib?{name:u.lib.name,global:u.lib.global||null,needs:u.lib.needs||null,css:u.lib.css||null}:null});
   });
   var needed=new Set();
   imports.forEach(function(imp){
@@ -3522,7 +3684,7 @@ function _exportLibs(source,imports){
     var provided=Array.from(explicit).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});
     if(!provided)needed.add(fnCdn);
   });
-  needed.forEach(function(cdn){libs.push({label:_libLabel(cdn),alias:null,url:cdn,classicUrl:cdn,module:false,lib:null})});
+  needed.forEach(function(cdn){var reg=LIBS.find(function(l){return l.cdn===cdn});libs.push({label:_libLabel(cdn),alias:null,url:cdn,classicUrl:cdn,module:false,css:false,lib:reg?{name:reg.name,global:reg.global||null,needs:reg.needs||null,css:reg.css||null}:null})});
   return libs;
 }
 // Everything an exported file needs to know about the compiled program (plain JSON).
