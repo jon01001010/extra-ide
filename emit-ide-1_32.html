@@ -326,9 +326,9 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 
 <h2>Export</h2>
 <p>Use the File dropdown to download your program:</p>
-<p><code>.wasm</code> &mdash; raw WebAssembly. Runs in browsers, Node.js, Deno, Cloudflare Workers, Wasmtime.</p>
-<p><code>.html</code> &mdash; standalone HTML page with WASM embedded. Opens in any browser.</p>
-<p><code>.js</code> &mdash; JS module with WASM as base64. Import and call from any JS project.</p>
+<p><code>.html</code> &mdash; one standalone page that runs your program the way Run does, without the editor. It contains the compiled WASM, the list of imports it needs and the Emit runtime itself (the same code this IDE runs programs on: print, canvas, buttons, inputs, sound, strings, JS interop, callbacks, <code>animate()</code>, keyboard and touch). On opening it loads the libraries from your <code>use</code> lines from their URLs (so those need a network connection; a library that fails to load is reported on the page), then calls every exported function that takes no parameters. Functions with parameters are not called automatically, and the IDE's call-trace lines are hidden (add <code>?trace</code> to the address to see them). About 75&nbsp;KB plus your program.</p>
+<p><code>.js</code> &mdash; the same contents as an ES module for a web page of your own: <code>import init from "./program.js"</code>, then <code>const app = await init({target: someElement})</code>. <code>init</code> loads the libraries, starts the program like the <code>.html</code> export and returns <code>app.exports</code> (your exported functions; <code>int</code> values are BigInt). Output goes into the element with id <code>tab-output</code>, created inside <code>target</code> if the page has none. Browser only, one Emit program per page. The comment at the top of the file describes the options.</p>
+<p><code>.wasm</code> &mdash; the raw WebAssembly module only, with no runtime. It runs anywhere WebAssembly does (browsers, Node.js, Deno, Wasmtime), but the host must supply every import itself: the <code>std</code> builtins the program uses (<code>int</code> = i64/BigInt, <code>num</code> = f64, strings = pointer to a 4-byte length followed by UTF-8 in the exported <code>memory</code>), the <code>__js__</code> interop functions and, if the program uses <code>fnRef</code>, a function table as <code>__cb__.table</code>. A program that only computes and returns numbers needs none of this; for anything else the <code>.js</code> export is the practical choice &mdash; its header lists the imports.</p>
 <p><code>.emit</code> &mdash; save your source code.</p>
 </div>
 </div>
@@ -1435,6 +1435,7 @@ function setStatus(st,text,right=''){document.getElementById('sDot').className='
 function h(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function sp(cls,t){return'<span class="'+cls+'">'+h(t)+'</span>'}
 // Build import object — std builtins get real implementations
+//#emit-runtime-begin — up to the matching end marker this is copied verbatim into exported .html/.js files (see _exportRuntime); keep IDE-only code out of it
 var _canvas=null,_ctx=null,_curColor='#ffffff',_wasmMem=null,_arrays=[];
 var _3d={scene:null,cam:null,renderer:null,objs:[]};
 var _phys=null;  // Matter.js state
@@ -2487,9 +2488,11 @@ function buildImportObject(imports,outputLog){
   }
   return obj;
 }
+//#emit-runtime-end
 // ── Library loader: use <registry name | npm spec | URL> [as Name] ──
 // The lexer must never see the rest of a `use` line: npm specs contain '@' and unquoted URLs contain '//'.
 (function(){var _id=Lexer.prototype.id;Lexer.prototype.id=function(){var prev=this.tokens[this.tokens.length-1],sl=this.line;var t=_id.call(this);if(t.type===TT.KEYWORD&&t.value==='use'&&!(prev&&prev.line===sl)){while(this.p<this.s.length&&this.peek()!=='\n')this.adv()}return t}})();
+//#emit-runtime-begin — up to the matching end marker this is copied verbatim into exported .html/.js files (see _exportRuntime); keep IDE-only code out of it
 var _libsLoaded=new Set();   // classic script URLs that loaded successfully
 var _libModules=new Map();   // ES module URL -> module namespace object
 var _libFails={};            // URL -> failed attempts (makes a retried import() a fresh module request)
@@ -2561,6 +2564,7 @@ async function _loadUse(u){
   try{await _loadLib(u.classicUrl,u.label)}catch(e){throw importErr||e}
   if(window[u.alias]===undefined)throw _libErr(noGlobal+(importErr?' ('+importErr.message+')':''));
 }
+//#emit-runtime-end
 function _showLibError(e,out){var em=(e&&e.message)||String(e);var lm=e&&e.isLibError&&em.match(/^(\d+):1: /);out.innerHTML=lm?'<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">✗ '+h(em)+'</span>':sp('err','✗ '+em);setStatus('err','Library error');if(window.innerWidth<768)showView('run')}
 async function compileAndRun(){const source=ed.value,target='wasm32',out=document.getElementById('tab-output');out.innerHTML='';_canvas=null;_ctx=null;_animRunning=false;_resetJsInterop();setStatus('idle','Compiling\u2026');
 // Preload any CDN libraries from 'use' statements
@@ -3461,6 +3465,144 @@ function importFile(){
   });
   inp.click();
 }
+// ═══ EXPORT ═══
+// The .html and .js exports run the program on the SAME runtime as the IDE. Nothing is re-implemented:
+// the runtime source is copied out of this page's own script at export time — every block between a
+// "//#emit-runtime-begin" line and the next "//#emit-runtime-end" line (std builtins, JS interop,
+// callbacks, string allocation, the `use` library loader). A fix made to the runtime is therefore in
+// the next export automatically. Code inside those blocks must not rely on IDE-only code (editor,
+// compiler, status bar); the few IDE names it may touch are stubbed by _exportRuntime() below.
+// An exported file contains: the WASM bytes (base64), the import list the runtime needs
+// (module, name, declaration node, callback count), the libraries resolved from the `use` lines,
+// the runtime source and _emitExportBoot() — not the editor, compiler, examples or library catalogue.
+function _exportRuntime(){
+  var B='//#emit-'+'runtime-begin',E='//#emit-'+'runtime-end',parts=[];
+  Array.prototype.slice.call(document.scripts).forEach(function(sc){
+    var t=sc.textContent||'',p=0;
+    for(;;){
+      var b=t.indexOf('\n'+B,p);if(b<0)break;
+      var e=t.indexOf('\n'+E,b+1);if(e<0)throw new Error('runtime section is not closed in the IDE source');
+      parts.push(t.substring(t.indexOf('\n',b+1)+1,e));
+      p=e+1;
+    }
+  });
+  if(!parts.length)throw new Error('runtime section not found in the IDE source');
+  // The names _emitExportBoot reaches the runtime through. If one is renamed, fail here, not in the exported page.
+  ['buildImportObject','_resetJsInterop','_loadUse','_loadLib'].forEach(function(n){if(typeof window[n]!=='function'||parts.join('\n').indexOf('function '+n+'(')<0)throw new Error('runtime function '+n+' is missing from the runtime section')});
+  // IDE names the runtime may mention: the library catalogue is not exported, status/navigation calls do nothing.
+  var pre='var LIBS=[];function setStatus(){}function showView(){}function jumpToLine(){}\n';
+  ['h','sp'].forEach(function(n){if(typeof window[n]==='function')pre+=Function.prototype.toString.call(window[n])+'\n'});
+  var post='\nvar __emitRT={build:function(i,l){return buildImportObject(i,l)},setMemory:function(m){_wasmMem=m},reset:function(){_resetJsInterop()},loadUse:function(u){return _loadUse(u)},loadLib:function(u,l){return _loadLib(u,l)},stop:function(){_animRunning=false}};\n';
+  var src=pre+parts.join('\n')+post;
+  try{new Function(src)}catch(e){throw new Error('runtime section does not parse on its own: '+e.message)}
+  return src;
+}
+// Libraries the exported program must load before it starts, in order — the same ones Run loads:
+// every `use` line as _parseUses resolved it, then registry libraries implied by the builtins used.
+function _exportLibs(source,imports){
+  var libs=[],explicit=new Set();
+  _parseUses(source).forEach(function(u){
+    if(u.lib)explicit.add(u.lib.cdn);
+    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,lib:u.lib?{name:u.lib.name,global:u.lib.global||null}:null});
+  });
+  var needed=new Set();
+  imports.forEach(function(imp){
+    var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;
+    var provided=Array.from(explicit).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});
+    if(!provided)needed.add(fnCdn);
+  });
+  needed.forEach(function(cdn){libs.push({label:_libLabel(cdn),alias:null,url:cdn,classicUrl:cdn,module:false,lib:null})});
+  return libs;
+}
+// Everything an exported file needs to know about the compiled program (plain JSON).
+function _exportProgram(source,r){
+  var bin='';for(var i=0;i<r.wasm.length;i+=8192)bin+=String.fromCharCode.apply(null,r.wasm.subarray(i,i+8192));
+  var imports=(r.imports||[]).map(function(imp){return{module:imp.module,name:imp.name,node:imp.node===undefined?null:JSON.parse(JSON.stringify(imp.node))}});
+  // Extra properties the compiler hangs on the imports array (cbCount: size of the callback table)
+  var props={};Object.keys(r.imports||[]).forEach(function(k){if(!/^\d+$/.test(k)){var v=r.imports[k];if(v===null||typeof v!=='object')props[k]=v}});
+  return{wasm:btoa(bin),imports:imports,importProps:props,libs:_exportLibs(source,r.imports||[])};
+}
+// Starts an exported program. Copied into exported files with toString(), so it must use nothing from
+// the IDE. P: _exportProgram() data; RT: the __emitRT object of the runtime; opts: {output, run, trace}.
+// Mirrors what Run does: load libraries, build imports, instantiate, then call every exported function
+// that takes no parameters (except frame and the onclick_/ontimer_/onhttp_ handlers).
+async function _emitExportBoot(P,RT,opts){
+  opts=opts||{};
+  var out=opts.output;
+  function show(msg){var d=document.createElement('div');d.className='emit-error';d.style.cssText='color:#ef4444;padding:6px 12px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word;';d.textContent='✗ '+msg;out.appendChild(d)}
+  if(!opts.trace&&!out._emitQuiet){
+    // The runtime also writes the IDE's small diagnostic lines ("→ call(args)", "[click 1] start");
+    // an exported page keeps them in the DOM but hidden. {trace:true} (or ?trace in the .html) shows them.
+    var add=out.appendChild;out._emitQuiet=true;
+    out.appendChild=function(n){try{if(n&&n.nodeType===1&&n.tagName==='DIV'&&!n.firstElementChild&&parseFloat(n.style.fontSize)<12&&/^(→ |\[click \d+\])/.test(n.textContent)){n.style.display='none';n.setAttribute('data-emit-trace','')}}catch(e){}return add.call(this,n)};
+  }
+  try{
+    RT.stop();
+    for(var i=0;i<P.libs.length;i++)await RT.loadUse(P.libs[i]);
+    var bin=atob(P.wasm),bytes=new Uint8Array(bin.length);for(var j=0;j<bin.length;j++)bytes[j]=bin.charCodeAt(j);
+    var imports=P.imports.slice();for(var k in P.importProps)imports[k]=P.importProps[k];
+    var log=[];log.push=function(){return 0}; // the IDE lists these calls under "Results"; here they are dropped
+    RT.reset();
+    var importObj=RT.build(imports,log);
+    var inst=(await WebAssembly.instantiate(bytes,importObj)).instance;
+  }catch(e){show((e&&e.message)||String(e));throw e}
+  RT.setMemory(inst.exports.memory);
+  window._wi=inst; // the runtime finds frame(), onclick_N() … here
+  var entries=Object.keys(inst.exports).filter(function(n){var f=inst.exports[n];return typeof f==='function'&&f.length===0&&n!=='frame'&&n.indexOf('onclick_')!==0&&n.indexOf('ontimer_')!==0&&n.indexOf('onhttp_')!==0});
+  function run(){entries.forEach(function(n){try{inst.exports[n]()}catch(e){show(n+' → '+((e&&e.message)||e))}})}
+  if(opts.run!==false)run();
+  return{instance:inst,exports:inst.exports,memory:inst.exports.memory,output:out,entries:entries,run:run,stop:function(){RT.stop()}};
+}
+// JSON that is safe inside an inline <script> and readable as a JS expression
+function _exportJson(v){return JSON.stringify(v).replace(/[<\u2028\u2029]/g,function(c){return'\\u'+('000'+c.charCodeAt(0).toString(16)).slice(-4)})}
+// The IDE's :root custom properties (fonts, colours) — runtime elements are styled with var(--mono) etc.
+function _exportRootCss(){
+  var css='';
+  Array.prototype.slice.call(document.styleSheets).forEach(function(sh){try{Array.prototype.slice.call(sh.cssRules).forEach(function(rule){if(rule.selectorText===':root')css+=rule.cssText})}catch(e){}});
+  return css||":root{--mono:'JetBrains Mono',monospace}";
+}
+function _exportHtml(P){
+  var rt=_exportRuntime().replace(/<\/(script)/gi,'<\\/$1').replace(/<!--/g,'<\\!--');
+  return '<!DOCTYPE html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emit Program</title>\n'
+    +'<!-- Exported from the Emit IDE. One self-contained page: the compiled WebAssembly (base64), the list of\n     imports it needs, the Emit runtime (the same code the IDE runs programs on) and a few lines that start it.\n     Libraries named by `use` lines are fetched from their URLs when the page opens.\n     Add ?trace to the address to see the runtime\'s call-trace lines. -->\n'
+    +'<style>'+_exportRootCss()+'\nhtml,body{margin:0;min-height:100%;background:var(--bg,#08090d);color:var(--fg,#d4d8e3)}\n#tab-output{font-family:var(--mono);font-size:12px;line-height:1.8;padding:12px;white-space:pre-wrap;word-break:break-word}\n</style></head><body>\n'
+    +'<div id="tab-output"></div>\n'
+    +'<script>\n// The compiled program\nvar __emitProgram='+_exportJson(P)+';\n<\/script>\n'
+    +'<script>\n// Emit runtime — copied from the IDE\n'+rt+'<\/script>\n'
+    +'<script>\n'+_emitExportBoot.toString().replace(/<\/(script)/gi,'<\\/$1')+'\n'
+    +'var __emitApp=_emitExportBoot(__emitProgram,__emitRT,{output:document.getElementById("tab-output"),trace:/[?&]trace\\b/.test(location.search)});\n__emitApp.catch(function(e){console.error(e)});\n<\/script>\n</body></html>\n';
+}
+function _exportJs(P){
+  var libLines=P.libs.map(function(l){return' *     '+(l.alias?(l.module?'import("'+l.url+'") as window.'+l.alias:'<script src="'+l.url+'">, global '+l.alias):'<script src="'+l.url+'">')}).join('\n')||' *     (none)';
+  var impLines=P.imports.map(function(i){return i.module+'.'+i.name}).join(', ')||'(none)';
+  return '/**\n * Emit program — exported from the Emit IDE as an ES module.\n *\n'
+    +' * Contains the compiled WebAssembly (base64), its import list and the Emit runtime (the same code the\n * IDE runs programs on: print/canvas/DOM/sound builtins, JS interop, callbacks, strings). Browser only —\n * the runtime draws into the DOM.\n *\n'
+    +' * Use:\n *     import init from "./program.js";\n *     const app = await init({ target: document.getElementById("app") });\n *     app.exports.someFunction();   // every exported Emit function; int parameters/results are BigInt\n *\n'
+    +' * init(options) → Promise of { exports, instance, memory, output, entries, run(), stop() }\n'
+    +' *   options.target  element that receives the output. Output (print lines, canvas, buttons, inputs) goes into\n *                   the element with id "tab-output"; if the page has none, one is created inside target\n *                   (default: document.body).\n'
+    +' *   options.run     false = do not start the program. By default init() does what Run does in the IDE: it\n *                   calls every exported function without parameters (not frame / onclick_N / ontimer_N /\n *                   onhttp_N — the runtime calls those). app.run() does it later; app.entries lists them.\n'
+    +' *   options.trace   true = show the runtime\'s call-trace lines (hidden by default).\n'
+    +' *   app.stop()      stops the animate() frame loop.\n *\n'
+    +' * Libraries: init() loads these itself before instantiating, exactly as the IDE resolved the `use` lines:\n'+libLines+'\n'
+    +' *   If one cannot be loaded, a readable error is written to the output and init() rejects.\n *\n'
+    +' * WebAssembly imports satisfied by the runtime: '+impLines.replace(/\*\//g,'* /')+'\n *\n'
+    +' * Limits: one Emit program per document (the runtime uses window._wi and the id "tab-output"; use an\n * iframe for a second one). Calling init() again restarts the program and clears its output. The runtime is\n * started with new Function(), so a Content-Security-Policy without \'unsafe-eval\' blocks it — use the .html\n * export there.\n */\n'
+    +'export const program = '+_exportJson(P)+';\n\n'
+    +'// Emit runtime — copied from the IDE. Kept as text so it runs as an ordinary (non-strict) script, as in the IDE.\n'
+    +'const runtimeSource = '+_exportJson(_exportRuntime())+';\n\n'
+    +'const boot = '+_emitExportBoot.toString()+';\n\n'
+    +'let runtime = null, started = false;\n\n'
+    +'export async function init(options = {}) {\n'
+    +'  if (typeof document === "undefined") throw new Error("Emit program: init() needs a browser page (document)");\n'
+    +'  let out = document.getElementById("tab-output");\n'
+    +'  if (!out) {\n    out = document.createElement("div");\n    out.id = "tab-output";\n    (options.target || document.body).appendChild(out);\n  }\n'
+    +'  if (!getComputedStyle(out).getPropertyValue("--mono").trim()) out.style.setProperty("--mono", "ui-monospace,Menlo,Consolas,monospace");\n'
+    +'  if (!runtime) runtime = new Function(runtimeSource + "\\nreturn __emitRT;")();\n'
+    +'  if (started) { runtime.stop(); out.innerHTML = ""; }\n'
+    +'  started = true;\n'
+    +'  return boot(program, runtime, { output: out, run: options.run, trace: options.trace });\n'
+    +'}\n\nexport default init;\n';
+}
 function doExport(fmt){
   if(!fmt)return;
   if(fmt==='import'){importFile();return}
@@ -3472,34 +3614,14 @@ function doExport(fmt){
   try{
     var r=compile(source,'wasm32');
     if(fmt==='wasm'){
+      // Raw bytes only: a host must supply every import itself (see Help → Export)
       _download('program.wasm',r.wasm,'application/wasm');
     } else if(fmt==='html'){
-      // Standalone HTML that loads and runs the WASM
-      var b64=btoa(String.fromCharCode.apply(null,r.wasm));
-      var imps=r.imports||[];
-      var stdFns=[];
-      for(var i=0;i<imps.length;i++){
-        var imp=imps[i];
-        if(imp.module==='std'){
-          if(imp.name==='print'||imp.name==='printNum'||imp.name==='log')stdFns.push(imp.name+':function(x){document.getElementById("out").textContent+=x+"\\n"}');
-          else if(imp.name==='printStr'||imp.name==='alert')stdFns.push(imp.name+':function(ptr){var v=new DataView(mem.buffer);var len=v.getUint32(ptr,true);var s=new TextDecoder().decode(new Uint8Array(mem.buffer,ptr+4,len));if("'+imp.name+'"==="alert")window.alert(s);else document.getElementById("out").textContent+=s+"\\n"}');
-          else stdFns.push(imp.name+':function(){}');
-        }
-      }
-      var modules=new Set();imps.forEach(function(imp){modules.add(imp.module)});
-      var impObj='{';
-      modules.forEach(function(m){
-        if(m==='std')impObj+=m+':{'+stdFns.join(',')+'},';
-        else impObj+=m+':{},';
-      });
-      impObj+='}';
-      var html='<!DOCTYPE html>\n<html><head><meta charset="UTF-8"><title>Emit Program</title><style>body{background:#111;color:#eee;font-family:monospace;padding:20px}pre{white-space:pre-wrap}</style></head><body>\n<pre id="out"></pre>\n<script>\nvar wasm=Uint8Array.from(atob("'+b64+'"),function(c){return c.charCodeAt(0)});\nvar mem;\nWebAssembly.compile(wasm).then(function(mod){\n  return WebAssembly.instantiate(mod,'+impObj+');\n}).then(function(inst){\n  mem=inst.exports.memory;\n  var fns=Object.keys(inst.exports).filter(function(k){return typeof inst.exports[k]=="function"});if(fns.length)inst.exports[fns[0]]();\n});\n<\/script></body></html>';
-      _download('program.html',html,'text/html');
+      // Standalone page: WASM + import list + the IDE's own runtime
+      _download('program.html',_exportHtml(_exportProgram(source,r)),'text/html');
     } else if(fmt==='js'){
-      // JS loader module
-      var b64=btoa(String.fromCharCode.apply(null,r.wasm));
-      var js='// Emit compiled WASM loader\nconst wasmBase64 = "'+b64+'";\nconst wasmBytes = Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0));\n\nexport async function load(imports = {}) {\n  const mod = await WebAssembly.compile(wasmBytes);\n  const inst = await WebAssembly.instantiate(mod, imports);\n  return inst.exports;\n}\n';
-      _download('program.js',js,'text/javascript');
+      // ES module with the same contents; init() starts the program
+      _download('program.js',_exportJs(_exportProgram(source,r)),'text/javascript');
     }
   }catch(e){
     window.alert('Export failed: '+e.message);
