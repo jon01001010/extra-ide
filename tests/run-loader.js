@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Tests the `use` library loader of an Emit IDE build in headless Chromium:
-// URL form, npm-name form, `as Name` (ES module) form, load errors and retry after a failed load.
+// URL form, npm-name form, `as Name` (ES module) form, load errors and retry after a failed load,
+// stylesheets (`use "….css"`, a registry entry's `css`, the non-fatal warning when one cannot be loaded)
+// and which registry library a bare builtin call auto-loads.
 // Like run-examples.js it is fully offline: every request is answered by the route handler below
 // (from tests/node_modules or from inline sources) or aborted.
 //
@@ -23,6 +25,17 @@ const ROUTES = {
   // Fails on the first request, works from the second one on.
   'https://libs.test/flaky.js': n => (n < 2 ? null : 'window.flakyLib={ok:function(){return "flaky-ok"}};'),
   'https://libs.test/flakymod.js': n => (n < 2 ? null : 'export function ok(){return "flakymod-ok"}'),
+  // Stylesheets (served as text/css — anything ending in .css is)
+  'https://libs.test/style.css': '.emit-css-probe{position:fixed;height:7px}',
+  'https://libs.test/flaky.css': n => (n < 2 ? null : '.emit-css-probe{height:9px}'),
+  'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.css': () => npmFile('notyf/notyf.min.css'),
+  // Registry libraries (URLs as in the LIBS array)
+  'https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js': () => npmFile('nprogress/nprogress.js'),
+  'https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css': () => npmFile('nprogress/nprogress.css'),
+  'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.js': () => npmFile('notyf/notyf.min.js'),   // its .css is routed above
+  'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js': () => npmFile('flatpickr/dist/flatpickr.min.js'),   // its .css is NOT routed
+  'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.js': () => npmFile('canvas-confetti/dist/confetti.browser.js'),
+  'https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.1/tsparticles.confetti.bundle.min.js': () => npmFile('@tsparticles/confetti/tsparticles.confetti.bundle.min.js'),
 };
 
 let browser, fileUrl, failed = 0;
@@ -37,7 +50,7 @@ async function open() {
     let body = ROUTES[url];
     if (typeof body === 'function') body = body(n);
     if (body == null) return route.abort();
-    return route.fulfill({ body, contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' } });
+    return route.fulfill({ body, contentType: /\.css$/.test(url) ? 'text/css' : 'application/javascript', headers: { 'access-control-allow-origin': '*' } });
   });
   await page.goto(fileUrl);
   await page.waitForFunction(() => typeof compileAndRun === 'function' && typeof EX === 'object');
@@ -80,6 +93,27 @@ function expectLibError(r, ...needles) {
   for (const n of needles) check(r.output.includes(n), 'error should mention ' + JSON.stringify(n), r.output);
   check(!/\[object |undefined/.test(r.output), 'error should be readable', r.output);
 }
+
+// Like expectDone, plus exactly `n` amber warning lines mentioning every needle — and nothing shown as an error.
+async function expectWarned(t, r, text, n, ...needles) {
+  expectDone(r, text);
+  check(!r.errRed, 'a stylesheet problem must not be rendered as an error', r.output);
+  const warns = await t.page.evaluate(() => [...document.querySelectorAll('#tab-output .emit-warning')].map(e => e.textContent));
+  check(warns.length === n, 'expected ' + n + ' warning line(s)', warns);
+  for (const w of warns) {
+    check(/^⚠ /.test(w) && !/\[object |undefined/.test(w), 'warning should be readable', w);
+    for (const needle of needles) check(w.includes(needle), 'warning should mention ' + JSON.stringify(needle), w);
+  }
+}
+// Computed style of a fresh element carrying `cls` (or built from `html`).
+const styleOf = (t, cls, prop, html) => t.page.evaluate(([cls, prop, html]) => {
+  const d = document.createElement('div');
+  if (html) d.innerHTML = html; else d.className = cls;
+  document.body.appendChild(d);
+  const v = getComputedStyle(html ? d.querySelector(cls) : d)[prop];
+  d.remove();
+  return v;
+}, [cls, prop, html || null]);
 
 const prog = (useLine, body) => useLine + '\n\nexport fn main() {\n' + body + '\n}\n';
 
@@ -170,6 +204,72 @@ const TESTS = {
     const first = t.requests['https://libs.test/flakymod.js'];
     expectDone(await t.run(src), 'flakymod-ok');
     check(t.requests['https://libs.test/flakymod.js'] > first, 'second Run should request the module again', t.requests);
+  },
+  'css: use "https://….css" (quoted) loads a stylesheet': async t => {
+    check(await styleOf(t, 'emit-css-probe', 'height') !== '7px', 'probe must be unstyled before the run');
+    const r = await t.run(prog('use "https://libs.test/style.css"', '  printStr("styled")'));
+    await expectWarned(t, r, 'styled', 0);
+    check(await styleOf(t, 'emit-css-probe', 'height') === '7px', 'the stylesheet should apply', await styleOf(t, 'emit-css-probe', 'height'));
+    const links = await t.page.evaluate(() => document.querySelectorAll('link[rel="stylesheet"][href="https://libs.test/style.css"]').length);
+    check(links === 1 && (await t.page.evaluate(() => document.scripts.length && ![...document.scripts].some(s => /style\.css/.test(s.src)))), 'one <link>, no <script> for a .css URL', links);
+  },
+  'css: unquoted .css URL with a comment, next to a script; loaded once over two Runs': async t => {
+    const src = 'use https://libs.test/style.css // the look\nuse https://libs.test/hello.js\n\nexport fn main() {\n  printStr(toStr(helloLib.greet("css")))\n}\n';
+    await expectWarned(t, await t.run(src), 'hello css', 0);
+    await expectWarned(t, await t.run(src), 'hello css', 0);
+    check(t.requests['https://libs.test/style.css'] === 1, 'stylesheet should be requested exactly once', t.requests);
+    check(await t.page.evaluate(() => document.querySelectorAll('link[href="https://libs.test/style.css"]').length) === 1, 'no duplicate <link>');
+    check(await styleOf(t, 'emit-css-probe', 'position') === 'fixed', 'the stylesheet should apply');
+  },
+  'css: npm path ending in .css goes to jsDelivr as a stylesheet': async t => {
+    const r = await t.run(prog('use notyf@3.10.0/notyf.min.css', '  printStr("x")'));
+    await expectWarned(t, r, 'x', 0);
+    check(t.requests['https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.css'] === 1, 'should request the jsDelivr URL', t.requests);
+    check(await styleOf(t, 'notyf', 'position') === 'fixed', 'notyf.min.css should apply');
+  },
+  'css: a stylesheet that cannot be loaded is a warning, the program still runs; retried on the next Run': async t => {
+    const src = prog('use "https://libs.test/flaky.css"', '  printStr("ran anyway")');
+    await expectWarned(t, await t.run(src), 'ran anyway', 1, 'https://libs.test/flaky.css', 'stylesheet');
+    check(t.pageErrors.length === 0, 'no uncaught page errors', t.pageErrors);
+    await expectWarned(t, await t.run(src), 'ran anyway', 0);
+    check(t.requests['https://libs.test/flaky.css'] === 2, 'second Run should request the stylesheet again', t.requests);
+    check(await styleOf(t, 'emit-css-probe', 'height') === '9px', 'the stylesheet should apply after the retry');
+  },
+  'css: "as Name" on a stylesheet -> readable error': async t => {
+    const r = await t.run(prog('use "https://libs.test/style.css" as Style', '  printStr("x")'));
+    expectLibError(r, 'stylesheet', 'Style');
+  },
+  'css: a registry entry loads its stylesheet (use nprogress)': async t => {
+    const r = await t.run(prog('use nprogress', '  NProgress.start()\n  printStr("bar")'));
+    await expectWarned(t, r, 'bar', 0);
+    check(t.requests['https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css'] === 1 && t.requests['https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js'] === 1, 'script and stylesheet requested once each', t.requests);
+    const bar = await t.page.evaluate(() => { const b = document.querySelector('#nprogress .bar'); const cs = b && getComputedStyle(b); return cs && [cs.position, cs.height].join(); });
+    check(bar === 'fixed,2px', 'the real NProgress bar should be styled (fixed, 2px high)', bar);
+  },
+  'css: a registry stylesheet that fails -> warning naming the library, library still usable': async t => {
+    const r = await t.run(prog('use flatpickr', '  printStr(typeOf(flatpickr))'));
+    await expectWarned(t, r, 'function', 1, 'flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css');
+  },
+  'auto-load: bare confetti() without a use line loads canvas-confetti, not tsparticles': async t => {
+    const r = await t.run('export fn main() {\n  confetti()\n  printStr("party")\n}\n');
+    expectDone(r, 'party');
+    const urls = Object.keys(t.requests).filter(u => /confetti/.test(u));
+    check(urls.length === 1 && /canvas-confetti@1\.9\.2\/dist\/confetti\.browser\.js$/.test(urls[0]), 'only canvas-confetti should be requested', t.requests);
+    check(await t.page.evaluate(() => typeof confetti === 'function' && typeof tsParticles === 'undefined'), 'window.confetti from canvas-confetti, no tsParticles');
+  },
+  'auto-load: use tsparticles + confetti() does not also load canvas-confetti': async t => {
+    const r = await t.run(prog('use tsparticles', '  confetti()\n  printStr("party")'));
+    expectDone(r, 'party');
+    const urls = Object.keys(t.requests).filter(u => /confetti/.test(u));
+    check(urls.length === 1 && /@tsparticles\/confetti/.test(urls[0]), 'only the tsparticles bundle should be requested', t.requests);
+    check(await t.page.evaluate(() => typeof tsParticles === 'object'), 'tsParticles global expected');
+  },
+  'auto-load: a builtin provided by a registry library with css/needs loads those too': async t => {
+    // No use line: the call to the library global makes the IDE load the entry — through _loadUse, so its css comes along.
+    const info = await t.page.evaluate(() => { const l = LIBS.find(x => x.name === 'nprogress'); return { cdn: l.cdn, css: l.css, auto: _fnToCdn.NProgress }; });
+    check(info.auto === info.cdn && info.css && info.css.length === 1, 'registry should map NProgress to the nprogress entry, which has css', info);
+    await t.page.evaluate(u => _loadLib(u), info.cdn);
+    check(t.requests[info.css[0]] === 1 && t.requests[info.cdn] === 1, 'label-less _loadLib of a registry URL should load script and stylesheet', t.requests);
   },
   'syntax highlighter copes with every use form': async t => {
     const src = ['use "https://libs.test/hello.js"', 'use https://libs.test/hello.js as H // note', 'use lodash@4.17.21', '  use @scope/pkg@1 as P',

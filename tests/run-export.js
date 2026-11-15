@@ -2,7 +2,7 @@
 // Tests the File-menu exports of an Emit IDE build in headless Chromium.
 //
 // For every bundled example (and a few extra programs that cover `use` URL / ES-module libraries,
-// a failing library, keyboard and mouse input) it
+// a failing library, library stylesheets, keyboard and mouse input) it
 //   1. runs the program in the IDE and records what the Output tab shows (printed lines, buttons,
 //      inputs, canvases and whether they have pixels), before and after pressing every button;
 //   2. triggers each export (.wasm, .html, .js, .emit) and captures the generated file by replacing
@@ -34,11 +34,32 @@ const CDN_MAP = [
   [/tinycolor2@1\.6\.0\/\+esm/, 'tinycolor2/esm/tinycolor.js'],
   [/dayjs/, 'dayjs/dayjs.min.js'],
   [/tinycolor2/, 'tinycolor2/cjs/tinycolor.js'],
+  [/nprogress@0\.2\.0\/nprogress\.js$/, 'nprogress/nprogress.js'],
+  [/nprogress@0\.2\.0\/nprogress\.css$/, 'nprogress/nprogress.css'],
 ];
+const typeOfUrl = url => (/\.css$/.test(url) ? 'text/css' : 'application/javascript');
 // Exact URL -> script body, for the extra programs.
 const ROUTES = {
   'https://libs.test/hello.js': 'window.helloLib={greet:function(n){return "hello "+n}};',
   'https://libs.test/mathmod.js': 'export function add(a,b){return a+b}\nexport const name="mathmod";',
+  'https://libs.test/style.css': '.emit-css-probe{position:fixed;height:7px}',
+};
+// Runs in an exported page: what only nprogress.css gives the real NProgress bar / only style.css gives a probe.
+const NPROGRESS_STYLED = () => {
+  const p = [], bar = document.querySelector('#nprogress .bar'), cs = bar && getComputedStyle(bar);
+  if (!bar) p.push('NProgress did not create its bar');
+  else if (cs.position !== 'fixed' || cs.height !== '2px') p.push('the NProgress bar is unstyled (nprogress.css not applied): position ' + cs.position + ', height ' + cs.height);
+  const links = document.querySelectorAll('link[rel="stylesheet"][href$="nprogress@0.2.0/nprogress.css"]').length;
+  if (links !== 1) p.push('expected exactly one <link> for nprogress.css, found ' + links);
+  return p;
+};
+const PROBE_STYLED = () => {
+  const d = document.createElement('div');
+  d.className = 'emit-css-probe';
+  document.body.appendChild(d);
+  const h = getComputedStyle(d).height;
+  d.remove();
+  return h === '7px' ? [] : ['the stylesheet from the use line is not applied (probe height ' + h + ')'];
 };
 const JS_ORIGIN = 'http://export.test';
 
@@ -69,6 +90,25 @@ const EXTRA = {
   },
   '+use-esm-as': { src: prog('use "https://libs.test/mathmod.js" as M', '  let s = M.add(2, 40)\n  printStr(toStr(s))'), expect: '42' },
   '+use-npm-esm': { src: prog('use tinycolor2@1.6.0 as TC', '  printStr(toStr(TC.mix("#000000", "#ffffff", 50).toHexString()))'), expect: '#808080' },
+  // A registry library that ships a stylesheet: the export must carry the entry's `css` and load it.
+  '+use-css': {
+    src: prog('use nprogress', '  NProgress.start()\n  NProgress.set(0.4)\n  printStr("bar shown")'), expect: 'bar shown',
+    programCheck: P => (P.libs.length === 1 && P.libs[0].lib && Array.isArray(P.libs[0].lib.css) && /nprogress\.css$/.test(P.libs[0].lib.css[0]) ? [] : ['exported program data does not carry the library css: ' + JSON.stringify(P.libs)]),
+    htmlCheck: page => page.evaluate(NPROGRESS_STYLED),
+    jsCheck: page => page.evaluate(NPROGRESS_STYLED),
+  },
+  // A stylesheet named directly by a use line, next to a script.
+  '+use-css-url': {
+    src: 'use "https://libs.test/style.css"\nuse "https://libs.test/hello.js"\n\nexport fn main() {\n  printStr(toStr(helloLib.greet("css")))\n}\n', expect: 'hello css',
+    htmlCheck: page => page.evaluate(PROBE_STYLED),
+    jsCheck: page => page.evaluate(PROBE_STYLED),
+  },
+  // The export is opened with the stylesheet unreachable: one warning line, the program still runs, init() resolves.
+  '+css-fails': {
+    src: prog('use nprogress', '  NProgress.start()\n  printStr("ran anyway")'), expect: 'ran anyway',
+    exportBlocks: ['https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css'],
+    exportWarns: ['Could not load the stylesheet', 'nprogress.css', 'nprogress'],
+  },
   '+use-fails': {
     src: prog('use "https://libs.test/hello.js"', '  printStr(toStr(helloLib.greet("emit")))'),
     // The export is opened with the library unreachable: it must say so, readably, and not throw.
@@ -149,10 +189,10 @@ async function newPage(extra) {
       return route.fulfill({ body, contentType });
     }
     const js = { contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' } };
-    if (url in ROUTES) return route.fulfill({ body: ROUTES[url], ...js });
+    if (url in ROUTES) return route.fulfill({ body: ROUTES[url], ...js, contentType: typeOfUrl(url) });
     const hit = CDN_MAP.find(([re]) => re.test(url));
     const file = hit && path.join(LIBS, hit[1]);
-    if (file && fs.existsSync(file)) return route.fulfill({ body: fs.readFileSync(file), ...js });
+    if (file && fs.existsSync(file)) return route.fulfill({ body: fs.readFileSync(file), ...js, contentType: typeOfUrl(url) });
     if (!/fonts\.(googleapis|gstatic)\.com/.test(url)) t.blocked.push(url);
     return route.abort();
   });
@@ -270,6 +310,10 @@ function compare(ide, exp, c) {
 async function checkExport(kind, c, ide) {
   const problems = [];
   const file = ide.files[kind === 'html' ? 'program.html' : 'program.js'];
+  if (file && c.programCheck && kind === 'html') {
+    const m = file.data.toString('utf8').match(/var __emitProgram=(.*);\n<\/script>/);
+    if (!m) problems.push('cannot find __emitProgram in the exported page'); else problems.push(...c.programCheck(JSON.parse(m[1])));
+  }
   if (!file) return ['no ' + kind + ' file was produced' + (ide.alerts.length ? ' (' + ide.alerts.join('; ') + ')' : '')];
   const t = await newPage({
     block: c.exportBlocks,
@@ -307,6 +351,15 @@ async function checkExport(kind, c, ide) {
       for (const n of c.exportMustShow) if (!seen.after.text.includes(n)) problems.push('page should show ' + JSON.stringify(n) + ', shows: ' + JSON.stringify(seen.after.text.slice(0, 300)));
       if (/\[object |undefined/.test(seen.after.text)) problems.push('error is not readable: ' + seen.after.text.slice(0, 200));
     } else {
+      if (c.exportWarns) { // the warning is extra output of the export only; everything else must match the IDE
+        for (const when of ['before', 'after']) {
+          const warns = seen[when].lines.filter(l => /^⚠ /.test(l));
+          seen[when].lines = seen[when].lines.filter(l => !/^⚠ /.test(l));
+          if (warns.length !== 1) problems.push('expected exactly one warning line, got ' + JSON.stringify(warns));
+          else for (const n of c.exportWarns) if (!warns[0].includes(n)) problems.push('warning should mention ' + JSON.stringify(n) + ': ' + warns[0]);
+        }
+        if (/✗/.test(seen.after.text)) problems.push('a missing stylesheet must not be shown as an error: ' + seen.after.text.slice(0, 200));
+      }
       problems.push(...compare(ide.seen, seen, c));
     }
     if (kind === 'js' && c.jsCheck) problems.push(...await c.jsCheck(page));

@@ -11,9 +11,18 @@
 //   a  load       `use <name>` loads: status ends at Done, no load error, no page error, no unmapped request
 //   b  global     the entry's `global` (and the globals listed in the table below) exist on window
 //   c  call       a small Emit program calls into the library through the interop and prints expected values
-//   d  catalogue  every member in the entry's `methods` exists on the loaded library, and every wrapper
-//                 builtin in `fns` has a BUILTINS signature and a `case'name':` implementation in the page
-// Exit code 0 only when every checked library passes all four.
+//   d  catalogue  every row of the entry's catalogue (`methods`, as the 📚 panel shows it) exists on the loaded
+//                 library with the right shape (member / class needing `new` / instance method), and every
+//                 wrapper builtin in `fns` has a BUILTINS signature and a `case'name':` implementation in the page
+//   e  css        every stylesheet in the entry's `css` is requested, loads without a warning line, and the
+//                 `styled` probe of the test table sees a computed style that only the stylesheet provides
+//   f  example    the entry's `example` program compiles and runs with no ✗/ERROR line, no page error, no
+//                 blocked CDN request, and leaves something visible (a printed line or a new element)
+//   g  insert     the text the 📚 panel inserts for each catalogue row compiles as an expression statement
+//                 inside a function body (placeholder argument names declared as parameters)
+// The registry URL must also be "verified by package": cdn.jsdelivr.net/npm/<pkg>@<version>/<path> where
+// <version> is the installed version and <path> is a file of that package (checked in step a).
+// Exit code 0 only when every checked library passes all seven.
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -21,30 +30,31 @@ const path = require('path');
 const NM = path.join(__dirname, 'node_modules');
 
 // Registry CDN URL -> file under tests/node_modules that the CDN serves for it.
-// `exact: false` marks URLs whose local file is an assumption (the CDN path does not exist under that
-// name in the npm package, or the URL is unversioned) — see REGISTRY-STATUS.md.
+// Every registry URL is now a jsDelivr npm URL whose path is literally this file (step a checks that).
+// `exact: false` would mark a URL whose local file is an assumption — none left. `type` is the content type
+// served (default application/javascript).
 const CDN_FILES = {
-  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js': { file: 'three/build/three.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js': { file: 'tone/build/Tone.js', exact: false },
-  'https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js': { file: 'matter-js/build/matter.min.js' },
+  'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js': { file: 'three/build/three.min.js' },
+  'https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js': { file: 'tone/build/Tone.js' },
+  'https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js': { file: 'matter-js/build/matter.min.js' },
   'https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js': { file: 'chart.js/dist/chart.umd.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js': { file: 'gsap/dist/gsap.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js': { file: 'howler/dist/howler.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js': { file: 'animejs/lib/anime.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js': { file: 'pixi.js/dist/pixi.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js': { file: 'cannon/build/cannon.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js': { file: 'peerjs/dist/peerjs.min.js' },
+  'https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js': { file: 'gsap/dist/gsap.min.js' },
+  'https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js': { file: 'howler/dist/howler.min.js' },
+  'https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js': { file: 'animejs/lib/anime.min.js' },
+  'https://cdn.jsdelivr.net/npm/pixi.js@7.3.2/dist/pixi.min.js': { file: 'pixi.js/dist/pixi.min.js' },
+  'https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js': { file: 'cannon/build/cannon.min.js' },
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.1/dist/peerjs.min.js': { file: 'peerjs/dist/peerjs.min.js' },
   'https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js': { file: 'phaser/dist/phaser.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js': { file: 'leaflet/dist/leaflet.js', exact: false },
-  'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js': { file: 'canvas-confetti/dist/confetti.browser.js', exact: false },
-  'https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.16/typed.umd.js': { file: 'typed.js/dist/typed.umd.js' },
+  'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js': { file: 'leaflet/dist/leaflet.js' },
+  'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.js': { file: 'canvas-confetti/dist/confetti.browser.js' },
+  'https://cdn.jsdelivr.net/npm/typed.js@2.0.16/dist/typed.umd.js': { file: 'typed.js/dist/typed.umd.js' },
   'https://cdn.jsdelivr.net/npm/socket.io-client@4.8.4/dist/socket.io.min.js': { file: 'socket.io-client/dist/socket.io.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js': { file: 'p5/lib/p5.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js': { file: 'lottie-web/build/player/lottie.min.js' },
+  'https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js': { file: 'p5/lib/p5.min.js' },
+  'https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js': { file: 'lottie-web/build/player/lottie.min.js' },
   'https://cdn.jsdelivr.net/npm/ml5@0.12.2/dist/ml5.min.js': { file: 'ml5/dist/ml5.min.js' },
   'https://cdn.jsdelivr.net/npm/kaboom@3000.1.17/dist/kaboom.js': { file: 'kaboom/dist/kaboom.js' },
   'https://cdn.jsdelivr.net/npm/planck@1.4.2/dist/planck.min.js': { file: 'planck/dist/planck.min.js' },
-  'https://cdn.babylonjs.com/babylon.js': { file: 'babylonjs/babylon.js', exact: false },
+  'https://cdn.jsdelivr.net/npm/babylonjs@9.36.0/babylon.js': { file: 'babylonjs/babylon.js' },
   'https://cdn.jsdelivr.net/npm/dayjs@1.11.23/dayjs.min.js': { file: 'dayjs/dayjs.min.js' },
   'https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js': { file: 'fabric/dist/fabric.min.js' },
   'https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js': { file: 'roughjs/bundled/rough.js' },
@@ -53,7 +63,7 @@ const CDN_FILES = {
   'https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js': { file: 'dompurify/dist/purify.min.js' },
   'https://cdn.jsdelivr.net/npm/mathjs@12.2.1/lib/browser/math.js': { file: 'mathjs/lib/browser/math.js' },
   'https://cdn.jsdelivr.net/npm/numeral@2.0.6/min/numeral.min.js': { file: 'numeral/min/numeral.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js': { file: 'qrcodejs/qrcode.min.js' },
+  'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js': { file: 'qrcodejs/qrcode.min.js' },
   'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js': { file: 'papaparse/papaparse.min.js' },
   'https://cdn.jsdelivr.net/npm/json5@2.2.3/dist/index.min.js': { file: 'json5/dist/index.min.js' },
   'https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js': { file: 'd3/dist/d3.min.js' },
@@ -68,15 +78,23 @@ const CDN_FILES = {
   'https://cdn.jsdelivr.net/npm/swiper@11.0.5/swiper-bundle.min.js': { file: 'swiper/swiper-bundle.min.js' },
   'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.js': { file: 'notyf/notyf.min.js' },
   'https://cdn.jsdelivr.net/npm/sweetalert2@11.10.1/dist/sweetalert2.all.min.js': { file: 'sweetalert2/dist/sweetalert2.all.min.js' },
-  'https://cdnjs.cloudflare.com/ajax/libs/nprogress/0.2.0/nprogress.min.js': { file: 'nprogress/nprogress.js', exact: false },
+  'https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js': { file: 'nprogress/nprogress.js' },
   'https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.1/tsparticles.confetti.bundle.min.js': { file: '@tsparticles/confetti/tsparticles.confetti.bundle.min.js' },
   'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.waves.min.js': { file: 'vanta/dist/vanta.waves.min.js' },
+  // Stylesheets named in an entry's `css`.
+  'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css': { file: 'leaflet/dist/leaflet.css', type: 'text/css' },
+  'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css': { file: 'flatpickr/dist/flatpickr.min.css', type: 'text/css' },
+  'https://cdn.jsdelivr.net/npm/swiper@11.0.5/swiper-bundle.min.css': { file: 'swiper/swiper-bundle.min.css', type: 'text/css' },
+  'https://cdn.jsdelivr.net/npm/notyf@3.10.0/notyf.min.css': { file: 'notyf/notyf.min.css', type: 'text/css' },
+  'https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css': { file: 'nprogress/nprogress.css', type: 'text/css' },
   // Not registry entries of their own: dependencies named in an entry's `needs`.
   'https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js': { file: '@popperjs/core/dist/umd/popper.min.js' },
 };
 
 // A fake JSON endpoint so an HTTP client library can make a real request offline.
 const FAKE_JSON_URL = 'https://emit-test.invalid/data.json';
+// The axios registry example asks a public demo API; offline it gets this instead.
+const EXAMPLE_JSON = { 'https://jsonplaceholder.typicode.com/todos/1': '{"userId":1,"id":1,"title":"delectus aut autem","completed":false}' };
 const SILENT_WAV = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAAC' + 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 
 // Per-library test. Keys are registry names.
@@ -87,6 +105,9 @@ const SILENT_WAV = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAE
 //   src       Emit program; expect: lines the Output tab must contain, in order (string = whole line, RegExp = match)
 //   wait      ms to wait after Run for timers/promises (default 400)
 //   untested  what this test deliberately does not cover
+//   styled    for entries with `css`: JS expression (run in the page after the call test) that is true only
+//             when the library's stylesheet is applied
+//   exampleWait  ms to wait after running the entry's `example` (default 1200)
 //   known     [{title, src, expect}] programs that SHOULD work but fail today because of a problem outside
 //             the registry (compiler / runtime). They are reported, not counted as failures; when one
 //             starts passing the runner says so and the entry can be folded into the main test.
@@ -341,7 +362,7 @@ export fn run() {
   setTimeout(fnRef(check), 1000)
 }`, expect: ['> 5', '> 5', '> 10', '> 12', '> 13', '> booted'] },
 
-  'leaflet': { pkg: 'leaflet', untested: 'map tiles (tile servers are network-bound); leaflet.css is not loaded by `use`', src: `
+  'leaflet': { pkg: 'leaflet', instance: 'L.map(document.createElement("div"))', styled: '(() => { const d = document.createElement("div"); d.className = "leaflet-container"; document.body.appendChild(d); return getComputedStyle(d).overflow === "hidden"; })()', untested: 'map tiles (tile servers are network-bound); leaflet.css is not loaded by `use`', src: `
 use leaflet
 export fn run() {
   let el = document.createElement("div")
@@ -421,7 +442,7 @@ export fn run() {
   let inst = new p5(fnRef(sketch))
 }`, expect: ['> 5', '> 120'] },
 
-  'lottie': { pkg: 'lottie-web', untested: 'loading an animation by URL (path:) — only inline animationData', src: `
+  'lottie': { pkg: 'lottie-web', instance: 'lottie.loadAnimation({ container: document.createElement("div"), autoplay: false, animationData: { v: "5.5.2", fr: 30, ip: 0, op: 60, w: 100, h: 100, layers: [] } })', untested: 'loading an animation by URL (path:) — only inline animationData', src: `
 use lottie
 export fn run() {
   let el = document.createElement("div")
@@ -774,7 +795,7 @@ export fn run() {
   printStr(toStr(t.popper.textContent))
 }`, expect: ['> hello tip', '> visible', '> hello tip'] },
 
-  'flatpickr': { pkg: 'flatpickr', untested: 'appearance (flatpickr.css is not loaded by `use`)', src: `
+  'flatpickr': { pkg: 'flatpickr', instance: 'flatpickr(document.createElement("input"))', styled: '(() => { const d = document.createElement("div"); d.className = "flatpickr-calendar"; document.body.appendChild(d); return getComputedStyle(d).position === "absolute" && getComputedStyle(d).display === "none"; })()', untested: 'appearance (flatpickr.css is not loaded by `use`)', src: `
 use flatpickr
 export fn run() {
   let el = document.createElement("input")
@@ -785,7 +806,7 @@ export fn run() {
   printStr(toStr(flatpickr.formatDate(new Date(2024, 0, 15), "Y-m-d")))
 }`, expect: ['> 2024-03-15', '> 2024-01-15'] },
 
-  'swiper': { pkg: 'swiper', instance: 'Swiper.prototype', untested: 'appearance and touch dragging (swiper-bundle.css is not loaded by `use`)', src: `
+  'swiper': { pkg: 'swiper', styled: '(() => { const d = document.createElement("div"); d.className = "swiper-wrapper"; document.body.appendChild(d); return getComputedStyle(d).display === "flex"; })()', instance: 'Swiper.prototype', untested: 'appearance and touch dragging (swiper-bundle.css is not loaded by `use`)', src: `
 use swiper
 export fn run() {
   let el = document.createElement("div")
@@ -802,7 +823,7 @@ export fn run() {
   printNum(s.activeIndex)
 }`, expect: ['> 3', '> 1'] },
 
-  'notyf': { pkg: 'notyf', instance: 'new Notyf()', untested: 'appearance (notyf.min.css is not loaded by `use`)', src: `
+  'notyf': { pkg: 'notyf', styled: '(() => { const d = document.createElement("div"); d.className = "notyf"; document.body.appendChild(d); return getComputedStyle(d).position === "fixed"; })()', instance: 'new Notyf()', untested: 'appearance (notyf.min.css is not loaded by `use`)', src: `
 use notyf
 export fn run() {
   let n = new Notyf()
@@ -820,7 +841,7 @@ export fn run() {
   Swal.close()
 }`, expect: ['> visible', '> Title here'] },
 
-  'nprogress': { pkg: 'nprogress', untested: 'appearance (nprogress.css is not loaded by `use`)', src: `
+  'nprogress': { pkg: 'nprogress', styled: '(() => { const d = document.createElement("div"); d.id = "nprogress"; d.innerHTML = "<div class=\'bar\'></div>"; document.body.appendChild(d); return getComputedStyle(d.firstChild).position === "fixed" && getComputedStyle(d.firstChild).height === "2px"; })()', untested: 'appearance (nprogress.css is not loaded by `use`)', src: `
 use nprogress
 export fn run() {
   NProgress.start()
@@ -858,6 +879,17 @@ export fn run() {
   fx.destroy()
 }`, expect: ['> object', '> 1'] },
 };
+
+// null when `url` is https://cdn.jsdelivr.net/npm/<pkg>@<installed version>/<file that exists in the package>
+function verifiedByPackage(url) {
+  const m = url.match(/^https:\/\/cdn\.jsdelivr\.net\/npm\/((?:@[^/]+\/)?[^/@]+)@([^/]+)\/(.+)$/);
+  if (!m) return 'not a jsDelivr npm/<pkg>@<version>/<path> URL';
+  const [, pkg, ver, file] = m;
+  if (pkgVersion(pkg) !== ver) return 'URL says ' + pkg + '@' + ver + ', installed is ' + pkgVersion(pkg);
+  if (!fs.existsSync(path.join(NM, pkg, file))) return 'no file ' + file + ' in the npm package';
+  if (CDN_FILES[url] && path.normalize(CDN_FILES[url].file) !== path.normalize(pkg + '/' + file)) return 'CDN_FILES serves a different file: ' + CDN_FILES[url].file;
+  return null;
+}
 
 function pkgVersion(pkg) {
   try { return JSON.parse(fs.readFileSync(path.join(NM, pkg, 'package.json'), 'utf8')).version; } catch (e) { return '?'; }
@@ -904,7 +936,7 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   const t = TESTS[lib.name];
   const res = { name: lib.name, cdn: lib.cdn, pkg: t && t.pkg, version: t ? pkgVersion(t.pkg) : '?', fail: {}, notes: [], globalsFound: [], catalogue: [] };
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  const pageErrors = [], blocked = [], served = [];
+  const pageErrors = [], blocked = [], served = [], assets = [];
   page.on('pageerror', e => pageErrors.push(e.message.slice(0, 300)));
   await page.route(/^https?:/, route => {
     const url = route.request().url();
@@ -915,8 +947,9 @@ async function checkLibrary(browser, fileUrl, lib, html) {
     const file = hit && path.join(NM, hit.file);
     if (file && fs.existsSync(file)) {
       served.push(url);
-      return route.fulfill({ body: fs.readFileSync(file), contentType: 'application/javascript' });
+      return route.fulfill({ body: fs.readFileSync(file), contentType: hit.type || 'application/javascript' });
     }
+    if (/^data:|\.(png|jpe?g|gif|svg|woff2?)([?#]|$)/i.test(url) && !/fonts/.test(url)) { assets.push(url); return route.abort(); }   // images a stylesheet/library asks for
     if (!/fonts\.(googleapis|gstatic)\.com/.test(url)) blocked.push(url);
     return route.abort();
   });
@@ -928,6 +961,8 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   if (!CDN_FILES[lib.cdn]) a.push('registry URL has no local file in CDN_FILES: ' + lib.cdn);
   else if (!fs.existsSync(path.join(NM, CDN_FILES[lib.cdn].file))) a.push('local file missing (npm install in tests/): ' + CDN_FILES[lib.cdn].file);
   else if (CDN_FILES[lib.cdn].exact === false) res.notes.push('CDN file name is not in the npm package / unversioned; served ' + CDN_FILES[lib.cdn].file);
+  // verified by package: the URL names the installed version and a file that is in the npm package
+  for (const u of [lib.cdn].concat(lib.needs || [], lib.css || [])) { const why = verifiedByPackage(u); if (why) a.push('URL not verified by package: ' + u + ' — ' + why); }
   const load = await setAndRun(page, 'use ' + lib.name + '\n\nexport fn run() {\n  print(1)\n}\n');
   await page.waitForTimeout(300);
   const loadOut = await readOutput(page);
@@ -954,34 +989,48 @@ async function checkLibrary(browser, fileUrl, lib, html) {
 
   // ── d. catalogue ──
   const d = [];
-  if (lib.methods && lib.methods.length) {
+  if (lib.rows.some(x => x.kind !== 'builtin')) {
     res.catalogue = await page.evaluate(({ lib, instanceExpr }) => {
-      const g = window[lib.global];
+      const mainG = window[lib.global];
       let inst = null, instErr = null;
       if (instanceExpr) { try { inst = (0, eval)(instanceExpr); } catch (e) { instErr = String(e.message || e); } }
       const walk = (root, parts) => {
         let o = root;
         for (const p of parts) {
-          if (o === null || o === undefined) return false;
-          try { if (!(p in Object(o))) return false; o = o[p]; } catch (e) { return false; }
+          if (o === null || o === undefined) return { ok: false };
+          try { if (!(p in Object(o))) return { ok: false }; o = o[p]; } catch (e) { return { ok: false }; }
         }
-        return true;
+        return { ok: true, value: o };
       };
-      return lib.methods.map(m => {
-        const sig = m.split(/\s+—/)[0];
-        const name = sig.split('(')[0].trim();
-        const parts = name.split('.');
-        if (parts[0] === lib.global) parts.shift();
-        let kind = 'missing';
+      const isClass = v => typeof v === 'function' && /^class[\s{]/.test(Function.prototype.toString.call(v));
+      const looksCtor = v => { try { return typeof v === 'function' && !!v.prototype && Object.getOwnPropertyNames(v.prototype).length > 1; } catch (e) { return false; } };
+      return lib.rows.filter(x => x.kind !== 'builtin').map(row => {
+        const parts = row.path ? row.path.split('.') : [];
+        const g = row.kind === 'inst' ? mainG : window[row.root];
+        let kind = 'missing', problem = null, hit = null;
         if (g === undefined || g === null) kind = 'missing (global not loaded)';
-        else if (!parts.length) kind = 'global';
-        else if (walk(g, parts)) kind = 'static';
-        else if (g.prototype && walk(g.prototype, parts)) kind = 'instance';
-        else if (inst !== null && inst !== undefined && walk(inst, parts)) kind = 'instance';
-        return { entry: m, name, kind, instErr };
+        else if (row.kind === 'self') { kind = 'global'; hit = { ok: true, value: g }; }
+        else if (row.kind === 'member') { hit = walk(g, parts); if (hit.ok) kind = 'static'; }
+        else {
+          hit = g.prototype ? walk(g.prototype, parts) : { ok: false };
+          if (!hit.ok && inst !== null && inst !== undefined) hit = walk(inst, parts);
+          if (hit.ok) kind = 'instance';
+          else if (walk(g, parts).ok) problem = 'is catalogued as an instance method (leading ".") but is a member of the global';
+        }
+        if (row.kind === 'member' && kind === 'missing' && ((g.prototype && walk(g.prototype, parts).ok) || (inst && walk(inst, parts).ok))) problem = 'is an instance method, catalogue it with a leading "."';
+        if (hit && hit.ok && row.kind !== 'inst') {
+          const v = hit.value, called = /\(/.test(row.text);
+          if (row.ctor && typeof v !== 'function') problem = 'is catalogued with "new" but is not a function';
+          else if (!row.ctor && called && isClass(v)) problem = 'is an ES class: catalogue it with "new"';
+          else if (called && typeof v !== 'function') problem = 'is catalogued as a call but is not a function';
+          else if (!row.ctor && called && looksCtor(v) && /^[A-Z]/.test(parts[parts.length - 1] || row.root)) kind += ' (looks like a constructor, no "new")';
+        }
+        return { entry: row.text, name: row.path || row.root, kind, problem, instErr };
       });
-    }, { lib: { global: lib.global, methods: lib.methods }, instanceExpr: (t && t.instance) || null });
-    res.catalogue.filter(c => /^missing/.test(c.kind)).forEach(c => d.push('catalogue member does not exist: ' + (lib.global || '') + '.' + c.name + (c.instErr ? ' (instance expression threw: ' + c.instErr + ')' : '')));
+    }, { lib: { global: lib.global, rows: lib.rows }, instanceExpr: (t && t.instance) || null });
+    res.catalogue.filter(c => /^missing/.test(c.kind)).forEach(c => d.push('catalogue row does not exist on the library: ' + c.entry + (c.problem ? ' — ' + c.problem : '') + (c.instErr ? ' (instance expression threw: ' + c.instErr + ')' : '')));
+    res.catalogue.filter(c => !/^missing/.test(c.kind) && c.problem).forEach(c => d.push('catalogue row is wrong: ' + c.entry + ' — ' + c.problem));
+    res.catalogue.filter(c => /looks like a constructor/.test(c.kind)).forEach(c => res.notes.push('catalogue: ' + c.entry + ' looks like a constructor but is catalogued without "new"'));
   }
   // Wrapper builtins: every word of `fns` that is not one of the library's globals must be implemented.
   const wrappers = (lib.fns || '').split(' ').filter(f => f && f !== lib.global && !wantGlobals.includes(f));
@@ -1018,7 +1067,93 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   }
   if (c.length) res.fail.c = c;
 
+  // ── e. css ──
+  if (lib.css && lib.css.length) {
+    const e = [];
+    lib.css.forEach(u => { if (!served.includes(u)) e.push('stylesheet was never requested (or has no local file in CDN_FILES): ' + u); });
+    const st = await page.evaluate(({ urls, probe }) => {
+      const r = { notLoaded: urls.filter(u => !_cssLoaded.has(u) || !document.querySelector('link[rel="stylesheet"][href="' + u + '"]')), dup: urls.filter(u => document.querySelectorAll('link[href="' + u + '"]').length > 1), styled: null, err: null };
+      if (probe) { try { r.styled = !!(0, eval)(probe); } catch (x) { r.err = String(x.message || x); } }
+      return r;
+    }, { urls: lib.css, probe: (t && t.styled) || null });
+    st.notLoaded.forEach(u => e.push('stylesheet did not load: ' + u));
+    st.dup.forEach(u => e.push('stylesheet <link> is duplicated: ' + u));
+    if (!t || !t.styled) e.push('no `styled` probe for this library in TESTS');
+    else if (st.err) e.push('styled probe threw: ' + st.err);
+    else if (!st.styled) e.push('styled probe is false — the stylesheet is not applied: ' + t.styled.slice(0, 120));
+    if (/⚠/.test(loadOut + (res.output || ''))) e.push('output has a warning line: ' + ((loadOut + (res.output || '')).match(/.*⚠.*/) || [''])[0].slice(0, 200));
+    if (e.length) res.fail.e = e;
+  }
+
+  // ── g. insert: what the panel inserts for each catalogue row must compile as a statement ──
+  res.rows = lib.rows;
+  const gFail = await page.evaluate(({ name, rows, inst, global }) => {
+    const KEY = new Set(['new', 'true', 'false', 'null', 'fnRef', 'emptyObj', 'toJsArray', 'getCanvas']);
+    const out = [];
+    for (const row of rows) {
+      let params = row.params;
+      if (!params) {
+        const bare = row.text.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+        const names = [];
+        const re = /(^|[^.\w$])([A-Za-z_$][\w$]*)(?![\w$]|\s*\()/g;
+        let m;
+        while ((m = re.exec(bare))) { const n = m[2]; if (!KEY.has(n) && n !== global && window[n] === undefined && !names.includes(n)) names.push(n); }
+        params = names.map(n => ({ name: n, type: 'js' }));
+      }
+      const src = 'use ' + name + '\n\nfn probe(' + params.map(p => p.name + ': ' + p.type).join(', ') + ') {\n  ' + row.text + '\n}\n\nexport fn run() {\n  print(1)\n}\n';
+      let why = null;
+      try {
+        const r = compile(src, 'wasm32');
+        if (r.errors && r.errors.length) why = r.errors[0];
+        else if (!WebAssembly.validate(r.wasm)) { try { new WebAssembly.Module(r.wasm); } catch (x) { why = 'WASM validation: ' + x.message; } }
+      } catch (x) { why = String(x.message || x); }
+      if (why) out.push('inserted text does not compile: `' + row.text + '` — ' + String(why).slice(0, 200));
+    }
+    return out;
+  }, { name: lib.name, rows: lib.rows, inst: lib.inst, global: lib.global });
+  if (gFail.length) res.fail.g = gFail;
+
   await page.close();
+
+  // ── f. example (fresh page) ──
+  {
+    const f = [];
+    if (!lib.example) f.push('entry has no `example`');
+    else {
+      const ep = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+      const eErrors = [], eBlocked = [];
+      ep.on('pageerror', x => eErrors.push(x.message.slice(0, 300)));
+      await ep.route(/^https?:/, route => {
+        const url = route.request().url();
+        if (url === FAKE_JSON_URL) return route.fulfill({ body: '{"name":"emit","n":1}', contentType: 'application/json', headers: { 'access-control-allow-origin': '*' } });
+        if (EXAMPLE_JSON[url]) return route.fulfill({ body: EXAMPLE_JSON[url], contentType: 'application/json', headers: { 'access-control-allow-origin': '*' } });
+        const hit = CDN_FILES[url];
+        if (hit) return route.fulfill({ body: fs.readFileSync(path.join(NM, hit.file)), contentType: hit.type || 'application/javascript' });
+        if (/cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com|cdn\.babylonjs\.com/.test(url) && !/\.(png|jpe?g|gif|svg|woff2?)([?#]|$)/i.test(url)) eBlocked.push(url);
+        return route.abort();
+      });
+      await ep.goto(fileUrl);
+      await ep.waitForFunction(() => typeof compileAndRun === 'function');
+      const before = await ep.evaluate(() => document.body.querySelectorAll('*').length);
+      const run = await setAndRun(ep, lib.example + '\n');
+      await ep.waitForTimeout((t && t.exampleWait) || 1200);
+      res.exampleOutput = await readOutput(ep);
+      const vis = await ep.evaluate(n => ({ grew: document.body.querySelectorAll('*').length - n, made: document.querySelectorAll('#tab-output canvas, #tab-output button, #tab-output input, #tab-output [id^="emit-el-"]').length }), before);
+      await ep.close();
+      const nLines = lib.example.split('\n').filter(l => l.trim()).length;
+      if (!new RegExp('^\\s*use\\s+' + lib.name.replace(/[.]/g, '\\.') + '\\s*$', 'm').test(lib.example)) f.push('example has no `use ' + lib.name + '` line');
+      if (run.rejected) f.push('run rejected: ' + run.rejected);
+      if (run.status !== 'Done') f.push('status: ' + run.status);
+      if (errLine(res.exampleOutput)) f.push('output reports an error: ' + errLine(res.exampleOutput));
+      if (/⚠/.test(res.exampleOutput)) f.push('output has a warning line: ' + (res.exampleOutput.match(/.*⚠.*/) || [''])[0].slice(0, 200));
+      if (eErrors.length) f.push('page error: ' + eErrors.join(' ; '));
+      if (eBlocked.length) f.push('blocked CDN request: ' + eBlocked.join(', '));
+      // Compile + run chrome alone adds ~25 elements; a program that shows something prints a line or adds elements.
+      if (!/^> /m.test(res.exampleOutput) && !vis.made && vis.grew < 40) f.push('example shows nothing (no printed line, no new element)');
+      res.exampleLines = nLines;
+    }
+    if (f.length) res.fail.f = f;
+  }
 
   // ── known issues outside the registry (reported, not counted) ──
   res.known = [];
@@ -1028,7 +1163,7 @@ async function checkLibrary(browser, fileUrl, lib, html) {
     kp.on('pageerror', e => kErrors.push(e.message.slice(0, 200)));
     await kp.route(/^https?:/, route => {
       const hit = CDN_FILES[route.request().url()];
-      return hit ? route.fulfill({ body: fs.readFileSync(path.join(NM, hit.file)), contentType: 'application/javascript' }) : route.abort();
+      return hit ? route.fulfill({ body: fs.readFileSync(path.join(NM, hit.file)), contentType: hit.type || 'application/javascript' }) : route.abort();
     });
     await kp.goto(fileUrl);
     await kp.waitForFunction(() => typeof compileAndRun === 'function');
@@ -1043,7 +1178,8 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   return res;
 }
 
-(async () => {
+module.exports = { CDN_FILES, NM, FAKE_JSON_URL };
+if (require.main === module) (async () => {
   let args = process.argv.slice(2);
   let file = path.join(__dirname, '..', 'emit-ide-1_32.html');
   if (args[0] && /\.html?$/i.test(args[0])) file = args.shift();
@@ -1056,21 +1192,67 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   await probe.route(/^https?:/, r => r.abort());
   await probe.goto(fileUrl);
   await probe.waitForFunction(() => typeof LIBS === 'object');
-  const all = await probe.evaluate(() => LIBS.map(l => ({ name: l.name, cdn: l.cdn, fns: l.fns, global: l.global || null, methods: l.methods || null, needs: l.needs || null })));
+  const all = await probe.evaluate(() => LIBS.map(l => ({ name: l.name, cdn: l.cdn, fns: l.fns, global: l.global || null, methods: l.methods || null, needs: l.needs || null, css: l.css || null, inst: l.inst || null, example: l.example || null, rows: _libCatRows(l) })));
+  const dupes = await probe.evaluate(() => {
+    const by = {};
+    LIBS.forEach(l => l.fns.split(' ').forEach(fn => { if (fn) (by[fn] = by[fn] || []).push(l.name); }));
+    return Object.keys(by).filter(fn => by[fn].length > 1).map(fn => ({ fn, entries: by[fn], autoLoads: (LIBS.find(l => l.cdn === _fnToCdn[fn]) || {}).name }));
+  });
+  // The 📚 panel itself: every row's visible text is the text a tap inserts, and the Example button fills the editor.
+  const panel = await probe.evaluate(() => {
+    const p = [];
+    try { closeWelcome(); } catch (e) {}
+    const ed = document.getElementById('editor');
+    const open = () => { if (!document.getElementById('libsOverlay').classList.contains('show')) toggleLibs(); else renderLibs(); };
+    ed.value = ''; open();
+    const cards = [...document.querySelectorAll('#libsContent .lib-card')];
+    if (cards.length !== LIBS.length) p.push('panel shows ' + cards.length + ' cards for ' + LIBS.length + ' entries');
+    let rows = 0;
+    for (const l of LIBS) {
+      const want = _libCatRows(l);
+      for (let i = 0; i < want.length; i++) {
+        ed.value = ''; open();
+        const card = [...document.querySelectorAll('#libsContent .lib-card')].find(c => c.querySelector('.lib-name').textContent === l.name);
+        const el = card && card.querySelectorAll('.lib-method')[i];
+        if (!el) { p.push(l.name + ': row ' + i + ' is not rendered'); continue; }
+        const shown = el.textContent.split(' \u2014 ')[0];
+        el.click();
+        rows++;
+        if (ed.value !== want[i].text || shown !== want[i].text) p.push(l.name + ': row shows `' + shown + '`, inserts `' + ed.value + '`, catalogue says `' + want[i].text + '`');
+        if (/^(\w+)\.\1\b/.test(ed.value)) p.push(l.name + ': inserted text repeats the global: ' + ed.value);
+      }
+      if (!want.length) p.push(l.name + ': no catalogue rows');
+    }
+    const check = (name, i, text) => { const got = _libCatRows(LIBS.find(l => l.name === name))[i].text; if (got !== text) p.push(name + ' row ' + i + ' should insert `' + text + '`, inserts `' + got + '`'); };
+    check('dayjs', 0, 'dayjs()'); check('apexcharts', 0, 'new ApexCharts(element, options)'); check('babylon.js', 1, 'new BABYLON.Scene(engine)');
+    check('leaflet', 0, 'L.map(element)'); check('typed.js', 0, 'new Typed(element, opts)'); check('tippy', 1, 'tippy.delegate(parent, opts)'); check('qrcode', 0, 'new QRCode(element, text)');
+    // Example button
+    ed.value = ''; open();
+    const card = [...document.querySelectorAll('#libsContent .lib-card')].find(c => c.querySelector('.lib-name').textContent === 'dayjs');
+    const btn = card && [...card.querySelectorAll('button')].find(b => b.textContent === 'Example');
+    if (!btn) p.push('dayjs card has no Example button');
+    else { btn.click(); if (ed.value.trim() !== LIBS.find(l => l.name === 'dayjs').example.trim()) p.push('Example button did not put the example in the editor'); }
+    if (document.getElementById('libsOverlay').classList.contains('show')) p.push('panel should close after inserting');
+    return { problems: p, rows };
+  });
   await probe.close();
+  if (panel.problems.length) { console.log('FAIL  📚 panel'); panel.problems.slice(0, 20).forEach(m => console.log('      ' + m)); }
+  else console.log('PASS  📚 panel: ' + panel.rows + ' catalogue rows show exactly the text they insert; Example button works');
   const unknown = only.filter(n => !all.some(l => l.name === n || l.name.replace('.js', '') === n));
   if (unknown.length) { console.log('Not in the registry: ' + unknown.join(', ')); await browser.close(); process.exit(2); }
   const libs = all.filter(l => !only.length || only.includes(l.name) || only.includes(l.name.replace('.js', '')));
-  const LABEL = { a: 'load', b: 'global', c: 'call', d: 'catalogue' };
+  const LABEL = { a: 'load', b: 'global', c: 'call', d: 'catalogue', e: 'css', f: 'example', g: 'insert' };
+  dupes.forEach(x => console.log('note: `' + x.fn + '` is listed in fns by ' + x.entries.join(' and ') + '; called without a use line it auto-loads ' + x.autoLoads));
   const results = [];
   let failed = 0, knownCount = 0, knownFixed = 0;
+  const panelFailed = panel.problems.length > 0;
   for (const lib of libs) {
     let r;
     try { r = await checkLibrary(browser, fileUrl, lib, html); }
     catch (e) { r = { name: lib.name, ok: false, fail: { a: ['runner error: ' + e.message.split('\n')[0]] }, notes: [], globalsFound: [], catalogue: [], wrappers: [], known: [] }; }
     results.push(r);
     const head = (r.name + ' '.repeat(14)).slice(0, 14) + ((r.pkg || '') + '@' + (r.version || '?'));
-    if (r.ok) console.log('PASS  ' + head + '  [load global call catalogue]');
+    if (r.ok) console.log('PASS  ' + head + '  [load global call catalogue' + (lib.css ? ' css' : '') + ' example insert]');
     else {
       failed++;
       console.log('FAIL  ' + head + '  failed: ' + Object.keys(r.fail).map(k => k + '-' + LABEL[k]).join(', '));
@@ -1086,7 +1268,9 @@ async function checkLibrary(browser, fileUrl, lib, html) {
       console.log('      globals: ' + r.globalsFound.join(' '));
       if (r.catalogue.length) console.log('      catalogue: ' + r.catalogue.map(c => c.name + '=' + c.kind).join(', '));
       if (r.wrappers && r.wrappers.length) console.log('      wrappers: ' + r.wrappers.join(' '));
+      if (r.rows && r.rows.length) console.log('      inserts: ' + r.rows.map(x => x.text).join(' ¦ '));
       if (r.output) console.log(r.output.replace(/^/gm, '      | '));
+      if (r.exampleOutput) console.log('      example output:\n' + r.exampleOutput.replace(/^/gm, '      : '));
     }
   }
   await browser.close();
@@ -1094,5 +1278,6 @@ async function checkLibrary(browser, fileUrl, lib, html) {
   const missingTests = Object.keys(TESTS).filter(n => !all.some(l => l.name === n));
   if (missingTests.length) console.log('\nTESTS entries with no registry entry: ' + missingTests.join(', '));
   console.log('\n' + (libs.length - failed) + '/' + libs.length + ' registry libraries passed' + (knownCount ? ' (' + (knownCount - knownFixed) + ' known non-registry issue' + (knownCount - knownFixed === 1 ? '' : 's') + ' still failing' + (knownFixed ? ', ' + knownFixed + ' now passing' : '') + ')' : ''));
-  process.exit(failed ? 1 : 0);
+  if (panelFailed) console.log('the 📚 panel check failed (see the top of the output)');
+  process.exit(failed || panelFailed ? 1 : 0);
 })();
