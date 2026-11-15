@@ -12,6 +12,7 @@ const path = require('path');
 // A stand-in "third-party library" (window.fakeLib) so library-shaped behaviour can be tested offline:
 // functions returning promises, functions that throw, a class, a function taking a callback.
 const FAKE_LIB = `
+window.typeNameG = function (x) { return x === null ? 'null' : typeof x; };
 window.fakeLib = {
   fetchUser: function (id) { return new Promise(function (ok) { setTimeout(function () { ok({ id: id, name: 'user' + id }); }, 20); }); },
   failLater: function () { return new Promise(function (ok, fail) { setTimeout(function () { fail(new Error('server said no')); }, 20); }); },
@@ -512,6 +513,357 @@ export fn run() {
   Promise.resolve(fakeLib.big(1234)).then(fnRef(got))
   printStr(substr(s, 0, 3))
 }`, expect: ['> 3000', '> 70000', '> xxx', '> 1234'] },
+
+  // ── 8. The `js` type: a JS value is no longer an int ──
+  // The four footguns that used to do arithmetic on handle ids / fail WASM validation.
+  { name: 'js-arithmetic-and-comparison-use-the-number', src: `
+export fn run() {
+  let obj = fakeLib.config
+  let c = obj.count
+  print(c + 1)
+  print(obj.count + 1)
+  if (obj.count > 5) { printStr("count > 5") }
+  if (c > 5) { printStr("c > 5") }
+  if (c < 5) { printStr("WRONG: c < 5") }
+  if (obj.count == 7) { printStr("count == 7") }
+  if (obj.count != 7) { printStr("WRONG: count != 7") }
+  // with a num operand the result is a num; two JS values give a num
+  printNum(obj.size * 2.0)
+  printNum(obj.size + obj.count)
+  // compared with an int variable, and a fractional JS number against an int literal
+  let n = 3
+  if (obj.count > n) { printStr("count > n") }
+  if (obj.size > 2) { printStr("size > 2") }
+  print(c * 2 - 4)
+  print(obj.count / 2)
+  print(obj.count % 2)
+  printNum(-c)
+  c++
+  print(c)
+  c += 10
+  print(c)
+  // straight into int / num parameters
+  print(obj.count)
+  printNum(obj.count)
+}`, expect: ['> 8', '> 8', '> count > 5', '> c > 5', '> count == 7', '> 5', '> 9.5', '> count > n', '> size > 2', '> 10', '> 3', '> 1', '> -7', '> 8', '> 18', '> 7', '> 7'],
+    count: { '> WRONG: c < 5': 0, '> WRONG: count != 7': 0 } },
+
+  { name: 'js-variable-in-conditions-is-truthiness', src: `
+export fn run() {
+  let o = fakeLib.config
+  let v = o.visible
+  if (v) { printStr("v") }
+  let h = o.hidden
+  if (!h) { printStr("not h") }
+  if (v && !h) { printStr("both") }
+  if (h || v) { printStr("either") }
+  while (h) { printStr("WRONG: while") }
+  let nothing = o.nothing
+  if (nothing) { printStr("WRONG: null is falsy") }
+  if (nothing == null) { printStr("null") }
+  if (o != null) { printStr("o not null") }
+  let name = o.name
+  if (name) { printStr("name truthy") }
+  if (o.visible && o.count > 5) { printStr("mixed") }
+  for (let k = 0; v; k++) {
+    printStr("loop once")
+    v = o.hidden
+  }
+}`, expect: ['> v', '> not h', '> both', '> either', '> null', '> o not null', '> name truthy', '> mixed', '> loop once'],
+    count: { '> WRONG: while': 0, '> WRONG: null is falsy': 0, '> loop once': 1 } },
+
+  { name: 'js-variable-converts-where-a-type-is-declared', src: `
+fn takesInt(n: int) {
+  print(n + 1)
+}
+fn takesStr(s: str) {
+  printStr(s)
+}
+fn nameOfIntHandle(o: int) str {
+  return o.name
+}
+fn countOf(o: js) int {
+  let c = o.count
+  return c
+}
+fn labelOf(o: js) str {
+  let l = o.child.label
+  return l
+}
+fn sizeOf(o: js) num {
+  let s = o.size
+  return s
+}
+fn isVisible(o: js) bool {
+  let v = o.visible
+  return v
+}
+export fn run() {
+  let o = fakeLib.config
+  let nm = o.name
+  let s: str = nm
+  printStr(s)
+  printStr(nm)
+  takesStr(nm)
+  let sz = o.size
+  printNum(sz)
+  let x: num = sz
+  printNum(x + 1.0)
+  let i: int = o.count
+  print(i)
+  let cv = o.count
+  takesInt(cv)
+  printStr(nameOfIntHandle(o))
+  print(countOf(o))
+  printStr(labelOf(o))
+  printNum(sizeOf(o))
+  if (isVisible(o)) { printStr("visible") }
+  let b: bool = o.hidden
+  if (!b) { printStr("not hidden") }
+  let t = "x"
+  t = nm
+  printStr(t)
+  printStr(strConcat("n=", o.count))
+}`, expect: ['> cfg', '> cfg', '> cfg', '> 2.5', '> 3.5', '> 7', '> 8', '> cfg', '> 7', '> kid', '> 2.5', '> visible', '> not hidden', '> cfg', '> n=7'] },
+
+  { name: 'js-null-variable-reaches-js-as-null', src: `
+mut cur: js = null
+export fn run() {
+  let missing = fakeLib.config.nothing
+  printStr(toStr(fakeLib.typeName(missing)))
+  // an int variable is still a number
+  let z = 0
+  printStr(toStr(fakeLib.typeName(z)))
+  // through an auto-bridged global function and a property assignment too
+  printStr(toStr(typeNameG(missing)))
+  let o = emptyObj()
+  o.x = missing
+  printStr(toStr(JSON.stringify(o)))
+  let e: js = null
+  printStr(toStr(fakeLib.typeName(e)))
+  printStr(toStr(fakeLib.typeName(cur)))
+  // a variable that starts as null is a js variable
+  let q = null
+  printStr(toStr(fakeLib.typeName(q)))
+  q = fakeLib.config
+  printStr(q.name)
+}`, expect: ['> null', '> number', '> null', '> {"x":null}', '> null', '> null', '> null', '> cfg'] },
+
+  { name: 'js-declared-type-and-int-stay-compatible', src: `
+mut g = 0
+mut cur: js = null
+fn make() js {
+  return emptyObj()
+}
+fn show(o: js) {
+  printStr(strConcat(typeOf(o), strConcat(":", toStr(o))))
+}
+export fn run() {
+  if (cur == null) { printStr("cur starts null") }
+  cur = fakeLib.config
+  printStr(cur.name)
+  // an int global / local may still hold a handle, as every older program does
+  g = fakeLib.config
+  printStr(g.name)
+  let old: int = fakeLib.config
+  printStr(old.name)
+  // …and an int assigned from a JS number is that number
+  g = fakeLib.config.count
+  print(g + 1)
+  let m = make()
+  m.a = 1
+  printStr(toStr(JSON.stringify(m)))
+  // Emit values passed where js is declared
+  show("hi")
+  show(5)
+  show(2.5)
+  show(true)
+  let v = fakeLib.config.name
+  v = "lit"
+  printStr(v)
+  printStr(toStr(1))
+}`, expect: ['> cur starts null', '> cfg', '> cfg', '> cfg', '> 8', '> {"a":1}', '> string:hi', '> number:5', '> number:2.5', '> boolean:true', '> lit', '> 1'] },
+
+  { name: 'js-equality-identity-string-bool', src: `
+export fn run() {
+  if (fakeLib.config == fakeLib.config) { printStr("same object") }
+  if (fakeLib.config != fakeLib.config.child) { printStr("different objects") }
+  if (fakeLib.config == fakeLib.config.child) { printStr("WRONG: identity") }
+  if (fakeLib.config.name == "cfg") { printStr("name == cfg") }
+  if (fakeLib.config.name != "zzz") { printStr("name != zzz") }
+  if (fakeLib.config.visible == true) { printStr("visible == true") }
+  let w = window
+  if (w == window) { printStr("window same") }
+  // an existing object is not "== 0"; null is
+  if (fakeLib.config == 0) { printStr("WRONG: object == 0") }
+  if (fakeLib.config.nothing == 0) { printStr("null == 0") }
+  // Emit strings compare by content
+  let s = "abc"
+  if (s == "abc") { printStr("str ==") }
+  if (s != "abd") { printStr("str !=") }
+  if (typeOf(w) == "object") { printStr("typeOf ==") }
+}`, expect: ['> same object', '> different objects', '> name == cfg', '> name != zzz', '> visible == true', '> window same', '> null == 0', '> str ==', '> str !=', '> typeOf =='],
+    count: { '> WRONG: identity': 0, '> WRONG: object == 0': 0 } },
+
+  { name: 'js-builtins-without-member-access', src: `
+fn f(o: js) {
+  if (o) { printStr("truthy") }
+  if (o == null) { printStr("null") }
+}
+export fn run() {
+  let o = emptyObj()
+  f(o)
+  f(null)
+  print(toInt("42") + 1)
+  printStr(toStr(2.5))
+  printStr(typeOf(5))
+  printStr(typeOf("s"))
+  let i = 3
+  printNum(i * 2.5)
+}`, expect: ['> truthy', '> null', '> 43', '> 2.5', '> number', '> string', '> 7.5'] },
+
+  // ── 9. Callback parameters typed js ──
+  { name: 'callback-js-params-receive-anything', src: `
+fn each(v: js, i: int) {
+  printStr(strConcat(intToStr(i), strConcat(":", typeOf(v))))
+  if (typeOf(v) == "number") { print(v + 1) }
+  if (typeOf(v) == "string") { printStr(v) }
+}
+fn pick(o: js) js {
+  return o.inner
+}
+fn onPing(ev: js) {
+  printStr(ev.type)
+}
+export fn run() {
+  let arr = JSON.parse("[1, \\"two\\", {\\"a\\":1}, null, true, 2.5]")
+  arr.forEach(fnRef(each))
+  let objs = JSON.parse("[{\\"inner\\":{\\"k\\":1}},{\\"inner\\":5},{\\"inner\\":\\"s\\"}]")
+  printStr(toStr(JSON.stringify(objs.map(fnRef(pick)))))
+  let el = document.createElement("div")
+  el.addEventListener("ping", fnRef(onPing))
+  el.dispatchEvent(new Event("ping"))
+}`, expect: ['> 0:number', '> 2', '> 1:string', '> two', '> 2:object', '> 3:null', '> 4:boolean', '> 5:number', '> 3', '> [{"k":1},5,"s"]', '> ping'] },
+
+  // ── 10. Index syntax on JS values ──
+  { name: 'index-read-write', src: `
+export fn run() {
+  let a = JSON.parse("[10,20,30]")
+  print(a[1] + 1)
+  a[0] = 5
+  a[1] += 5
+  let total = 0
+  for (let i = 0; i < jsLen(a); i++) {
+    total = total + a[i]
+  }
+  print(total)
+  let sum = 0.0
+  for (let i = 0; i < a.length; i++) { sum = sum + a[i] }
+  printNum(sum)
+  // string keys, keys in variables, a JS value as the index
+  let o = emptyObj()
+  o["key"] = "v"
+  let k = "name"
+  o[k] = fakeLib.config.name
+  printStr(toStr(JSON.stringify(o)))
+  printStr(fakeLib.config[k])
+  let last = a[2]
+  a[last] = 1
+  print(jsLen(a))
+  // nested, and on the result of a call
+  let m = JSON.parse("[[1,2],[3,4]]")
+  print(m[1][0] + 0)
+  m[0][1] = 9
+  printStr(toStr(JSON.stringify(m)))
+  printStr(toStr(jsKeys(o)[1]))
+  // assignment as a for-loop update
+  let b = JSON.parse("[7,7,7]")
+  for (let j = 0; j < 2; b[j] = 0) { j++ }
+  printStr(toStr(JSON.stringify(b)))
+  // a missing element is null
+  if (b[99] == null) { printStr("out of range is null") }
+  // Emit arrays are untouched: literals and getItem still work, also right after another statement
+  let xs = [1, 2, 3]
+  print(getItem(xs, 1))
+  let js2 = toJsArray([4, 5, 6])
+  print(js2[2] + 0)
+}`, expect: ['> 21', '> 60', '> 60', '> {"key":"v","name":"cfg"}', '> cfg', '> 31', '> 3', '> [[1,9],[3,4]]', '> name', '> [7,0,0]', '> out of range is null', '> 2', '> 6'] },
+
+  { name: 'index-on-emit-array-is-a-compile-error', status: 'Error', errors: true, src: `
+export fn run() {
+  let xs = [1, 2, 3]
+  print(xs[1])
+}`, expect: [/^✗ 3:9: \[ \] works on JS values \(type js\) and strings, but this is int/] },
+
+  { name: 'index-null-receiver-is-reported', errors: true, src: `
+export fn run() {
+  let missing = fakeLib.config.nothing
+  let x = missing[0]
+  missing[1] = 5
+  printStr("still running")
+}`, expect: ['✗ [0]: cannot index null', '✗ [1] = …: cannot index null', '> still running'] },
+
+  // ── 11. Methods and properties on Emit strings ──
+  { name: 'string-methods', src: `
+export fn run() {
+  let parts = "a,b,c".split(",")
+  print(jsLen(parts))
+  printStr(parts[2])
+  let s = "hello"
+  printStr(s.toUpperCase())
+  let n: int = s.length
+  print(n)
+  print(s.length + 1)
+  printStr("ab".repeat(3))
+  printStr(s[1])
+  if (s.startsWith("he")) { printStr("starts with he") }
+  if (s.includes("zz")) { printStr("WRONG: includes") }
+  print(s.indexOf("l") + 0)
+  let up: str = s.slice(1, 3).toUpperCase()
+  printStr(up)
+  printStr(strConcat("x", "y").padEnd(4, "!"))
+  // numbers take methods too
+  let x = 3.14159
+  printStr(x.toFixed(2))
+}`, expect: ['> 3', '> c', '> HELLO', '> 5', '> 6', '> ababab', '> e', '> starts with he', '> 2', '> EL', '> xy!!', '> 3.14'],
+    count: { '> WRONG: includes': 0 } },
+
+  // ── 12. Unhandled promise rejections are shown ──
+  { name: 'unhandled-promise-rejection-is-shown', errors: true, wait: 400, src: `
+export fn run() {
+  fakeLib.failLater()
+  Promise.reject("plain reason")
+  printStr("ran")
+}`, expect: ['> ran', '✗ unhandled promise rejection: plain reason', '✗ unhandled promise rejection: server said no'] },
+
+  // ── 13. Top-level initialisers ──
+  { name: 'global-non-literal-initialiser-is-a-compile-error', status: 'Error', errors: true, src: `
+fn f() int {
+  return 5
+}
+mut x = f()
+export fn run() {
+  print(x)
+}`, expect: [/^✗ 4:9: Top-level 'x' must start with a literal/] },
+
+  { name: 'global-constant-arithmetic-initialiser', src: `
+mut secs = 60 * 60
+mut half = 5.0 / 2.0
+mut neg = -(2 + 3)
+export fn run() {
+  print(secs)
+  printNum(half)
+  print(neg)
+}`, expect: ['> 3600', '> 2.5', '> -5'] },
+
+  // `js` is only a type word in type position; it is still usable as a name and a property
+  { name: 'js-is-still-an-identifier', src: `
+export fn run() {
+  let js = 5
+  print(js + 1)
+  let p = fakeLib.config.js
+  if (p == null) { printStr("no .js property") }
+}`, expect: ['> 6', '> no .js property'] },
 ];
 
 async function runTest(browser, fileUrl, t) {

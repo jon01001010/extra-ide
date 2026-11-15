@@ -192,10 +192,12 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>num</code> &mdash; 64-bit floats. Write <code>3.14</code>.</p>
 <p><code>str</code> &mdash; strings. Write <code>"hello"</code>.</p>
 <p><code>bool</code> &mdash; <code>true</code> / <code>false</code>. <code>void</code> &mdash; no return.</p>
+<p><code>js</code> &mdash; any JavaScript value (object, array, string, number, null&hellip;). You get one from <code>obj.prop</code>, <code>obj.method()</code>, <code>new X()</code>, <code>a[i]</code>. See <em>The js type</em> below.</p>
 
 <h2>Syntax</h2>
 <p><code>let x = 10</code> &mdash; immutable variable</p>
 <p><code>mut y = 0</code> &mdash; mutable variable (top-level becomes a global, persisting between calls)</p>
+<p>A top-level variable must start with a literal (<code>0</code>, <code>2.5</code>, <code>"text"</code>, <code>true</code>, <code>null</code>, <code>60 * 60</code>); assign anything computed inside a function.</p>
 <p><code>fn add(a: int, b: int) int { return a + b }</code> &mdash; function</p>
 <p><code>export fn run() { }</code> &mdash; exported to JS, called by Run button</p>
 <p><code>if (x &gt; 0) { } else { }</code> &mdash; conditionals</p>
@@ -231,33 +233,45 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p>Nest objects by assigning one to a field of another. Numeric property names work too: <code>opts.0 = "star"</code> for array-like config.</p>
 
 <h2>Interop Builtins</h2>
-<div class="sig">emptyObj() &rarr; int &mdash; returns a handle to a fresh JS {}</div>
-<div class="sig">__jsGlobal("name") &rarr; int &mdash; handle to window.name (e.g. for confetti.shapeFromText)</div>
+<div class="sig">emptyObj() &rarr; js &mdash; returns a handle to a fresh JS {}</div>
+<div class="sig">__jsGlobal("name") &rarr; js &mdash; handle to window.name (e.g. for confetti.shapeFromText)</div>
 <div class="sig">toStr(handle) &rarr; str &mdash; convert a JS value handle to an Emit string</div>
 <div class="sig">toNum(handle) &rarr; num &mdash; convert a JS value handle to an Emit number</div>
-<div class="sig">toJsArray(emitArr) &rarr; int &mdash; convert an Emit array to a real JS Array (handle)</div>
+<div class="sig">toJsArray(emitArr) &rarr; js &mdash; convert an Emit array to a real JS Array (handle)</div>
 <div class="sig">wrapShape(s) &rarr; int &mdash; wraps a single shape into {0: s, length: 1} (legacy helper)</div>
-<div class="sig">getCanvas() &rarr; int &mdash; handle to the current canvas, for libs that need a canvas element</div>
+<div class="sig">getCanvas() &rarr; js &mdash; handle to the current canvas, for libs that need a canvas element</div>
 <div class="sig">toInt(handle) &rarr; int &mdash; convert a JS number handle to an Emit int (e.g. <code>toInt(arr.length)</code>)</div>
 <div class="sig">jsLen(handle) &rarr; int &mdash; .length (or .size) of a JS array, string, Map or Set</div>
-<div class="sig">jsAt(handle, i) &rarr; int &mdash; handle to element i of a JS array</div>
-<div class="sig">jsGet(handle, key: str) &rarr; int &mdash; handle to obj[key], for keys only known at run time</div>
-<div class="sig">jsKeys(handle) &rarr; int &mdash; handle to the JS array Object.keys(obj)</div>
+<div class="sig">jsAt(handle, i) &rarr; js &mdash; element i of a JS array (same as <code>arr[i]</code>)</div>
+<div class="sig">jsGet(handle, key: str) &rarr; js &mdash; obj[key], for keys only known at run time (same as <code>obj[key]</code>)</div>
+<div class="sig">jsKeys(handle) &rarr; js &mdash; handle to the JS array Object.keys(obj)</div>
+
+<h2>The js type</h2>
+<p>A value that lives on the JavaScript side has type <code>js</code>. <code>let o = lib.thing</code> infers it; you can also write it: <code>fn onHit(other: js)</code>, <code>let o: js = null</code>, <code>mut player: js = null</code>. (Older programs declare such values as <code>int</code>; that still works, and <code>int</code> and <code>js</code> can be assigned to each other.)</p>
+<p><strong>It converts itself where a type is needed.</strong></p>
+<p><code>let c = obj.count</code> &nbsp; <code>print(c + 1)</code> &nbsp; <code>if (obj.count &gt; 5) { }</code> &mdash; arithmetic and comparisons use the number. With an <code>int</code> operand the result is an int (<code>obj.size * 2</code> drops the fraction; write <code>obj.size * 2.0</code> for a num).</p>
+<p><code>let v = o.visible</code> &nbsp; <code>if (v) { }</code> &nbsp; <code>if (!v &amp;&amp; o.ready) { }</code> &mdash; conditions use JS truthiness.</p>
+<p><code>let s: str = obj.name</code>, <code>let n: num = obj.x</code>, <code>let i: int = obj.count</code>, <code>printStr(obj.name)</code>, <code>return obj.x</code> &mdash; declared types convert.</p>
+<p><code>if (a == null) { }</code> null check &middot; <code>if (a == b) { }</code> same JS value &middot; <code>if (obj.name == "bob") { }</code> string equality.</p>
+<p>Passed to a JS call it is the value itself, and a <code>js</code> variable holding null arrives as <code>null</code>.</p>
+<p><strong>Index.</strong> <code>let x = arr[i]</code>, <code>arr[i] = v</code>, <code>obj["key"] = v</code>, <code>grid[y][x]</code> &mdash; on <code>js</code> values and strings (Emit arrays from <code>newArray</code> / <code>[1, 2, 3]</code> keep <code>getItem</code> / <code>setItem</code>).</p>
+<p><strong>String methods.</strong> Emit strings accept JS methods: <code>"a,b".split(",")</code>, <code>s.toUpperCase()</code>, <code>s.length</code>, <code>s[0]</code>; numbers too: <code>x.toFixed(2)</code>. The result is a <code>js</code> value.</p>
 
 <h2>Callbacks, Promises, Null</h2>
-<p><strong>Callbacks.</strong> <code>fnRef(myFn)</code> turns an Emit function into a JS function a library can call. JS arguments are converted by the parameter types you declare: <code>int</code> / <code>num</code> take numbers, <code>str</code> takes a string, <code>bool</code> takes true/false, and an object passed to an <code>int</code> parameter arrives as a handle. The return value goes back to JS the same way.</p>
+<p><strong>Callbacks.</strong> <code>fnRef(myFn)</code> turns an Emit function into a JS function a library can call. JS arguments are converted by the parameter types you declare: <code>int</code> / <code>num</code> take numbers, <code>str</code> takes a string, <code>bool</code> takes true/false, and a <code>js</code> parameter takes anything (objects, events, values of unknown type). The return value goes back to JS the same way.</p>
 <p><code>fn visit(value: num, index: int) { printNum(value) }</code></p>
 <p><code>arr.forEach(fnRef(visit))</code></p>
-<p><code>el.addEventListener("click", fnRef(onClick))</code> &mdash; <code>fn onClick(ev: int)</code> gets the event as a handle</p>
+<p><code>el.addEventListener("click", fnRef(onClick))</code> &mdash; <code>fn onClick(ev: js)</code> gets the event object</p>
 <p><code>setTimeout(fnRef(tick), 100)</code></p>
 <p><strong>Promises.</strong> There is no <code>await</code>; pass callbacks instead. The resolved value arrives with the type you declare.</p>
-<p><code>fn onDone(result: int) { printStr(toStr(result.title)) }</code></p>
-<p><code>fn onErr(err: int) { printStr(toStr(err.message)) }</code></p>
+<p><code>fn onDone(result: js) { printStr(result.title) }</code></p>
+<p><code>fn onErr(err: js) { printStr(err.message) }</code></p>
 <p><code>lib.load("x").then(fnRef(onDone)).catch(fnRef(onErr))</code></p>
+<p>A rejected promise with no <code>.catch</code> shows a red <code>&#10007; unhandled promise rejection: message</code> line in the output.</p>
 <p><strong>Null.</strong> JS <code>null</code> and <code>undefined</code> both come back as handle 0: <code>if (isNull(el)) { }</code> or <code>if (el == null) { }</code>. <code>typeOf(h)</code> gives <code>"object"</code>, <code>"array"</code>, <code>"string"</code>, <code>"number"</code>, <code>"boolean"</code>, <code>"function"</code> or <code>"null"</code>.</p>
 <p><strong>Constructors.</strong> <code>let d = new Date(2024, 0, 15)</code>, <code>let v = new BABYLON.Vector3(0.0, 1.0, 0.0)</code>.</p>
-<p><strong>Typed values from JS.</strong> A property or method result converts itself where a type is expected: <code>let s: str = obj.name</code>, <code>let n: num = obj.x</code>, <code>if (obj.visible) { }</code>, <code>printStr(obj.name)</code>. For an int use <code>toInt(obj.count)</code> &mdash; a bare <code>let c = obj.count</code> is a handle.</p>
-<p><strong>Loops over JS arrays.</strong> <code>for (let i = 0; i &lt; jsLen(arr); i++) { let item = jsAt(arr, i) }</code></p>
+<p><strong>Typed values from JS.</strong> See <em>The js type</em> above: <code>let s: str = obj.name</code>, <code>if (obj.visible) { }</code>, <code>obj.count + 1</code>. <code>toStr</code> / <code>toNum</code> / <code>toInt</code> convert explicitly.</p>
+<p><strong>Loops over JS arrays.</strong> <code>for (let i = 0; i &lt; jsLen(arr); i++) { let item = arr[i] }</code></p>
 <p><strong>Errors.</strong> If a JS call throws, a red <code>&#10007; jsCall .method(): message</code> line appears in the output, the call returns null (0) and the program carries on. There is no try/catch.</p>
 
 <h2>Library Panel &mdash; 📚 button</h2>
@@ -323,9 +337,23 @@ const EX = {"basics":"// Emit — everything just works\n// No semicolons, no ar
 // ═══ EMIT COMPILER v0.3 — int/num + imports ═══
 const TT={INTEGER:'INTEGER',FLOAT:'FLOAT',STRING:'STRING',BOOLEAN:'BOOLEAN',NULL:'NULL',IDENTIFIER:'IDENTIFIER',KEYWORD:'KEYWORD',TYPE:'TYPE',PLUS:'PLUS',MINUS:'MINUS',STAR:'STAR',SLASH:'SLASH',PERCENT:'PERCENT',AMP:'AMP',PIPE:'PIPE',CARET:'CARET',TILDE:'TILDE',SHL:'SHL',SHR:'SHR',AND:'AND',OR:'OR',NOT:'NOT',EQ:'EQ',NEQ:'NEQ',LT:'LT',GT:'GT',LTE:'LTE',GTE:'GTE',ASSIGN:'ASSIGN',QUESTION:'QUESTION',NULLCOALESCE:'NULLCOALESCE',ARROW:'ARROW',DOT:'DOT',LPAREN:'LPAREN',RPAREN:'RPAREN',LBRACE:'LBRACE',RBRACE:'RBRACE',LBRACKET:'LBRACKET',RBRACKET:'RBRACKET',SEMICOLON:'SEMICOLON',COLON:'COLON',COMMA:'COMMA',PLUSPLUS:'PLUSPLUS',MINUSMINUS:'MINUSMINUS',PLUSEQ:'PLUSEQ',MINUSEQ:'MINUSEQ',STAREQ:'STAREQ',SLASHEQ:'SLASHEQ',EOF:'EOF'};
 const KW=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
-const TY=new Set(['i32','i64','f32','f64','bool','void','int','num','str']);
+const TY=new Set(['i32','i64','f32','f64','bool','void','int','num','str','js']);
 class Token{constructor(t,v,l,c){this.type=t;this.value=v;this.line=l;this.col=c}toString(){return this.type+'('+this.value+') @'+this.line+':'+this.col}}
 class Lexer{constructor(s){this.s=s;this.p=0;this.line=1;this.col=1;this.tokens=[]}peek(){return this.p<this.s.length?this.s[this.p]:'\0'}adv(){const c=this.s[this.p++];if(c==='\n'){this.line++;this.col=1}else this.col++;return c}la(n=1){return this.p+n<this.s.length?this.s[this.p+n]:'\0'}skip(){while(this.p<this.s.length){const c=this.peek();if(' \t\r\n'.includes(c)){this.adv();continue}if(c==='/'&&this.la()==='/'){while(this.p<this.s.length&&this.peek()!=='\n')this.adv();continue}if(c==='/'&&this.la()==='*'){this.adv();this.adv();while(this.p<this.s.length){if(this.peek()==='*'&&this.la()==='/'){this.adv();this.adv();break}this.adv()}continue}break}}num(){const sl=this.line,sc=this.col;let n='',f=false;if(this.peek()==='0'&&'xX'.includes(this.la())){n+=this.adv();n+=this.adv();while(/[0-9a-fA-F_]/.test(this.peek())){const c=this.adv();if(c!=='_')n+=c}return new Token(TT.INTEGER,n,sl,sc)}while(/[0-9_]/.test(this.peek())){const c=this.adv();if(c!=='_')n+=c}if(this.peek()==='.'&&/[0-9]/.test(this.la())){f=true;n+=this.adv();while(/[0-9_]/.test(this.peek())){const c=this.adv();if(c!=='_')n+=c}}if('eE'.includes(this.peek())){f=true;n+=this.adv();if('+-'.includes(this.peek()))n+=this.adv();while(/[0-9]/.test(this.peek()))n+=this.adv()}return new Token(f?TT.FLOAT:TT.INTEGER,n,sl,sc)}str(){const sl=this.line,sc=this.col,q=this.adv();let s='';while(this.p<this.s.length&&this.peek()!==q){if(this.peek()==='\\'){this.adv();const e=this.adv();s+=({n:'\n',t:'\t',r:'\r','\\':'\\','0':'\0'}[e]||e)}else s+=this.adv()}if(this.p<this.s.length)this.adv();return new Token(TT.STRING,s,sl,sc)}id(){const sl=this.line,sc=this.col;let i='';while(/[a-zA-Z0-9_]/.test(this.peek()))i+=this.adv();if(i==='true'||i==='false')return new Token(TT.BOOLEAN,i,sl,sc);if(i==='null')return new Token(TT.NULL,i,sl,sc);if(TY.has(i))return new Token(TT.TYPE,i,sl,sc);if(KW.has(i))return new Token(TT.KEYWORD,i,sl,sc);return new Token(TT.IDENTIFIER,i,sl,sc)}tokenize(){while(this.p<this.s.length){this.skip();if(this.p>=this.s.length)break;const c=this.peek(),sl=this.line,sc=this.col;if(/[0-9]/.test(c)){this.tokens.push(this.num());continue}if(c==='"'||c==="'"){this.tokens.push(this.str());continue}if(/[a-zA-Z_]/.test(c)){this.tokens.push(this.id());continue}const tw=c+this.la();const tm={'->':TT.ARROW,'==':TT.EQ,'!=':TT.NEQ,'<=':TT.LTE,'>=':TT.GTE,'&&':TT.AND,'||':TT.OR,'<<':TT.SHL,'>>':TT.SHR,'??':TT.NULLCOALESCE,'++':TT.PLUSPLUS,'--':TT.MINUSMINUS,'+=':TT.PLUSEQ,'-=':TT.MINUSEQ,'*=':TT.STAREQ,'/=':TT.SLASHEQ};if(tm[tw]){this.adv();this.adv();this.tokens.push(new Token(tm[tw],tw,sl,sc));continue}this.adv();const om={'+':TT.PLUS,'-':TT.MINUS,'*':TT.STAR,'/':TT.SLASH,'%':TT.PERCENT,'&':TT.AMP,'|':TT.PIPE,'^':TT.CARET,'~':TT.TILDE,'!':TT.NOT,'<':TT.LT,'>':TT.GT,'=':TT.ASSIGN,'?':TT.QUESTION,'.':TT.DOT,'(':TT.LPAREN,')':TT.RPAREN,'{':TT.LBRACE,'}':TT.RBRACE,'[':TT.LBRACKET,']':TT.RBRACKET,';':TT.SEMICOLON,':':TT.COLON,',':TT.COMMA};if(om[c])this.tokens.push(new Token(om[c],c,sl,sc));else throw new Error("Unexpected '"+c+"' at "+sl+":"+sc)}this.tokens.push(new Token(TT.EOF,'',this.line,this.col));return this.tokens}}
+// `js` is a type word only where a type can stand (after `:`, `)` or `->`); anywhere else it stays an
+// ordinary identifier, so programs with a variable or library global called `js` keep compiling.
+(function(){
+  var tokenize0=Lexer.prototype.tokenize;
+  Lexer.prototype.tokenize=function(){
+    var ts=tokenize0.call(this);
+    for(var i=0;i<ts.length;i++){
+      if(ts[i].type!==TT.TYPE||ts[i].value!=='js')continue;
+      var pt=i>0?ts[i-1].type:null;
+      if(pt!==TT.COLON&&pt!==TT.RPAREN&&pt!==TT.ARROW)ts[i].type=TT.IDENTIFIER;
+    }
+    return ts;
+  };
+})();
 // AST
 class Z{constructor(t,l){this.type=t;this.loc=l}}class Program extends Z{constructor(b){super('Program',b[0]?.loc);this.body=b}}class FunctionDecl extends Z{constructor(n,p,r,b,e,l){super('FunctionDecl',l);this.name=n;this.params=p;this.returnType=r;this.body=b;this.exported=e}}class VarDecl extends Z{constructor(n,t,i,m,l){super('VarDecl',l);this.name=n;this.varType=t;this.init=i;this.mutable=m}}class ImportDecl extends Z{constructor(n,p,r,mod,l){super('ImportDecl',l);this.name=n;this.params=p;this.returnType=r;this.module=mod}}class BlockStmt extends Z{constructor(s,l){super('BlockStmt',l);this.statements=s}}class ReturnStmt extends Z{constructor(v,l){super('ReturnStmt',l);this.value=v}}class IfStmt extends Z{constructor(c,t,a,l){super('IfStmt',l);this.condition=c;this.consequent=t;this.alternate=a}}class WhileStmt extends Z{constructor(c,b,l){super('WhileStmt',l);this.condition=c;this.body=b}}class ForStmt extends Z{constructor(i,c,u,b,l){super('ForStmt',l);this.init=i;this.condition=c;this.update=u;this.body=b}}class ExprStmt extends Z{constructor(e,l){super('ExprStmt',l);this.expression=e}}class BreakStmt extends Z{constructor(l){super('BreakStmt',l)}}class ContinueStmt extends Z{constructor(l){super('ContinueStmt',l)}}class BinaryExpr extends Z{constructor(o,l,r,loc){super('BinaryExpr',loc);this.op=o;this.left=l;this.right=r}}class UnaryExpr extends Z{constructor(o,e,l){super('UnaryExpr',l);this.op=o;this.operand=e}}class CallExpr extends Z{constructor(c,a,l){super('CallExpr',l);this.callee=c;this.args=a}}class MemberExpr extends Z{constructor(o,p,l){super('MemberExpr',l);this.object=o;this.property=p}}class AssignExpr extends Z{constructor(t,v,l){super('AssignExpr',l);this.target=t;this.value=v}}class IdentifierExpr extends Z{constructor(n,l){super('IdentifierExpr',l);this.name=n}}class IntLiteral extends Z{constructor(v,l){super('IntLiteral',l);this.value=v}}class FloatLiteral extends Z{constructor(v,l){super('FloatLiteral',l);this.value=v}}class BoolLiteral extends Z{constructor(v,l){super('BoolLiteral',l);this.value=v}}class NullLiteral extends Z{constructor(l){super('NullLiteral',l)}}
 class StringLiteral extends Z{constructor(v,l){super('StringLiteral',l);this.value=v}}
@@ -343,6 +371,59 @@ Parser.prototype.parseNew=function(){
   if(this.match(TT.LPAREN)){if(!this.check(TT.RPAREN)){do a.push(this.parseExpr());while(this.match(TT.COMMA))}this.expect(TT.RPAREN)}
   return new NewExpr(c,a,l);
 };
+// a[i] on a JS value → IndexExpr (read: __jsIdx, write: __jsIdxSet).
+class IndexExpr extends Z{constructor(o,i,l){super('IndexExpr',l);this.object=o;this.index=i}}
+// Postfix operators. Replaces the method defined inside the Parser class to add `a[i]` (the `[` must
+// be on the same line as the expression it indexes, so an array literal can still start a new line)
+// and to accept type words as property names (`obj.js`, `obj.int`).
+Parser.prototype.parsePostfix=function(){
+  let e=this.parsePrimary();
+  while(true){
+    if(this.match(TT.LPAREN)){
+      const a=[];
+      if(!this.check(TT.RPAREN)){do a.push(this.parseExpr());while(this.match(TT.COMMA))}
+      this.expect(TT.RPAREN);
+      e=new CallExpr(e,a,e.loc);
+    }else if(this.match(TT.DOT)){
+      let pn;
+      if(this.check(TT.INTEGER)||this.check(TT.TYPE))pn=this.adv().value;
+      else pn=this.expect(TT.IDENTIFIER).value;
+      e=new MemberExpr(e,pn,e.loc);
+    }else if(this.check(TT.LBRACKET)&&this.p>0&&this.t[this.p-1].line===this.cur().line){
+      this.adv();
+      const ix=this.parseExpr();
+      this.expect(TT.RBRACKET);
+      e=new IndexExpr(e,ix,e.loc);
+    }else if(this.match(TT.PLUSPLUS)){
+      e=new AssignExpr(e,new BinaryExpr('+',e,new IntLiteral('1',e.loc),e.loc),e.loc);
+    }else if(this.match(TT.MINUSMINUS)){
+      e=new AssignExpr(e,new BinaryExpr('-',e,new IntLiteral('1',e.loc),e.loc),e.loc);
+    }else break;
+  }
+  return e;
+};
+// Imports behind the `js` type (module "__js__"). The annotator adds only the ones a program needs.
+var _JS_CONV_IMPORTS={
+  __jsNum:[[['h','int']],'num'],          // js → num (NaN/null → 0)
+  __jsStr:[[['h','int']],'str'],          // js → str
+  __jsBool:[[['h','int']],'bool'],        // js → bool, JS truthiness
+  __jsInt:[[['h','js']],'int'],           // js → int, toInt semantics
+  __jsIntH:[[['h','js']],'int'],          // js → int if it is a JS number/boolean, else the handle itself
+  __jsCmpNum:[[['h','js']],'num'],        // js → num for comparisons (null = 0, non-numbers = NaN)
+  __jsSame:[[['a','js'],['b','js']],'bool'],   // JS ===
+  __jsEqStr:[[['a','js'],['b','str']],'bool'], // JS value === Emit string
+  __jsStrEq:[[['a','str'],['b','str']],'bool'],// Emit string == Emit string
+  __jsFromStr:[[['s','str']],'js'],       // Emit string → handle to a JS string
+  __jsFromNum:[[['n','num']],'js'],
+  __jsFromBool:[[['b','bool']],'js'],
+  __jsIdx:[[['recv','js']],'js'],         // recv[arg slot 0]
+  __jsIdxSet:[[['recv','js']],'void']     // recv[arg slot 0] = arg slot 1
+};
+// Name of the import that performs a conversion recorded by TypeAnnotator.conv (node.jsConv).
+function _jsConvFn(c){
+  if(c.to==='js')return c.from==='str'?'__jsFromStr':c.from==='bool'?'__jsFromBool':'__jsFromNum';
+  return{str:'__jsStr',num:'__jsNum',bool:'__jsBool',int:'__jsInt',inth:'__jsIntH',cnum:'__jsCmpNum'}[c.to];
+}
 // TYPE ANNOTATOR — single source of truth for expression types
 // Walks the AST after parsing+injectBuiltins, sets node.exprType on every expression.
 // Runs BEFORE TypeChecker and Codegen; both read annotations instead of re-inferring.
@@ -354,39 +435,75 @@ class TypeAnnotator {
   look(n){ for(let i=this.scopes.length-1;i>=0;i--) if(this.scopes[i].has(n)) return this.scopes[i].get(n); return null; }
   norm(t){ if(t==='i32'||t==='i64') return'int'; if(t==='f32'||t==='f64') return'num'; return t; }
   prom(a,b){ const na=this.norm(a),nb=this.norm(b); if(na===nb) return na; if(na==='num'||nb==='num') return'num'; return'int'; }
-  // Is this expression a value coming straight from JS (a handle)? Property reads, method calls,
-  // `new`, auto-bridged global calls and the jsAt/jsGet builtins.
-  jsVal(e){
-    if(!e) return false;
-    if(e.type==='MemberExpr'||e.type==='NewExpr') return true;
-    if(e.type==='CallExpr'){
-      if(e.callee.type==='MemberExpr') return true;
-      if(e.callee.type==='IdentifierExpr'){
-        if(e.callee.name==='jsAt'||e.callee.name==='jsGet') return true;
-        const fn=this.functions.get(e.callee.name);
-        return !!(fn&&fn.module==='js'&&fn.returnType==='int');
-      }
-    }
-    return false;
+  // ── The `js` type: a JS value held by Emit (an i64 handle, 0 = null/undefined) ──
+  // Property reads, method calls, `new`, a[i], JS globals, auto-bridged JS functions and the
+  // emptyObj/jsAt/jsGet/jsKeys/toJsArray/getCanvas/__jsGlobal builtins all have type `js`,
+  // and so does a `let` initialised from one of them.
+  //
+  // conv(e,to) records a conversion on the node: e.jsConv={from,to}, and e.exprType becomes the
+  // type the consumer sees. Codegen (the genExpr wrapper) generates the node in its `from` type and
+  // then emits the conversion. Kinds of `to`:
+  //   'str' 'num' 'bool'  js → that type (__jsStr/__jsNum/__jsBool)
+  //   'int'               js → integer, toInt semantics (__jsInt)          — arithmetic
+  //   'inth'              js → integer if the value is a JS number/boolean, else the handle
+  //                       unchanged (__jsIntH) — a declared `int`, which may also hold a handle
+  //   'cnum'              js → number for a comparison: null is 0, non-numbers are NaN (__jsCmpNum)
+  //   'js'                str/num/bool → a handle to that JS value (__jsFromStr/Num/Bool)
+  conv(e,to){
+    e.jsConv={from:e.exprType,to:to};
+    this.need(_jsConvFn(e.jsConv));
+    e.exprType=(to==='int'||to==='inth')?'int':(to==='cnum')?'num':to;
+    return e.exprType;
   }
-  // Contextual typing: a JS value used where str/num/bool is expected takes that type
-  // (codegen then converts the handle with __jsStr/__jsNum/__jsBool). Returns true if retyped.
-  ctx(e,t){
-    t=this.norm(t||'');
-    if((t==='str'||t==='num'||t==='bool')&&this.hasJsInterop&&this.jsVal(e)){ e.exprType=t; return true; }
+  need(name){ (this.needed||(this.needed=new Set())).add(name); }
+  isI(t){ return t==='int'||t==='i64'; }
+  isN(t){ return t==='num'||t==='f64'; }
+  // Contextual typing: the expression is used where type t is declared/required.
+  want(e,t){
+    if(!e||!t) return e&&e.exprType;
+    const s=e.exprType;
+    if(s==='js'){
+      if(t==='str'||t==='bool') this.conv(e,t);
+      else if(this.isN(t)) this.conv(e,'num');
+      else if(this.isI(t)) this.conv(e,'inth');
+    } else if(t==='js'){
+      if(s==='str'||s==='bool'||this.isN(s)) this.conv(e,'js');
+    }
+    return e.exprType;
+  }
+  // A str/num/bool used as the receiver of a member call, property read or index becomes a JS value.
+  recv(e){ const s=e.exprType; if(s==='str'||s==='bool'||this.isN(s)) this.conv(e,'js'); }
+  // `a == b` / `a != b` compiled as a call: e.jsCmp={fn, args}
+  cmpFn(e,fn,a,b){ e.jsCmp={fn:fn,args:[a,b]}; this.need(fn); }
+  fail(m,l){ throw new Error((l?l.line+':'+l.col+': ':'')+m); }
+  // Top-level initialisers must be compile-time constants (WASM global initialisers are constants).
+  constInit(e){
+    if(!e) return true;
+    if(e.type==='IntLiteral'||e.type==='FloatLiteral'||e.type==='BoolLiteral'||e.type==='StringLiteral'||e.type==='NullLiteral') return true;
+    if(e.type==='UnaryExpr'&&e.op==='-') return this.constNum(e.operand);
+    return this.constNum(e);
+  }
+  constNum(e){
+    if(!e) return false;
+    if(e.type==='IntLiteral'||e.type==='FloatLiteral') return true;
+    if(e.type==='UnaryExpr'&&e.op==='-') return this.constNum(e.operand);
+    if(e.type==='BinaryExpr'&&['+','-','*','/','%'].includes(e.op)) return this.constNum(e.left)&&this.constNum(e.right);
     return false;
   }
   annotate(prog){
     // Pass 1: register all top-level function signatures and globals
     for(const n of prog.body){
-      if(n.type==='FunctionDecl'||n.type==='ImportDecl') this.functions.set(n.name,{params:n.params.map(p=>p.type),returnType:n.returnType,module:n.module});
+      if(n.type==='FunctionDecl'||n.type==='ImportDecl') this.functions.set(n.name,{params:n.params.map(p=>p.type),returnType:n.returnType,module:n.module,node:n,allJs:n.params.map(()=>true),calls:0});
       if(n.name==='__jsGlobal'||n.name==='__jsCall'||n.name==='__jsGet') this.hasJsInterop=true;
     }
     for(const n of prog.body){
       if(n.type==='VarDecl'){
         let t=n.varType;
-        if(!t&&n.init) t=this.a(n.init);
+        if(n.init&&!this.constInit(n.init)) this.fail("Top-level '"+n.name+"' must start with a literal (a number, string, true/false or null) — write e.g. `mut "+n.name+(t?': '+t:'')+" = "+(t==='str'?'""':t==='js'?'null':'0')+"` here and assign the real value inside a function",n.init.loc||n.loc);
+        const git=n.init?this.a(n.init):null;
+        if(!t) t=(git==='null')?'js':git;
         if(!t) t='int';
+        if(t==='js'&&n.init&&n.init.type!=='NullLiteral'&&n.init.type!=='IntLiteral') this.fail("Top-level js variable '"+n.name+"' must start as null — assign the real value inside a function",n.init.loc||n.loc);
         this.globals.set(n.name,t);
         this.def(n.name,t);
         n.declType=t;
@@ -394,6 +511,18 @@ class TypeAnnotator {
     }
     // Pass 2: walk function bodies and annotate every expression
     for(const n of prog.body) this.walk(n);
+    // Auto-bridged JS functions: a parameter that only ever receives `js` values is a `js` parameter
+    // (so a null handle reaches the JS function as null, not as the number 0).
+    for(const fn of this.functions.values()){
+      if(fn.module!=='js'||!fn.calls) continue;
+      fn.node.params.forEach((p,i)=>{ if(fn.allJs[i]&&this.isI(p.type)) p.type='js'; });
+    }
+    // Add the __js__ imports this program turned out to need.
+    for(const name of (this.needed||[])){
+      if(this.functions.has(name)) continue;
+      const d=_JS_CONV_IMPORTS[name];
+      prog.body.unshift(new ImportDecl(name,d[0].map(p=>({name:p[0],type:p[1]})),d[1],'__js__',{line:0,col:0}));
+    }
     return this;
   }
   walk(n){
@@ -412,8 +541,8 @@ class TypeAnnotator {
         let t=n.varType;
         if(n.init){
           const it=this.a(n.init);
-          if(!t) t=it||'int';
-          else this.ctx(n.init,t);
+          if(!t) t=(it==='null')?'js':(it||'int');
+          else this.want(n.init,t);
         }
         if(!t) t='int';
         this.def(n.name,t);
@@ -425,13 +554,13 @@ class TypeAnnotator {
         for(const s of n.statements) this.walk(s);
         this.pop();
         break;
-      case'ReturnStmt': if(n.value){ this.a(n.value); this.ctx(n.value,this.currentRet); } break;
-      case'IfStmt': this.a(n.condition); this.walk(n.consequent); if(n.alternate) this.walk(n.alternate); break;
-      case'WhileStmt': this.a(n.condition); this.walk(n.body); break;
+      case'ReturnStmt': if(n.value){ this.a(n.value); this.want(n.value,this.currentRet); } break;
+      case'IfStmt': this.a(n.condition); this.want(n.condition,'bool'); this.walk(n.consequent); if(n.alternate) this.walk(n.alternate); break;
+      case'WhileStmt': this.a(n.condition); this.want(n.condition,'bool'); this.walk(n.body); break;
       case'ForStmt':
         this.push();
         if(n.init) this.walk(n.init);
-        if(n.condition) this.a(n.condition);
+        if(n.condition){ this.a(n.condition); this.want(n.condition,'bool'); }
         if(n.update) this.a(n.update);
         this.walk(n.body);
         this.pop();
@@ -443,6 +572,8 @@ class TypeAnnotator {
   a(e){
     if(!e) return'int';
     let t='int';
+    if(e.jsConv) delete e.jsConv; /* a node shared by `x += 1` is annotated twice */
+    if(e.jsCmp) delete e.jsCmp;
     switch(e.type){
       case'IntLiteral':   t='int'; break;
       case'FloatLiteral': t='num'; break;
@@ -453,29 +584,65 @@ class TypeAnnotator {
         const local=this.look(e.name);
         if(local){ t=local; }
         else if(this.globals.has(e.name)){ t=this.globals.get(e.name); }
-        else if(this.hasJsInterop){ t='int'; /* JS global handle */ }
+        else if(this.hasJsInterop){ t='js'; /* JS global handle */ }
         else { t='int'; /* fallback; TypeChecker will report error */ }
         break;
       }
       case'UnaryExpr':{
-        const opT=this.a(e.operand);
+        let opT=this.a(e.operand);
+        if(e.op==='!') this.want(e.operand,'bool');
+        else if(opT==='js') opT=this.conv(e.operand,'num');
         t = (e.op==='!') ? 'bool' : opT;
         break;
       }
       case'BinaryExpr':{
         const lt=this.a(e.left), rt=this.a(e.right);
-        if(['==','!=','<','>','<=','>=','&&','||'].includes(e.op)){ t='bool'; }
+        const lj=lt==='js', rj=rt==='js';
+        if(e.op==='&&'||e.op==='||'){ this.want(e.left,'bool'); this.want(e.right,'bool'); t='bool'; }
+        else if(e.op==='=='||e.op==='!='){
+          if(lj||rj){
+            const o=lj?rt:lt, j=lj?e.left:e.right, other=lj?e.right:e.left;
+            if(lj&&rj) this.cmpFn(e,'__jsSame',e.left,e.right);      /* identity (JS ===) */
+            else if(o==='null'){ /* null check: the handle is compared with 0 */ }
+            else if(o==='str') this.cmpFn(e,'__jsEqStr',j,other);    /* string equality */
+            else if(o==='bool') this.conv(j,'bool');
+            else this.conv(j,'cnum');                                /* number comparison */
+          }
+          else if(lt==='str'&&rt==='str') this.cmpFn(e,'__jsStrEq',e.left,e.right);
+          t='bool';
+        }
+        else if(['<','>','<=','>='].includes(e.op)){
+          if(lj) this.conv(e.left,'cnum');
+          if(rj) this.conv(e.right,'cnum');
+          t='bool';
+        }
+        else if(lj||rj){
+          /* arithmetic on a JS value: with a num (or another JS value) → num, with an int → int */
+          const o=lj?rt:lt;
+          if((lj&&rj)||this.isN(o)||o==='f32'){ if(lj) this.conv(e.left,'num'); if(rj) this.conv(e.right,'num'); t='num'; }
+          else { this.conv(lj?e.left:e.right,'int'); t='int'; }
+        }
         else { t=this.prom(lt,rt); }
         break;
       }
       case'CallExpr':{
         if(e.callee.type==='MemberExpr'){
-          this.a(e.callee.object);
+          this.a(e.callee.object); this.recv(e.callee.object);
           for(const arg of e.args) this.a(arg);
-          t='int';
+          t='js';
         } else if(e.callee.type==='IdentifierExpr'){
-          for(const arg of e.args) this.a(arg);
           const fn=this.functions.get(e.callee.name);
+          if(fn) fn.calls++;
+          e.args.forEach((arg,i)=>{
+            const at=this.a(arg), pt=fn&&fn.params[i];
+            if(!pt) return;
+            if(fn.module==='js'){
+              /* auto-bridged JS function: a JS value goes through as itself */
+              if(at!=='js') fn.allJs[i]=false;
+              if(at==='js'&&this.isI(pt)) return;
+            }
+            this.want(arg,pt);
+          });
           t = fn ? fn.returnType : 'int';
         } else {
           this.a(e.callee);
@@ -485,20 +652,30 @@ class TypeAnnotator {
         break;
       }
       case'MemberExpr':{
-        this.a(e.object);
-        t='int'; /* handle */
+        this.a(e.object); this.recv(e.object);
+        t='js';
+        break;
+      }
+      case'IndexExpr':{
+        const ot=this.a(e.object);
+        this.a(e.index);
+        this.need('__jsIdx');
+        if(ot==='str') this.recv(e.object);
+        else if(ot!=='js') this.fail("[ ] works on JS values (type js) and strings, but this is "+ot+" — for an Emit array use getItem(arr, i) / setItem(arr, i, v); for a JS value held in an int variable declare it as js",e.loc);
+        t='js';
         break;
       }
       case'AssignExpr':{
         const tt=this.a(e.target);
         t=this.a(e.value);
-        if(e.target.type==='IdentifierExpr'&&this.ctx(e.value,tt)) t=this.norm(tt);
+        if(e.target.type==='IdentifierExpr') t=this.want(e.value,tt);
+        else if(e.target.type==='IndexExpr') this.need('__jsIdxSet');
         break;
       }
       case'NewExpr':{
         this.a(e.callee);
         for(const arg of e.args) this.a(arg);
-        t='int'; /* handle to the constructed object */
+        t='js'; /* handle to the constructed object */
         break;
       }
       case'ArrayLiteral':{
@@ -521,6 +698,21 @@ class TypeAnnotator {
 }
 // TYPE CHECKER
 class TypeChecker{constructor(){this.scopes=[new Map()];this.functions=new Map();this.errors=[];this.cf=null}err(m,l){this.errors.push((l?.line||'?')+':'+(l?.col||'?')+': '+m)}push(){this.scopes.push(new Map())}pop(){this.scopes.pop()}def(n,t){this.scopes[this.scopes.length-1].set(n,t)}look(n){for(let i=this.scopes.length-1;i>=0;i--)if(this.scopes[i].has(n))return this.scopes[i].get(n);return null}check(prog){for(const n of prog.body){if(n.type==='FunctionDecl'||n.type==='ImportDecl')this.functions.set(n.name,{params:n.params.map(p=>p.type),returnType:n.returnType});if(n.type==='VarDecl'){var gt=n.varType||(n.init?this.inf(n.init):'int');this.def(n.name,gt)}}for(const n of prog.body)this.cn(n);return this.errors}cn(n){if(!n)return;switch(n.type){case'FunctionDecl':this.push();this.cf=n;for(const p of n.params)this.def(p.name,p.type);this.cn(n.body);this.cf=null;this.pop();break;case'ImportDecl':break;case'VarDecl':{let t=n.varType;const it=n.init?this.inf(n.init):null;if(t&&it&&t!==it&&!this.compat(t,it))this.err('Cannot assign '+it+' to '+t,n.loc);if(!t)t=it||'int';this.def(n.name,t);break}case'BlockStmt':this.push();for(const s of n.statements)this.cn(s);this.pop();break;case'ReturnStmt':{const rt=this.cf?this.cf.returnType:'void';if(n.value){const vt=this.inf(n.value);if(rt==='void')this.err("Function returns void \u2014 don't return a value",n.loc);else if(vt&&vt!==rt&&!this.compat(rt,vt))this.err('Return type is '+rt+" but this returns "+vt+" \u2014 change the return type to "+vt+" or cast the value",n.loc)}else if(rt!=='void')this.err('Function returns '+rt+' but this return has no value',n.loc);break}case'IfStmt':this.inf(n.condition);this.cn(n.consequent);if(n.alternate)this.cn(n.alternate);break;case'WhileStmt':this.inf(n.condition);this.cn(n.body);break;case'ForStmt':this.push();if(n.init)this.cn(n.init);if(n.condition)this.inf(n.condition);if(n.update)this.inf(n.update);this.cn(n.body);this.pop();break;case'ExprStmt':this.inf(n.expression);break}}inf(e){if(!e)return'int';if(e.exprType){if(e.type==='IdentifierExpr'&&!this.look(e.name)&&!this.functions.has('__jsGlobal'))this.err("'"+e.name+"' is not defined — declare it with let or mut first",e.loc);if(e.type==='BinaryExpr'&&['<','>','<=','>='].includes(e.op)){const lt=e.left.exprType,rt=e.right.exprType;if(lt==='bool'||rt==='bool')this.err("Can't compare a bool with "+e.op+" \u2014 Emit doesn't allow chained comparisons; use && instead (e.g. a < b && b < c)",e.loc);else if(lt==='str'||rt==='str')this.err("Can't compare strings with "+e.op,e.loc)}if(e.type==='CallExpr'&&e.callee.type==='IdentifierExpr'){const fn=e.callee.name;if(!this.functions.has(fn)&&fn!=='__jsGlobal')this.err("'"+fn+"()' is not a known function — check spelling or add it as a builtin",e.loc);for(const a of e.args)this.inf(a);return e.exprType}if(e.type==='BinaryExpr'||e.type==='UnaryExpr'||e.type==='MemberExpr'||e.type==='AssignExpr'){if(e.left)this.inf(e.left);if(e.right)this.inf(e.right);if(e.operand)this.inf(e.operand);if(e.object)this.inf(e.object);if(e.value)this.inf(e.value);if(e.target)this.inf(e.target)}else if(e.type==='CallExpr'){if(e.callee&&e.callee.type!=='IdentifierExpr')this.inf(e.callee);for(const a of e.args)this.inf(a)}else if(e.type==='ArrayLiteral'){for(const el of e.elements)this.inf(el)}else if(e.type==='NewExpr'){this.inf(e.callee);for(const a of e.args)this.inf(a)}return e.exprType}switch(e.type){case'AssignExpr':return this.inf(e.value);default:return e&&e.exprType||'int'}}norm(t){if(t==='i32'||t==='i64')return'int';if(t==='f32'||t==='f64')return'num';return t}prom(a,b){const na=this.norm(a),nb=this.norm(b);if(na===nb)return na;if(na==='num'||nb==='num')return'num';return'int'}compat(t,s){if(t===s)return true;const nt=this.norm(t),ns=this.norm(s);if(nt===ns)return true;if(nt==='num'&&(ns==='int'||ns==='bool'))return true;if(t.endsWith('?')&&(s==='null'||t.slice(0,-1)===s))return true;return false}}
+// `js` in the type checker: js and int are assignment-compatible in both directions (an int may hold a
+// handle — that is how every program was written before the js type existed), and null is a js value.
+(function(){
+  var P=TypeChecker.prototype,compat0=P.compat,inf0=P.inf;
+  P.compat=function(t,s){
+    var ti=t==='int'||t==='i64',si=s==='int'||s==='i64';
+    if(t==='js'&&(s==='js'||si||s==='null'))return true;
+    if(s==='js'&&ti)return true;
+    return compat0.call(this,t,s);
+  };
+  P.inf=function(e){
+    if(e&&e.type==='IndexExpr'){this.inf(e.object);this.inf(e.index);return e.exprType}
+    return inf0.call(this,e);
+  };
+})();
 // WASM CODEGEN
 function eu32(v){const b=[];do{let byte=v&0x7F;v>>>=7;if(v!==0)byte|=0x80;b.push(byte)}while(v!==0);return b}function ei32(v){const b=[];let more=true;while(more){let byte=v&0x7F;v>>=7;if((v===0&&(byte&0x40)===0)||(v===-1&&(byte&0x40)!==0))more=false;else byte|=0x80;b.push(byte)}return b}function ei64(v){const bv=BigInt(v);const b=[];let more=true,val=bv;while(more){let byte=Number(val&0x7Fn);val>>=7n;if((val===0n&&(byte&0x40)===0)||(val===-1n&&(byte&0x40)!==0))more=false;else byte|=0x80;b.push(byte)}return b}function ef32(v){const buf=new ArrayBuffer(4);new Float32Array(buf)[0]=v;return[...new Uint8Array(buf)]}function ef64(v){const buf=new ArrayBuffer(8);new Float64Array(buf)[0]=v;return[...new Uint8Array(buf)]}function estr(s){const e=new TextEncoder().encode(s);return[...eu32(e.length),...e]}function esec(id,c){return[id,...eu32(c.length),...c]}function evec(items){return[...eu32(items.length),...items.flat()]}
 const VT={i32:0x7F,i64:0x7E,f32:0x7D,f64:0x7C};const Op={block:2,loop:3,if:4,else:5,end:0xB,br:0xC,br_if:0xD,return:0xF,call:0x10,drop:0x1A,local_get:0x20,local_set:0x21,local_tee:0x22,i32_const:0x41,i64_const:0x42,f32_const:0x43,f64_const:0x44,i32_eqz:0x45,i32_eq:0x46,i32_ne:0x47,i32_lt_s:0x48,i32_gt_s:0x4A,i32_le_s:0x4C,i32_ge_s:0x4E,i32_add:0x6A,i32_sub:0x6B,i32_mul:0x6C,i32_div_s:0x6D,i32_rem_s:0x6F,i32_and:0x71,i32_or:0x72,i32_xor:0x73,i32_shl:0x74,i32_shr_s:0x75,i64_eq:0x51,i64_ne:0x52,i64_lt_s:0x53,i64_gt_s:0x55,i64_le_s:0x57,i64_ge_s:0x59,i64_add:0x7C,i64_sub:0x7D,i64_mul:0x7E,i64_div_s:0x7F,i64_rem_s:0x81,i64_and:0x83,i64_or:0x84,i64_xor:0x85,i64_shl:0x86,i64_shr_s:0x87,f32_eq:0x5B,f32_ne:0x5C,f32_lt:0x5D,f32_gt:0x5E,f32_le:0x5F,f32_ge:0x60,f32_add:0x92,f32_sub:0x93,f32_mul:0x94,f32_div:0x95,f64_eq:0x61,f64_ne:0x62,f64_lt:0x63,f64_gt:0x64,f64_le:0x65,f64_ge:0x66,f64_add:0xA0,f64_sub:0xA1,f64_mul:0xA2,f64_div:0xA3,i32_store:0x36,i64_store:0x37,f32_store:0x38,f64_store:0x39,i32_store8:0x3A,i32_store16:0x3B,i32_load:0x28,i64_load:0x29,f64_load:0x2B,i64_extend_i32_u:0xAD,i64_extend_i32_s:0xAC,i32_wrap_i64:0xA7,i32_trunc_f64_s:0xB0,f64_convert_i64_s:0xB9,f64_convert_i32_s:0xB7};
@@ -562,19 +754,20 @@ class WasmCodegen{constructor(ast,target='wasm32'){this.ast=ast;this.target=targ
   break;
 }default:this.emit(Op.i32_const,...ei32(0))}}genBinary(e,exp){const isCmp=['==','!=','<','>','<=','>='].includes(e.op),isLog=['&&','||'].includes(e.op);if(isLog){this.genExpr(e.left,'bool');if(e.op==='&&'){this.emit(Op.if,VT.i32);this.genExpr(e.right,'bool');this.emit(Op.else);this.emit(Op.i32_const,...ei32(0));this.emit(Op.end)}else{this.emit(Op.if,VT.i32);this.emit(Op.i32_const,...ei32(1));this.emit(Op.else);this.genExpr(e.right,'bool');this.emit(Op.end)}return}let nt=this.inferOpType(e.left,e.right);if(!isCmp&&exp&&exp!=='bool'){const rank={i32:0,bool:0,i64:1,int:1,f32:2,f64:3,num:3};if((rank[exp]||0)>(rank[nt]||0))nt=exp}this.genExpr(e.left,nt);this.genExpr(e.right,nt);const opmap={i32:{'+':Op.i32_add,'-':Op.i32_sub,'*':Op.i32_mul,'/':Op.i32_div_s,'%':Op.i32_rem_s,'&':Op.i32_and,'|':Op.i32_or,'^':Op.i32_xor,'<<':Op.i32_shl,'>>':Op.i32_shr_s,'==':Op.i32_eq,'!=':Op.i32_ne,'<':Op.i32_lt_s,'>':Op.i32_gt_s,'<=':Op.i32_le_s,'>=':Op.i32_ge_s},int:{'+':Op.i64_add,'-':Op.i64_sub,'*':Op.i64_mul,'/':Op.i64_div_s,'%':Op.i64_rem_s,'&':Op.i64_and,'|':Op.i64_or,'^':Op.i64_xor,'<<':Op.i64_shl,'>>':Op.i64_shr_s,'==':Op.i64_eq,'!=':Op.i64_ne,'<':Op.i64_lt_s,'>':Op.i64_gt_s,'<=':Op.i64_le_s,'>=':Op.i64_ge_s},num:{'+':Op.f64_add,'-':Op.f64_sub,'*':Op.f64_mul,'/':Op.f64_div,'==':Op.f64_eq,'!=':Op.f64_ne,'<':Op.f64_lt,'>':Op.f64_gt,'<=':Op.f64_le,'>=':Op.f64_ge}};const m=opmap[nt]||opmap.int;if(m[e.op]!==undefined)this.emit(m[e.op])}inferOpType(l,r){const lt=l&&l.exprType,rt=r&&r.exprType;if(lt==='num'||rt==='num')return'num';if(lt==='int'||rt==='int')return'int';return'int'}inferET(e){return(e&&e.exprType)||'int'}exprResType(e){if(e.type==='AssignExpr'){if(e.target&&e.target.type==='MemberExpr')return'void';return'int'}if(e.type==='CallExpr'){const n=e.callee?.name;const node=this.lookupFuncNode(n);if(node?.returnType==='void')return'void'}return'int'}encodeBinary(){const b=[];b.push(0,0x61,0x73,0x6D,1,0,0,0);const te=this.types.map(t=>[0x60,...eu32(t.params.length),...t.params,...eu32(t.results.length),...t.results]);if(te.length)b.push(...esec(1,evec(te)));const useCb=this.funcMap.has('fnRef')&&this.functions.length>0;if(this.imports.length||useCb){const ie=this.imports.map(imp=>[...estr(imp.module),...estr(imp.name),0x00,...eu32(imp.typeIdx)]);if(useCb){ie.push(this.cbTableImport());this.imports.cbCount=this.functions.length}b.push(...esec(2,evec(ie)))}const fi=this.functions.map(f=>eu32(f.typeIdx));if(fi.length)b.push(...esec(3,evec(fi)));const mf=this.target==='wasm64'?0x04:0x00;b.push(...esec(5,[1,mf,...eu32(1)]));if(this.globals.length){var ge=this.globals.map(function(g){var wt=this.j2w(g.type);var mut=g.mutable?1:0;var gv=this.globalInitValue(g);var initOp;if(wt===VT.i64)initOp=[Op.i64_const,...ei64(Math.trunc(gv)),0x0B];else if(wt===VT.f64)initOp=[Op.f64_const,...ef64(gv),0x0B];else if(wt===VT.f32)initOp=[Op.f32_const,...ef32(gv),0x0B];else initOp=[Op.i32_const,...ei32(Math.trunc(gv)),0x0B];return[wt,mut,...initOp]}.bind(this));b.push(...esec(6,evec(ge)))}const ex=[[...estr('memory'),2,...eu32(0)]];const iOff=this.imports.length;for(let i=0;i<this.functions.length;i++)if(this.functions[i].exported)ex.push([...estr(this.functions[i].name),0,...eu32(iOff+i)]);if(ex.length)b.push(...esec(7,evec(ex)));const cb=this.functions.map(func=>{const body=[];const nl=func.locals;const lg=[];if(nl.length){let ct=nl[0],cn=1;for(let i=1;i<nl.length;i++){if(nl[i]===ct)cn++;else{lg.push([...eu32(cn),ct]);ct=nl[i];cn=1}}lg.push([...eu32(cn),ct])}body.push(...eu32(lg.length));for(const g of lg)body.push(...g);body.push(...func.code);return[...eu32(body.length),...body]});if(useCb)b.push(...esec(9,this.cbElemSection()));if(cb.length)b.push(...esec(10,evec(cb)));if(this.strings.length){const de=this.strings.map(function(s){var db=[];var len=s.encoded.length;db.push(len&0xFF,(len>>8)&0xFF,(len>>16)&0xFF,(len>>24)&0xFF);for(var i=0;i<s.encoded.length;i++)db.push(s.encoded[i]);db.push(0);return[0x00,Op.i32_const,...ei32(s.offset),Op.end,...eu32(db.length),...db]});b.push(...esec(11,evec(de)))}return new Uint8Array(b)}}
 // ── JS interop codegen helpers (separate methods so the long lines above need only tiny edits) ──
-// Arg buffer slot tags: 0=int-or-handle, 1=num, 2=str, 3=handle (used for `null`), 4=bool, 5=int literal.
+// Arg buffer slot tags: 0=int-or-handle, 1=num, 2=str, 3=handle (`null` and js-typed values), 4=bool, 5=int literal.
 WasmCodegen.prototype.jsArgTag=function(a){
   var at=(a&&a.exprType)||'int';
   if(a.type==='NullLiteral')return 3;
   if(at==='num'||at==='f64'||at==='f32')return 1;
   if(at==='str')return 2;
   if(at==='bool')return 4;
+  if(at==='js')return 3;
   if(a.type==='IntLiteral')return 5;
   return 0;
 };
 // Push one argument value (i64 / f64 / i32 depending on tag) on the WASM stack.
 WasmCodegen.prototype.genJsArgValue=function(a,tag){
-  if(tag===3)this.emit(Op.i64_const,...ei64(0));
+  if(tag===3){if(a.type==='NullLiteral')this.emit(Op.i64_const,...ei64(0));else this.genExpr(a,'int')}
   else if(tag===1)this.genExpr(a,'num');
   else if(tag===2||tag===4)this.genExpr(a,a.exprType);
   else this.genExpr(a,'int');
@@ -623,24 +816,112 @@ WasmCodegen.prototype.genNew=function(e){
   this.emit(Op.i64_const,...ei64(e.args.length));
   this.emit(Op.call,...eu32(this.funcMap.get('__jsNew')));
 };
-// A JS value (handle, i64) is on the stack. If the surrounding code wants a str / num / bool,
-// convert it: `let s: str = obj.name`, `let n: num = obj.x`, `if (obj.visible)`.
-WasmCodegen.prototype.jsCoerce=function(e,exp){
-  var t=exp;
-  if(t!=='str'&&t!=='num'&&t!=='f64'&&t!=='bool')t=e.exprType;
-  var f=t==='str'?'__jsStr':(t==='num'||t==='f64')?'__jsNum':t==='bool'?'__jsBool':null;
-  if(f&&this.funcMap.has(f))this.emit(Op.call,...eu32(this.funcMap.get(f)));
-};
-// Initial value of a top-level `let`/`mut` when it is a literal (number, bool, string, or a negated
-// number). Anything else still starts at 0 — WASM global initialisers must be constants.
+// Kept because genExpr still calls it after every JS call / property read. Conversions of JS values
+// are now decided by the type annotator (node.jsConv) and emitted by the genExpr wrapper below.
+WasmCodegen.prototype.jsCoerce=function(e,exp){};
+// ── The `js` type in codegen ──
+// A js value is an i64 handle. genExpr is wrapped so that one place handles: the conversions the
+// annotator recorded (node.jsConv), a[i] reads and writes, identity comparison of two JS values,
+// and an int variable/call used where a num is wanted.
+(function(){
+  var P=WasmCodegen.prototype,gen0=P.genExpr,j2w0=P.j2w,resType0=P.exprResType;
+  var F64_CONVERT_I64_S=0xB9;
+  function isI(t){return t==='int'||t==='i64'}
+  function isN(t){return t==='num'||t==='f64'}
+  P.j2w=function(t){return(t==='js'||t==='js?')?VT.i64:j2w0.call(this,t)};
+  P.jsImportCall=function(name){
+    if(!this.funcMap.has(name))throw new Error('internal: JS interop import '+name+' was not injected');
+    this.emit(Op.call,...eu32(this.funcMap.get(name)));
+  };
+  // The expression in its own (pre-conversion) type.
+  P.genNatural=function(e,exp){
+    if(exp==='js')exp='int';
+    if(e.type==='IndexExpr'){
+      /* a[i] → __jsIdx(a), index in arg slot 0 */
+      this.genExpr(e.object,'int');
+      this.genJsArgs([e.index]);
+      this.jsImportCall('__jsIdx');
+      return;
+    }
+    if(e.type==='AssignExpr'&&e.target.type==='IndexExpr'){
+      /* a[i] = v → __jsIdxSet(a), index in slot 0, value in slot 1; leaves nothing on the stack */
+      this.genExpr(e.target.object,'int');
+      this.genJsArgs([e.target.index,e.value]);
+      this.jsImportCall('__jsIdxSet');
+      return;
+    }
+    if(e.type==='BinaryExpr'&&e.jsCmp){
+      /* == / != on JS values or strings: __jsSame / __jsEqStr / __jsStrEq */
+      this.genExpr(e.jsCmp.args[0],e.jsCmp.args[0].exprType);
+      this.genExpr(e.jsCmp.args[1],e.jsCmp.args[1].exprType);
+      this.jsImportCall(e.jsCmp.fn);
+      if(e.op==='!=')this.emit(Op.i32_eqz);
+      return;
+    }
+    return gen0.call(this,e,exp);
+  };
+  P.genExpr=function(e,exp){
+    var wantNum=isN(exp),c=e.jsConv;
+    if(c){
+      this.genNatural(e,c.from==='js'?'int':c.from);
+      this.jsImportCall(_jsConvFn(c));
+      if(wantNum&&isI(e.exprType))this.emit(F64_CONVERT_I64_S);
+      return;
+    }
+    if(e.exprType==='js'&&(exp==='str'||exp==='bool'||wantNum)){
+      /* safety net: a JS value reached a typed position the annotator did not mark */
+      this.genNatural(e,'int');
+      var sf=exp==='str'?'__jsStr':exp==='bool'?'__jsBool':'__jsNum';
+      if(this.funcMap.has(sf))this.jsImportCall(sf);
+      return;
+    }
+    if(wantNum&&isI(e.exprType)&&(e.type==='IdentifierExpr'||e.type==='CallExpr'||(e.type==='UnaryExpr'&&e.op==='-'))){
+      /* an int variable / call result where a num is wanted: `i * 2.5`, `x > obj.size` */
+      this.genNatural(e,'int');
+      this.emit(F64_CONVERT_I64_S);
+      return;
+    }
+    return this.genNatural(e,exp);
+  };
+  P.inferOpType=function(l,r){
+    var lt=l&&l.exprType,rt=r&&r.exprType;
+    if(isN(lt)||isN(rt))return'num';
+    if(lt==='bool'&&rt==='bool')return'i32';
+    return'int';
+  };
+  P.exprResType=function(e){
+    if(e.type==='AssignExpr'&&e.target&&e.target.type==='IndexExpr')return'void';
+    return resType0.call(this,e);
+  };
+})();
+// Initial value of a top-level `let`/`mut`: a literal (number, bool, string, null) or constant
+// arithmetic on number literals (`-3`, `60 * 60`). WASM global initialisers must be constants, so
+// anything else is rejected by the type annotator with a compile error (it used to start at 0).
 WasmCodegen.prototype.globalInitValue=function(g){
-  var e=g.init,sign=1;
-  if(e&&e.type==='UnaryExpr'&&e.op==='-'){sign=-1;e=e.operand}
+  var e=g.init;
   if(!e)return 0;
-  if(e.type==='IntLiteral'||e.type==='FloatLiteral'){var v=sign*Number(e.value);return isFinite(v)?v:0}
   if(e.type==='BoolLiteral')return e.value?1:0;
-  if(e.type==='StringLiteral'&&g.type==='str')return this.addString(e.value);
-  return 0;
+  if(e.type==='StringLiteral')return g.type==='str'?this.addString(e.value):0;
+  var v=this.constFold(e);
+  return(v!==null&&isFinite(v))?v:0;
+};
+WasmCodegen.prototype.constFold=function(e){
+  if(!e)return null;
+  if(e.type==='IntLiteral'||e.type==='FloatLiteral')return Number(e.value);
+  if(e.type==='UnaryExpr'&&e.op==='-'){var o=this.constFold(e.operand);return o===null?null:-o}
+  if(e.type==='BinaryExpr'){
+    var l=this.constFold(e.left),r=this.constFold(e.right);
+    if(l===null||r===null)return null;
+    var intOp=e.exprType==='int';
+    switch(e.op){
+      case'+':return l+r;
+      case'-':return l-r;
+      case'*':return l*r;
+      case'/':return intOp?Math.trunc(l/r):l/r;
+      case'%':return l%r;
+    }
+  }
+  return null;
 };
 // Callback table: when the program uses fnRef, the module imports a funcref table ("__cb__"."table")
 // and an element segment puts every Emit function into it, in declaration order. JS calls a callback
@@ -686,22 +967,22 @@ const BUILTINS={
   clear:{params:[],returnType:'void',module:'std'},
   text:{params:[{name:'s',type:'str'},{name:'x',type:'int'},{name:'y',type:'int'},{name:'size',type:'int'}],returnType:'void',module:'std'},
   pixel:{params:[{name:'x',type:'int'},{name:'y',type:'int'}],returnType:'void',module:'std'},
-  getCanvas:{params:[],returnType:'int',module:'std'},
-  emptyObj:{params:[],returnType:'int',module:'std'},
-  wrapShape:{params:[{name:'s',type:'int'}],returnType:'int',module:'std'},
-  textShape:{params:[{name:'text',type:'str'},{name:'color',type:'str'},{name:'scalar',type:'num'}],returnType:'int',module:'std'},
-  textShape:{params:[{name:'text',type:'str'},{name:'color',type:'str'},{name:'scalar',type:'num'}],returnType:'int',module:'std'},
-  toJsArray:{params:[{name:'arr',type:'int'}],returnType:'int',module:'std'},
-  fnRef:{params:[{name:'name',type:'str'}],returnType:'int',module:'std'},
-  toStr:{params:[{name:'h',type:'int'}],returnType:'str',module:'std'},
-  toNum:{params:[{name:'h',type:'int'}],returnType:'num',module:'std'},
-  toInt:{params:[{name:'h',type:'int'}],returnType:'int',module:'std'},
-  isNull:{params:[{name:'h',type:'int'}],returnType:'bool',module:'std'},
-  typeOf:{params:[{name:'h',type:'int'}],returnType:'str',module:'std'},
-  jsLen:{params:[{name:'h',type:'int'}],returnType:'int',module:'std'},
-  jsAt:{params:[{name:'h',type:'int'},{name:'i',type:'int'}],returnType:'int',module:'std'},
-  jsGet:{params:[{name:'h',type:'int'},{name:'key',type:'str'}],returnType:'int',module:'std'},
-  jsKeys:{params:[{name:'h',type:'int'}],returnType:'int',module:'std'},
+  getCanvas:{params:[],returnType:'js',module:'std'},
+  emptyObj:{params:[],returnType:'js',module:'std'},
+  wrapShape:{params:[{name:'s',type:'js'}],returnType:'js',module:'std'},
+  textShape:{params:[{name:'text',type:'str'},{name:'color',type:'str'},{name:'scalar',type:'num'}],returnType:'js',module:'std'},
+  textShape:{params:[{name:'text',type:'str'},{name:'color',type:'str'},{name:'scalar',type:'num'}],returnType:'js',module:'std'},
+  toJsArray:{params:[{name:'arr',type:'int'}],returnType:'js',module:'std'},
+  fnRef:{params:[{name:'name',type:'str'}],returnType:'js',module:'std'},
+  toStr:{params:[{name:'h',type:'js'}],returnType:'str',module:'std'},
+  toNum:{params:[{name:'h',type:'js'}],returnType:'num',module:'std'},
+  toInt:{params:[{name:'h',type:'js'}],returnType:'int',module:'std'},
+  isNull:{params:[{name:'h',type:'js'}],returnType:'bool',module:'std'},
+  typeOf:{params:[{name:'h',type:'js'}],returnType:'str',module:'std'},
+  jsLen:{params:[{name:'h',type:'js'}],returnType:'int',module:'std'},
+  jsAt:{params:[{name:'h',type:'js'},{name:'i',type:'int'}],returnType:'js',module:'std'},
+  jsGet:{params:[{name:'h',type:'js'},{name:'key',type:'str'}],returnType:'js',module:'std'},
+  jsKeys:{params:[{name:'h',type:'js'}],returnType:'js',module:'std'},
   // Sound
   beep:{params:[{name:'freq',type:'int'},{name:'ms',type:'int'}],returnType:'void',module:'std'},
   // DOM
@@ -946,7 +1227,7 @@ function injectBuiltins(ast){
   if(called.has('jsAt')||called.has('jsGet'))hasJsInterop=true; // their results convert via __jsStr/__jsNum/__jsBool
   function scan(node,boundNames){
     if(!node||typeof node!=='object')return;
-    if(node.type==='MemberExpr')hasJsInterop=true;
+    if(node.type==='MemberExpr'||node.type==='IndexExpr')hasJsInterop=true;
     if(node.type==='VarDecl'&&node.name)boundNames.add(node.name);
     if(node.type==='IdentifierExpr'&&node.name){
       if(!boundNames.has(node.name)&&!declared.has(node.name)&&!BUILTINS[node.name]&&!called.has(node.name)){
@@ -970,7 +1251,7 @@ function injectBuiltins(ast){
   }
   if(hasJsInterop){
     // Inject the __js__ imports (bidirectional interop: Global/Get/Call/New, Set, Num/Str conversions)
-    ast.body.unshift(new ImportDecl('__jsGlobal',[{name:'namePtr',type:'str'}],'int','__js__',{line:0,col:0}));
+    ast.body.unshift(new ImportDecl('__jsGlobal',[{name:'namePtr',type:'str'}],'js','__js__',{line:0,col:0}));
     ast.body.unshift(new ImportDecl('__jsCall',[{name:'recv',type:'int'},{name:'namePtr',type:'str'},{name:'nArgs',type:'int'}],'int','__js__',{line:0,col:0}));
     ast.body.unshift(new ImportDecl('__jsNum',[{name:'h',type:'int'}],'num','__js__',{line:0,col:0}));
     ast.body.unshift(new ImportDecl('__jsStr',[{name:'h',type:'int'}],'str','__js__',{line:0,col:0}));
@@ -996,7 +1277,7 @@ function injectBuiltins(ast){
       // Return type: if the file uses member access anywhere (Path C is active),
       // unknown calls return int (handle) to enable method chains like dayjs().format(...).
       // Otherwise default to void (pure side effect, traditional behavior).
-      var retType=hasJsInterop?'int':'void';
+      var retType=hasJsInterop?'js':'void';
       ast.body.unshift(new ImportDecl(name,params,retType,'js',{line:0,col:0}));
       injected.push(name);
       autoJs.push(name);
@@ -1010,7 +1291,7 @@ function compile(source,target='wasm32'){const t0=performance.now();const lexer=
 // UI
 const ed=document.getElementById('editor'),gutter=document.getElementById('gutter'),hlInner=document.getElementById('hlInner');let lastFuncs=null,lastImports=null;
 var _emitKw=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
-var _emitTy=new Set(['int','num','str','bool','void','i32','i64','f32','f64']);
+var _emitTy=new Set(['int','num','str','bool','void','i32','i64','f32','f64','js']);
 var _emitBlt=new Set(['print','printNum','printStr','log','alert','abs','min','max','sqrt','sin','cos','pow','floor','random','now','canvas','color','alpha','lineWidth','rect','strokeRect','circle','line','clear','text','pixel','beep','sleep','button','input','getInput','setText','div','newArray','getItem','setItem','getNumItem','setNumItem','push','pop','arrayLen','scene3d','box','sphere','plane','color3d','move3d','rotate3d','scale3d','camera3d','lookAt3d','light3d','fog3d','render3d','controls3d','cylinder','wallBox','ambient3d','bgColor3d','cone','torus','grid3d','pointLight3d','spotLight3d','metallic3d','opacity3d','shadow3d','text3d','synth','drum','playNote','noteOff','setBpm','setSwing','physics','physBox','physCircle','physGround','physGravity','physStep','physDraw','barChart','lineChart','pieChart','chartLabel','chartData','chartColor','chartRender','loadAudio','playAudio','stopAudio','loopAudio','volumeAudio','tween','animateEl','pixiApp','pixiRect','pixiCircle','pixiText','pixiMove','pixiRender','world3d','bodyBox','bodySphere','bodyPlane','bodyForce','stepWorld','hostPeer','joinPeer','sendInt','sendStr','onRecvInt','onRecvStr','animate','keyDown','touchX','touchY','touching','getInputStr','loadImage','drawImage','drawImageScaled','collides','dist','setTimer','setInterval','screenW','screenH','mouseX','mouseY','mouseDown','save','load','saveStr','httpGet','randInt','lerp','clamp','ceil','round','sign','absNum','minNum','maxNum','tan','asin','acos','atan','atan2','ln','log2','exp','PI','TAU','E','intToStr','numToStr','strLen','strConcat','substr','strEq','charAt','loadStr','getCanvas','emptyObj','wrapShape','textShape','toStr','toNum','toJsArray','fnRef']);
 ['toInt','isNull','typeOf','jsLen','jsAt','jsGet','jsKeys'].forEach(function(n){_emitBlt.add(n)});
 function escH(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -1250,7 +1531,7 @@ function _need2d(){
 // Handles are BigInts: 0 = null/undefined, 1 = window, otherwise _hBase + index into the _handles array.
 // _hBase is 2^48 so that an ordinary Emit int (a loop counter, a size) can never be mistaken for a handle.
 // Arg buffer at offset 48640: 32 slots × 16 bytes = 512 bytes. Slot layout: [tag:u8][reserved:7][value:f64 OR i64-bits]
-// Tags: 0=int (i64), 1=num (f64), 2=str (ptr as u32), 3=handle (BigInt id), 4=bool
+// Tags: 0=int (i64; a live handle id is passed as its JS value), 1=num (f64), 2=str (ptr as u32), 3=handle (js-typed values and null), 4=bool, 5=int literal
 var _handles=[null,null];   // [0] unused, [1] = window (special global root)
 var _hBase=281474976710656; // 2^48
 var _argBufBase=48640;
@@ -1269,8 +1550,53 @@ function _handleLive(n){
 // number that is not a handle (e.g. an int callback argument) gives the number itself.
 function _handleVal(h){
   if(h===0n||h===0)return null;
-  var n=Number(h);if(n===1)return _handles[1];
+  var n=Number(h);
   var v=_handleLive(n);return v===undefined?n:v;
+}
+// Implementations of the `js`-type conversion imports (see _JS_CONV_IMPORTS in the compiler).
+function _jsIndexKey(k){return(typeof k==='number'||typeof k==='string'||typeof k==='symbol')?k:String(k)}
+function _jsExtraImport(name){
+  switch(name){
+    case'__jsInt':return function(h){var n=Number(_handleVal(h));return isFinite(n)?BigInt(Math.trunc(n)):0n};
+    case'__jsIntH':return function(h){
+      var v=_handleLive(Number(h));
+      if(typeof v==='number')return isFinite(v)?BigInt(Math.trunc(v)):0n;
+      if(typeof v==='boolean')return v?1n:0n;
+      if(typeof v==='bigint')return BigInt.asIntN(64,v);
+      return h;
+    };
+    case'__jsCmpNum':return function(h){
+      var v=_handleVal(h);
+      if(v===null||v===undefined)return 0;
+      return(typeof v==='number'||typeof v==='boolean'||typeof v==='bigint')?Number(v):(typeof v==='string'&&v.trim()!=='')?Number(v):NaN;
+    };
+    case'__jsSame':return function(a,b){return _handleVal(a)===_handleVal(b)?1:0};
+    case'__jsEqStr':return function(a,ptr){return _handleVal(a)===_readStr(ptr)?1:0};
+    case'__jsStrEq':return function(a,b){return(a===b||_readStr(a)===_readStr(b))?1:0};
+    case'__jsFromStr':return function(ptr){return _handleFor(_readStr(ptr))};
+    case'__jsFromNum':return function(n){return _handleFor(n)};
+    case'__jsFromBool':return function(b){return _handleFor(!!b)};
+    case'__jsIdx':return function(h){
+      var recv=_handleVal(h),k=_readArg(0);
+      if(recv===null||recv===undefined){_jsErr('['+String(k)+']','cannot index null');return 0n}
+      try{return _js_returnWrap(recv[_jsIndexKey(k)])}catch(e){_jsErr('['+String(k)+']',e);return 0n}
+    };
+    case'__jsIdxSet':return function(h){
+      var recv=_handleVal(h),k=_readArg(0),v=_readArg(1);
+      if(recv===null||recv===undefined){_jsErr('['+String(k)+'] = …','cannot index null');return}
+      try{recv[_jsIndexKey(k)]=v}catch(e){_jsErr('['+String(k)+'] = …',e)}
+    };
+  }
+  return null;
+}
+// A promise rejected with nobody listening (no .catch) while a program is loaded: show it in the
+// Output tab like every other JS-side error instead of only in the browser console.
+if(typeof window!=='undefined'&&window.addEventListener){
+  window.addEventListener('unhandledrejection',function(ev){
+    if(!_wasmMem)return;
+    _jsErr('unhandled promise rejection',ev&&ev.reason);
+    try{ev.preventDefault()}catch(e){} /* reported above; keep the console clean */
+  });
 }
 function _handleGet(h){
   if(h===0n||h===0)return null;
@@ -1299,10 +1625,10 @@ function _readArg(slot){
     }
     case 1: return view.getFloat64(off+8,true);
     case 2: return _readStr(view.getUint32(off+8,true));
-    case 3:{ // handle (explicit — for future use if codegen tags handles differently)
+    case 3:{ // handle: `null` and js-typed values (0 = null; a plain int stored in a js variable stays a number)
       var lo=view.getUint32(off+8,true),hi=view.getInt32(off+12,true);
       var bh=(BigInt(hi)<<32n)|BigInt(lo);
-      return _handleGet(bh);
+      return _handleVal(bh);
     }
     case 4: return view.getUint8(off+8)!==0;
     case 5:{ // raw int literal — never a handle
@@ -1339,11 +1665,13 @@ function _jsErr(what,e){
 // The compiler turns fnRef(name) into fnRef("@cb:<table index>:<param types>:<return type>:<name>").
 // JS arguments are marshalled by the DECLARED parameter types of the Emit function:
 //   int  → a JS number arrives as that integer; any other value (object, string, function…) as a handle
+//   js   → always a handle, whatever the value is (number, string, object…); null/undefined → 0
 //   num  → Number(arg)        str → the string, copied into WASM memory        bool → truthiness
 // Missing arguments arrive as 0 / "" / false; extra arguments are dropped. The return value goes
 // back by the declared return type (an int that is a live handle is returned as the JS value).
 var _cbTable=null;
 function _cbArg(a,t){
+  if(t==='js')return _handleFor(a);
   if(t==='num'||t==='f64'||t==='f32')return(a===null||a===undefined)?0:Number(a);
   if(t==='str')return _writeStr((a===null||a===undefined)?'':String(a));
   if(t==='bool'||t==='i32')return a?1:0;
@@ -1354,6 +1682,7 @@ function _cbArg(a,t){
 }
 function _cbRet(v,t){
   if(t==='void'||v===undefined)return undefined;
+  if(t==='js')return _handleVal(v);
   if(t==='str')return _readStr(v);
   if(t==='bool'||t==='i32')return !!v;
   if(t==='num'||t==='f64'||t==='f32')return v;
@@ -2079,7 +2408,7 @@ function buildImportObject(imports,outputLog){
           catch(e){_log(outputLog,'__jsNew ERROR',[name+': '+e.message]);_jsErr(label,e);return 0n}
         };
       }else{
-        obj[imp.module][imp.name]=function(){return 0n};
+        obj[imp.module][imp.name]=_jsExtraImport(imp.name)||function(){return 0n};
       }
     } else if(imp.module==='js'){
       // Auto-bridged JS function — try to call the real JS global
@@ -2092,6 +2421,7 @@ function buildImportObject(imports,outputLog){
             // Check if this param is str type — read from WASM memory
             var ptype=impNode?.params?.[ai]?.type;
             if(ptype==='str'&&_wasmMem){realArgs.push(_readStr(raw))}
+            else if(ptype==='js'){realArgs.push(_handleVal(raw))}
             else if(typeof raw==='bigint'){
               // Int arg: could be a handle, try lookup first
               var n=Number(raw);
@@ -2127,9 +2457,9 @@ function buildImportObject(imports,outputLog){
                 try{ret=new (Function.prototype.bind.apply(jsFn,[null].concat(realArgs)))()}
                 catch(e){ret=jsFn.apply(window,realArgs)}
               }else{ret=jsFn.apply(window,realArgs)}
-            }catch(e){_log(outputLog,impName+' ERROR',[e.message]);_jsErr(impName+'()',e);return impNode?.returnType==='int'?0n:0}
+            }catch(e){_log(outputLog,impName+' ERROR',[e.message]);_jsErr(impName+'()',e);return(impNode?.returnType==='int'||impNode?.returnType==='js')?0n:0}
             // If return type expects int (handle), wrap as handle
-            if(impNode?.returnType==='int'){
+            if(impNode?.returnType==='int'||impNode?.returnType==='js'){
               if(ret===null||ret===undefined)return 0n;
               return _handleFor(ret);
             }
@@ -2147,7 +2477,7 @@ function buildImportObject(imports,outputLog){
             w.textContent='⚠ '+impName+'(...) — window.'+impName+' is '+(jsFn===undefined?'not loaded':typeof jsFn)+'. CDN may have failed.';
             document.getElementById('tab-output').appendChild(w);
             console.warn('Auto-bridge: window.'+impName+' is not a function ('+typeof jsFn+'). Library not loaded?');
-            return impNode?.returnType==='int'?0n:0;
+            return(impNode?.returnType==='int'||impNode?.returnType==='js')?0n:0;
           }
         }
       })(imp.name,imp.node);
@@ -2245,7 +2575,7 @@ try{
 }catch(e){_showLibError(e,out);return}
 setStatus('idle','Compiling\u2026');
 try{const r=compile(source,target);lastFuncs=r.functions;lastImports=r.imports;let o='';o+=sp('info','Done in '+r.elapsed.toFixed(1)+'ms')+'\n';let statsLine=r.stats.tokens+' tok \u2192 '+r.stats.funcs+' fn';if(r.stats.imports)statsLine+=', '+r.stats.imports+' imports';statsLine+=' \u2192 '+r.stats.bytes+'B';o+=sp('dim',statsLine)+'\n';if(r.injected&&r.injected.length){o+=sp('imp','\u2728 Auto: '+r.injected.join(', '))+'\n'}if(r.autoJs&&r.autoJs.length){o+=sp('info','\u26a1 JS: '+r.autoJs.join(', '))+'\n'}o+='\n';if(r.imports.length&&!(r.injected&&r.injected.length===r.imports.length)){o+=sp('imp','Imports: '+r.imports.map(i=>i.module+'.'+i.name).join(', '))+'\n\n'}if(r.errors.length){o+=sp('err','\u2717 '+r.errors.length+' type error'+(r.errors.length>1?'s':'')+' \u2014 fix before running')+'\n';r.errors.forEach(function(e){var m=e.match(/^(\d+):/);if(m){o+='  <span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h(e)+'</span>\n'}else{o+='  '+sp('err',e)+'\n'}});o+='\n'}else{o+=sp('ok','\u2713 Types OK')+'\n\n';var cdnsNeeded=new Set();r.imports.forEach(function(imp){var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;/* If any explicitly-used lib provides this function (either listed in fns or matching the lib name itself), skip — the explicit use wins. */ var providedByExplicit=Array.from(_explicitCdns).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;/* Also match by lib name (canvas-confetti's lib.name is 'confetti' and exposes window.confetti) */ var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});if(!providedByExplicit)cdnsNeeded.add(fnCdn)});for(var cdn of cdnsNeeded){await _loadLib(cdn)}try{const impLog=[];const importObj=buildImportObject(r.imports,impLog);const mod=await WebAssembly.compile(r.wasm);const inst=await WebAssembly.instantiate(mod,importObj);_wasmMem=inst.exports.memory;o+=sp('ok','\u2713 WASM OK')+'\n\n';const exports=Object.entries(inst.exports).filter(([k,v])=>typeof v==='function'&&k!=='frame'&&!k.startsWith('onclick_')&&!k.startsWith('ontimer_')&&!k.startsWith('onhttp_')&&k!=='memory');if(exports.length){o+=sp('info','\u2500\u2500 Results \u2500\u2500')+'\n';for(const[name,fn]of exports){const fd=r.functions.find(f=>f.name===name);const params=fd?.node?.params||[];const tests=genArgs(params);for(const args of tests){impLog.length=0;try{const rv=fn(...args);let line=sp('ok','\u2713')+' '+name+'('+args.join(',')+') = '+rv;if(impLog.length){line+='\n';for(const call of impLog)line+='    '+sp('imp','\u2192 '+call.fn+'('+call.args.join(', ')+')')+'\n'}o+=line+'\n'}catch(e){o+=sp('err','\u2717')+' '+name+' \u2192 '+e.message+'\n'}}}o+='\n'+sp('dim','Tap to call:')+'\n';for(const[name]of exports){const fd=r.functions.find(f=>f.name===name);const ps=fd?.node?.params?.map(p=>p.name+':'+p.type).join(',')||'';o+='<span class="run-fn" onclick="callFn(\''+name+'\')">'+h(name)+'</span>('+h(ps)+')\n'}}window._wi=inst;window._impLog=impLog;setStatus('ok','Done',r.stats.bytes+'B');try{var _ac=new AudioContext();var _o=_ac.createOscillator();_o.frequency.value=880;_o.type='sine';var _g=_ac.createGain();_g.gain.value=0.1;_o.connect(_g);_g.connect(_ac.destination);_o.start();_o.stop(_ac.currentTime+0.05)}catch(e){};}catch(e){o+=sp('err','\u2717 '+e.message)+'\n';setStatus('err','WASM error');}}if(r.errors.length)setStatus('err',r.errors.length+' type error'+(r.errors.length>1?'s':''));var _outPre=document.createElement('div');_outPre.className='output';_outPre.innerHTML=o;out.insertBefore(_outPre,out.firstChild);document.getElementById('tab-wasm').innerHTML=hexDump(r.wasm);document.getElementById('tab-ast').textContent=JSON.stringify(r.ast,null,2);document.getElementById('tab-tokens').textContent=r.tokens.map(t=>t.toString()).join('\n');document.getElementById('runDot').classList.add('show');if(window.innerWidth<768)showView('run')}catch(e){var em=e.message;var lm=em.match(/(\d+):(\d+)/);if(lm){out.innerHTML='<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">\u2717 '+h(em)+'</span>'}else{out.innerHTML=sp('err','\u2717 '+em)};setStatus('err','Error');if(window.innerWidth<768)showView('run')}}
-const isInt=t=>t==='int'||t==='i64';const isNum=t=>t==='num'||t==='f64'||t==='f32';
+const isInt=t=>t==='int'||t==='i64'||t==='js';const isNum=t=>t==='num'||t==='f64'||t==='f32';
 function genArgs(params){if(!params.length)return[[]];if(params.length===1){const t=params[0].type;if(isInt(t))return[[1n],[5n],[10n]];if(isNum(t))return[[1.0],[5.0]];return[[1],[5],[10]]}if(params.length===2){const v=params.map(p=>{if(isInt(p.type))return[2n,10n];if(isNum(p.type))return[1.0,5.0];return[3,7]});return[[v[0][0],v[1][0]],[v[0][1],v[1][1]]]}return[params.map(p=>{if(isInt(p.type))return 2n;if(isNum(p.type))return 1.0;return 3})]}
 function callFn(name){const fn=window._wi?.exports[name];if(!fn)return;const fd=lastFuncs?.find(f=>f.name===name);const ps=fd?.node?.params||[];const a=prompt(name+'('+ps.map(p=>p.name+':'+p.type).join(', ')+')\nArgs:');if(a===null)return;const args=a.split(',').map((x,i)=>{x=x.trim();const t=ps[i]?.type||'int';if(isInt(t))return BigInt(x);if(isNum(t))return parseFloat(x);return parseInt(x)});window._impLog.length=0;try{const r=fn(...args);let html='\n<div class="run-result">'+sp('ok','▶')+' '+name+'('+args.join(',')+') = <strong>'+r+'</strong>';if(window._impLog.length){html+='\n';for(const c of window._impLog)html+='  '+sp('imp','→ '+c.mod+'.'+c.fn+'('+c.args.join(', ')+')')+'\n'}html+='</div>';document.getElementById('tab-output').innerHTML+=html}catch(e){document.getElementById('tab-output').innerHTML+='\n<div class="run-result">'+sp('err','✗')+' '+e.message+'</div>'}}
 function hexDump(bytes){let h='';const pl=16;for(let i=0;i<Math.min(bytes.length,512);i+=pl){const addr=i.toString(16).padStart(4,'0');let hex='';for(let j=0;j<pl;j++){if(i+j<bytes.length){const cls=(i+j<4)?'magic':'';hex+='<span class="'+cls+'">'+bytes[i+j].toString(16).padStart(2,'0')+'</span> '}if(j===7)hex+=' '}h+='<span class="addr">'+addr+'</span> '+hex+'\n'}if(bytes.length>512)h+='\n<span class="dim">… '+(bytes.length-512)+' more bytes</span>';return'<div class="hex">'+h+'</div>'}
