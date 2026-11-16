@@ -274,6 +274,46 @@ const EXTRA = {
     expect: 'key A down',
     expect2: 'pointer down',
   },
+  // await (JSPI), try / catch / finally / throw and Emit arrays in an exported page. The export boot starts
+  // async entry functions through the runtime's _emitCallExport, exactly as Run does.
+  '+await-try': {
+    src: [
+      'fn load(id: int) str {', '  await sleep(30)', '  if (id < 0) { throw "bad id " + id }', '  return "item" + id', '}', '',
+      'export fn main() {', '  printStr("start")', '  let v = await Promise.resolve(41)', '  print(v + 1)',
+      '  for (let i = 0; i < 3; i++) {', '    if (i == 1) { continue }', '    printStr(load(i))', '  }',
+      '  try {', '    printStr(load(-1))', '  } catch (e) {', '    printStr("caught: " + e.message)', '  } finally {', '    printStr("finally")', '  }',
+      '  try { JSON.parse("{bad") } catch (e) { printStr("parse: " + e.name) }',
+      '  try { await Promise.reject(new Error("rejected")) } catch (e) { printStr("await: " + e.message) }',
+      '  let xs = [1, 2, 3]', '  xs.push(xs[0] + xs.length)', '  printStr(toStr(JSON.stringify(xs)))',
+      '  let r = await Promise.reject(new Error("not caught"))', '  printStr("after the red line")',
+      '  throw "main gives up"', '}', '',
+      'export fn second() {', '  printStr("second starts while main waits")', '  await sleep(400)', '  printStr("second done")', '}', ''].join('\n'),
+    expect: 'caught: bad id -1',
+    expect2: 'main gives up',
+    // The module API: an async export called directly cannot wait (readable error); through the runtime it can.
+    jsCheck: page => page.evaluate(async () => {
+      const p = [], out = document.getElementById('tab-output');
+      const app = await window.__mod.default({ run: false });
+      let msg = '';
+      try { app.exports.second(); } catch (e) { msg = e.message; }
+      if (!/^await cannot wait here/.test(msg)) p.push('a direct call of an async export should throw the readable error, got: ' + JSON.stringify(msg));
+      if (typeof window._emitCallExport !== 'function') return p.concat('window._emitCallExport is missing');
+      await window._emitCallExport(app.instance, 'second', []);
+      if (!/second done/.test(out.innerText)) p.push('_emitCallExport(app.instance, "second", []) should run it to the end, shows: ' + out.innerText.slice(0, 200));
+      return p;
+    }),
+  },
+  '+await-button': {
+    src: [
+      'mut clicks = 0', '',
+      'export fn main() {', '  button("load", 1)', '  printStr("ready")', '  await sleep(400)', '  printStr("main woke up, clicks so far: " + clicks)', '}', '',
+      'export fn onclick_1() {', '  clicks++', '  let me = clicks', '  printStr("click " + me)',
+      '  let d = await Promise.resolve({name: "data" + me})', '  await sleep(20)', '  printStr("loaded " + d.name)',
+      '  try {', '    await Promise.reject(new Error("offline"))', '  } catch (e) {', '    printStr("failed: " + e.message)', '  }',
+      '  if (me == 1) { throw "handler stops" }', '}', ''].join('\n'),
+    expect: 'loaded data1',
+    expect2: 'handler stops',
+  },
 };
 
 // Runs in every page before its own scripts: repeatable Math.random and a frozen clock.

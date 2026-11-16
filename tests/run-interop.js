@@ -48,6 +48,8 @@ window.fakeLib = {
 //   count: {line: n} → that exact line must appear exactly n times
 //   wait: ms to wait after the run for timers/promises (default 250)
 //   rerun: true → press Run twice in a row; timers/promises of the first run must not fire into the second
+//   after: async page => problems[] → runs right after Run (clicks, direct calls); returns problem strings
+//   nojspi: true → the page has no WebAssembly.Suspending / WebAssembly.promising (a browser without JSPI)
 const TESTS = [
   // ── 1. Callbacks that receive arguments ──
   { name: 'callback-int-args', src: `
@@ -802,9 +804,9 @@ export fn run() {
   print(js2[2] + 0)
 }`, expect: ['> 21', '> 60', '> 60', '> {"key":"v","name":"cfg"}', '> cfg', '> 31', '> 3', '> [[1,9],[3,4]]', '> name', '> [7,0,0]', '> out of range is null', '> 2', '> 6'] },
 
-  { name: 'index-on-emit-array-is-a-compile-error', status: 'Error', errors: true, src: `
+  { name: 'index-on-an-int-is-a-compile-error', status: 'Error', errors: true, src: `
 export fn run() {
-  let xs = [1, 2, 3]
+  let xs = 5
   print(xs[1])
 }`, expect: [/^✗ 3:9: \[ \] works on JS values \(type js\) and strings, but this is int/] },
 
@@ -1125,6 +1127,753 @@ export fn run() {
   printNum(1.5 + 2)
   print(fakeLib.config.count + 1)
 }`, expect: ['> abcd', '> name=cfg', '> cfg/7', '> i=7', '> 7 items', '> n=2.5 whole=3', '> b=true', '> sum=3', '> a12', '> hello bob!', '> xy1kid', '> len 2', '> null:[]', '> eq', '> 5', '> 3', '> 3.5', '> 8'] },
+
+  // ── 20. Loops: break / continue at any nesting depth ──
+  { name: 'break-continue-inside-if', src: `
+export fn run() {
+  let i = 0
+  while (i < 10) {
+    i++
+    if (i == 3) { break }
+  }
+  print(i)
+  let s = 0
+  for (let k = 0; k < 5; k++) {
+    if (k == 2) { continue }
+    if (k == 4) {
+      if (s > 0) { break }
+    }
+    s += k
+  }
+  print(s)
+  let n = 0
+  for (let a = 0; a < 3; a++) {
+    let b = 0
+    while (true) {
+      b++
+      if (b > a) { break }
+      n++
+    }
+  }
+  print(n)
+}`, expect: ['> 3', '> 4', '> 3'] },
+
+  // ── 21. await (JSPI) ──
+  { name: 'await-resolved-promise', src: `
+export fn run() {
+  let v = await Promise.resolve(41)
+  print(v + 1)
+  let s: str = await Promise.resolve("text")
+  printStr(s)
+  let o = await Promise.resolve(JSON.parse("{\\"a\\":{\\"b\\":7}}"))
+  print(o.a.b + 0)
+  let x: num = await Promise.resolve(2.5)
+  printNum(x * 2.0)
+  printStr("got " + await Promise.resolve("inline"))
+  if (isNull(await Promise.resolve(null))) { printStr("null resolves to null") }
+}`, expect: ['> 42', '> text', '> 7', '> 5', '> got inline', '> null resolves to null'] },
+
+  { name: 'await-non-promise-is-the-value', src: `
+export fn run() {
+  let n = await 5
+  print(n + 1)
+  let s: str = await "plain"
+  printStr(s)
+  let o = fakeLib.config
+  let same = await o
+  if (same == o) { printStr("same object") }
+  printNum(toNum(await 1.5))
+  if ((await null) == null) { printStr("null stays null") }
+}`, expect: ['> 6', '> plain', '> same object', '> 1.5', '> null stays null'] },
+
+  { name: 'await-delayed-promise-and-order', wait: 500, src: `
+fn late(v: js) {
+  printStr("timer fired")
+}
+export fn run() {
+  setTimeout(fnRef(late), 5)
+  printStr("before")
+  let u = await fakeLib.fetchUser(7)
+  printStr("user " + u.name + " id " + u.id)
+  let again = await fakeLib.fetchUser(8)
+  printStr(toStr(again.name))
+}`, expect: ['> before', '> timer fired', '> user user7 id 7', '> user8'] },
+
+  { name: 'await-rejected-outside-try-prints-red-and-gives-null', wait: 400, errors: true, src: `
+export fn run() {
+  let r = await Promise.reject(new Error("nope"))
+  if (isNull(r)) { printStr("rejected await gave null") }
+  let r2 = await fakeLib.failLater()
+  printStr("carried on")
+}`, expect: ['✗ await: nope', '> rejected await gave null', '✗ await: server said no', '> carried on'] },
+
+  { name: 'await-sleep-in-loops', wait: 700, src: `
+export fn run() {
+  let t0 = Date.now()
+  for (let i = 0; i < 5; i++) {
+    if (i == 1) { continue }
+    if (i == 4) { break }
+    printStr("step " + i)
+    await sleep(40)
+  }
+  let n = 0
+  while (n < 3) {
+    n++
+    await sleep(10)
+  }
+  let waited = Date.now() - t0
+  if (waited >= 140) { printStr("waited long enough") }
+  if (waited < 600) { printStr("and not too long") }
+  print(n)
+}`, expect: ['> step 0', '> step 2', '> step 3', '> waited long enough', '> and not too long', '> 3'], count: { '> step 1': 0, '> step 4': 0 } },
+
+  { name: 'await-in-called-functions-and-return-values', wait: 500, src: `
+fn userName(id: int) str {
+  let u = await fakeLib.fetchUser(id)
+  let n: str = u.name
+  return n
+}
+fn twice(x: num) num {
+  await sleep(10)
+  return x * 2.0
+}
+fn both(id: int) str {
+  return userName(id) + "/" + twice(1.5)
+}
+export fn run() {
+  printStr(userName(3))
+  printNum(twice(4.0))
+  printStr(both(9))
+}`, expect: ['> user3', '> 8', '> user9/3'] },
+
+  { name: 'await-in-callbacks', wait: 600, src: `
+mut ticks = 0
+fn tick() {
+  ticks++
+  let id = ticks
+  await sleep(20)
+  printStr("tick " + id + " done")
+}
+fn slowDouble(x: int) int {
+  await sleep(30 - x * 10)
+  printStr("doubling " + x)
+  return x * 2
+}
+fn onUser(u: js) {
+  let other = await fakeLib.fetchUser(u.id + 1)
+  printStr("then: " + u.name + " -> " + other.name)
+}
+export fn run() {
+  setTimeout(fnRef(tick), 5)
+  setTimeout(fnRef(tick), 10)
+  // an async Emit function used as a JS callback gives JS a promise, like a JS async function
+  let promises = JSON.parse("[1, 2]").map(fnRef(slowDouble))
+  let first = promises[0]
+  printStr("is a promise: " + (typeOf(first.then) == "function"))
+  let all = await Promise.all(promises)
+  printStr(toStr(JSON.stringify(all)))
+  fakeLib.fetchUser(4).then(fnRef(onUser))
+}`, expect: ['> is a promise: true', '> doubling 2', '> doubling 1', '> [2,4]', '> tick 1 done', '> tick 2 done', '> then: user4 -> user5'] },
+
+  { name: 'await-button-handler-while-run-is-suspended', wait: 700, errors: true,
+    after: async page => { await page.waitForTimeout(60); await page.evaluate(() => { const b = document.querySelector('#tab-output button'); b.click(); b.click(); }); return []; }, src: `
+mut clicks = 0
+export fn run() {
+  button("go", 1)
+  printStr("run: waiting")
+  try {
+    await sleep(350)
+    printStr("run: woke up")
+    fakeLib.boom()
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("run caught: " + e.message)
+  }
+}
+export fn onclick_1() {
+  clicks++
+  let me = clicks
+  printStr("click " + me)
+  // not inside a try: must print the red line even though run() is suspended inside its try block
+  fakeLib.boom()
+  let u = await fakeLib.fetchUser(me)
+  printStr("click " + me + " got " + u.name)
+}`, expect: ['> run: waiting', '> click 1', '✗ jsCall .boom(): kaboom', '> click 2', '✗ jsCall .boom(): kaboom', '> click 1 got user1', '> click 2 got user2', '> run: woke up', '> run caught: kaboom'], count: { '> SHOULD NOT PRINT': 0, '✗ jsCall .boom(): kaboom': 2 } },
+
+  { name: 'await-overlapping-calls-keep-their-own-arguments', wait: 700, src: `
+fn slow(tag: str, ms: int) str {
+  await sleep(ms)
+  return tag
+}
+fn worker(id: int, ms: int) {
+  // the arguments of join are evaluated (with awaits in between) before the call is made
+  let a = fakeLib.join("w" + id, await slow("first" + id, ms))
+  printStr(toStr(a))
+  let b = fakeLib.join(await slow("x" + id, ms), await slow("y" + id, ms / 2))
+  printStr(toStr(b))
+  let o = {id: id, tag: await slow("t" + id, ms), list: [id, await slow("l" + id, 5)]}
+  printStr(toStr(JSON.stringify(o)))
+}
+export fn run() {
+  let start = fnRef(worker)
+  start(1, 60)
+  start(2, 25)
+  start(3, 40)
+  printStr("all started")
+}`, expect: ['> all started', '> w2|first2', '> w3|first3', '> w1|first1'],
+    count: { '> w1|first1': 1, '> x1|y1': 1, '> x2|y2': 1, '> x3|y3': 1, '> {"id":1,"tag":"t1","list":[1,"l1"]}': 1, '> {"id":2,"tag":"t2","list":[2,"l2"]}': 1, '> {"id":3,"tag":"t3","list":[3,"l3"]}': 1 } },
+
+  { name: 'await-suspended-call-is-dropped-by-a-new-run', wait: 500, rerun: true, src: `
+export fn run() {
+  printStr("start")
+  await sleep(120)
+  printStr("end")
+}`, expect: ['> start', '> end'], count: { '> start': 1, '> end': 1 } },
+
+  { name: 'await-frame-is-not-reentered', wait: 900, src: `
+mut busy = 0
+mut frames = 0
+export fn run() {
+  canvas(40, 40)
+  animate()
+}
+export fn frame() {
+  if (busy == 1) { printStr("REENTERED") }
+  busy = 1
+  await sleep(60)
+  busy = 0
+  frames++
+  if (frames == 3) { printStr("three frames") }
+  if (frames == 40) { printStr("TOO MANY FRAMES") }
+}`, expect: ['> three frames'], count: { '> REENTERED': 0, '> TOO MANY FRAMES': 0 } },
+
+  { name: 'await-timer-handlers', wait: 600, src: `
+mut n = 0
+export fn run() {
+  setTimer(20, 1)
+  printStr("armed")
+}
+export fn ontimer_1() {
+  n++
+  await sleep(20)
+  printStr("timer " + n)
+  if (n < 2) { setTimer(10, 1) }
+}`, expect: ['> armed', '> timer 1', '> timer 2'], count: { '> timer 2': 1 } },
+
+  { name: 'await-reached-from-a-direct-js-call-is-a-clear-error', wait: 300,
+    after: async page => page.evaluate(async () => {
+      const p = [];
+      let msg = '';
+      try { window._wi.exports.run(); } catch (e) { msg = e.message; }
+      if (!/^await cannot wait here: this Emit function was called directly from JavaScript/.test(msg)) p.push('direct call should throw the readable error, threw: ' + JSON.stringify(msg));
+      // an await of something that is not a promise needs no suspension: fine in a direct call
+      try { if (window._wi.exports.plain() !== 6n) p.push('plain() should return 6'); } catch (e) { p.push('plain() threw: ' + e.message); }
+      const r = _emitCallExport(window._wi, 'run', []);
+      if (!r || typeof r.then !== 'function') p.push('_emitCallExport of an async function should return a promise');
+      await r;
+      if (_emitCallExport(window._wi, 'add', [2n, 3n]) !== 5n) p.push('_emitCallExport of a plain function should return its result');
+      return p;
+    }), src: `
+export fn run() {
+  await sleep(10)
+  printStr("ran")
+}
+export fn plain() int {
+  let v = await 5
+  return v + 1
+}
+export fn add(a: int, b: int) int {
+  return a + b
+}`, expect: ['> ran'] },
+
+  // ── 22. try / catch / finally / throw ──
+  { name: 'try-catch-interop-errors', errors: true, src: `
+export fn run() {
+  try {
+    printStr("in try")
+    fakeLib.boom()
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("caught: " + e.message)
+    printStr(typeOf(e))
+  }
+  try { fakeLib.throwString() } catch (e) { printStr("string thrown: " + e.message) }
+  try { JSON.parse("{bad") } catch (e) { printStr("name: " + e.name) }
+  try { fakeLib.noSuchMethod(1) } catch (e) { printStr("no method: " + e.message) }
+  try {
+    let missing = document.getElementById("no-such-element")
+    missing.focus()
+  } catch (e) { printStr("null receiver: " + e.message) }
+  try {
+    let missing = document.getElementById("no-such-element")
+    let t = missing.textContent
+    printStr("SHOULD NOT PRINT")
+  } catch (e) { printStr("null property: " + e.message) }
+  try {
+    let missing = document.getElementById("no-such-element")
+    missing.textContent = "x"
+    printStr("SHOULD NOT PRINT")
+  } catch (e) { printStr("null set: " + e.message) }
+  try { let x = new fakeLib.NoSuchClass(1) } catch (e) { printStr("new: " + e.message) }
+  try { let d = new Intl.DateTimeFormat("not a locale!!") } catch (e) { printStr("ctor threw: " + e.name) }
+  try { let v = fakeLib.config.nothing[0] } catch (e) { printStr("index: " + e.message) }
+  try { noSuchGlobalFunction(1) } catch (e) { printStr("global: " + e.message) }
+  try { atob("***") } catch (e) { printStr("global threw: " + e.name) }
+  try { let f = fakeLib.config ; f(1) } catch (e) { printStr("value call: " + e.message) }
+  try { printStr("got " + fakeLib.join(fakeLib.boom(), "x")) } catch (e) { printStr("nested arg: " + e.message) }
+  // no error: the catch block is skipped
+  try { printStr(toStr(fakeLib.join("a", "b"))) } catch (e) { printStr("SHOULD NOT PRINT") }
+  // catch without a name
+  try { fakeLib.boom() } catch { printStr("caught without a name") }
+  // after the try blocks an error is reported the usual way again
+  let r = fakeLib.boom()
+  if (isNull(r)) { printStr("outside try: null") }
+}`, expect: ['> in try', '> caught: kaboom', '> object', '> string thrown: plain string', '> name: SyntaxError', '> no method: .noSuchMethod(): is not a function (the object has no such method)',
+    '> null receiver: .focus(): receiver is null', '> null property: .textContent cannot read a property of null', '> null set: .textContent = … cannot set a property of null',
+    '> new: new NoSuchClass() is not a constructor', '> ctor threw: RangeError', '> index: [0] cannot index null', '> global: noSuchGlobalFunction is not a function (window.noSuchGlobalFunction is not defined)',
+    '> global threw: InvalidCharacterError', '> value call: f() is not a function (it is object)', '> nested arg: kaboom', '> a|b', '> caught without a name', '✗ jsCall .boom(): kaboom', '> outside try: null'],
+    count: { '> SHOULD NOT PRINT': 0, '✗ jsCall .boom(): kaboom': 1 } },
+
+  { name: 'try-catch-rejected-await', wait: 500, src: `
+fn load() str {
+  let r = await fakeLib.failLater()
+  printStr("SHOULD NOT PRINT")
+  return "x"
+}
+export fn run() {
+  try {
+    let v = await Promise.reject(new Error("rejected"))
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("caught: " + e.message)
+  }
+  try {
+    printStr(load())
+  } catch (e) {
+    printStr("caught from callee: " + e.message)
+  }
+  try {
+    await Promise.reject("just text")
+  } catch (e) {
+    printStr("text: " + e.message)
+  }
+  try {
+    let ok = await fakeLib.fetchUser(2)
+    printStr("ok " + ok.name)
+  } catch (e) {
+    printStr("SHOULD NOT PRINT")
+  }
+}`, expect: ['> caught: rejected', '> caught from callee: server said no', '> text: just text', '> ok user2'], count: { '> SHOULD NOT PRINT': 0 } },
+
+  { name: 'try-catch-error-two-calls-deep', errors: true, src: `
+mut depth = 0
+fn inner(x: int) int {
+  depth = 2
+  let r = fakeLib.boom()
+  printStr("SHOULD NOT PRINT inner")
+  depth = 99
+  return 5
+}
+fn middle(x: int) num {
+  depth = 1
+  let v = inner(x) + 1
+  printStr("SHOULD NOT PRINT middle")
+  return 1.5
+}
+fn label(x: int) str {
+  return "v" + middle(x)
+}
+fn quiet() {
+  fakeLib.boom()
+  printStr("quiet carried on")
+}
+export fn run() {
+  try {
+    printStr(label(1))
+    printStr("SHOULD NOT PRINT run")
+  } catch (e) {
+    printStr("caught " + e.message + " at depth " + depth)
+  }
+  // the same functions called outside a try behave as before: red line, null, carry on
+  quiet()
+  let n = inner(1)
+  print(n)
+}`, expect: ['> caught kaboom at depth 2', '✗ jsCall .boom(): kaboom', '> quiet carried on', '✗ jsCall .boom(): kaboom', '> SHOULD NOT PRINT inner', '> 5'],
+    count: { '> SHOULD NOT PRINT middle': 0, '> SHOULD NOT PRINT run': 0, '> SHOULD NOT PRINT inner': 1 } },
+
+  { name: 'throw-caught-and-rethrown', src: `
+fn check(n: int) int {
+  if (n < 0) { throw "negative: " + n }
+  return n * 2
+}
+fn wrapper(n: int) int {
+  try {
+    return check(n)
+  } catch (e) {
+    printStr("wrapper saw: " + e.message)
+    throw e
+  }
+  return 0
+}
+export fn run() {
+  try {
+    print(check(4))
+    print(check(-1))
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("caught: " + e.message)
+    printStr("is Error: " + (e.name == "Error"))
+  }
+  try {
+    print(wrapper(-7))
+  } catch (e2) {
+    printStr("rethrown: " + e2.message)
+  }
+  try {
+    throw fakeLib.config
+  } catch (e3) {
+    printStr("thrown object: " + e3.name)
+  }
+  try { throw 42 } catch (e4) { printStr("number: " + e4.message) }
+  try {
+    try { throw "inner" } catch (e5) { printStr("inner catch: " + e5.message) }
+    throw "outer"
+  } catch (e6) {
+    printStr("outer catch: " + e6.message)
+  }
+}`, expect: ['> 8', '> caught: negative: -1', '> is Error: true', '> wrapper saw: negative: -7', '> rethrown: negative: -7', '> thrown object: cfg', '> number: 42', '> inner catch: inner', '> outer catch: outer'], count: { '> SHOULD NOT PRINT': 0 } },
+
+  { name: 'throw-uncaught-is-a-red-line', errors: true, wait: 400, src: `
+fn fail(why: str) {
+  throw "failed: " + why
+}
+fn later() {
+  printStr("timer runs")
+  fail("in a callback")
+  printStr("SHOULD NOT PRINT")
+}
+fn asyncFail() {
+  await sleep(10)
+  fail("after an await")
+}
+export fn first() {
+  setTimeout(fnRef(later), 20)
+  setTimeout(fnRef(asyncFail), 40)
+  printStr("before")
+  fail("at top level")
+  printStr("SHOULD NOT PRINT")
+}
+export fn second() {
+  printStr("the next entry function still runs")
+}`, expect: ['✗ first → failed: at top level', '> before', '> the next entry function still runs', '> timer runs', '✗ callback later(): failed: in a callback', '✗ unhandled promise rejection: failed: after an await'], count: { '> SHOULD NOT PRINT': 0 } },
+
+  { name: 'finally-runs-on-every-path', errors: true, src: `
+fn early(n: int) int {
+  try {
+    if (n == 1) { return 10 }
+    if (n == 2) { fakeLib.boom() }
+    return 20
+  } catch (e) {
+    return 30
+  } finally {
+    printStr("finally " + n)
+  }
+  return 0
+}
+fn passOn() {
+  try {
+    fakeLib.boom()
+    printStr("SHOULD NOT PRINT")
+  } finally {
+    printStr("cleanup before passing on")
+  }
+  printStr("SHOULD NOT PRINT")
+}
+export fn run() {
+  print(early(1))
+  print(early(2))
+  print(early(3))
+  try { passOn() } catch (e) { printStr("outer caught: " + e.message) }
+  for (let i = 0; i < 4; i++) {
+    try {
+      if (i == 1) { continue }
+      if (i == 3) { break }
+      printStr("body " + i)
+    } finally {
+      printStr("after " + i)
+    }
+  }
+  try {
+    try { throw "from body" } catch (e) { throw "from handler" } finally { printStr("finally after a throwing handler") }
+  } catch (e) {
+    printStr("got: " + e.message)
+  }
+  try { printStr("no error") } finally { printStr("finally without error") }
+  // try/finally with no catch anywhere: finally runs, then the error ends the call
+  try { throw "nobody catches this" } finally { printStr("last finally") }
+  printStr("SHOULD NOT PRINT")
+}`, expect: ['✗ run → nobody catches this', '> finally 1', '> 10', '> finally 2', '> 30', '> finally 3', '> 20', '> cleanup before passing on', '> outer caught: kaboom',
+    '> body 0', '> after 0', '> after 1', '> body 2', '> after 2', '> after 3', '> finally after a throwing handler', '> got: from handler', '> no error', '> finally without error', '> last finally'], count: { '> SHOULD NOT PRINT': 0 } },
+
+  { name: 'try-and-callbacks', errors: true, wait: 400, src: `
+fn visit(x: int) {
+  if (x == 2) { fakeLib.boom() }
+  printStr("visited " + x)
+}
+fn strict(x: int) {
+  if (x == 2) { throw "stop at " + x }
+  printStr("strict " + x)
+}
+fn guarded(x: int) {
+  try {
+    if (x == 2) { fakeLib.boom() }
+    printStr("guarded " + x)
+  } catch (e) {
+    printStr("guarded caught " + e.message)
+  }
+}
+fn twice(x: int) int {
+  return x * 2
+}
+fn tick() {
+  // a callback from a timer, while nothing is inside a try
+  fakeLib.boom()
+  printStr("tick carried on")
+}
+export fn run() {
+  let list = JSON.parse("[1, 2, 3]")
+  try {
+    // a callback that JS calls during the try is part of it: its error ends forEach and lands here
+    list.forEach(fnRef(visit))
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("caught: " + e.message)
+  }
+  try {
+    list.forEach(fnRef(strict))
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("caught: " + e.message)
+  }
+  try {
+    // the result of a callback still arrives when nothing fails
+    printStr(toStr(JSON.stringify(list.map(fnRef(twice)))))
+    list.forEach(fnRef(guarded))
+  } catch (e) {
+    printStr("SHOULD NOT PRINT")
+  }
+  // outside a try the same callback reports its error and carries on
+  list.forEach(fnRef(visit))
+  list.forEach(fnRef(guarded))
+  setTimeout(fnRef(tick), 10)
+  try { await sleep(60) } catch (e) { printStr("SHOULD NOT PRINT") }
+  printStr("done")
+}`, expect: ['> visited 1', '> caught: kaboom', '> strict 1', '> caught: stop at 2', '> [2,4,6]', '> guarded 1', '> guarded caught kaboom', '> guarded 3',
+    '> visited 1', '✗ jsCall .boom(): kaboom', '> visited 2', '> visited 3', '> guarded 1', '> guarded caught kaboom', '> guarded 3', '✗ jsCall .boom(): kaboom', '> tick carried on', '> done'],
+    count: { '> SHOULD NOT PRINT': 0, '> strict 3': 0, '> visited 3': 1, '✗ jsCall .boom(): kaboom': 2 } },
+
+  { name: 'try-state-belongs-to-each-suspended-call', errors: true, wait: 500, src: `
+fn guarded(p: js) {
+  try {
+    await p
+    printStr("SHOULD NOT PRINT")
+  } catch (e) {
+    printStr("guarded caught " + e.message)
+    try { fakeLib.boom() } catch (e2) { printStr("guarded still catches " + e2.message) }
+  }
+}
+fn bare(p: js) {
+  let r = await p
+  if (isNull(r)) { printStr("bare got null") }
+  fakeLib.boom()
+  printStr("bare carried on")
+}
+fn noReturn() int {
+  try { return toInt(fakeLib.boom()) } catch (e) { return 7 }
+}
+export fn run() {
+  // both calls wait for the same promise and are resumed one right after the other
+  let p = fakeLib.failLater()
+  let g = fnRef(guarded)
+  let b = fnRef(bare)
+  g(p)
+  b(p)
+  g(p)
+  try {
+    await sleep(80)
+    printStr("run is still inside its try")
+    fakeLib.boom()
+  } catch (e) {
+    printStr("run caught " + e.message)
+  }
+  print(noReturn())
+}`, expect: ['> guarded caught server said no', '> guarded still catches kaboom', '✗ await: server said no', '> bare got null', '✗ jsCall .boom(): kaboom', '> bare carried on', '> guarded caught server said no', '> guarded still catches kaboom', '> run is still inside its try', '> run caught kaboom', '> 7'],
+    count: { '> SHOULD NOT PRINT': 0, '✗ jsCall .boom(): kaboom': 1, '✗ await: server said no': 1 } },
+
+  { name: 'await-stop-abandons-suspended-calls', status: 'Stopped', wait: 400,
+    after: async page => { await page.waitForTimeout(60); await page.evaluate(() => stopProgram()); return []; }, src: `
+export fn run() {
+  let i = 0
+  while (true) {
+    i++
+    if (i == 2) { printStr("looping") }
+    await sleep(15)
+    if (i == 12) { printStr("SHOULD NOT PRINT: still running after Stop") }
+  }
+}`, expect: ['> looping'], count: { '> SHOULD NOT PRINT: still running after Stop': 0 } },
+
+  { name: 'try-syntax-errors', status: 'Error', errors: true, src: `
+export fn run() {
+  try {
+    printStr("x")
+  }
+  printStr("y")
+}`, expect: [/^✗ 5:3: try \{ \} needs a catch \(e\) \{ \} or a finally \{ \} block after it/] },
+
+  // ── 23. Emit arrays: [ ], .length, automatic conversion to JS arrays ──
+  { name: 'arr-index-length-push-pop', src: `
+fn total(xs: arr) int {
+  let s = 0
+  for (let i = 0; i < xs.length; i++) { s += xs[i] }
+  return s
+}
+fn make(n: int) arr {
+  let out = newArray(n)
+  for (let i = 0; i < n; i++) { out[i] = i * i }
+  return out
+}
+fn firstOf(id: int) int {
+  // an array kept in an int still works with the builtins
+  return getItem(id, 0)
+}
+export fn run() {
+  let xs = [10, 20, 30]
+  print(xs[1])
+  xs[1] = 21
+  xs[2] += 5
+  xs[0]++
+  print(xs[0] + xs[1] + xs[2])
+  print(xs.length)
+  xs.push(4)
+  print(total(xs))
+  print(xs.pop() + xs.length)
+  print(xs[99])
+  let sq = make(4)
+  print(sq[3] + sq.length)
+  let id: int = xs
+  print(firstOf(id) + firstOf(xs) + getItem(xs, 1) + arrayLen(xs))
+  let again: arr = id
+  print(again[1])
+  let fs = [1.5, 2.25]
+  fs[0] = fs[0] * 2.0
+  fs.push(0.5)
+  fs[1] += 1
+  printNum(fs[0] + fs[1] + fs[2])
+  print(fs.length)
+  let half: num = xs[0] / 2
+  printNum(half)
+  let big: numarr = newArray(2)
+  big[1] = 0.25
+  printNum(big[1] + big[0])
+  let i = 1
+  print(xs[i] + xs[i + 1])
+  printStr("len " + xs.length + " first " + xs[0])
+  printStr("xs = " + xs + " and " + fs + "!")
+  let j = fakeLib.config.count
+  xs[0] = j
+  print(xs[0])
+}`, expect: ['> 20', '> 67', '> 3', '> 71', '> 7', '> 0', '> 13', '> 46', '> 21', '> 6.75', '> 3', '> 5.5', '> 0.25', '> 56', '> len 3 first 11', '> xs = 11,21,35 and 3,3.25,0.5!', '> 7'] },
+
+  { name: 'arr-converts-to-a-js-array-when-handed-to-js', src: `
+fn show(v: js) {
+  printStr(toStr(JSON.stringify(v)))
+}
+fn give() js {
+  let r = [7, 8]
+  return r
+}
+fn double(x: int) int {
+  return x * 2
+}
+export fn run() {
+  let xs = [1, 2, 3]
+  printStr(toStr(JSON.stringify(xs)))
+  printStr(toStr(describeArgs(xs, 5)))
+  let o = emptyObj()
+  o.list = xs
+  o["again"] = xs
+  printStr(toStr(JSON.stringify(o)))
+  let j: js = xs
+  print(j.length + 0)
+  show(xs)
+  show(give())
+  // methods other than push/pop/length run on the JS copy
+  printStr(toStr(xs.join("-")))
+  printStr(toStr(JSON.stringify(xs.map(fnRef(double)))))
+  let fs = [0.5, 1.5]
+  printStr(toStr(JSON.stringify(fs)))
+  let words = ["red", "blue"]
+  printStr(toStr(words.join("+")))
+  let objs = [fakeLib.config.child, fakeLib.config.child]
+  printStr(toStr(JSON.stringify(objs)))
+  let made = new Set(xs)
+  print(made.size + 0)
+  printStr(toStr(JSON.stringify({list: xs, n: xs.length})))
+  // the copy is a copy
+  xs[0] = 100
+  print(j[0] + 0)
+  // an explicit toJsArray and an array id in an int variable keep working
+  let id: int = xs
+  printStr(toStr(JSON.stringify(toJsArray(id))))
+  let p = await Promise.all([1, 2])
+  printStr(toStr(JSON.stringify(p)))
+}`, expect: ['> [1,2,3]', '> array:[1,2,3] number:5', '> {"list":[1,2,3],"again":[1,2,3]}', '> 3', '> [1,2,3]', '> [7,8]', '> 1-2-3', '> [2,4,6]', '> [0.5,1.5]', '> red+blue', '> [{"label":"kid"},{"label":"kid"}]', '> 3', '> {"list":[1,2,3],"n":3}', '> 1', '> [100,2,3]', '> [1,2]'] },
+
+  { name: 'arr-type-errors', status: 'Error', errors: true, src: `
+export fn run() {
+  let xs = [1, 2, 3]
+  xs[0] = 2.5
+}`, expect: [/^✗ 3:11: This array holds whole numbers \(arr\)/] },
+
+  // ── 24. A browser without JSPI ──
+  { name: 'no-jspi-await-program-gets-a-readable-error', nojspi: true, status: 'WASM error', errors: true, src: `
+export fn run() {
+  printStr("SHOULD NOT PRINT")
+  await sleep(10)
+}`, expect: [/^✗ This browser does not support await \(JSPI: WebAssembly\.Suspending \/ WebAssembly\.promising are missing\)\. Use promise\.then\(fnRef\(callback\)\) instead of await/], count: { '> SHOULD NOT PRINT': 0 } },
+
+  { name: 'no-jspi-programs-without-await-are-unaffected', nojspi: true, wait: 400, errors: true,
+    after: async page => { await page.waitForTimeout(150); await page.click('#tab-output button'); return []; }, src: `
+fn done(u: js) {
+  printStr("then: " + u.name)
+}
+fn visit(x: int) {
+  print(x * 2)
+}
+export fn run() {
+  button("go", 1)
+  JSON.parse("[1, 2]").forEach(fnRef(visit))
+  fakeLib.fetchUser(5).then(fnRef(done))
+  try {
+    fakeLib.boom()
+  } catch (e) {
+    printStr("caught: " + e.message)
+  } finally {
+    printStr("finally")
+  }
+  let xs = [1, 2, 3]
+  xs.push(xs[0] + xs.length)
+  printStr(toStr(JSON.stringify(xs)))
+  // sleep() without await is just a promise
+  sleep(20).then(fnRef(slept))
+  fakeLib.boom()
+}
+fn slept(v: js) {
+  printStr("slept")
+}
+export fn onclick_1() {
+  printStr("clicked")
+}`, expect: ['> 2', '> 4', '> caught: kaboom', '> finally', '> [1,2,3,4]', '✗ jsCall .boom(): kaboom', '> then: user5', '> clicked'], count: { '> slept': 1 } },
 ];
 
 async function runTest(browser, fileUrl, t) {
@@ -1132,8 +1881,10 @@ async function runTest(browser, fileUrl, t) {
   const problems = [];
   page.on('pageerror', e => problems.push('pageerror: ' + e.message.slice(0, 300)));
   await page.route(/^https?:/, route => route.abort());
+  if (t.nojspi) await page.addInitScript(() => { delete WebAssembly.Suspending; delete WebAssembly.promising; });
   await page.goto(fileUrl);
   await page.waitForFunction(() => typeof compileAndRun === 'function');
+  if (t.nojspi && await page.evaluate(() => typeof WebAssembly.Suspending) !== 'undefined') problems.push('could not remove WebAssembly.Suspending for the no-JSPI test');
   await page.evaluate(FAKE_LIB);
   await page.evaluate(src => {
     try { closeWelcome(); } catch (e) {}
@@ -1144,6 +1895,7 @@ async function runTest(browser, fileUrl, t) {
   for (let i = 0; i < (t.rerun ? 2 : 1); i++) {
     await page.evaluate(() => compileAndRun()).catch(e => problems.push('run rejected: ' + e.message.slice(0, 300)));
   }
+  if (t.after) problems.push(...((await t.after(page).catch(e => ['after() failed: ' + e.message.slice(0, 300)])) || []));
   await page.waitForTimeout(t.wait || 250);
   const status = await page.evaluate(() => document.getElementById('sTxt').innerText);
   const output = await page.evaluate(() => document.getElementById('tab-output').innerText);

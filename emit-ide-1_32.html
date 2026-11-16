@@ -199,6 +199,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>num</code> &mdash; 64-bit floats. Write <code>3.14</code>.</p>
 <p><code>str</code> &mdash; strings. Write <code>"hello"</code>.</p>
 <p><code>bool</code> &mdash; <code>true</code> / <code>false</code>. <code>void</code> &mdash; no return.</p>
+<p><code>arr</code> / <code>numarr</code> &mdash; an Emit array of whole numbers / of nums: <code>let xs = [1, 2, 3]</code>, <code>newArray(n)</code>. See <em>Array Literals</em>.</p>
 <p><code>js</code> &mdash; any JavaScript value (object, array, string, number, null&hellip;). You get one from <code>obj.prop</code>, <code>obj.method()</code>, <code>new X()</code>, <code>a[i]</code>. See <em>The js type</em> below.</p>
 
 <h2>Syntax</h2>
@@ -210,12 +211,19 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>if (x &gt; 0) { } else { }</code> &mdash; conditionals</p>
 <p><code>while (cond) { }</code> &mdash; loops</p>
 <p><code>for (let i = 0; i &lt; 10; i++) { }</code> &mdash; C-style for</p>
+<p><code>break</code> / <code>continue</code> &mdash; leave the loop / go to its next round (in a <code>for</code> the update still runs)</p>
+<p><code>let r = await promise</code> &mdash; wait for a promise. <code>try { } catch (e) { } finally { }</code>, <code>throw "message"</code> &mdash; errors. See <em>await</em> and <em>try / catch</em> below.</p>
 
 <h2>Array Literals</h2>
 <p><code>let nums = [1, 2, 3, 4]</code> &mdash; int array</p>
 <p><code>let xs = [1.5, 2.5, 3.5]</code> &mdash; num array (float-typed by inference)</p>
 <p><code>let words = ["red", "blue", "green"]</code> &mdash; string array</p>
-<p>Use with the array builtins: <code>arrayLen(nums)</code>, <code>getItem(nums, i)</code>, <code>setItem(nums, i, v)</code>, <code>push</code>, <code>pop</code>.</p>
+<p>An array literal (and <code>newArray(n)</code>) has type <code>arr</code>; with a decimal in it, <code>numarr</code>.</p>
+<p><code>nums[i]</code>, <code>nums[i] = v</code>, <code>nums[i] += 1</code>, <code>nums.length</code>, <code>nums.push(v)</code>, <code>nums.pop()</code> &mdash; an <code>arr</code> element is an int, a <code>numarr</code> element a num. Reading past the end gives 0.</p>
+<p><code>for (let i = 0; i &lt; nums.length; i++) { print(nums[i]) }</code></p>
+<p><code>fn total(xs: arr) int { }</code>, <code>fn make() arr { return [1, 2] }</code>, <code>let fs: numarr = newArray(8)</code> &mdash; as a parameter, return or variable type. <code>arr</code>, <code>numarr</code> and <code>int</code> can be assigned to each other (older programs keep an array in an <code>int</code>); <code>[ ]</code> and <code>.length</code> need the variable to be an <code>arr</code> / <code>numarr</code>.</p>
+<p><strong>Handed to JavaScript an Emit array becomes a real JS array</strong> (a copy): <code>JSON.stringify(nums)</code>, <code>"nums: " + nums</code>, <code>obj.list = nums</code>, <code>lib.draw(nums)</code>, <code>let j: js = nums</code>, <code>nums.join("-")</code>, <code>nums.map(fnRef(f))</code>. String literals in it arrive as strings. Changes JS makes to the copy do not come back.</p>
+<p>The array builtins still work, also on an array kept in an <code>int</code>: <code>arrayLen(nums)</code>, <code>getItem(nums, i)</code>, <code>setItem(nums, i, v)</code>, <code>getNumItem</code>, <code>setNumItem</code>, <code>push</code>, <code>pop</code>, <code>toJsArray(nums)</code>.</p>
 
 <h2>JS Library Interop &mdash; Path C</h2>
 <p>Type <code>use libname</code> at the top to load a library from CDN. Then call its globals as if they were Emit functions:</p>
@@ -237,7 +245,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p>Many JS libraries take an options object. Write it as an object literal:</p>
 <p><code>confetti({particleCount: 100, spread: 90, colors: ["#f00", "#0f0"], origin: {y: 0.6}})</code></p>
 <p><code>let opts = {title: "Hi", "quoted key": true, 3: 1.5, list: [1, 2],}</code> &mdash; keys are words, strings or numbers; values are any expression; nesting and a trailing comma are fine. The result is a <code>js</code> value. A <code>{</code> at the start of a statement is still a block.</p>
-<p><strong>Array literals handed to JS are JS arrays:</strong> <code>JSON.stringify([1, "two", [3]])</code>, <code>obj.list = [1, 2]</code>, <code>arr[0] = ["a"]</code>, <code>let a: js = [1, 2, 3]</code>, <code>new Map([["k", 1]])</code>. Only a literal written right there converts: <code>let xs = [1, 2, 3]</code> is still an Emit array (<code>getItem</code> / <code>toJsArray(xs)</code>).</p>
+<p><strong>Array literals handed to JS are JS arrays:</strong> <code>JSON.stringify([1, "two", [3]])</code>, <code>obj.list = [1, 2]</code>, <code>arr[0] = ["a"]</code>, <code>let a: js = [1, 2, 3]</code>, <code>new Map([["k", 1]])</code>. A literal written right there is built as a JS array directly; <code>let xs = [1, 2, 3]</code> is an Emit array (<code>arr</code>), which is converted to a JS array when it is handed to JS.</p>
 <p>The older way still works &mdash; <code>emptyObj()</code> + field assignment:</p>
 <p><code>let opts = emptyObj()</code></p>
 <p><code>opts.particleCount = 100</code></p>
@@ -270,7 +278,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><strong>Global JS functions.</strong> Any name that is not an Emit function or builtin is called as <code>window.name(args)</code>: <code>parseInt("12")</code>, <code>dayjs()</code>, <code>dayjs("2024-03-15")</code>, <code>numeral(1234.5)</code>. Each call may pass different arguments (numbers, strings, <code>true</code>/<code>false</code>, <code>null</code>, <code>js</code> values) and the result is always a <code>js</code> value.</p>
 <p><strong>Calling a function value.</strong> A <code>js</code> variable or any expression can be called: <code>let f = d3.format(".2f")</code> &nbsp; <code>f(3.14159)</code>, <code>d3.format(",")(1234)</code>, <code>fns[0](x)</code>, <code>fn apply(cb: js) { cb(1) }</code>. A name that is an Emit function or a builtin always means that function.</p>
 <p><strong>String +.</strong> <code>+</code> with a string on either side concatenates; the other side may be a <code>str</code>, <code>js</code>, <code>int</code>, <code>num</code> or <code>bool</code>: <code>"name: " + obj.name</code>, <code>"n=" + count</code>, <code>s += "!"</code>. Numbers are written as JS writes them (<code>"x" + 3.0</code> is <code>x3</code>, unlike <code>numToStr(3.0)</code> = <code>3.0</code>); a null <code>js</code> value adds nothing.</p>
-<p><strong>Index.</strong> <code>let x = arr[i]</code>, <code>arr[i] = v</code>, <code>obj["key"] = v</code>, <code>grid[y][x]</code> &mdash; on <code>js</code> values and strings (Emit arrays from <code>newArray</code> / <code>[1, 2, 3]</code> keep <code>getItem</code> / <code>setItem</code>).</p>
+<p><strong>Index.</strong> <code>let x = arr[i]</code>, <code>arr[i] = v</code>, <code>obj["key"] = v</code>, <code>grid[y][x]</code> &mdash; on <code>js</code> values, strings and Emit arrays (<code>arr</code> / <code>numarr</code>: <code>xs[i]</code> is an int / a num).</p>
 <p><strong>String methods.</strong> Emit strings accept JS methods: <code>"a,b".split(",")</code>, <code>s.toUpperCase()</code>, <code>s.length</code>, <code>s[0]</code>; numbers too: <code>x.toFixed(2)</code>. The result is a <code>js</code> value.</p>
 
 <h2>Callbacks, Promises, Null</h2>
@@ -279,7 +287,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>arr.forEach(fnRef(visit))</code></p>
 <p><code>el.addEventListener("click", fnRef(onClick))</code> &mdash; <code>fn onClick(ev: js)</code> gets the event object</p>
 <p><code>setTimeout(fnRef(tick), 100)</code></p>
-<p><strong>Promises.</strong> There is no <code>await</code>; pass callbacks instead. The resolved value arrives with the type you declare.</p>
+<p><strong>Promises.</strong> Use <code>await</code> (next section), or pass callbacks &mdash; the resolved value arrives with the type you declare.</p>
 <p><code>fn onDone(result: js) { printStr(result.title) }</code></p>
 <p><code>fn onErr(err: js) { printStr(err.message) }</code></p>
 <p><code>lib.load("x").then(fnRef(onDone)).catch(fnRef(onErr))</code></p>
@@ -288,7 +296,23 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><strong>Constructors.</strong> <code>let d = new Date(2024, 0, 15)</code>, <code>let v = new BABYLON.Vector3(0.0, 1.0, 0.0)</code>. Write <code>new</code> when you mean it. A call <em>without</em> <code>new</code> is a plain function call &mdash; <code>Math.max(1, 2)</code>, <code>String(5)</code>, <code>Phaser.Math.Distance.Between(0.0, 0.0, 3.0, 4.0)</code> &mdash; unless the function is recognisably a constructor, in which case it is constructed for you (<code>THREE.Scene()</code>, <code>Date(2024, 0, 15)</code>): it is written with <code>class</code>, or its <code>prototype</code> has members of its own or inherits from another class, or its name is capitalised and its body assigns to <code>this</code>. A plain call that fails with &ldquo;cannot be invoked without 'new'&rdquo; is retried with <code>new</code>.</p>
 <p><strong>Typed values from JS.</strong> See <em>The js type</em> above: <code>let s: str = obj.name</code>, <code>if (obj.visible) { }</code>, <code>obj.count + 1</code>. <code>toStr</code> / <code>toNum</code> / <code>toInt</code> convert explicitly.</p>
 <p><strong>Loops over JS arrays.</strong> <code>for (let i = 0; i &lt; jsLen(arr); i++) { let item = arr[i] }</code></p>
-<p><strong>Errors.</strong> If a JS call throws, a red <code>&#10007; jsCall .method(): message</code> line appears in the output, the call returns null (0) and the program carries on. There is no try/catch.</p>
+<p><strong>Errors.</strong> If a JS call throws, a red <code>&#10007; jsCall .method(): message</code> line appears in the output, the call returns null (0) and the program carries on &mdash; unless the call is inside a <code>try</code> block (see <em>try / catch</em>).</p>
+
+<h2>await</h2>
+<p><code>let r = await fetch(url)</code> &nbsp; <code>let t: str = await r.text()</code> &nbsp; <code>await sleep(500)</code></p>
+<p><code>await x</code> waits for the promise <code>x</code> and gives its resolved value (type <code>js</code>; it converts like any JS value). A value that is not a promise is returned as it is. <code>sleep(ms)</code> returns a promise that resolves after <code>ms</code> milliseconds.</p>
+<p><code>for (let i = 0; i &lt; 100; i++) { draw(i) &nbsp; await sleep(16) }</code> &mdash; a loop that lets the page breathe; buttons, timers and callbacks keep working while it waits.</p>
+<p>A function that uses <code>await</code> (or calls an Emit function that does) is <em>async</em>: called from Emit it simply waits; started from the outside &mdash; Run, <code>frame()</code>, <code>onclick_N</code>, <code>ontimer_N</code>, a <code>fnRef</code> callback &mdash; it runs in the background and JS gets a promise (<code>fnRef(loadIt)</code> behaves like a JS <code>async function</code>). <code>frame()</code> is not called again while the previous frame is still waiting. Run does not wait for it, and Stop or running again abandons calls that are waiting.</p>
+<p>A rejected promise is an error like a call that throws: inside <code>try</code> it goes to the <code>catch</code>, otherwise a red <code>&#10007; await: message</code> line appears and <code>await</code> gives null.</p>
+<p><code>await</code> needs a browser with WebAssembly JSPI (Chrome / Edge 137 or newer at the time of writing). Elsewhere a program that uses it stops with &ldquo;This browser does not support await&rdquo; &mdash; use <code>promise.then(fnRef(callback))</code> there. Programs without <code>await</code> are not affected.</p>
+
+<h2>try / catch</h2>
+<p><code>try { let cfg = JSON.parse(text) &nbsp; use(cfg) } catch (e) { printStr("bad input: " + e.message) }</code></p>
+<p>Inside <code>try</code>, anything that fails on the JS side &mdash; a method or function that throws, <code>new</code>, reading or setting a property of null, an awaited promise that rejects &mdash; jumps to the <code>catch</code> block instead of printing the red line. Also from inside Emit functions called in the <code>try</code>, and from <code>fnRef</code> callbacks that JS calls during it (<code>try { list.forEach(fnRef(visit)) }</code>): they return at once and the caller's <code>catch</code> runs. (An async callback is its own call: it gives JS a promise, and what it does not catch itself is reported.)</p>
+<p><code>e</code> is the thrown JS value (type <code>js</code>): <code>e.message</code>, <code>e.name</code>. A thrown text or number is wrapped in an <code>Error</code>, so <code>e.message</code> always works.</p>
+<p><code>throw "something is wrong"</code> raises an Error with that message; <code>throw e</code> passes a caught error on. Not caught by any <code>try</code>, it ends the running call and shows as a red <code>&#10007;</code> line.</p>
+<p><code>try { } finally { }</code> / <code>try { } catch (e) { } finally { }</code> &mdash; the <code>finally</code> block runs afterwards in every case: normal end, caught error, an error that goes on to an outer <code>try</code>, and <code>return</code> / <code>break</code> / <code>continue</code> out of the block. (Only a WebAssembly trap &mdash; an integer division by zero, endless recursion &mdash; skips it.)</p>
+<p>Outside <code>try</code> nothing changes: a failing JS call prints its red line, returns null and the program carries on.</p>
 
 <h2>Library Panel &mdash; 📚 button</h2>
 <p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
@@ -326,6 +350,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <div class="sig">setText(id, val: str)</div>
 <p><strong>Sound &amp; Time:</strong></p>
 <div class="sig">beep(freq, ms), now() &rarr; int (millisecond timestamp)</div>
+<div class="sig">sleep(ms) &rarr; js &mdash; a promise that resolves after ms milliseconds: <code>await sleep(500)</code></div>
 <p><strong>Animation &amp; Input:</strong></p>
 <div class="sig">animate() &mdash; call once to start frame() loop</div>
 <div class="sig">touchX(), touchY() &mdash; current touch/mouse position</div>
@@ -759,7 +784,7 @@ class TypeAnnotator {
         this.a(e.index);
         this.need('__jsIdx');
         if(ot==='str') this.recv(e.object);
-        else if(ot!=='js') this.fail("[ ] works on JS values (type js) and strings, but this is "+ot+" — for an Emit array use getItem(arr, i) / setItem(arr, i, v); for a JS value held in an int variable declare it as js",e.loc);
+        else if(ot!=='js') this.fail("[ ] works on JS values (type js) and strings, but this is "+ot+" — an Emit array held in an int variable: declare it as arr (or use getItem / setItem); a JS value held in an int variable: declare it as js",e.loc);
         t='js';
         break;
       }
@@ -1437,6 +1462,570 @@ function injectBuiltins(ast){
   }
   return{injected:injected,autoJs:autoJs,usedGlobals:Array.from(usedGlobals)};
 }
+// ═══ await · try / catch / finally / throw · arr ═══
+// Compiler half; the runtime half is _emitExtraImport() and friends in the runtime block.
+//
+// await <expr>      AwaitExpr, type js. Compiled to t = __awaitPre(h) (a plain import: is it a promise that must
+//                   be waited for?) and, only then, __await(t) — an import the runtime wraps in
+//                   WebAssembly.Suspending (JSPI) — followed by __awaitPost(t). A function that contains `await`, or calls an Emit function
+//                   that does, is "async" (FunctionDecl.isAsync); their names travel on the import list
+//                   (imports.asyncFns) so the runtime enters them through WebAssembly.promising.
+// try/catch/throw   No WebAssembly exception opcodes. The runtime keeps a "catching" mode (__trySet) and a pending
+//                   error (__tryErr / __tryTake). While the mode is on, a failing interop call records the error
+//                   instead of printing the red line; the compiler emits "if pending → branch to the catch" after
+//                   every operation that can fail inside a try block, and "if pending → return" after every such
+//                   operation in functions that can be called from inside a try block (FunctionDecl.tryAware —
+//                   found from the call graph: functions called in a try block, fnRef callbacks, and what those
+//                   call). Programs without `try` get none of these checks.
+// arr / numarr      Static types for Emit arrays (the i64 id that newArray / [1, 2, 3] return): xs[i], xs[i] = v,
+//                   xs.length, xs.push(v), xs.pop(); handed to JS they are converted to a real JS array (__arrJs).
+KW.add('await');KW.add('try');KW.add('catch');KW.add('finally');KW.add('throw');
+BUILTINS.sleep.returnType='js';     // sleep(ms) → a promise that resolves after ms milliseconds: `await sleep(500)`
+BUILTINS.newArray.returnType='arr';
+class AwaitExpr extends Z{constructor(o,l){super('AwaitExpr',l);this.operand=o}}
+class TryStmt extends Z{constructor(b,h,f,l){super('TryStmt',l);this.body=b;this.handler=h;this.finalizer=f}}
+class ThrowStmt extends Z{constructor(v,l){super('ThrowStmt',l);this.value=v}}
+class PendingErrExpr extends Z{constructor(l){super('PendingErrExpr',l)}} // the caught error: `catch (e)` is `let e: js = <pending error>`
+_JS_CONV_IMPORTS.__awaitPre=[[['h','js']],'int'];   // 0: h is not a promise, use it as it is; else a ticket for __await
+_JS_CONV_IMPORTS.__await=[[['t','int']],'js'];      // suspends (JSPI) until the promise settles
+_JS_CONV_IMPORTS.__awaitPost=[[['t','int']],'void'];// first thing after resuming: restore this call's state, raise a rejection
+_JS_CONV_IMPORTS.__trySet=[[['on','bool']],'bool']; // set the catching mode, returns the previous one
+_JS_CONV_IMPORTS.__tryErr=[[],'bool'];              // is an error pending?
+_JS_CONV_IMPORTS.__tryTake=[[],'js'];               // the pending error (clears it)
+_JS_CONV_IMPORTS.__throwStr=[[['s','str']],'void'];
+_JS_CONV_IMPORTS.__throwJs=[[['h','js']],'void'];
+_JS_CONV_IMPORTS.__arrGet=[[['a','int'],['i','int']],'int'];
+_JS_CONV_IMPORTS.__arrGetN=[[['a','int'],['i','int']],'num'];
+_JS_CONV_IMPORTS.__arrSet=[[['a','int'],['i','int'],['v','int']],'void'];
+_JS_CONV_IMPORTS.__arrSetN=[[['a','int'],['i','int'],['v','num']],'void'];
+_JS_CONV_IMPORTS.__arrLen=[[['a','int']],'int'];
+_JS_CONV_IMPORTS.__arrPush=[[['a','int'],['v','int']],'void'];
+_JS_CONV_IMPORTS.__arrPushN=[[['a','int'],['v','num']],'void'];
+_JS_CONV_IMPORTS.__arrPop=[[['a','int']],'int'];
+_JS_CONV_IMPORTS.__arrPopN=[[['a','int']],'num'];
+_JS_CONV_IMPORTS.__arrJs=[[['a','int']],'js'];      // Emit array → a new JS array (what toJsArray does)
+_JS_CONV_IMPORTS.__arrStr=[[['a','int']],'str'];    // Emit array → "1,2,3" (operand of str + …)
+_jsConvFn=(function(f){return function(c){
+  if(c.from==='arr'||c.from==='numarr'){if(c.to==='js')return'__arrJs';if(c.to==='str')return'__arrStr'}
+  return f(c);
+}})(_jsConvFn);
+// `arr` / `numarr` are ordinary identifiers (so a variable may be called arr) except as a return type
+// written without an arrow: `fn make() arr {`.
+(function(){
+  var tokenize1=Lexer.prototype.tokenize;
+  Lexer.prototype.tokenize=function(){
+    var ts=tokenize1.call(this);
+    for(var i=1;i+1<ts.length;i++){
+      if(ts[i].type===TT.IDENTIFIER&&(ts[i].value==='arr'||ts[i].value==='numarr')&&ts[i-1].type===TT.RPAREN&&ts[i+1].type===TT.LBRACE)ts[i].type=TT.TYPE;
+    }
+    return ts;
+  };
+})();
+(function(){
+  var P=Parser.prototype,stmt0=P.parseStmt,unary0=P.parseUnary;
+  P.parseStmt=function(){
+    if(this.check(TT.KEYWORD,'try'))return this.parseTry();
+    if(this.check(TT.KEYWORD,'throw')){
+      const l=this.loc();this.adv();
+      if(this.check(TT.RBRACE)||this.check(TT.EOF))throw this.err('throw needs a value — throw "what went wrong" or throw e');
+      const v=this.parseExpr();this.match(TT.SEMICOLON);
+      return new ThrowStmt(v,l);
+    }
+    if(this.check(TT.KEYWORD,'catch')||this.check(TT.KEYWORD,'finally'))throw this.err('"'+this.cur().value+'" must follow the } of a try { } block');
+    return stmt0.call(this);
+  };
+  P.parseTry=function(){
+    const l=this.loc();this.adv();
+    if(!this.check(TT.LBRACE))throw this.err('Expected { after try');
+    const body=this.parseBlock();
+    let handler=null,fin=null;
+    if(this.check(TT.KEYWORD,'catch')){
+      const cl=this.loc();this.adv();
+      let name=null;
+      if(this.match(TT.LPAREN)){
+        if(!this.check(TT.IDENTIFIER))throw this.err('Expected a name for the error after catch ( — write catch (e) { }');
+        name=this.adv().value;
+        if(this.match(TT.COLON))this.parseType();
+        this.expect(TT.RPAREN);
+      }
+      if(!this.check(TT.LBRACE))throw this.err('Expected { after catch'+(name?' ('+name+')':''));
+      handler=this.parseBlock();
+      handler.statements.unshift(name?new VarDecl(name,'js',new PendingErrExpr(cl),false,cl):new ExprStmt(new PendingErrExpr(cl),cl));
+    }
+    if(this.check(TT.KEYWORD,'finally')){
+      this.adv();
+      if(!this.check(TT.LBRACE))throw this.err('Expected { after finally');
+      fin=this.parseBlock();
+    }
+    if(!handler&&!fin)throw this.err('try { } needs a catch (e) { } or a finally { } block after it');
+    return new TryStmt(body,handler,fin,l);
+  };
+  P.parseUnary=function(){
+    if(this.check(TT.KEYWORD,'await')){const l=this.loc();this.adv();return new AwaitExpr(this.parseUnary(),l)}
+    return unary0.call(this);
+  };
+})();
+(function(){
+  var P=TypeAnnotator.prototype,a0=P.a,walk0=P.walk,want0=P.want,jsArg0=P.jsArg,recv0=P.recv,annotate0=P.annotate;
+  function isArr(t){return t==='arr'||t==='numarr'}
+  // An Emit array where a JS value is wanted becomes a real JS array.
+  P.want=function(e,t){
+    if(e&&e.type!=='ArrayLiteral'&&isArr(e.exprType)&&t==='js')return this.conv(e,'js');
+    if(e&&e.exprType==='js'&&isArr(t))this.fail("This is a JS value, but an Emit array ("+t+") is needed here — declare it as js to keep the JS array",e.loc);
+    return want0.call(this,e,t);
+  };
+  P.jsArg=function(e){const t=jsArg0.call(this,e);return isArr(t)?this.conv(e,'js'):t};
+  P.recv=function(e){if(isArr(e.exprType)){this.conv(e,'js');return}recv0.call(this,e)};
+  // A value stored into an Emit array: arr holds ints (and handles / string pointers), numarr holds nums.
+  P.arrVal=function(v,num){
+    const vt=this.a(v);
+    if(num){
+      if(vt==='js')this.conv(v,'num');
+      else if(!(this.isN(vt)||this.isI(vt)||vt==='f32'))this.fail("This array holds nums (numarr) — a "+vt+" can't be stored in it",v.loc);
+    }else{
+      if(vt==='js')this.conv(v,'inth');
+      else if(this.isN(vt)||vt==='f32')this.fail("This array holds whole numbers (arr) — a num can't be stored in it. Start it with a decimal ([1.0, 2.5]) or declare it `numarr` to hold nums, or round the value with floor()",v.loc);
+      else if(vt==='void')this.fail("This call returns nothing — there is no value to store",v.loc);
+    }
+  };
+  // Several cases below must know the type of a child before deciding whether the original a() handles
+  // the node. this.memo names that child so the original does not annotate it a second time.
+  P.aRest=function(e,child){this.memo=child;const t=a0.call(this,e);this.memo=null;return t};
+  P.a=function(e){
+    if(!e)return a0.call(this,e);
+    if(this.memo===e){this.memo=null;return e.exprType}
+    if(e.arrOp)delete e.arrOp;
+    switch(e.type){
+      case'BinaryExpr':{
+        if(e.op!=='+')break;
+        let t;
+        try{t=a0.call(this,e)}
+        catch(err){
+          /* "xs: " + xs — an Emit array in a string is written as JS writes arrays (1,2,3) */
+          const l=e.left,r=e.right,la=isArr(l.exprType),ra=isArr(r.exprType);
+          if(!((la&&r.exprType==='str')||(ra&&l.exprType==='str'))||l.jsConv||r.jsConv)throw err;
+          this.conv(la?l:r,'str');
+          e.strCat=true;this.need('__strCat');
+          e.exprType=t='str';
+        }
+        return t;
+      }
+      case'AwaitExpr':{
+        if(e.jsConv)delete e.jsConv;
+        const ot=this.a(e.operand);
+        if(ot==='void')this.fail("await needs a value, but this call returns nothing",e.loc);
+        if(ot==='str'||ot==='bool'||this.isN(ot)||isArr(ot))this.conv(e.operand,'js');
+        this.need('__awaitPre');this.need('__await');this.need('__awaitPost');
+        e.exprType='js';return'js';
+      }
+      case'PendingErrExpr':
+        if(e.jsConv)delete e.jsConv;
+        this.need('__tryTake');
+        e.exprType='js';return'js';
+      case'ArrayLiteral':{
+        a0.call(this,e);
+        e.exprType=e.jsArr?'js':(e.elemType==='num'?'numarr':'arr');
+        return e.exprType;
+      }
+      case'IndexExpr':{
+        const ot=this.a(e.object);
+        if(!isArr(ot))return this.aRest(e,e.object);
+        if(e.jsConv)delete e.jsConv;
+        const it=this.a(e.index);
+        if(it==='js')this.conv(e.index,'int');
+        else if(!this.isI(it))this.fail("An array index must be an int, but this is "+it,e.index.loc||e.loc);
+        e.arrOp='get';e.arrElem=ot==='numarr'?'num':'int';
+        this.need(ot==='numarr'?'__arrGetN':'__arrGet');
+        e.exprType=e.arrElem;return e.exprType;
+      }
+      case'MemberExpr':{
+        const ot=this.a(e.object);
+        if(!(isArr(ot)&&e.property==='length'))return this.aRest(e,e.object);
+        if(e.jsConv)delete e.jsConv;
+        e.arrOp='len';this.need('__arrLen');
+        e.exprType='int';return'int';
+      }
+      case'CallExpr':{
+        const c=e.callee;
+        if(c.type==='MemberExpr'&&(c.property==='push'||c.property==='pop')){
+          const ot=this.a(c.object);
+          if(isArr(ot)){
+            if(e.jsConv)delete e.jsConv;
+            const num=ot==='numarr';
+            e.arrElem=num?'num':'int';
+            if(c.property==='push'){
+              if(e.args.length!==1)this.fail("push takes exactly one value: xs.push(v)",e.loc);
+              this.arrVal(e.args[0],num);
+              e.arrOp='push';this.need(num?'__arrPushN':'__arrPush');
+              e.exprType='void';return'void';
+            }
+            if(e.args.length)this.fail("pop takes no arguments: xs.pop()",e.loc);
+            e.arrOp='pop';this.need(num?'__arrPopN':'__arrPop');
+            e.exprType=e.arrElem;return e.exprType;
+          }
+          return this.aRest(e,c.object);
+        }
+        return a0.call(this,e);
+      }
+      case'AssignExpr':{
+        if(e.target.type==='IndexExpr'){
+          this.a(e.target);
+          if(e.target.arrOp==='get'){
+            if(e.jsConv)delete e.jsConv;
+            const num=e.target.arrElem==='num';
+            this.arrVal(e.value,num);
+            e.arrOp='set';e.arrElem=e.target.arrElem;this.need(num?'__arrSetN':'__arrSet');
+            e.exprType='void';return'void';
+          }
+          return this.aRest(e,e.target);
+        }
+        return a0.call(this,e);
+      }
+    }
+    return a0.call(this,e);
+  };
+  P.walk=function(n){
+    if(n&&n.type==='TryStmt'){
+      this.need('__trySet');this.need('__tryErr');this.need('__tryTake');
+      if(n.finalizer)this.need('__throwJs');
+      this.walk(n.body);
+      if(n.handler)this.walk(n.handler);
+      if(n.finalizer)this.walk(n.finalizer);
+      return;
+    }
+    if(n&&n.type==='ThrowStmt'){
+      const t=this.a(n.value);
+      if(t==='str')n.throwFn='__throwStr';
+      else if(t==='js'||this.isI(t))n.throwFn='__throwJs';
+      else if(isArr(t)){this.conv(n.value,'js');n.throwFn='__throwJs'}
+      else if(this.isN(t)||t==='bool'){this.conv(n.value,'str');n.throwFn='__throwStr'}
+      else this.fail("throw needs a value — a message string or a js value (the error from a catch)",n.loc);
+      this.need(n.throwFn);
+      return;
+    }
+    return walk0.call(this,n);
+  };
+  // After annotation: which functions are async (contain await or call one that does) and which can run
+  // inside a try block of a caller (called from a try block, or from a function that is).
+  P.annotate=function(prog){
+    annotate0.call(this,prog);
+    const fns=new Map(),cbTargets=new Set();
+    let hasTry=false;
+    for(const n of prog.body)if(n.type==='FunctionDecl')fns.set(n.name,{node:n,calls:new Set(),tryCalls:new Set(),hasAwait:false,async:false});
+    for(const info of fns.values()){
+      (function visit(x,inTry){
+        if(!x||typeof x!=='object')return;
+        if(Array.isArray(x)){for(const c of x)visit(c,inTry);return}
+        if(x.type==='AwaitExpr')info.hasAwait=true;
+        if(x.type==='TryStmt'){inTry=true;hasTry=true}
+        /* fnRef(f): JS may call f while the caller is inside a try block (list.forEach(fnRef(f))) */
+        if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr'&&x.callee.name==='fnRef'&&x.args[0]&&x.args[0].type==='StringLiteral'&&x.args[0].value.indexOf('@cb:')===0)cbTargets.add(x.args[0].value.split(':').slice(4).join(':'));
+        if(x.type==='CallExpr'&&!x.jsCall&&x.callee&&x.callee.type==='IdentifierExpr'&&fns.has(x.callee.name)){
+          info.calls.add(x.callee.name);
+          if(inTry)info.tryCalls.add(x.callee.name);
+        }
+        for(const k in x){if(k==='loc'||k==='jsCmp'||k==='jsConv')continue;const v=x[k];if(v&&typeof v==='object')visit(v,inTry)}
+      })(info.node.body,false);
+    }
+    for(let changed=true;changed;){
+      changed=false;
+      for(const info of fns.values()){
+        if(info.async)continue;
+        let is=info.hasAwait;
+        if(!is)for(const c of info.calls)if(fns.get(c).async){is=true;break}
+        if(is){info.async=true;changed=true}
+      }
+    }
+    const aware=new Set(),work=[];
+    for(const info of fns.values())for(const c of info.tryCalls)work.push(c);
+    if(hasTry)for(const c of cbTargets)if(fns.has(c))work.push(c);
+    while(work.length){const c=work.pop();if(aware.has(c))continue;aware.add(c);for(const d of fns.get(c).calls)work.push(d)}
+    prog.asyncFns=[];prog.tryFns=[];
+    for(const [name,info] of fns){
+      if(info.async){info.node.isAsync=true;prog.asyncFns.push(name)}
+      if(aware.has(name)){info.node.tryAware=true;if(cbTargets.has(name)&&!info.async)prog.tryFns.push(name)}
+    }
+    return this;
+  };
+})();
+(function(){
+  var P=TypeChecker.prototype,compat1=P.compat,inf1=P.inf,cn0=P.cn;
+  function isArr(t){return t==='arr'||t==='numarr'}
+  function isI(t){return t==='int'||t==='i64'}
+  // An Emit array is an int id: arr, numarr and int are assignment-compatible (older programs keep the id
+  // in an int), and an array assigned to a js variable is converted to a JS array.
+  P.compat=function(t,s){
+    if(isArr(t)&&(isArr(s)||isI(s)))return true;
+    if(isArr(s)&&(isI(t)||t==='js'))return true;
+    return compat1.call(this,t,s);
+  };
+  P.inf=function(e){
+    if(e&&e.type==='AwaitExpr'){this.inf(e.operand);return e.exprType}
+    if(e&&e.type==='PendingErrExpr')return e.exprType;
+    return inf1.call(this,e);
+  };
+  P.cn=function(n){
+    if(n&&n.type==='TryStmt'){this.cn(n.body);if(n.handler)this.cn(n.handler);if(n.finalizer)this.cn(n.finalizer);return}
+    if(n&&n.type==='ThrowStmt'){this.inf(n.value);return}
+    return cn0.call(this,n);
+  };
+})();
+(function(){
+  var P=WasmCodegen.prototype,emit0=P.emit,genFunc0=P.genFunc,genStmt0=P.genStmt,nat0=P.genNatural,j2w1=P.j2w,res1=P.exprResType,generate0=P.generate;
+  var F64_CONVERT_I64_S=0xB9;
+  function isN(t){return t==='num'||t==='f64'}
+  P.j2w=function(t){return(t==='arr'||t==='numarr')?VT.i64:j2w1.call(this,t)};
+  // this.blk = number of open block/loop/if constructs in the current function. Every emit() call in this
+  // compiler passes exactly one instruction with the opcode first, so counting here is reliable. A label is
+  // remembered as the value of blk right after its block was opened; `br` to it is blk(now) - label.
+  P.emit=function(){
+    var op=arguments[0];
+    if(op===Op.block||op===Op.loop||op===Op.if)this.blk++;
+    else if(op===Op.end)this.blk--;
+    return emit0.apply(this,arguments);
+  };
+  P.genFunc=function(func){
+    this.blk=0;this.tryStack=[];this.loopStack=[];this.curFn=func.node;
+    genFunc0.call(this,func);
+    /* `fn f() int { try { return a } catch (e) { return b } }`: nothing follows the try statement, but the
+       function body must still end with a value — give it one (never reached when every path returns) */
+    var st=func.node.body.statements,last=st[st.length-1];
+    if(last&&last.type==='TryStmt'&&func.node.returnType!=='void'){
+      this.currentCode.pop();
+      this.genZero(func.node.returnType);
+      emit0.call(this,Op.end);
+    }
+  };
+  P.generate=function(){
+    var wasm=generate0.call(this),af=this.ast.asyncFns||[];
+    if(af.length)this.imports.asyncFns=af.join(','); /* read by the runtime; exported with the import list */
+    if((this.ast.tryFns||[]).length)this.imports.tryFns=this.ast.tryFns.join(','); /* callbacks that take part in a caller's try block */
+    return wasm;
+  };
+  P.genZero=function(t){
+    if(!t||t==='void')return;
+    var w=this.j2w(t);
+    if(w===VT.i64)this.emit(Op.i64_const,...ei64(0));
+    else if(w===VT.f64)this.emit(Op.f64_const,...ef64(0));
+    else if(w===VT.f32)this.emit(Op.f32_const,...ef32(0));
+    else this.emit(Op.i32_const,...ei32(0));
+  };
+  // After an operation that can fail: inside a try block branch to its catch when an error is pending; in a
+  // function that can be called from a try block return to the caller (which checks again). Elsewhere: nothing.
+  P.genFailCheck=function(){
+    if(this.tryStack.length){
+      this.jsImportCall('__tryErr');
+      this.emit(Op.br_if,...eu32(this.blk-this.tryStack[this.tryStack.length-1].label));
+    }else if(this.curFn&&this.curFn.tryAware){
+      this.jsImportCall('__tryErr');
+      this.emit(Op.if,0x40);
+      this.genZero(this.currentFuncRetType);
+      this.emit(Op.return);
+      this.emit(Op.end);
+    }
+  };
+  P.canFail=function(e){
+    if(e.arrOp)return false;
+    switch(e.type){
+      case'AwaitExpr':case'NewExpr':case'MemberExpr':case'IndexExpr':return true;
+      case'AssignExpr':return e.target.type==='MemberExpr'||e.target.type==='IndexExpr';
+      case'CallExpr':{
+        if(e.jsCall||e.callee.type!=='IdentifierExpr')return true;
+        var node=this.lookupFuncNode(e.callee.name);
+        return !!(node&&node.tryAware);
+      }
+    }
+    return false;
+  };
+  P.tryEnter=function(){
+    var sv=this.addLocal('_try$'+this.currentLocals.length,'bool');
+    this.emit(Op.i32_const,...ei32(1));this.jsImportCall('__trySet');this.emit(Op.local_set,...eu32(sv));
+    return sv;
+  };
+  P.tryRestore=function(sv){this.emit(Op.local_get,...eu32(sv));this.jsImportCall('__trySet');this.emit(Op.drop)};
+  // Leave the try blocks above index `downTo` (return / break / continue): restore the mode each one saved
+  // and run its finally block, innermost first.
+  P.unwindTries=function(downTo){
+    for(var i=this.tryStack.length-1;i>=downTo;i--){
+      var ent=this.tryStack[i];
+      this.tryRestore(ent.saved);
+      if(ent.fin){
+        var ts=this.tryStack,ls=this.loopStack;
+        this.tryStack=ts.slice(0,i);this.loopStack=ls.filter(function(l){return l.tryLen<=i});
+        this.genBlock(ent.fin);
+        this.tryStack=ts;this.loopStack=ls;
+      }
+    }
+  };
+  //   saved = __trySet(1)
+  //   block $done
+  //     block $catch
+  //       body            ; after each operation that can fail: br_if $catch when an error is pending
+  //       __trySet(saved) ; br $done
+  //     end
+  //     __trySet(saved)
+  //     handler           ; starts with `let e: js = <pending error>`
+  //   end
+  P.genTryCatch=function(body,handler){
+    var sv=this.tryEnter();
+    this.emit(Op.block,0x40);var done=this.blk;
+    this.emit(Op.block,0x40);var ct=this.blk;
+    this.tryStack.push({saved:sv,label:ct,fin:null});
+    this.genBlock(body);
+    this.tryStack.pop();
+    this.tryRestore(sv);
+    this.emit(Op.br,...eu32(this.blk-done));
+    this.emit(Op.end);
+    this.tryRestore(sv);
+    this.genBlock(handler);
+    this.emit(Op.end);
+  };
+  // try { B } [catch (e) { H }] finally { F }  is  try { try { B } catch (e) { H } } catch (x) { F ; throw x }
+  // followed by F on the normal path — so an error raised in B (without a catch) or in H still runs F and
+  // then continues to the next enclosing try (or is reported, when there is none).
+  P.genTry=function(s){
+    if(!s.finalizer){this.genTryCatch(s.body,s.handler);return}
+    var sv=this.tryEnter();
+    this.emit(Op.block,0x40);var done=this.blk;
+    this.emit(Op.block,0x40);var ct=this.blk;
+    this.tryStack.push({saved:sv,label:ct,fin:s.finalizer});
+    if(s.handler)this.genTryCatch(s.body,s.handler);else this.genBlock(s.body);
+    this.tryStack.pop();
+    this.tryRestore(sv);
+    this.genBlock(s.finalizer);
+    this.emit(Op.br,...eu32(this.blk-done));
+    this.emit(Op.end);
+    this.tryRestore(sv);
+    var x=this.addLocal('_exc$'+this.currentLocals.length,'int');
+    this.jsImportCall('__tryTake');this.emit(Op.local_set,...eu32(x));
+    this.genBlock(s.finalizer);
+    this.emit(Op.local_get,...eu32(x));this.jsImportCall('__throwJs');
+    this.genAfterThrow();
+    this.emit(Op.end);
+  };
+  // After __throwStr/__throwJs. With the catching mode on the runtime recorded the error: go to the catch,
+  // or return to a caller that checks. With the mode off the import threw a real JS exception and never returned.
+  P.genAfterThrow=function(){
+    if(this.tryStack.length)this.emit(Op.br,...eu32(this.blk-this.tryStack[this.tryStack.length-1].label));
+    else{this.genZero(this.currentFuncRetType);this.emit(Op.return)}
+  };
+  P.genStmt=function(s){
+    switch(s.type){
+      // Loops keep their own labels (this.loopStack) so that break / continue work at any nesting depth
+      // (inside if, try, …); `continue` in a for loop runs the update expression.
+      case'WhileStmt':{
+        this.emit(Op.block,0x40);var wb=this.blk;
+        this.emit(Op.loop,0x40);var wt=this.blk;
+        this.loopStack.push({brk:wb,cont:wt,tryLen:this.tryStack.length});
+        this.genExpr(s.condition,'bool');this.emit(Op.i32_eqz);this.emit(Op.br_if,...eu32(this.blk-wb));
+        this.genBlock(s.body);
+        this.emit(Op.br,...eu32(this.blk-wt));
+        this.loopStack.pop();
+        this.emit(Op.end);this.emit(Op.end);
+        return;
+      }
+      case'ForStmt':{
+        if(s.init)this.genStmt(s.init);
+        this.emit(Op.block,0x40);var fb=this.blk;
+        this.emit(Op.loop,0x40);var ft=this.blk;
+        if(s.condition){this.genExpr(s.condition,'bool');this.emit(Op.i32_eqz);this.emit(Op.br_if,...eu32(this.blk-fb))}
+        this.emit(Op.block,0x40);
+        this.loopStack.push({brk:fb,cont:this.blk,tryLen:this.tryStack.length});
+        this.genBlock(s.body);
+        this.loopStack.pop();
+        this.emit(Op.end);
+        if(s.update){this.genExpr(s.update);if(this.exprResType(s.update)!=='void')this.emit(Op.drop)}
+        this.emit(Op.br,...eu32(this.blk-ft));
+        this.emit(Op.end);this.emit(Op.end);
+        return;
+      }
+      case'BreakStmt':case'ContinueStmt':{
+        if(!this.loopStack.length)return;
+        var L=this.loopStack[this.loopStack.length-1];
+        this.unwindTries(L.tryLen);
+        this.emit(Op.br,...eu32(this.blk-(s.type==='BreakStmt'?L.brk:L.cont)));
+        return;
+      }
+      case'ReturnStmt':{
+        if(!this.tryStack.length)return genStmt0.call(this,s);
+        /* return from inside a try block: value first, then leave the try blocks (mode, finally), then return */
+        var rv=-1;
+        if(s.value){
+          this.genExpr(s.value,this.currentFuncRetType);
+          rv=this.addLocal('_rv$'+this.currentLocals.length,this.currentFuncRetType);
+          this.emit(Op.local_set,...eu32(rv));
+        }
+        this.unwindTries(0);
+        if(rv>=0)this.emit(Op.local_get,...eu32(rv));
+        this.emit(Op.return);
+        return;
+      }
+      case'TryStmt':this.genTry(s);return;
+      case'ThrowStmt':
+        this.genExpr(s.value,s.throwFn==='__throwStr'?'str':'int');
+        this.jsImportCall(s.throwFn);
+        this.genAfterThrow();
+        return;
+    }
+    return genStmt0.call(this,s);
+  };
+  P.genArrVal=function(v,num){
+    if(num){this.genExpr(v,'num');return}
+    var vt=v.exprType;
+    if(vt==='str'||vt==='bool'){this.genExpr(v,vt);this.emit(Op.i64_extend_i32_u)}
+    else this.genExpr(v,'int');
+  };
+  P.genNatural=function(e,exp){
+    if(e.type==='AwaitExpr'){
+      /* h = operand; t = __awaitPre(h); t != 0 ? (r = __await(t), __awaitPost(t), r) : h */
+      this.genExpr(e.operand,'int');
+      var aw=this.addLocal('_aw$'+this.currentLocals.length,'int'),tk=this.addLocal('_awt$'+this.currentLocals.length,'int');
+      this.emit(Op.local_tee,...eu32(aw));
+      this.jsImportCall('__awaitPre');
+      this.emit(Op.local_tee,...eu32(tk));
+      this.emit(Op.i64_const,...ei64(0));this.emit(Op.i64_ne);
+      this.emit(Op.if,VT.i64);
+      this.emit(Op.local_get,...eu32(tk));this.jsImportCall('__await');
+      this.emit(Op.local_get,...eu32(tk));this.jsImportCall('__awaitPost');
+      this.emit(Op.else);
+      this.emit(Op.local_get,...eu32(aw));
+      this.emit(Op.end);
+    }else if(e.type==='PendingErrExpr'){
+      this.jsImportCall('__tryTake');
+    }else if(e.arrOp){
+      var num=e.arrElem==='num';
+      switch(e.arrOp){
+        case'get':
+          this.genExpr(e.object,'int');this.genExpr(e.index,'int');
+          this.jsImportCall(num?'__arrGetN':'__arrGet');
+          if(!num&&isN(exp))this.emit(F64_CONVERT_I64_S);
+          break;
+        case'len':
+          this.genExpr(e.object,'int');this.jsImportCall('__arrLen');
+          if(isN(exp))this.emit(F64_CONVERT_I64_S);
+          break;
+        case'set':
+          this.genExpr(e.target.object,'int');this.genExpr(e.target.index,'int');this.genArrVal(e.value,num);
+          this.jsImportCall(num?'__arrSetN':'__arrSet');
+          break;
+        case'push':
+          this.genExpr(e.callee.object,'int');this.genArrVal(e.args[0],num);
+          this.jsImportCall(num?'__arrPushN':'__arrPush');
+          break;
+        case'pop':
+          this.genExpr(e.callee.object,'int');
+          this.jsImportCall(num?'__arrPopN':'__arrPop');
+          break;
+      }
+    }else nat0.call(this,e,exp);
+    if((this.tryStack.length||(this.curFn&&this.curFn.tryAware))&&this.canFail(e))this.genFailCheck();
+  };
+  P.exprResType=function(e){
+    if(e.arrOp==='set'||e.arrOp==='push')return'void';
+    if(e.arrOp||e.type==='AwaitExpr')return'int';
+    return res1.call(this,e);
+  };
+})();
 function compile(source,target='wasm32'){const t0=performance.now();const lexer=new Lexer(source);const tokens=lexer.tokenize();const parser=new Parser(tokens);const ast=parser.parse();const inj=injectBuiltins(ast);const annotator=new TypeAnnotator();annotator.annotate(ast);const checker=new TypeChecker();const errors=checker.check(ast);const codegen=new WasmCodegen(ast,target);const wasm=codegen.generate();return{wasm,ast,tokens,errors,imports:codegen.imports,functions:codegen.functions,injected:inj.injected,autoJs:inj.autoJs,elapsed:performance.now()-t0,stats:{tokens:tokens.length,decls:ast.body.length,funcs:codegen.functions.length,imports:codegen.imports.length,bytes:wasm.length}}}
 // EXAMPLES
 // EX is injected by build script before this file
@@ -1446,6 +2035,7 @@ var _emitKw=new Set(['fn','let','mut','const','return','if','else','while','for'
 var _emitTy=new Set(['int','num','str','bool','void','i32','i64','f32','f64','js']);
 var _emitBlt=new Set(['print','printNum','printStr','log','alert','abs','min','max','sqrt','sin','cos','pow','floor','random','now','canvas','color','alpha','lineWidth','rect','strokeRect','circle','line','clear','text','pixel','beep','sleep','button','input','getInput','setText','div','newArray','getItem','setItem','getNumItem','setNumItem','push','pop','arrayLen','scene3d','box','sphere','plane','color3d','move3d','rotate3d','scale3d','camera3d','lookAt3d','light3d','fog3d','render3d','controls3d','cylinder','wallBox','ambient3d','bgColor3d','cone','torus','grid3d','pointLight3d','spotLight3d','metallic3d','opacity3d','shadow3d','text3d','synth','drum','playNote','noteOff','setBpm','setSwing','physics','physBox','physCircle','physGround','physGravity','physStep','physDraw','barChart','lineChart','pieChart','chartLabel','chartData','chartColor','chartRender','loadAudio','playAudio','stopAudio','loopAudio','volumeAudio','tween','animateEl','pixiApp','pixiRect','pixiCircle','pixiText','pixiMove','pixiRender','world3d','bodyBox','bodySphere','bodyPlane','bodyForce','stepWorld','hostPeer','joinPeer','sendInt','sendStr','onRecvInt','onRecvStr','animate','keyDown','touchX','touchY','touching','getInputStr','loadImage','drawImage','drawImageScaled','collides','dist','setTimer','setInterval','screenW','screenH','mouseX','mouseY','mouseDown','save','load','saveStr','httpGet','randInt','lerp','clamp','ceil','round','sign','absNum','minNum','maxNum','tan','asin','acos','atan','atan2','ln','log2','exp','PI','TAU','E','intToStr','numToStr','strLen','strConcat','substr','strEq','charAt','loadStr','getCanvas','emptyObj','wrapShape','textShape','toStr','toNum','toJsArray','fnRef']);
 ['toInt','isNull','typeOf','jsLen','jsAt','jsGet','jsKeys'].forEach(function(n){_emitBlt.add(n)});
+['await','try','catch','finally','throw'].forEach(function(n){_emitKw.add(n)});_emitTy.add('arr');_emitTy.add('numarr');
 function escH(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 var _brD=0;
 function hlCode(){
@@ -1774,6 +2364,7 @@ function _jsCallImport(name,outputLog){
       var jsFn;
       try{jsFn=window[fname]}catch(e){}
       if(typeof jsFn!=='function'){
+        if(_tryMode&&_tryRecord(new TypeError(fname+' is not a function'+(jsFn===undefined?' (window.'+fname+' is not defined)':''))))return 0n;
         /* JS function not available — show a visible warning so silent failures stop happening */
         try{
           var w=document.createElement('div');
@@ -1983,8 +2574,7 @@ function _makeCallback(spec){
       }
     }
     if(typeof fn!=='function'){_jsErr('callback '+name+'()','no Emit function with that name');return}
-    try{return _cbRet(fn.apply(null,args),ret)}
-    catch(e){_jsErr('callback '+name+'()',e)}
+    return _emitCallback(fn,args,ret,name);
   };
   wrapper._emitFnName=name;
   wrapper.toString=function(){return'fnRef('+name+')'};
@@ -2125,7 +2715,7 @@ function buildImportObject(imports,outputLog){
             var fn=window._wi.exports['onclick_'+Number(id)];
             if(!fn){console.warn('button: onclick_'+Number(id)+' not exported');dbg.textContent+=' — fn missing';return}
             dbg.textContent+=' — calling fn';
-            try{var rv=fn();dbg.textContent+=' — done. ret='+String(rv)}catch(e){
+            try{var rv=_emitCallExport(window._wi,'onclick_'+Number(id),[]);dbg.textContent+=' — done. ret='+String(rv)}catch(e){
               console.error('onclick_'+Number(id)+' failed:',e);
               var d=document.createElement('div');
               d.style.cssText='color:#ef4444;padding:2px 12px;font-family:var(--mono);font-size:12px;';
@@ -2430,13 +3020,13 @@ function buildImportObject(imports,outputLog){
         case'hostPeer':s.hostPeer=function(ptr){
           var id=_readStr(ptr);_peer={peer:new Peer(id),conn:null};
           _peer.peer.on('connection',function(c){_peer.conn=c;
-            c.on('data',function(d){if(_peer.onRecv&&window._wi)window._wi.exports[_peer.onRecv]()});
+            c.on('data',function(d){if(_peer.onRecv&&window._wi)_emitCallExport(window._wi,_peer.onRecv,[])});
           });
         };break;
         case'joinPeer':s.joinPeer=function(ptr){
           var id=_readStr(ptr);_peer={peer:new Peer(),conn:null};
           _peer.conn=_peer.peer.connect(id);
-          _peer.conn.on('data',function(d){if(_peer.onRecv&&window._wi)window._wi.exports[_peer.onRecv]()});
+          _peer.conn.on('data',function(d){if(_peer.onRecv&&window._wi)_emitCallExport(window._wi,_peer.onRecv,[])});
         };break;
         case'sendInt':s.sendInt=function(val){if(_peer&&_peer.conn)_peer.conn.send(Number(val))};break;
         case'sendStr':s.sendStr=function(ptr){if(_peer&&_peer.conn)_peer.conn.send(_readStr(ptr))};break;
@@ -2445,7 +3035,7 @@ function buildImportObject(imports,outputLog){
         // Animation & Input
         case'animate':s.animate=function(){
           if(_animRunning)return;_animRunning=true;
-          function loop(){if(!_animRunning)return;if(window._wi&&window._wi.exports.frame)window._wi.exports.frame();requestAnimationFrame(loop)}
+          function loop(){if(!_animRunning)return;_emitFrame();requestAnimationFrame(loop)}
           requestAnimationFrame(loop);
         };break;
         case'keyDown':s.keyDown=function(key){return BigInt(_keys[Number(key)]?1:0)};break;
@@ -2486,10 +3076,10 @@ function buildImportObject(imports,outputLog){
         };break;
         // Timers
         case'setTimer':s.setTimer=function(ms,id){
-          setTimeout(function(){if(window._wi&&window._wi.exports['ontimer_'+Number(id)])window._wi.exports['ontimer_'+Number(id)]()},Number(ms));
+          setTimeout(function(){if(window._wi&&window._wi.exports['ontimer_'+Number(id)])_emitCallExport(window._wi,'ontimer_'+Number(id),[])},Number(ms));
         };break;
         case'setInterval':s.setInterval=function(ms,id){
-          var iv=window.setInterval(function(){if(window._wi&&window._wi.exports['ontimer_'+Number(id)])window._wi.exports['ontimer_'+Number(id)]();else clearInterval(iv)},Number(ms));
+          var iv=window.setInterval(function(){if(window._wi&&window._wi.exports['ontimer_'+Number(id)])_emitCallExport(window._wi,'ontimer_'+Number(id),[]);else clearInterval(iv)},Number(ms));
         };break;
         // Screen
         case'screenW':s.screenW=function(){return BigInt(window.innerWidth)};break;
@@ -2516,7 +3106,7 @@ function buildImportObject(imports,outputLog){
                 new Uint8Array(_wasmMem.buffer).set(enc,rptr+4);
                 _strWritePtr=rptr+4+enc.length+1;
               }
-              window._wi.exports['onhttp_'+Number(cb)]();
+              _emitCallExport(window._wi,'onhttp_'+Number(cb),[]);
             }
           }).catch(function(){});
         };break;
@@ -2573,7 +3163,7 @@ function buildImportObject(imports,outputLog){
           return _handleFor(v);
         };
       }else if(imp.name==='__jsCall'){
-        function _jsCallErr(name,msg){
+        function _jsCallErr(name,msg){if(_tryMode&&_tryRecord(msg,'.'+name+'():'))return;
           try{
             var w=document.createElement('div');
             w.style.cssText='color:#ef4444;padding:2px 12px;font-family:var(--mono);font-size:11px;';
@@ -2605,7 +3195,7 @@ function buildImportObject(imports,outputLog){
           if(typeof fn==='function'){
             /* plain call or construction: see _jsIsCtor / _jsInvoke */
             try{return _js_returnWrap(_jsInvoke(fn,recv,args,name))}
-            catch(e){_jsCallErr(name,_errMsg(e));return 0n}
+            catch(e){if(_tryMode&&_tryRecord(e))return 0n;_jsCallErr(name,_errMsg(e));return 0n}
           }
           if(typeof recv[name]!=='undefined')return _js_returnWrap(recv[name]);
           _jsCallErr(name,'is not a function (the object has no such method)');
@@ -2731,6 +3321,198 @@ function buildImportObject(imports,outputLog){
   }
   return obj;
 }
+// ── await (JSPI) · try / catch / throw · Emit arrays as values ──
+// Runtime half of the compiler section "await · try / catch / finally / throw · arr".
+//
+// State that belongs to "the Emit call that is running now" (not to the program):
+//   _tryMode  1 while that call is inside a try block (or in a function called from one): a failing
+//             interop call then records the error (_pendErr) instead of printing the red line.
+//   _canWait  true while that call was entered through WebAssembly.promising, i.e. `await` may suspend it.
+// Both are saved and reset whenever Emit is entered from JS (_emitEnter); around a suspension they are
+// saved by __awaitPre (in a ticket) and put back by __awaitPost, the first thing the resumed call does
+// (not in a promise callback: other calls may run between that callback and the actual resume), so a call that runs while another one is suspended (a button
+// handler during `await sleep(…)`) never sees the suspended call's state. The pending error is set by an
+// import and tested by the compiled code immediately after that import returns, so it is never live
+// across a suspension; neither is the argument buffer (arguments are written right before the import
+// call and read by the import before it calls into JS; __await takes its operand as a parameter).
+var _tryMode=0,_pendHas=false,_pendErr=null,_canWait=false,_awaitGen=0,_asyncFns=null,_tryFns=null,_promMap=null,_frameBusy=false,_awaits=new Map(),_awaitSeq=0;
+var _NO_JSPI='This browser does not support await (JSPI: WebAssembly.Suspending / WebAssembly.promising are missing). Use promise.then(fnRef(callback)) instead of await, or open the program in a browser with JSPI (Chrome or Edge 137 and newer).';
+var _NO_WAIT='await cannot wait here: this Emit function was called directly from JavaScript, so there is nothing to pause. Call it through the Emit runtime (the Run button, fnRef callbacks, button/timer/frame handlers, _emitCallExport(instance, name, args)) or use promise.then(fnRef(callback)).';
+function _jspiOk(){return typeof WebAssembly!=='undefined'&&typeof WebAssembly.Suspending==='function'&&typeof WebAssembly.promising==='function'}
+// Inside a try: remember the error for the catch block. A thrown primitive ("text", 42) is wrapped in an
+// Error (the original value is kept as .thrown) so that e.message always works.
+function _tryRecord(e,what){
+  if(!_tryMode)return false;
+  if(e===null||e===undefined||(typeof e!=='object'&&typeof e!=='function')){var x=new Error((what?what+' ':'')+String(e));x.thrown=e;e=x}
+  _pendErr=e;_pendHas=true;
+  return true;
+}
+function _emitThrow(v){
+  if(_tryRecord(v))return;
+  if(v===null||v===undefined||(typeof v!=='object'&&typeof v!=='function')){var x=new Error(String(v));x.thrown=v;v=x}
+  throw v; /* no try block around: a real JS exception ends the Emit call; whoever started it reports it */
+}
+function _emitWaitErr(e){
+  try{if(typeof WebAssembly!=='undefined'&&WebAssembly.SuspendError&&e instanceof WebAssembly.SuspendError)return new Error(_NO_WAIT)}catch(x){}
+  return e;
+}
+// The error hooks: every interop failure goes through _jsErr (or _jsCallErr for member calls).
+_jsErr=(function(report){return function(what,e){
+  if(_tryMode&&_tryRecord(e,(typeof e==='string'&&/^(cannot |is not |constructor is )/.test(e))?what:''))return;
+  return report(what,e);
+}})(_jsErr);
+function _emitIsAsync(name){return !!(_asyncFns&&_asyncFns[name]===true)}
+// Enter Emit from JS. isAsync: through WebAssembly.promising — returns a promise.
+function _emitEnter(f,args,isAsync){
+  var sm=_tryMode,sw=_canWait;
+  _tryMode=0;
+  try{
+    if(!isAsync)return f.apply(null,args);
+    if(!_jspiOk())throw new Error(_NO_JSPI);
+    if(!_promMap)_promMap=new WeakMap();
+    var pf=_promMap.get(f);
+    if(!pf){pf=WebAssembly.promising(f);_promMap.set(f,pf)}
+    _canWait=true;
+    var idle=function(){_canWait=false;_tryMode=0};
+    return pf.apply(null,args).then(function(v){idle();return v},function(e){idle();throw _emitWaitErr(e)});
+  }catch(e){throw _emitWaitErr(e)}
+  finally{_tryMode=sm;_canWait=sw}
+}
+// Call an exported Emit function by name — the way the IDE's Run, the export boot, buttons, timers and
+// frame() do. A function that can reach an `await` (the compiler lists them in imports.asyncFns) is
+// entered through WebAssembly.promising and the result is a promise that never rejects: a rejection is
+// reported as a red line in the output. Any other function is called directly and returns its result.
+function _emitCallExport(inst,name,args){
+  var f=inst&&inst.exports?inst.exports[name]:null;
+  if(typeof f!=='function')throw new Error('there is no exported Emit function "'+name+'"');
+  if(!_emitIsAsync(name))return _emitEnter(f,args||[],false);
+  var mem=_wasmMem,p;
+  try{p=_emitEnter(f,args||[],true)}catch(e){p=Promise.reject(e)}
+  p=p.then(function(v){return v},function(e){if(mem===_wasmMem)_jsErr(name+'()',e)});
+  p.toString=function(){return'(async — still running; its output appears below)'};
+  return p;
+}
+if(typeof window!=='undefined')window._emitCallExport=_emitCallExport; /* the export boot reaches it here (the .js export runs this code inside a function) */
+// One frame() at a time: while an async frame() is suspended in an await the next one is not started.
+function _emitFrame(){
+  var wi=window._wi;
+  if(!wi||!wi.exports.frame||_frameBusy)return;
+  var r=_emitCallExport(wi,'frame',[]);
+  if(r&&typeof r.then==='function'){var gen=_awaitGen;_frameBusy=true;r.then(function(){if(gen===_awaitGen)_frameBusy=false})}
+}
+// fnRef callbacks. An async Emit function gives JS a promise, like a JS async function would (a rejection
+// nobody handles shows up as the red "unhandled promise rejection" line). A callback that JS calls while
+// Emit code is inside a try block (list.forEach(fnRef(f)) in a try) is part of that try: it keeps the
+// catching mode, and an error it does not catch itself is thrown to the JS caller — and so reaches the
+// catch of that try block, as it would in JavaScript.
+function _emitCallback(fn,args,ret,name){
+  var outer=_tryMode;
+  if(outer&&_tryFns&&_tryFns[name]===true){
+    var r;
+    try{r=fn.apply(null,args)}finally{_tryMode=outer}
+    if(_pendHas){var pe=_pendErr;_pendHas=false;_pendErr=null;throw pe}
+    return _cbRet(r,ret);
+  }
+  try{
+    if(_emitIsAsync(name))return _emitEnter(fn,args,true).then(function(v){return _cbRet(v,ret)});
+    return _cbRet(_emitEnter(fn,args,false),ret);
+  }catch(e){
+    if(outer)throw e;
+    _jsErr('callback '+name+'()',e);
+  }
+}
+// Emit array (id into _arrays) → a new JS array. Same element rules as toJsArray: an integer that is a
+// live handle becomes that JS value, a pointer to a string literal becomes the string.
+function _arrToJs(id){var out=_arrVals(id);return out?_js_returnWrap(out):0n}
+function _arrVals(id){
+  var a=_arrays[Number(id)];
+  if(!a)return null;
+  var out=[];
+  for(var i=0;i<a.length;i++){
+    var v=a[i],n=null;
+    if(typeof v==='bigint')n=Number(v);else if(typeof v==='number'&&Number.isInteger(v))n=v;
+    if(n===null){out.push(v);continue}
+    var hv=_handleLive(n);
+    if(hv!==undefined){out.push(hv);continue}
+    if(n>=1024&&n<48640&&_wasmMem){
+      try{var view=new DataView(_wasmMem.buffer),len=view.getUint32(n,true);if(len<10000){out.push(new TextDecoder().decode(new Uint8Array(_wasmMem.buffer,n+4,len)));continue}}catch(e){}
+    }
+    out.push(n);
+  }
+  return out;
+}
+function _arrInt(v){
+  if(typeof v==='bigint')return v;
+  var n=Math.trunc(Number(v));
+  return(n===n&&isFinite(n))?BigInt(n):0n;
+}
+// Imports of module "__js__" added by this section (see _JS_CONV_IMPORTS in the compiler).
+function _emitExtraImport(name){
+  switch(name){
+    case'__awaitPre':return function(h){
+      var v=_handleVal(h);
+      if(!(v&&(typeof v==='object'||typeof v==='function')&&typeof v.then==='function'))return 0n; /* not a promise: the value itself */
+      if(!_canWait)throw new Error(_NO_WAIT);
+      var t=++_awaitSeq;
+      _awaits.set(t,{p:v,mode:_tryMode,mem:_wasmMem,gen:_awaitGen,failed:false,err:null});
+      return BigInt(t);
+    };
+    case'__await':
+      if(!_jspiOk())return function(){throw new Error(_NO_JSPI)};
+      return new WebAssembly.Suspending(function(t){
+        var rec=_awaits.get(Number(t));
+        _tryMode=0;_canWait=false; /* while this call is suspended other calls start from a clean state */
+        /* stale: the program was stopped or run again meanwhile — this call is never resumed */
+        function stale(){return rec.mem!==_wasmMem||rec.gen!==_awaitGen}
+        return Promise.resolve(rec.p).then(
+          function(v){return stale()?new Promise(function(){}):_js_returnWrap(v)},
+          function(e){if(stale())return new Promise(function(){});rec.failed=true;rec.err=e;return 0n});
+      });
+    case'__awaitPost':return function(t){
+      var rec=_awaits.get(Number(t));
+      _awaits.delete(Number(t));
+      _tryMode=rec.mode;_canWait=true;
+      if(rec.failed&&!_tryRecord(rec.err))_jsErr('await',rec.err); /* a rejection is an error like a throwing call */
+    };
+    case'__trySet':return function(on){var prev=_tryMode;_tryMode=on?1:0;return prev};
+    case'__tryErr':return function(){return _pendHas?1:0};
+    case'__tryTake':return function(){var e=_pendErr;_pendHas=false;_pendErr=null;return _js_returnWrap(e)};
+    case'__throwStr':return function(ptr){_emitThrow(new Error(_readStr(ptr)))};
+    case'__throwJs':return function(h){_emitThrow(_handleVal(h))};
+    case'__arrGet':return function(a,i){var x=_arrays[Number(a)];return x?_arrInt(x[Number(i)]||0):0n};
+    case'__arrGetN':return function(a,i){var x=_arrays[Number(a)];return x?(Number(x[Number(i)])||0):0};
+    case'__arrSet':return function(a,i,v){var x=_arrays[Number(a)];if(x)x[Number(i)]=Number(v)};
+    case'__arrSetN':return function(a,i,v){var x=_arrays[Number(a)];if(x)x[Number(i)]=v};
+    case'__arrLen':return function(a){var x=_arrays[Number(a)];return BigInt(x?x.length:0)};
+    case'__arrPush':return function(a,v){var x=_arrays[Number(a)];if(x)x.push(Number(v))};
+    case'__arrPushN':return function(a,v){var x=_arrays[Number(a)];if(x)x.push(v)};
+    case'__arrPop':return function(a){var x=_arrays[Number(a)];return(x&&x.length)?_arrInt(x.pop()):0n};
+    case'__arrPopN':return function(a){var x=_arrays[Number(a)];return(x&&x.length)?(Number(x.pop())||0):0};
+    case'__arrJs':return function(a){return _arrToJs(a)};
+    case'__arrStr':return function(a){var v=_arrVals(a);return _writeStr(v?String(v):'')};
+  }
+  return null;
+}
+// Per-run setup and the imports of this section, added around buildImportObject / _resetJsInterop
+// (their bodies are unchanged).
+_resetJsInterop=(function(reset){return function(){
+  _awaitGen++;_awaits=new Map();_tryMode=0;_pendHas=false;_pendErr=null;_canWait=false;_frameBusy=false; /* calls suspended in an await belong to the previous run: never resumed */
+  return reset.apply(this,arguments);
+}})(_resetJsInterop);
+buildImportObject=(function(build){return function(imports,outputLog){
+  _asyncFns=Object.create(null);_tryFns=Object.create(null);_frameBusy=false;_tryMode=0;_pendHas=false;_pendErr=null;_canWait=false;
+  String((imports&&imports.asyncFns)||'').split(',').forEach(function(n){if(n)_asyncFns[n]=true});
+  String((imports&&imports.tryFns)||'').split(',').forEach(function(n){if(n)_tryFns[n]=true});
+  var i,imp;
+  for(i=0;i<imports.length;i++)if(imports[i].module==='__js__'&&imports[i].name==='__await'&&!_jspiOk())throw new Error(_NO_JSPI);
+  var obj=build.apply(this,arguments);
+  for(i=0;i<imports.length;i++){
+    imp=imports[i];
+    if(imp.module==='__js__'){var f=_emitExtraImport(imp.name);if(f)obj.__js__[imp.name]=f}
+    else if(imp.module==='std'&&imp.name==='sleep')obj.std.sleep=function(ms){return _js_returnWrap(new Promise(function(done){setTimeout(done,Number(ms))}))};
+  }
+  return obj;
+}})(buildImportObject);
 //#emit-runtime-end
 // ── Library loader: use <registry name | npm spec | URL> [as Name] ──
 // The lexer must never see the rest of a `use` line: npm specs contain '@' and unquoted URLs contain '//'.
@@ -3085,10 +3867,10 @@ try{
   }
 }catch(e){_showLibError(e,out);return}
 setStatus('idle','Compiling\u2026');
-try{const r=compile(source,target);lastFuncs=r.functions;lastImports=r.imports;let o='';o+=sp('info','Done in '+r.elapsed.toFixed(1)+'ms')+'\n';let statsLine=r.stats.tokens+' tok \u2192 '+r.stats.funcs+' fn';if(r.stats.imports)statsLine+=', '+r.stats.imports+' imports';statsLine+=' \u2192 '+r.stats.bytes+'B';o+=sp('dim',statsLine)+'\n';if(r.injected&&r.injected.length){o+=sp('imp','\u2728 Auto: '+r.injected.join(', '))+'\n'}if(r.autoJs&&r.autoJs.length){o+=sp('info','\u26a1 JS: '+r.autoJs.join(', '))+'\n'}o+='\n';if(r.imports.length&&!(r.injected&&r.injected.length===r.imports.length)){o+=sp('imp','Imports: '+r.imports.map(i=>i.module+'.'+i.name).join(', '))+'\n\n'}if(r.errors.length){o+=sp('err','\u2717 '+r.errors.length+' type error'+(r.errors.length>1?'s':'')+' \u2014 fix before running')+'\n';r.errors.forEach(function(e){var m=e.match(/^(\d+):/);if(m){o+='  <span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h(e)+'</span>\n'}else{o+='  '+sp('err',e)+'\n'}});o+='\n'}else{o+=sp('ok','\u2713 Types OK')+'\n\n';var cdnsNeeded=new Set();r.imports.forEach(function(imp){var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;/* If any explicitly-used lib provides this function (either listed in fns or matching the lib name itself), skip — the explicit use wins. */ var providedByExplicit=Array.from(_explicitCdns).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;/* Also match by lib name (canvas-confetti's lib.name is 'confetti' and exposes window.confetti) */ var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});if(!providedByExplicit)cdnsNeeded.add(fnCdn)});for(var cdn of cdnsNeeded){await _loadLib(cdn)}try{const impLog=[];const importObj=buildImportObject(r.imports,impLog);const mod=await WebAssembly.compile(r.wasm);const inst=await WebAssembly.instantiate(mod,importObj);_wasmMem=inst.exports.memory;o+=sp('ok','\u2713 WASM OK')+'\n\n';const exports=Object.entries(inst.exports).filter(([k,v])=>typeof v==='function'&&k!=='frame'&&!k.startsWith('onclick_')&&!k.startsWith('ontimer_')&&!k.startsWith('onhttp_')&&k!=='memory');if(exports.length){o+=sp('info','\u2500\u2500 Results \u2500\u2500')+'\n';for(const[name,fn]of exports){const fd=r.functions.find(f=>f.name===name);const params=fd?.node?.params||[];const tests=genArgs(params);for(const args of tests){impLog.length=0;try{const rv=fn(...args);let line=sp('ok','\u2713')+' '+name+'('+args.join(',')+') = '+rv;if(impLog.length){line+='\n';for(const call of impLog)line+='    '+sp('imp','\u2192 '+call.fn+'('+call.args.join(', ')+')')+'\n'}o+=line+'\n'}catch(e){o+=sp('err','\u2717')+' '+name+' \u2192 '+e.message+'\n'}}}o+='\n'+sp('dim','Tap to call:')+'\n';for(const[name]of exports){const fd=r.functions.find(f=>f.name===name);const ps=fd?.node?.params?.map(p=>p.name+':'+p.type).join(',')||'';o+='<span class="run-fn" onclick="callFn(\''+name+'\')">'+h(name)+'</span>('+h(ps)+')\n'}}window._wi=inst;window._impLog=impLog;setStatus('ok','Done',r.stats.bytes+'B');try{var _ac=new AudioContext();var _o=_ac.createOscillator();_o.frequency.value=880;_o.type='sine';var _g=_ac.createGain();_g.gain.value=0.1;_o.connect(_g);_g.connect(_ac.destination);_o.start();_o.stop(_ac.currentTime+0.05)}catch(e){};}catch(e){o+=sp('err','\u2717 '+e.message)+'\n';setStatus('err','WASM error');}}if(r.errors.length)setStatus('err',r.errors.length+' type error'+(r.errors.length>1?'s':''));var _outPre=document.createElement('div');_outPre.className='output';_outPre.innerHTML=o;out.insertBefore(_outPre,out.firstChild);document.getElementById('tab-wasm').innerHTML=hexDump(r.wasm);document.getElementById('tab-ast').textContent=JSON.stringify(r.ast,null,2);document.getElementById('tab-tokens').textContent=r.tokens.map(t=>t.toString()).join('\n');document.getElementById('runDot').classList.add('show');if(window.innerWidth<768)showView('run')}catch(e){var em=e.message;var lm=em.match(/(\d+):(\d+)/);if(lm){out.innerHTML='<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">\u2717 '+h(em)+'</span>'}else{out.innerHTML=sp('err','\u2717 '+em)};setStatus('err','Error');if(window.innerWidth<768)showView('run')}}
-const isInt=t=>t==='int'||t==='i64'||t==='js';const isNum=t=>t==='num'||t==='f64'||t==='f32';
+try{const r=compile(source,target);lastFuncs=r.functions;lastImports=r.imports;let o='';o+=sp('info','Done in '+r.elapsed.toFixed(1)+'ms')+'\n';let statsLine=r.stats.tokens+' tok \u2192 '+r.stats.funcs+' fn';if(r.stats.imports)statsLine+=', '+r.stats.imports+' imports';statsLine+=' \u2192 '+r.stats.bytes+'B';o+=sp('dim',statsLine)+'\n';if(r.injected&&r.injected.length){o+=sp('imp','\u2728 Auto: '+r.injected.join(', '))+'\n'}if(r.autoJs&&r.autoJs.length){o+=sp('info','\u26a1 JS: '+r.autoJs.join(', '))+'\n'}o+='\n';if(r.imports.length&&!(r.injected&&r.injected.length===r.imports.length)){o+=sp('imp','Imports: '+r.imports.map(i=>i.module+'.'+i.name).join(', '))+'\n\n'}if(r.errors.length){o+=sp('err','\u2717 '+r.errors.length+' type error'+(r.errors.length>1?'s':'')+' \u2014 fix before running')+'\n';r.errors.forEach(function(e){var m=e.match(/^(\d+):/);if(m){o+='  <span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h(e)+'</span>\n'}else{o+='  '+sp('err',e)+'\n'}});o+='\n'}else{o+=sp('ok','\u2713 Types OK')+'\n\n';var cdnsNeeded=new Set();r.imports.forEach(function(imp){var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;/* If any explicitly-used lib provides this function (either listed in fns or matching the lib name itself), skip — the explicit use wins. */ var providedByExplicit=Array.from(_explicitCdns).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;/* Also match by lib name (canvas-confetti's lib.name is 'confetti' and exposes window.confetti) */ var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});if(!providedByExplicit)cdnsNeeded.add(fnCdn)});for(var cdn of cdnsNeeded){await _loadLib(cdn)}try{const impLog=[];const importObj=buildImportObject(r.imports,impLog);const mod=await WebAssembly.compile(r.wasm);const inst=await WebAssembly.instantiate(mod,importObj);_wasmMem=inst.exports.memory;o+=sp('ok','\u2713 WASM OK')+'\n\n';const exports=Object.entries(inst.exports).filter(([k,v])=>typeof v==='function'&&k!=='frame'&&!k.startsWith('onclick_')&&!k.startsWith('ontimer_')&&!k.startsWith('onhttp_')&&k!=='memory');if(exports.length){o+=sp('info','\u2500\u2500 Results \u2500\u2500')+'\n';for(const[name,fn]of exports){const fd=r.functions.find(f=>f.name===name);const params=fd?.node?.params||[];const tests=genArgs(params);for(const args of tests){impLog.length=0;try{const rv=_emitCallExport(inst,name,args);let line=sp('ok','\u2713')+' '+name+'('+args.join(',')+') = '+rv;if(impLog.length){line+='\n';for(const call of impLog)line+='    '+sp('imp','\u2192 '+call.fn+'('+call.args.join(', ')+')')+'\n'}o+=line+'\n'}catch(e){o+=sp('err','\u2717')+' '+name+' \u2192 '+e.message+'\n'}}}o+='\n'+sp('dim','Tap to call:')+'\n';for(const[name]of exports){const fd=r.functions.find(f=>f.name===name);const ps=fd?.node?.params?.map(p=>p.name+':'+p.type).join(',')||'';o+='<span class="run-fn" onclick="callFn(\''+name+'\')">'+h(name)+'</span>('+h(ps)+')\n'}}window._wi=inst;window._impLog=impLog;setStatus('ok','Done',r.stats.bytes+'B');try{var _ac=new AudioContext();var _o=_ac.createOscillator();_o.frequency.value=880;_o.type='sine';var _g=_ac.createGain();_g.gain.value=0.1;_o.connect(_g);_g.connect(_ac.destination);_o.start();_o.stop(_ac.currentTime+0.05)}catch(e){};}catch(e){o+=sp('err','\u2717 '+e.message)+'\n';setStatus('err','WASM error');}}if(r.errors.length)setStatus('err',r.errors.length+' type error'+(r.errors.length>1?'s':''));var _outPre=document.createElement('div');_outPre.className='output';_outPre.innerHTML=o;out.insertBefore(_outPre,out.firstChild);document.getElementById('tab-wasm').innerHTML=hexDump(r.wasm);document.getElementById('tab-ast').textContent=JSON.stringify(r.ast,null,2);document.getElementById('tab-tokens').textContent=r.tokens.map(t=>t.toString()).join('\n');document.getElementById('runDot').classList.add('show');if(window.innerWidth<768)showView('run')}catch(e){var em=e.message;var lm=em.match(/(\d+):(\d+)/);if(lm){out.innerHTML='<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">\u2717 '+h(em)+'</span>'}else{out.innerHTML=sp('err','\u2717 '+em)};setStatus('err','Error');if(window.innerWidth<768)showView('run')}}
+const isInt=t=>t==='int'||t==='i64'||t==='js'||t==='arr'||t==='numarr';const isNum=t=>t==='num'||t==='f64'||t==='f32';
 function genArgs(params){if(!params.length)return[[]];if(params.length===1){const t=params[0].type;if(isInt(t))return[[1n],[5n],[10n]];if(isNum(t))return[[1.0],[5.0]];return[[1],[5],[10]]}if(params.length===2){const v=params.map(p=>{if(isInt(p.type))return[2n,10n];if(isNum(p.type))return[1.0,5.0];return[3,7]});return[[v[0][0],v[1][0]],[v[0][1],v[1][1]]]}return[params.map(p=>{if(isInt(p.type))return 2n;if(isNum(p.type))return 1.0;return 3})]}
-function callFn(name){const fn=window._wi?.exports[name];if(!fn)return;const fd=lastFuncs?.find(f=>f.name===name);const ps=fd?.node?.params||[];const a=prompt(name+'('+ps.map(p=>p.name+':'+p.type).join(', ')+')\nArgs:');if(a===null)return;const args=a.split(',').map((x,i)=>{x=x.trim();const t=ps[i]?.type||'int';if(isInt(t))return BigInt(x);if(isNum(t))return parseFloat(x);return parseInt(x)});window._impLog.length=0;try{const r=fn(...args);let html='\n<div class="run-result">'+sp('ok','▶')+' '+name+'('+args.join(',')+') = <strong>'+r+'</strong>';if(window._impLog.length){html+='\n';for(const c of window._impLog)html+='  '+sp('imp','→ '+c.mod+'.'+c.fn+'('+c.args.join(', ')+')')+'\n'}html+='</div>';document.getElementById('tab-output').innerHTML+=html}catch(e){document.getElementById('tab-output').innerHTML+='\n<div class="run-result">'+sp('err','✗')+' '+e.message+'</div>'}}
+function callFn(name){const fn=window._wi?.exports[name];if(!fn)return;const fd=lastFuncs?.find(f=>f.name===name);const ps=fd?.node?.params||[];const a=prompt(name+'('+ps.map(p=>p.name+':'+p.type).join(', ')+')\nArgs:');if(a===null)return;const args=a.split(',').map((x,i)=>{x=x.trim();const t=ps[i]?.type||'int';if(isInt(t))return BigInt(x);if(isNum(t))return parseFloat(x);return parseInt(x)});window._impLog.length=0;try{const r=_emitCallExport(window._wi,name,args);let html='\n<div class="run-result">'+sp('ok','▶')+' '+name+'('+args.join(',')+') = <strong>'+r+'</strong>';if(window._impLog.length){html+='\n';for(const c of window._impLog)html+='  '+sp('imp','→ '+c.mod+'.'+c.fn+'('+c.args.join(', ')+')')+'\n'}html+='</div>';document.getElementById('tab-output').innerHTML+=html}catch(e){document.getElementById('tab-output').innerHTML+='\n<div class="run-result">'+sp('err','✗')+' '+e.message+'</div>'}}
 function hexDump(bytes){let h='';const pl=16;for(let i=0;i<Math.min(bytes.length,512);i+=pl){const addr=i.toString(16).padStart(4,'0');let hex='';for(let j=0;j<pl;j++){if(i+j<bytes.length){const cls=(i+j<4)?'magic':'';hex+='<span class="'+cls+'">'+bytes[i+j].toString(16).padStart(2,'0')+'</span> '}if(j===7)hex+=' '}h+='<span class="addr">'+addr+'</span> '+hex+'\n'}if(bytes.length>512)h+='\n<span class="dim">… '+(bytes.length-512)+' more bytes</span>';return'<div class="hex">'+h+'</div>'}
 document.getElementById('panels').classList.add('panels-desk');
 document.getElementById('pnl-edit').className='pnl';
@@ -4158,6 +4940,7 @@ async function loadFromURL(){
   return false
 }
 function stopProgram(){_animRunning=false;setStatus('idle','Stopped')}
+stopProgram=(function(stop){return function(){_awaitGen++;_frameBusy=false;return stop.apply(this,arguments)}})(stopProgram); // calls waiting in an `await` are never resumed
 function _download(name,content,type){var b=new Blob([content],{type:type});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();URL.revokeObjectURL(a.href)}
 function importFile(){
   var inp=document.createElement('input');inp.type='file';inp.accept='.emit,.txt,.jawa';
@@ -4267,7 +5050,7 @@ async function _emitExportBoot(P,RT,opts){
   RT.setMemory(inst.exports.memory);
   window._wi=inst; // the runtime finds frame(), onclick_N() … here
   var entries=Object.keys(inst.exports).filter(function(n){var f=inst.exports[n];return typeof f==='function'&&f.length===0&&n!=='frame'&&n.indexOf('onclick_')!==0&&n.indexOf('ontimer_')!==0&&n.indexOf('onhttp_')!==0});
-  function run(){entries.forEach(function(n){try{inst.exports[n]()}catch(e){show(n+' → '+((e&&e.message)||e))}})}
+  function run(){entries.forEach(function(n){try{window._emitCallExport?window._emitCallExport(inst,n,[]):inst.exports[n]()}catch(e){show(n+' → '+((e&&e.message)||e))}})}
   if(opts.run!==false)run();
   return{instance:inst,exports:inst.exports,memory:inst.exports.memory,output:out,entries:entries,run:run,stop:function(){RT.stop()}};
 }
