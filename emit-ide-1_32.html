@@ -151,7 +151,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 </head>
 <body>
 <div class="app">
-  <div class="header"><div class="logo">EMIT<sub>v0.3</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="js">Export .js</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="algo">Algo</option></select><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
+  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="algo">Algo</option></select><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
   <div class="vtabs"><div class="vtab active" data-v="edit" onclick="showView('edit')">Editor</div><div class="vtab" data-v="run" onclick="showView('run')">Output<div class="dot" id="runDot"></div></div></div>
   <div class="panels" id="panels">
     <div class="pnl" id="pnl-edit">
@@ -182,7 +182,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <div class="wl-sub">Code &rarr; WebAssembly &rarr; Run</div>
 <div class="wl-step"><b>Write</b> a function<br><span class="wl-code">export fn hello() { print(42) }</span></div>
 <div class="wl-step"><b>Hit &#9654;</b> to compile and run instantly</div>
-<div class="wl-step"><b>138 builtins</b> — canvas, 3D, sound, arrays, UI<br><span class="wl-code">canvas(300, 200)  circle(150, 100, 50)</span></div>
+<div class="wl-step"><b><span id="wlBuiltins"></span> builtins</b> — canvas, 3D, sound, arrays, UI<br><span class="wl-code">canvas(300, 200)  circle(150, 100, 50)</span></div>
 <div class="wl-step"><b>use</b> any JS library in one line<br><span class="wl-code">use three.js</span></div>
 <div class="wl-step"><b>&#x1F4E6;</b> snippets &bull; <b>&#x1F517;</b> share as URL &bull; <b>?</b> full reference</div>
 <button class="wl-go" onclick="closeWelcome()">Start Coding</button>
@@ -225,7 +225,8 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>use tinycolor2@1.6.0</code> &mdash; any npm package (via jsDelivr), then call its global</p>
 <p><code>use "https://example.com/lib.js"</code> &mdash; any script URL (quotes optional)</p>
 <p><code>use "https://example.com/lib.css"</code> &mdash; a URL (or npm path) ending in <code>.css</code> loads a stylesheet instead of a script. Libraries from the list bring their own stylesheet (leaflet, flatpickr, swiper, notyf, nprogress), so <code>use leaflet</code> is enough. If a stylesheet cannot be loaded the program still runs and the output shows one amber <code>&#9888;</code> line.</p>
-<p><code>use nanoid as Nano</code> &mdash; ES module: its exports become <code>Nano.someFn()</code>. Works with URLs too.</p>
+<p><code>use nanoid as Nano</code> &mdash; ES module: its exports become <code>Nano.someFn()</code>. Works with URLs too. An npm name is imported from jsDelivr (<code>/+esm</code>); if that fails to load or throws, the IDE tries <code>https://esm.sh/&lt;name&gt;</code> once before reporting an error (the message names both). To pick the source yourself: <code>use esm.sh:nanoid as Nano</code> or <code>use jsdelivr:nanoid as Nano</code>.</p>
+<p><strong>Offline cache:</strong> where the browser gives this page storage, the text of every script and stylesheet that has loaded is kept. Libraries always load from the network first; only when that fails (no connection) is the stored copy used, and the output says so with an amber <code>&#9888;</code> line. The &#x1F4DA; panel shows the size of the cache and a <strong>Clear</strong> button. ES-module libraries (<code>as Name</code>) are not cached. Opened from a phone's local storage the page may have no storage at all &mdash; then nothing is cached and everything works as before; use <strong>Export .html (offline)</strong> to get a program that runs without a network.</p>
 <p>For library namespaces, use <strong>member access</strong>:</p>
 <p><code>use babylon.js</code></p>
 <p><code>let s = BABYLON.Scene(engine)</code></p>
@@ -341,7 +342,8 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 
 <h2>Export</h2>
 <p>Use the File dropdown to download your program:</p>
-<p><code>.html</code> &mdash; one standalone page that runs your program the way Run does, without the editor. It contains the compiled WASM, the list of imports it needs and the Emit runtime itself (the same code this IDE runs programs on: print, canvas, buttons, inputs, sound, strings, JS interop, callbacks, <code>animate()</code>, keyboard and touch). On opening it loads the libraries from your <code>use</code> lines from their URLs (so those need a network connection; a library that fails to load is reported on the page), then calls every exported function that takes no parameters. Functions with parameters are not called automatically, and the IDE's call-trace lines are hidden (add <code>?trace</code> to the address to see them). About 75&nbsp;KB plus your program.</p>
+<p><code>.html</code> &mdash; one standalone page that runs your program the way Run does, without the editor. It contains the compiled WASM, the list of imports it needs and the Emit runtime itself (the same code this IDE runs programs on: print, canvas, buttons, inputs, sound, strings, JS interop, callbacks, <code>animate()</code>, keyboard and touch). On opening it loads the libraries from your <code>use</code> lines from their URLs (so those need a network connection; a library that fails to load is reported on the page), then calls every exported function that takes no parameters. Functions with parameters are not called automatically, and the IDE's call-trace lines are hidden and printed lines appear without the IDE's <code>&gt; </code> prefix (add <code>?trace</code> to the address to see the page exactly as the IDE's output, trace lines and prefix included). About 90&nbsp;KB plus your program.</p>
+<p><code>.html (offline)</code> &mdash; the same page with every library <strong>embedded</strong>: the scripts, the scripts they need, their stylesheets (images and fonts under 200&nbsp;KB that a stylesheet refers to are inlined; larger or unreachable ones stay network links and are listed after the export) and ES-module libraries together with the modules they import. The file needs no network at all and is as large as its libraries (three.js about 0.6&nbsp;MB, Babylon about 9&nbsp;MB). The libraries are downloaded while exporting, so that step needs a connection; if one cannot be downloaded (no network, or a server that does not allow it) the export stops with a message and no file is written &mdash; use the normal <code>.html</code> export then. ES modules that import each other in a cycle cannot be embedded. Things a library fetches by itself while running (map tiles, models, fonts by URL) still need a network. <code>.js (offline)</code> is the same for the module export.</p>
 <p><code>.js</code> &mdash; the same contents as an ES module for a web page of your own: <code>import init from "./program.js"</code>, then <code>const app = await init({target: someElement})</code>. <code>init</code> loads the libraries, starts the program like the <code>.html</code> export and returns <code>app.exports</code> (your exported functions; <code>int</code> values are BigInt). Output goes into the element with id <code>tab-output</code>, created inside <code>target</code> if the page has none. Browser only, one Emit program per page. The comment at the top of the file describes the options.</p>
 <p><code>.wasm</code> &mdash; the raw WebAssembly module only, with no runtime. It runs anywhere WebAssembly does (browsers, Node.js, Deno, Wasmtime), but the host must supply every import itself: the <code>std</code> builtins the program uses (<code>int</code> = i64/BigInt, <code>num</code> = f64, strings = pointer to a 4-byte length followed by UTF-8 in the exported <code>memory</code>), the <code>__js__</code> interop functions and, if the program uses <code>fnRef</code>, a function table as <code>__cb__.table</code>. A program that only computes and returns numbers needs none of this; for anything else the <code>.js</code> export is the practical choice &mdash; its header lists the imports.</p>
 <p><code>.emit</code> &mdash; save your source code.</p>
@@ -349,7 +351,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 </div>
 <script>
 const EX = {"basics":"// Emit — everything just works\n// No semicolons, no arrows, types inferred\n\nfn greet(name: str) {\n  printStr(name)\n}\n\nfn distance(x1: num, y1: num, x2: num, y2: num) num {\n  let dx = x2 - x1\n  let dy = y2 - y1\n  return sqrt(dx * dx + dy * dy)\n}\n\nexport fn demo() {\n  // Strings\n  greet(\"Hello from Emit!\")\n\n  // Math\n  printNum(distance(0.0, 0.0, 3.0, 4.0))\n  printNum(sin(3.14159 / 2.0))\n  print(max(42, 17))\n\n  // Arrays\n  let scores = newArray(5)\n  let i = 0\n  while (i < 5) {\n    setItem(scores, i, (i + 1) * 10)\n    i++\n  }\n  push(scores, 99)\n  print(arrayLen(scores))\n  print(getItem(scores, 5))\n\n  // Canvas\n  canvas(200, 100)\n  color(45, 212, 191)\n  rect(10, 10, 80, 80)\n  color(255, 100, 50)\n  circle(150, 50, 35)\n  color(255, 255, 255)\n  text(\"Emit!\", 20, 55, 16)\n\n  // Sound\n  beep(440, 150)\n  beep(550, 150)\n  beep(660, 200)\n}","draw":"// Canvas drawing — house scene\n\nexport fn house() {\n  canvas(300, 200)\n\n  // Sky\n  color(30, 30, 80)\n  rect(0, 0, 300, 140)\n\n  // Ground\n  color(30, 100, 30)\n  rect(0, 140, 300, 60)\n\n  // Sun\n  color(255, 220, 50)\n  circle(240, 45, 30)\n\n  // House\n  color(160, 80, 40)\n  rect(80, 80, 80, 60)\n\n  // Door\n  color(100, 50, 20)\n  rect(108, 105, 24, 35)\n\n  // Roof lines\n  let i = 0\n  while (i < 50) {\n    color(180, 40, 40)\n    line(70 + i, 80, 120, 40)\n    line(170 - i, 80, 120, 40)\n    i++\n  }\n\n  // Stars\n  color(255, 255, 255)\n  circle(30, 20, 2)\n  circle(80, 35, 1)\n  circle(150, 15, 2)\n  circle(200, 50, 1)\n\n  // Label\n  text(\"Home\", 100, 175, 14)\n}","art":"// Generative Art — rainbow spirograph\n\nexport fn spirograph() {\n  canvas(400, 400)\n  color(0, 0, 0)\n  rect(0, 0, 400, 400)\n\n  let cx = 200.0\n  let cy = 200.0\n  let R = 120.0\n  let r = 45.0\n  let d = 90.0\n  let t = 0.0\n  mut prevX = 0\n  mut prevY = 0\n  mut steps = 0\n\n  while (t < 62.8) {\n    let x: num = (R - r) * cos(t) + d * cos((R - r) * t / r)\n    let y: num = (R - r) * sin(t) - d * sin((R - r) * t / r)\n    let px = floor(cx + x)\n    let py = floor(cy + y)\n\n    let hue = steps % 360\n    mut cr = 0\n    mut cg = 0\n    mut cb = 0\n    if (hue < 60) { cr = 255; cg = hue * 4 }\n    if (hue >= 60) { if (hue < 120) { cr = 255 - (hue - 60) * 4; cg = 255 } }\n    if (hue >= 120) { if (hue < 180) { cg = 255; cb = (hue - 120) * 4 } }\n    if (hue >= 180) { if (hue < 240) { cg = 255 - (hue - 180) * 4; cb = 255 } }\n    if (hue >= 240) { if (hue < 300) { cr = (hue - 240) * 4; cb = 255 } }\n    if (hue >= 300) { cr = 255; cb = 255 - (hue - 300) * 4 }\n\n    color(cr, cg, cb)\n    if (steps > 0) { line(prevX, prevY, px, py) }\n    prevX = px\n    prevY = py\n    t = t + 0.02\n    steps++\n  }\n}","cube3d":"// 3D Room — drag to look around, scroll to zoom\nuse three.js\n\nexport fn room() {\n  scene3d(400, 350)\n  bgColor3d(20, 20, 35)\n\n  // Floor\n  let floor = plane(10.0, 10.0)\n  color3d(floor, 60, 60, 70)\n\n  // Walls\n  let back = wallBox(0.0, 1.5, -5.0, 10.0, 3.0, 0.1)\n  color3d(back, 80, 70, 90)\n\n  let left = wallBox(-5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(left, 90, 75, 85)\n\n  let right = wallBox(5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(right, 90, 75, 85)\n\n  let front = wallBox(0.0, 1.5, 5.0, 10.0, 3.0, 0.1)\n  color3d(front, 80, 70, 90)\n\n  // Table\n  let top = wallBox(0.0, 1.0, 0.0, 2.0, 0.1, 1.2)\n  color3d(top, 139, 90, 43)\n  let leg1 = cylinder(-0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg1, 100, 60, 30)\n  let leg2 = cylinder(0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg2, 100, 60, 30)\n  let leg3 = cylinder(-0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg3, 100, 60, 30)\n  let leg4 = cylinder(0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg4, 100, 60, 30)\n\n  // Chair\n  let seat = wallBox(-2.5, 0.6, 0.0, 0.7, 0.08, 0.7)\n  color3d(seat, 45, 100, 180)\n  let chairBack = wallBox(-2.5, 1.2, -0.35, 0.7, 1.0, 0.08)\n  color3d(chairBack, 40, 90, 170)\n\n  // Lamp on table\n  let pole = cylinder(0.5, 1.3, 0.0, 0.03, 0.5)\n  color3d(pole, 200, 200, 200)\n  let shade = sphere(0.5, 1.6, 0.0, 0.15)\n  color3d(shade, 255, 240, 180)\n\n  // Rug\n  let rug = wallBox(0.0, 0.01, 2.0, 3.0, 0.02, 2.0)\n  color3d(rug, 150, 50, 50)\n\n  // Lighting\n  ambient3d(60, 60, 80)\n  light3d(0.5, 2.8, 0.0)\n  light3d(-3.0, 2.5, 3.0)\n\n  // Camera + controls\n  camera3d(3.0, 2.5, 5.0)\n  lookAt3d(0.0, 1.0, 0.0)\n  controls3d()\n  render3d()\n}","ui":"// Interactive UI — buttons, globals, canvas\n\nmut counter = 0\n\nexport fn app() {\n  div(\"Welcome to Emit!\")\n  div(\"Click a button:\")\n  button(\"Say Hello\", 1)\n  button(\"Count\", 2)\n  button(\"Draw\", 3)\n}\n\nexport fn onclick_1() {\n  div(\"Hello from Emit!\")\n  beep(523, 100)\n}\n\nexport fn onclick_2() {\n  counter++\n  print(counter)\n  beep(440 + counter * 50, 80)\n}\n\nexport fn onclick_3() {\n  canvas(200, 100)\n  let r = floor(random() * 255.0)\n  let g = floor(random() * 255.0)\n  let b = floor(random() * 255.0)\n  color(r, g, b)\n  circle(100, 50, 40)\n  color(255, 255, 255)\n  text(\"Random!\", 55, 55, 16)\n}","sound":"// Music — beep a melody\n\nexport fn melody() {\n  // Twinkle Twinkle Little Star\n  beep(262, 300)\n  beep(262, 300)\n  beep(392, 300)\n  beep(392, 300)\n  beep(440, 300)\n  beep(440, 300)\n  beep(392, 600)\n\n  beep(349, 300)\n  beep(349, 300)\n  beep(330, 300)\n  beep(330, 300)\n  beep(294, 300)\n  beep(294, 300)\n  beep(262, 600)\n}","algo":"// Algorithms — recursion, arrays, sorting\n\nfn factorial(n: int) int {\n  if (n <= 1) { return 1 }\n  return n * factorial(n - 1)\n}\n\nfn fibonacci(n: int) int {\n  if (n <= 1) { return n }\n  let a = 0\n  let b = 1\n  let i = 2\n  while (i <= n) {\n    let t = b\n    b = a + b\n    a = t\n    i++\n  }\n  return b\n}\n\nexport fn algorithms() {\n  printStr(\"Factorials:\")\n  let i = 1\n  while (i <= 8) {\n    print(factorial(i))\n    i++\n  }\n\n  printStr(\"Fibonacci:\")\n  i = 1\n  while (i <= 10) {\n    print(fibonacci(i))\n    i++\n  }\n\n  // Sort an array\n  printStr(\"Sorted:\")\n  let arr = newArray(0)\n  push(arr, 38)\n  push(arr, 7)\n  push(arr, 91)\n  push(arr, 14)\n  push(arr, 55)\n  push(arr, 3)\n\n  let n = arrayLen(arr)\n  i = 0\n  while (i < n) {\n    let j = 0\n    while (j < n - 1 - i) {\n      if (getItem(arr, j) > getItem(arr, j + 1)) {\n        let t = getItem(arr, j)\n        setItem(arr, j, getItem(arr, j + 1))\n        setItem(arr, j + 1, t)\n      }\n      j++\n    }\n    i++\n  }\n  i = 0\n  while (i < n) {\n    print(getItem(arr, i))\n    i++\n  }\n}","pong":"// Brick Breaker — touch/mouse to move paddle\n// Smash all the bricks!\n\nmut bx = 0\nmut by = 0\nmut dx = 0\nmut dy = 0\nmut px = 0\nmut score = 0\nmut bricks = 0\nmut lives = 0\n\nexport fn breaker() {\n  bx = 150\n  by = 140\n  dx = 3\n  dy = -3\n  px = 130\n  score = 0\n  lives = 3\n\n  // Create brick grid: 8 cols x 4 rows = 32 bricks\n  bricks = newArray(32)\n  let i = 0\n  while (i < 32) {\n    setItem(bricks, i, 1)\n    i++\n  }\n\n  canvas(300, 200)\n  animate()\n}\n\nexport fn frame() {\n  // Paddle follows touch/mouse\n  let mx = touchX()\n  if (mx > 0) { px = mx - 150 }\n  if (px < 0) { px = 0 }\n  if (px > 260) { px = 260 }\n\n  // Move ball\n  bx += dx\n  by += dy\n\n  // Bounce walls\n  if (bx < 4) { dx = 0 - dx; bx = 4 }\n  if (bx > 296) { dx = 0 - dx; bx = 296 }\n  if (by < 4) { dy = 0 - dy; by = 4 }\n\n  // Bounce paddle\n  if (by > 182) {\n    if (bx > px) {\n      if (bx < px + 40) {\n        dy = 0 - dy\n        by = 182\n        // Angle based on hit position\n        dx = (bx - px - 20) / 5\n        beep(440, 30)\n      }\n    }\n  }\n\n  // Miss — lose life\n  if (by > 200) {\n    lives -= 1\n    beep(150, 300)\n    bx = 150\n    by = 140\n    dx = 3\n    dy = -3\n    if (lives < 1) {\n      // Reset all bricks\n      let i = 0\n      while (i < 32) {\n        setItem(bricks, i, 1)\n        i++\n      }\n      lives = 3\n      score = 0\n    }\n  }\n\n  // Check brick collisions\n  let row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      let idx = row * 8 + col\n      if (getItem(bricks, idx) == 1) {\n        let bkx = col * 36 + 6\n        let bky = row * 14 + 10\n        if (bx > bkx) {\n          if (bx < bkx + 34) {\n            if (by > bky) {\n              if (by < bky + 12) {\n                setItem(bricks, idx, 0)\n                dy = 0 - dy\n                score++\n                beep(660 + score * 20, 40)\n              }\n            }\n          }\n        }\n      }\n      col++\n    }\n    row++\n  }\n\n  // Draw\n  clear()\n  color(0, 0, 20)\n  rect(0, 0, 300, 200)\n\n  // Bricks\n  row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      if (getItem(bricks, row * 8 + col) == 1) {\n        // Color by row\n        if (row == 0) { color(255, 80, 80) }\n        if (row == 1) { color(255, 180, 50) }\n        if (row == 2) { color(50, 220, 100) }\n        if (row == 3) { color(80, 150, 255) }\n        rect(col * 36 + 6, row * 14 + 10, 34, 12)\n      }\n      col++\n    }\n    row++\n  }\n\n  // Ball\n  color(255, 255, 255)\n  circle(bx, by, 4)\n\n  // Paddle\n  color(45, 212, 191)\n  rect(px, 185, 40, 8)\n\n  // Score + lives\n  color(200, 200, 200)\n  text(\"Score:\", 10, 198, 10)\n}","chat":"// Chat — text input and output\n\nexport fn chatapp() {\n  div(\"Emit Chat\")\n  input(\"Type a message...\", 1)\n  button(\"Send\", 1)\n  button(\"Clear\", 2)\n}\n\nexport fn onclick_1() {\n  let val = getInput(1)\n  if (val > 0) {\n    printStr(\"You said something!\")\n    print(val)\n    beep(500, 80)\n  }\n}\n\nexport fn onclick_2() {\n  div(\"Chat cleared!\")\n  beep(300, 100)\n}","babylon":"// Babylon.js — rotating 3D cube\n// No hand-wrapped builtins: `use babylon.js` + member calls = it just works\n\nuse babylon.js\n\nmut sceneH = 0\nmut boxH = 0\n\nexport fn world() {\n  canvas(500, 400)\n  let cv = getCanvas()\n\n  // Engine + scene\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n\n  // Orbit camera — drag to rotate, scroll to zoom\n  let target = BABYLON.Vector3(0.0, 0.0, 0.0)\n  let cam = BABYLON.ArcRotateCamera(\"cam\", 1.0, 1.2, 6.0, target, scene)\n  cam.attachControl(cv, true)\n\n  // Light\n  let lightDir = BABYLON.Vector3(0.0, 1.0, 0.0)\n  BABYLON.HemisphericLight(\"light\", lightDir, scene)\n\n  // Meshes\n  let opts = emptyObj()\n  let cube = BABYLON.MeshBuilder.CreateBox(\"box\", opts, scene)\n\n  sceneH = scene\n  boxH = cube\n  animate()\n}\n\nexport fn frame() {\n  // Spin the cube around Y\n  let axis = BABYLON.Vector3(0.0, 1.0, 0.0)\n  boxH.rotate(axis, 0.02, 0)\n  sceneH.render()\n}","confetti":"// Word Confetti — particles are real words & emoji\n// textShape(text, color, scalar) builds a bitmap shape from text\n\nuse confetti\n\nexport fn party() {\n  div(\"🎉 Tap a button for word confetti!\")\n  button(\"Words\", 1)\n  button(\"Emoji\", 2)\n  button(\"Mixed\", 3)\n}\n\n// Fire confetti with a custom shape array\nfn fireShapes(shapes: int) {\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n\n  let opts = emptyObj()\n  opts.particleCount = 40\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 2.0\n  opts.ticks = 200\n  opts.shapes = shapes\n  opts.origin = origin\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  // Real words as confetti particles\n  let shapes = toJsArray([\n    textShape(\"WOW\",   \"#ff3366\", 2.0),\n    textShape(\"YES!\",  \"#fde047\", 2.0),\n    textShape(\"NICE\",  \"#22d3ee\", 2.0),\n    textShape(\"COOL\",  \"#4ade80\", 2.0),\n    textShape(\"EMIT\",  \"#a78bfa\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(880, 80)\n}\n\nexport fn onclick_2() {\n  // Emoji confetti — color is ignored for emoji glyphs\n  let shapes = toJsArray([\n    textShape(\"🎉\", \"#ffffff\", 2.0),\n    textShape(\"🎊\", \"#ffffff\", 2.0),\n    textShape(\"⭐\", \"#ffffff\", 2.0),\n    textShape(\"💖\", \"#ffffff\", 2.0),\n    textShape(\"🚀\", \"#ffffff\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(660, 80)\n}\n\nexport fn onclick_3() {\n  // Mix words, emoji, and built-in shapes\n  let shapes = toJsArray([\n    textShape(\"HI!\", \"#ff3366\", 2.0),\n    textShape(\"✨\",  \"#ffffff\", 2.0),\n    textShape(\"YAY\", \"#22d3ee\", 2.0),\n    \"star\",\n    \"circle\"\n  ])\n  fireShapes(shapes)\n  beep(990, 80)\n}","clock":"// Dayjs — chained member calls for date formatting\n// Every .format(), .year(), .month() dispatches through __jsCall\n\nuse dayjs\n\nexport fn clock() {\n  div(\"Current time (via dayjs):\")\n\n  let now = dayjs()\n  let stamp = now.format(\"YYYY-MM-DD HH:mm:ss\")\n  printStr(toStr(stamp))\n\n  let dayName = now.format(\"dddd, MMMM D\")\n  printStr(toStr(dayName))\n\n  // Math on dates — subtract 7 days\n  let lastWeek = now.subtract(7, \"day\")\n  let ago = lastWeek.format(\"YYYY-MM-DD\")\n  printStr(strConcat(\"One week ago: \", toStr(ago)))\n}","strings":"// Strings — concat, format, compare, slice\n// All the string builtins, no external libraries\n\nexport fn tour() {\n  // Build a greeting from pieces\n  let greeting = strConcat(\"Emit has \", intToStr(8))\n  let full = strConcat(greeting, \" string builtins.\")\n  printStr(full)\n\n  // Format a computed number\n  let circle = 3.14159 * 2.0 * 5.0\n  printStr(strConcat(\"Circle circumference: \", numToStr(circle)))\n\n  // Length + substring\n  let name = \"Emit language\"\n  printStr(strConcat(\"Length: \", intToStr(strLen(name))))\n  printStr(strConcat(\"Slice: \", substr(name, 5, 8)))\n\n  // Equality test\n  if (strEq(\"hello\", \"hello\")) {\n    printStr(\"✓ strEq works\")\n  }\n\n  // Char code of first character\n  let code = charAt(name, 0)\n  printStr(strConcat(\"'E' is code \", intToStr(code)))\n}","callbacks":"// Callbacks, promises, null checks — browser globals only, no library\n// fnRef(fn) hands an Emit function to JS. The parameter types you declare\n// decide how the JS arguments arrive: int / num / str / bool, or a handle.\n\nmut total = 0\nmut clicks = 0\n\n// arr.forEach calls this with (value, index)\nfn addUp(value: int, index: int) {\n  total += value\n  printStr(strConcat(\"item \", strConcat(intToStr(index), strConcat(\" = \", intToStr(value)))))\n}\n\n// arr.map uses the return value\nfn square(x: num) num {\n  return x * x\n}\n\n// Promise callbacks: the resolved value arrives with the type you declare\nfn onResolved(msg: str) {\n  printStr(strConcat(\"promise resolved: \", msg))\n}\n\n// A rejected promise passes an Error object — it arrives as a handle\nfn onRejected(err: int) {\n  let why: str = err.message\n  printStr(strConcat(\"promise rejected: \", why))\n}\n\nfn onTimer() {\n  printStr(\"timer fired after 300 ms\")\n}\n\n// DOM event listener: the event object is a handle\nfn onClick(ev: int) {\n  clicks++\n  let kind: str = ev.type\n  printStr(strConcat(kind, strConcat(\" #\", intToStr(clicks))))\n}\n\nexport fn run() {\n  // 1. Callbacks that receive arguments\n  let list = JSON.parse(\"[3, 4, 5]\")\n  list.forEach(fnRef(addUp))\n  printStr(strConcat(\"total = \", intToStr(total)))\n\n  // 2. Iterating a JS array: jsLen + jsAt\n  let squares = list.map(fnRef(square))\n  for (let i = 0; i < jsLen(squares); i++) {\n    let sq: num = jsAt(squares, i)\n    printNum(sq)\n  }\n\n  // 3. Null checks\n  let missing = document.getElementById(\"no-such-element\")\n  if (isNull(missing)) {\n    printStr(\"no such element: got null\")\n  }\n\n  // 4. Explicit new, and a typed value straight from JS\n  let d = new Date(2024, 0, 15)\n  let year: num = d.getFullYear()\n  printNum(year)\n\n  // 5. Promises, callback style (WASM cannot await)\n  Promise.resolve(\"hello from a promise\").then(fnRef(onResolved))\n  Promise.reject(new Error(\"nope\")).catch(fnRef(onRejected))\n  setTimeout(fnRef(onTimer), 300)\n\n  // 6. A real DOM button in the Output panel with an Emit click handler\n  let btn = document.createElement(\"button\")\n  btn.textContent = \"Click me\"\n  btn.addEventListener(\"click\", fnRef(onClick))\n  document.getElementById(\"tab-output\").appendChild(btn)\n}","particles":"// Particles — directed confetti via nested config objects\n// origin: {x, y} sets where particles launch from (0-1 screen coords)\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button to fire particles!\")\n  button(\"Burst from bottom\", 1)\n  button(\"Double cannons\", 2)\n  button(\"Rain from top\", 3)\n}\n\nexport fn onclick_1() {\n  // Center-bottom burst, straight up\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.9\n\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 70\n  opts.startVelocity = 55\n  opts.origin = org\n  confetti(opts)\n}\n\nexport fn onclick_2() {\n  // Left cannon — angle 60 shoots up-right\n  let orgL = emptyObj()\n  orgL.x = 0.15\n  orgL.y = 0.6\n  let optsL = emptyObj()\n  optsL.particleCount = 70\n  optsL.angle = 60\n  optsL.spread = 55\n  optsL.startVelocity = 50\n  optsL.origin = orgL\n  confetti(optsL)\n\n  // Right cannon — angle 120 shoots up-left\n  let orgR = emptyObj()\n  orgR.x = 0.85\n  orgR.y = 0.6\n  let optsR = emptyObj()\n  optsR.particleCount = 70\n  optsR.angle = 120\n  optsR.spread = 55\n  optsR.startVelocity = 50\n  optsR.origin = orgR\n  confetti(optsR)\n}\n\nexport fn onclick_3() {\n  // Falling from top, wide spread, slow\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.0\n\n  let opts = emptyObj()\n  opts.particleCount = 100\n  opts.spread = 180\n  opts.startVelocity = 20\n  opts.gravity = 0.8\n  opts.ticks = 300\n  opts.origin = org\n  confetti(opts)\n}","orbit":"// Three.js — rotating cube via pure Path C\n// Field assignment at work: opts.canvas = cv, rot.x = rotX\n\nuse three.js\n\nmut sceneH = 0\nmut rendererH = 0\nmut cubeH = 0\nmut camH = 0\nmut rotX = 0.0\nmut rotY = 0.0\n\nexport fn scene() {\n  canvas(400, 300)\n  let cv = getCanvas()\n\n  let scn = THREE.Scene()\n  sceneH = scn\n\n  let cam = THREE.PerspectiveCamera(75.0, 1.333, 0.1, 1000.0)\n  let p = cam.position\n  p.z = 5.0\n  camH = cam\n\n  // Renderer needs a config object — build it with emptyObj + field assignment\n  let optsR = emptyObj()\n  optsR.canvas = cv\n  optsR.antialias = true\n  let r = THREE.WebGLRenderer(optsR)\n  r.setSize(400, 300)\n  rendererH = r\n\n  // Material config — red cube\n  let geo = THREE.BoxGeometry(1.0, 1.0, 1.0)\n  let matOpts = emptyObj()\n  matOpts.color = 16724736\n  let mat = THREE.MeshBasicMaterial(matOpts)\n  let cube = THREE.Mesh(geo, mat)\n  scn.add(cube)\n  cubeH = cube\n\n  animate()\n}\n\nexport fn frame() {\n  // Track rotation in pure Emit vars, then write back to the cube\n  rotX = rotX + 0.01\n  rotY = rotY + 0.015\n  let rot = cubeH.rotation\n  rot.x = rotX\n  rot.y = rotY\n  rendererH.render(sceneH, camH)\n}","snake":"// Snake — tap toward where you want to go\n// No external libraries — just Emit + canvas + arrays + animate()\n\nmut headX = 10\nmut headY = 10\nmut dirX = 1\nmut dirY = 0\nmut foodX = 15\nmut foodY = 15\nmut tail = 0\nmut tailLen = 3\nmut score = 0\nmut tickN = 0\n\nfn randCell() int { return floor(random() * 18.0) + 1 }\n\nexport fn game() {\n  headX = 10\n  headY = 10\n  dirX = 1\n  dirY = 0\n  foodX = randCell()\n  foodY = randCell()\n  tailLen = 3\n  score = 0\n  tickN = 0\n\n  tail = newArray(200)\n  let i = 0\n  while (i < 200) {\n    setItem(tail, i, 0)\n    i++\n  }\n\n  canvas(300, 300)\n  animate()\n}\n\nexport fn frame() {\n  tickN++\n\n  // Step every 6 frames\n  if (tickN % 6 == 0) {\n    // Steer toward touch point\n    let tx = touchX()\n    let ty = touchY()\n    if (tx > 0) {\n      let cx = headX * 15\n      let cy = headY * 15\n      let dx = tx - cx\n      let dy = ty - cy\n      if (abs(dx) > abs(dy)) {\n        if (dx > 0) { dirX = 1; dirY = 0 }\n        if (dx < 0) { dirX = 0 - 1; dirY = 0 }\n      }\n      if (abs(dy) >= abs(dx)) {\n        if (dy > 0) { dirX = 0; dirY = 1 }\n        if (dy < 0) { dirX = 0; dirY = 0 - 1 }\n      }\n    }\n\n    let newX = headX + dirX\n    let newY = headY + dirY\n\n    // Wrap at walls\n    if (newX < 1) { newX = 18 }\n    if (newX > 18) { newX = 1 }\n    if (newY < 1) { newY = 18 }\n    if (newY > 18) { newY = 1 }\n\n    // Eat food\n    if (newX == foodX) {\n      if (newY == foodY) {\n        score++\n        tailLen++\n        foodX = randCell()\n        foodY = randCell()\n        beep(880, 60)\n      }\n    }\n\n    // Shift tail history\n    let i = tailLen\n    while (i > 0) {\n      setItem(tail, i * 2, getItem(tail, (i - 1) * 2))\n      setItem(tail, i * 2 + 1, getItem(tail, (i - 1) * 2 + 1))\n      i--\n    }\n    setItem(tail, 0, headX)\n    setItem(tail, 1, headY)\n\n    headX = newX\n    headY = newY\n  }\n\n  // Draw every frame for smooth movement\n  clear()\n  color(10, 15, 30)\n  rect(0, 0, 300, 300)\n\n  color(40, 180, 100)\n  let i = 0\n  while (i < tailLen) {\n    let x = getItem(tail, i * 2)\n    let y = getItem(tail, i * 2 + 1)\n    rect(x * 15 + 1, y * 15 + 1, 13, 13)\n    i++\n  }\n\n  color(80, 240, 140)\n  rect(headX * 15 + 1, headY * 15 + 1, 13, 13)\n\n  color(240, 80, 80)\n  circle(foodX * 15 + 7, foodY * 15 + 7, 5)\n\n  color(200, 200, 230)\n  text(\"Score:\", 8, 295, 10)\n  text(intToStr(score), 50, 295, 10)\n}","words":"// Colors — confetti with custom palettes and shape mixes\n// Uses arrays via toJsArray() — works on every browser\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button for themed confetti!\")\n  button(\"Hot Pink\", 1)\n  button(\"Ocean\", 2)\n  button(\"Stars\", 3)\n  button(\"Fire\", 4)\n}\n\nfn fire(palette: int, useStars: bool) {\n  let opts = emptyObj()\n  opts.particleCount = 80\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 1.2\n  opts.colors = palette\n\n  // Mix in star shape\n  if (useStars) {\n    let shapes = toJsArray([\"star\", \"circle\"])\n    opts.shapes = shapes\n  }\n\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n  opts.origin = origin\n\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  fire(toJsArray([\"#ff3366\", \"#ff70a6\", \"#ff85b3\", \"#ffaad4\"]), false)\n}\n\nexport fn onclick_2() {\n  fire(toJsArray([\"#0ea5e9\", \"#22d3ee\", \"#06b6d4\", \"#67e8f9\"]), false)\n}\n\nexport fn onclick_3() {\n  fire(toJsArray([\"#fde047\", \"#facc15\", \"#fbbf24\", \"#f59e0b\"]), true)\n}\n\nexport fn onclick_4() {\n  fire(toJsArray([\"#dc2626\", \"#ea580c\", \"#f97316\", \"#fb923c\", \"#fde047\"]), false)\n}","npm":"// Any npm package — no built-in registry entry needed\n// `use name@version` loads the package's browser build from the jsDelivr CDN\n\nuse tinycolor2@1.6.0\n\nexport fn colors() {\n  div(\"tinycolor2, loaded straight from npm:\")\n\n  let base = tinycolor(\"#3498db\")\n  printStr(strConcat(\"Base: \", toStr(base.toHexString())))\n\n  // Chained member calls on the library's objects\n  let light = tinycolor(\"#3498db\").lighten(20)\n  printStr(strConcat(\"Lighter: \", toStr(light.toHexString())))\n\n  let opposite = tinycolor(\"#3498db\").complement()\n  printStr(strConcat(\"Complement: \", toStr(opposite.toHexString())))\n\n  printStr(strConcat(\"As RGB: \", toStr(base.toRgbString())))\n}","countdown":"// Callbacks — pass an Emit function to JS via fnRef(\"name\")\n// Recursive setTimeout schedules itself\n\nmut n = 5\n\nfn tick() {\n  printStr(strConcat(\"Tick: \", intToStr(n)))\n  n--\n  if (n > 0) {\n    setTimeout(fnRef(\"tick\"), 1000)\n  } else {\n    printStr(\"🎉 Done!\")\n  }\n}\n\nexport fn run() {\n  div(\"Counting down from 5...\")\n  setTimeout(fnRef(\"tick\"), 1000)\n}"};
-// ═══ EMIT COMPILER v0.3 — int/num + imports ═══
+// ═══ EMIT COMPILER v0.4 — int/num + imports ═══
 const TT={INTEGER:'INTEGER',FLOAT:'FLOAT',STRING:'STRING',BOOLEAN:'BOOLEAN',NULL:'NULL',IDENTIFIER:'IDENTIFIER',KEYWORD:'KEYWORD',TYPE:'TYPE',PLUS:'PLUS',MINUS:'MINUS',STAR:'STAR',SLASH:'SLASH',PERCENT:'PERCENT',AMP:'AMP',PIPE:'PIPE',CARET:'CARET',TILDE:'TILDE',SHL:'SHL',SHR:'SHR',AND:'AND',OR:'OR',NOT:'NOT',EQ:'EQ',NEQ:'NEQ',LT:'LT',GT:'GT',LTE:'LTE',GTE:'GTE',ASSIGN:'ASSIGN',QUESTION:'QUESTION',NULLCOALESCE:'NULLCOALESCE',ARROW:'ARROW',DOT:'DOT',LPAREN:'LPAREN',RPAREN:'RPAREN',LBRACE:'LBRACE',RBRACE:'RBRACE',LBRACKET:'LBRACKET',RBRACKET:'RBRACKET',SEMICOLON:'SEMICOLON',COLON:'COLON',COMMA:'COMMA',PLUSPLUS:'PLUSPLUS',MINUSMINUS:'MINUSMINUS',PLUSEQ:'PLUSEQ',MINUSEQ:'MINUSEQ',STAREQ:'STAREQ',SLASHEQ:'SLASHEQ',EOF:'EOF'};
 const KW=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
 const TY=new Set(['i32','i64','f32','f64','bool','void','int','num','str','js']);
@@ -2747,13 +2749,15 @@ var _CSS_TIMEOUT=10000;
 function _loadCss(url,label){
   return new Promise(function(ok){
     if(_cssLoaded.has(url)){ok(null);return}
+    if(_libEmbedded&&_libEmbedded.css&&typeof _libEmbedded.css[url]==='string'){_cssText(url,_libEmbedded.css[url]);_cssLoaded.add(url);ok(null);return}   // offline export
     Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')).forEach(function(t){if(t.getAttribute('href')===url)t.remove()});
     var l=document.createElement('link'),done=false,timer;
-    function finish(why){if(done)return;done=true;clearTimeout(timer);if(why){l.remove();ok('Could not load the stylesheet '+url+(label&&label!==url?' for "'+label+'"':'')+' \u2014 '+why+'. The program still runs, but the library may look unstyled.')}else{_cssLoaded.add(url);ok(null)}}
+    function finish(why){if(done)return;done=true;clearTimeout(timer);if(why){l.remove();var _msg='Could not load the stylesheet '+url+(label&&label!==url?' for "'+label+'"':'')+' \u2014 '+why+'. The program still runs, but the library may look unstyled.';_libCached(url).then(function(hit){if(!hit){ok(_msg);return}_cssText(url,hit.text);_cssLoaded.add(url);ok(_libCacheNote(label||url,url,hit))})}else{_cssLoaded.add(url);if(_libCache)try{_libCache.save(url,'css')}catch(e){}ok(null)}}
     l.rel='stylesheet';l.href=url;l.setAttribute('data-emit-lib-css','');
     l.onload=function(){finish(null)};
     l.onerror=function(){finish('the request failed (wrong URL, not a stylesheet, or no network)')};
-    timer=setTimeout(function(){finish('timed out after '+(_CSS_TIMEOUT/1000)+'s')},_CSS_TIMEOUT);
+    var _ct=_libTimeout(_CSS_TIMEOUT);
+    timer=setTimeout(function(){finish('timed out after '+(_ct/1000)+'s')},_ct);
     document.head.appendChild(l);
   });
 }
@@ -2763,6 +2767,83 @@ function _libWarn(msg){
   try{console.warn(msg)}catch(e){}
   var out=document.getElementById('tab-output');if(!out)return;
   var d=document.createElement('div');d.className='emit-warning';d.style.cssText='color:#f59e0b;padding:2px 0;white-space:pre-wrap;word-break:break-word;';d.textContent='\u26a0 '+msg;out.appendChild(d);
+  _libWarnNodes.push(d);
+}
+// ── Library text that is already in hand: embedded in an offline export, or (IDE only) taken from the offline cache ──
+// Offline export: {js:{url:text},css:{url:text},mod:{url:{s:source,d:[[start,end,depUrl]…],t:type}},alias:{requested url:final url}},
+// taken from the global __emitEmbedded that an offline export defines before the runtime starts. null in the IDE and in normal exports.
+var _libEmbedded=(typeof __emitEmbedded==='object'&&__emitEmbedded)||null;
+var _libCache=null;          // IDE only: {usable, get(url) → Promise of {text,t}|null, save(url,kind)}. Stays null in exported files.
+var _libResolved={};         // "<url> as <Name>" → {as:'module'|'classic',url}: what worked for a `use … as Name` line (exports record it)
+var _libWarnNodes=[];        // warning lines written so far (the IDE puts them back when an error replaces the output)
+var _LIB_OFFLINE_TIMEOUT=4000;   // navigator.onLine === false: give the network this long before the cached copy is used
+function _libKey(u){return u.url+' as '+u.alias}
+function _libTimeout(ms){try{if(_libCache&&_libCache.usable&&navigator.onLine===false)return Math.min(ms,_LIB_OFFLINE_TIMEOUT)}catch(e){}return ms}
+function _libShowErr(msg){
+  try{console.error(msg)}catch(e){}
+  var out=document.getElementById('tab-output');if(!out)return;
+  var d=document.createElement('div');d.className='emit-error';d.style.cssText='color:#ef4444;padding:6px 12px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word;';d.textContent='✗ '+msg;out.appendChild(d);
+}
+// The cached copy of a URL (IDE only), or null. Never rejects.
+function _libCached(url){
+  if(!_libCache)return Promise.resolve(null);
+  try{return Promise.resolve(_libCache.get(url)).then(function(hit){return hit&&typeof hit.text==='string'?hit:null},function(){return null})}catch(e){return Promise.resolve(null)}
+}
+function _libCacheNote(label,url,hit){
+  var when='';try{if(hit.t)when=' (saved '+new Date(hit.t).toISOString().slice(0,10)+')'}catch(e){}
+  return 'Offline: "'+label+'" could not be loaded from the network — using the copy in the offline cache'+when+(label===url?'':': '+url);
+}
+// Runs library source text as a classic script: a Blob URL in a real <script src>, so it is an ordinary global script
+// (non-strict, top-level declarations become globals, document.currentScript is set) exactly as from the CDN.
+// If Blob URLs are not available the same text runs as an inline <script> element. An error the library throws
+// while loading is written to the output; the load itself still counts (as with <script src>, whose load event
+// fires either way). Never rejects.
+function _loadLibText(url,label,text,what){
+  return new Promise(function(ok){
+    var blobUrl=null,errs=[],inline=false,done=false;
+    function onErr(ev){if(inline||(blobUrl&&ev&&ev.filename===blobUrl))errs.push(((ev&&ev.message)||'error')+(ev&&ev.lineno?' (line '+ev.lineno+')':''))}
+    function finish(){
+      if(done)return;done=true;
+      window.removeEventListener('error',onErr);
+      if(blobUrl)try{URL.revokeObjectURL(blobUrl)}catch(e){}
+      if(errs.length)_libShowErr(what+' library "'+label+'" ('+url+') threw while loading: '+errs[0]+'. The program may not work.');
+      _libsLoaded.add(url);ok();
+    }
+    function runInline(){
+      var s=document.createElement('script');s.setAttribute('data-emit-lib',url);s.textContent=text;
+      inline=true;try{document.head.appendChild(s)}catch(e){errs.push((e&&e.message)||String(e))}inline=false;
+      finish();
+    }
+    window.addEventListener('error',onErr);
+    try{blobUrl=URL.createObjectURL(new Blob([text],{type:'text/javascript'}))}catch(e){blobUrl=null}
+    if(!blobUrl){runInline();return}
+    var s=document.createElement('script');s.setAttribute('data-emit-lib',url);s.src=blobUrl;
+    s.onload=finish;
+    s.onerror=function(){s.remove();try{URL.revokeObjectURL(blobUrl)}catch(e){}blobUrl=null;runInline()};
+    document.head.appendChild(s);
+  });
+}
+function _cssText(url,text){
+  Array.prototype.slice.call(document.querySelectorAll('style[data-emit-lib-css]')).forEach(function(t){if(t.getAttribute('data-emit-lib-css')===url)t.remove()});
+  var st=document.createElement('style');st.setAttribute('data-emit-lib-css',url);st.textContent=text;document.head.appendChild(st);
+}
+// Offline export: the Blob URL of an embedded ES module. Its import specifiers were located at export time
+// (m.d: [start,end,url] of each string literal); they are replaced by the Blob URLs of the embedded
+// dependencies, dependencies first. A cycle cannot be built this way — the export refuses those.
+var _embedModUrls={};
+function _embedModUrl(url,stack){
+  var E=_libEmbedded;if(!E||!E.mod)return null;
+  if(E.alias&&E.alias[url])url=E.alias[url];
+  var m=E.mod[url];if(!m)return null;
+  if(_embedModUrls[url])return _embedModUrls[url];
+  stack=stack||[];
+  if(stack.indexOf(url)>=0)throw new Error('embedded modules import each other in a cycle: '+stack.concat(url).join(' → '));
+  stack.push(url);
+  var out='',p=0;
+  m.d.forEach(function(d){var dep=_embedModUrl(d[2],stack);out+=m.s.substring(p,d[0])+JSON.stringify(dep||d[2]);p=d[1]});
+  out+=m.s.substring(p);
+  stack.pop();
+  return _embedModUrls[url]=URL.createObjectURL(new Blob([out],{type:m.t||'text/javascript'}));
 }
 function _loadLib(url,label){
   // No label = a registry library auto-loaded because a builtin it provides is called without a `use` line:
@@ -2771,24 +2852,27 @@ function _loadLib(url,label){
   label=label||_libLabel(url);
   return new Promise(function(ok,fail){
     if(_libsLoaded.has(url)){ok();return}
+    if(_libEmbedded&&_libEmbedded.js&&typeof _libEmbedded.js[url]==='string'){var _txt=_libEmbedded.js[url];_libEmbedded.js[url]=true;_loadLibText(url,label,_txt,'Embedded').then(ok);return}   // offline export
     // A tag left over from a failed or abandoned attempt must not count as "loaded"
     Array.prototype.slice.call(document.scripts).forEach(function(t){if(t.getAttribute('src')===url)t.remove()});
     var s=document.createElement('script'),done=false,timer;
-    function finish(err){if(done)return;done=true;clearTimeout(timer);if(err){s.remove();fail(err)}else{_libsLoaded.add(url);ok()}}
+    function finish(err){if(done)return;done=true;clearTimeout(timer);if(err){s.remove();_libCached(url).then(function(hit){if(!hit){fail(err);return}_libWarn(_libCacheNote(label,url,hit));_loadLibText(url,label,hit.text,'Cached').then(ok)})}else{_libsLoaded.add(url);if(_libCache)try{_libCache.save(url,'js')}catch(e){}ok()}}
     s.src=url;
     s.onload=function(){finish(null)};
     s.onerror=function(){finish(_libErr('Could not load library "'+label+'" from '+url+' — the request failed (wrong name or URL, or no network). Fix the use line and Run again.'))};
-    timer=setTimeout(function(){finish(_libErr('Could not load library "'+label+'" from '+url+' — timed out after '+(_LIB_TIMEOUT/1000)+'s. Run again to retry.'))},_LIB_TIMEOUT);
+    var _lt=_libTimeout(_LIB_TIMEOUT);
+    timer=setTimeout(function(){finish(_libErr('Could not load library "'+label+'" from '+url+' — timed out after '+(_lt/1000)+'s. Run again to retry.'))},_lt);
     document.head.appendChild(s);
   });
 }
 function _importLib(url,label){
   if(_libModules.has(url))return Promise.resolve(_libModules.get(url));
-  var n=_libFails[url]||0,timer;
+  var n=_libFails[url]||0,timer,emb=null;
+  try{emb=_embedModUrl(url)}catch(e){return Promise.reject(_libErr('Could not load the embedded library "'+label+'" ('+url+') \u2014 '+e.message))}   // offline export
   // After a failure the browser may remember the failed module; a URL fragment forces a new fetch.
-  var load=import(n?url+'#emit-retry-'+n:url);
+  var load=import(emb||(n?url+'#emit-retry-'+n:url));
   var timeout=new Promise(function(_,fail){timer=setTimeout(function(){fail(new Error('timed out after '+(_LIB_TIMEOUT/1000)+'s'))},_LIB_TIMEOUT)});
-  return Promise.race([load,timeout]).then(function(ns){clearTimeout(timer);_libModules.set(url,ns);return ns},function(e){clearTimeout(timer);_libFails[url]=n+1;throw _libErr('Could not load library "'+label+'" as an ES module from '+url+' — '+((e&&e.message)||e))});
+  return Promise.race([load,timeout]).then(function(ns){clearTimeout(timer);_libModules.set(url,ns);return ns},function(e){clearTimeout(timer);_libFails[url]=n+1;var why=String((e&&e.message)||e),er=_libErr(emb?'Embedded library "'+label+'" ('+url+') threw while loading: '+why:'Could not load library "'+label+'" as an ES module from '+url+' — '+why);er.reason=why;throw er});
 }
 // Find every `use` line. Returns [{line,spec,alias,label,url,classicUrl,module,lib,css}]  (css:true = the line names a stylesheet)
 function _parseUses(source){
@@ -2804,12 +2888,21 @@ function _parseUses(source){
     if(after){var a=after.match(/^as\s+([A-Za-z_][A-Za-z0-9_]*)$/);if(!a)throw _libErr((idx+1)+':1: Bad use line — expected: use <library name or URL> [as Name]');alias=a[1]}
     var use={line:idx+1,spec:spec,alias:alias,label:spec,lib:null};
     var lib=LIBS.find(function(l){return l.name===spec||l.name.replace('.js','')===spec});
-    if(/^(https?:\/\/|\.{0,2}\/)/i.test(spec)){use.url=use.classicUrl=spec;use.module=!!alias}
+    // Explicit source for an npm package: use esm.sh:<spec> as Name / use jsdelivr:<spec> [as Name]
+    var from=spec.match(/^(esm\.sh|jsdelivr):(.*)$/i),npmRe=/^(@[a-z0-9~._-]+\/)?[a-z0-9~._-]+(@[^\s\/@]+)?(\/[^\s]*)?$/i;
+    if(from){
+      if(!npmRe.test(from[2]))throw _libErr((idx+1)+':1: "'+from[2]+'" is not an npm package name — expected: use '+from[1]+':<package>[@version] as Name');
+      if(from[1].toLowerCase()==='esm.sh'){
+        if(!alias)throw _libErr((idx+1)+':1: esm.sh serves ES modules, which need a name — write: use '+spec+' as Name');
+        use.url=use.classicUrl='https://esm.sh/'+from[2];use.module=true;use.esmOnly=true;
+      }else{use.classicUrl='https://cdn.jsdelivr.net/npm/'+from[2];use.module=!!alias;use.url=use.classicUrl+(alias?'/+esm':'')}
+    }
+    else if(/^(https?:\/\/|\.{0,2}\/)/i.test(spec)){use.url=use.classicUrl=spec;use.module=!!alias}
     else if(lib){use.lib=lib;use.url=use.classicUrl=lib.cdn;use.module=false}
-    else if(/^(@[a-z0-9~._-]+\/)?[a-z0-9~._-]+(@[^\s\/@]+)?(\/[^\s]*)?$/i.test(spec)){use.classicUrl='https://cdn.jsdelivr.net/npm/'+spec;use.module=!!alias;use.url=use.classicUrl+(alias?'/+esm':'')}
+    else if(npmRe.test(spec)){use.classicUrl='https://cdn.jsdelivr.net/npm/'+spec;use.module=!!alias;use.url=use.classicUrl+(alias?'/+esm':'');if(alias)use.altUrl='https://esm.sh/'+spec}   // altUrl: second source, tried once when the first fails
     else throw _libErr((idx+1)+':1: "'+spec+'" is not a library name, npm package or URL');
     // A stylesheet instead of a script: use "https://…/x.css" (quoted or not), or an npm path ending in .css
-    if(!use.lib&&/\.css([?#].*)?$/i.test(spec)){if(alias)throw _libErr((idx+1)+':1: Bad use line — a stylesheet has nothing to name, drop "as '+alias+'"');use.css=true;use.module=false;use.url=use.classicUrl}
+    if(!use.lib&&/\.css([?#].*)?$/i.test(spec)){if(alias)throw _libErr((idx+1)+':1: Bad use line — a stylesheet has nothing to name, drop "as '+alias+'"');use.css=true;use.module=false;use.url=use.classicUrl;delete use.altUrl}
     uses.push(use);
   });
   return uses;
@@ -2825,19 +2918,160 @@ async function _loadUse(u){
     if(window[u.alias]===undefined){if(u.lib&&u.lib.global&&window[u.lib.global]!==undefined)window[u.alias]=window[u.lib.global];else throw _libErr(noGlobal)}
     return;
   }
-  var ns=null,importErr=null;
+  var ns=null,importErr=null,from=u.url;
   try{ns=await _importLib(u.url,u.label)}catch(e){importErr=e}
+  // The module could not be fetched, or threw while it was imported (e.g. it needs Node built-ins):
+  // one retry from the second source (esm.sh for an npm name). The error names both attempts.
+  if(!ns&&u.altUrl){
+    try{ns=await _importLib(u.altUrl,u.label);from=u.altUrl}
+    catch(e){importErr=_libErr(importErr.message.replace(/[.\s]+$/,'')+'. Then tried '+u.altUrl+' \u2014 '+(e.reason||e.message))}
+  }
   if(ns){
     var keys=Object.keys(ns);
     // Module namespace -> window[Name]. A module whose only export is `default` is exposed as that default.
-    if(keys.length){window[u.alias]=(keys.length===1&&keys[0]==='default'&&ns.default!=null&&(typeof ns.default==='object'||typeof ns.default==='function'))?ns.default:ns;return}
-    if(window[u.alias]!==undefined)return; // classic script that set its global while running as a module
+    if(keys.length){window[u.alias]=(keys.length===1&&keys[0]==='default'&&ns.default!=null&&(typeof ns.default==='object'||typeof ns.default==='function'))?ns.default:ns;_libResolved[_libKey(u)]={as:'module',url:from};return}
+    if(window[u.alias]!==undefined){_libResolved[_libKey(u)]={as:'module',url:from};return} // classic script that set its global while running as a module
   }
+  // esm.sh serves ES modules only, and an offline export has nothing else embedded: no classic-script attempt
+  if(u.esmOnly||_libEmbedded)throw importErr||_libErr('Library "'+u.label+'" loaded from '+from+', but it has no ES module exports and did not define a global named '+u.alias+'.');
   // Not an ES module (or the import failed): try it as a classic script that defines window[Name]
   try{await _loadLib(u.classicUrl,u.label)}catch(e){throw importErr||e}
   if(window[u.alias]===undefined)throw _libErr(noGlobal+(importErr?' ('+importErr.message+')':''));
+  _libResolved[_libKey(u)]={as:'classic',url:u.classicUrl};
 }
 //#emit-runtime-end
+// ── Offline cache of library files (IDE only — not part of the exported runtime) ──
+// Policy: network first. Every Run loads a library from its URL as before; after a classic script or a
+// stylesheet has loaded, its text is stored by URL (Cache API when the page has one, else IndexedDB). Only
+// when the network load fails (or times out — after _LIB_OFFLINE_TIMEOUT when navigator.onLine is false)
+// does the loader use the stored copy, and it says so with one amber line. Version-pinned URLs (…@1.2.3…)
+// are stored once; other URLs are refreshed at most once a day. ES modules (`use x as Name`) are not cached.
+// On an origin without storage (opaque origins: content:// on Android, file:// in some browsers, sandboxed
+// frames) every call below resolves to "nothing" and no request is made: the IDE behaves as without a cache.
+var _libStore=(function(){
+  var NAME='emit-lib-cache-v1',ready=null;
+  function within(p,ms){return new Promise(function(ok,fail){var t=setTimeout(function(){fail(new Error('timeout'))},ms);Promise.resolve(p).then(function(v){clearTimeout(t);ok(v)},function(e){clearTimeout(t);fail(e)})})}
+  function idbOpen(f){return new Promise(function(ok,fail){
+    var rq=f.open(NAME,1);
+    rq.onupgradeneeded=function(){var db=rq.result;if(!db.objectStoreNames.contains('libs'))db.createObjectStore('libs',{keyPath:'url'});if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta',{keyPath:'url'})};
+    rq.onsuccess=function(){ok(rq.result)};
+    rq.onerror=function(ev){try{ev.preventDefault()}catch(e){}fail(rq.error||new Error('indexedDB'))};
+    rq.onblocked=function(){fail(new Error('blocked'))};
+  })}
+  // One transaction over both stores; fn(libs,meta) returns the request whose result is wanted (or nothing).
+  function tx(db,mode,fn){return new Promise(function(ok,fail){
+    var t=db.transaction(['libs','meta'],mode),rq=fn(t.objectStore('libs'),t.objectStore('meta')),res;
+    if(rq)rq.onsuccess=function(){res=rq.result};
+    t.oncomplete=function(){ok(res)};
+    t.onerror=function(ev){try{ev.preventDefault()}catch(e){}};
+    t.onabort=function(){fail(t.error||new Error('aborted'))};
+  })}
+  function open(){
+    if(!ready)ready=(async function(){
+      try{var cs=window.caches;if(cs&&cs.open){var c=await within(cs.open(NAME),2500);await within(c.keys(),2500);return{c:c}}}catch(e){}
+      try{var f=window.indexedDB;if(f&&f.open){var db=await within(idbOpen(f),2500);return{db:db}}}catch(e){}
+      return null;
+    })();
+    return ready;
+  }
+  function metaOf(r){return{t:+r.headers.get('x-emit-saved')||0,size:+r.headers.get('x-emit-size')||0,kind:r.headers.get('x-emit-kind')||'js'}}
+  return{
+    // 'Cache API' | 'IndexedDB' | null (no storage here)
+    kind:async function(){try{var s=await open();return s?(s.c?'Cache API':'IndexedDB'):null}catch(e){return null}},
+    get:async function(url){
+      try{
+        var s=await open();if(!s)return null;
+        if(s.c){var r=await s.c.match(url);if(!r)return null;var m=metaOf(r);m.text=await r.text();return m}
+        var v=await tx(s.db,'readonly',function(libs){return libs.get(url)});
+        return v?{text:v.text,t:v.t,size:v.size,kind:v.kind}:null;
+      }catch(e){return null}
+    },
+    meta:async function(url){
+      try{
+        var s=await open();if(!s)return null;
+        if(s.c){var r=await s.c.match(url);return r?metaOf(r):null}
+        return(await tx(s.db,'readonly',function(libs,meta){return meta.get(url)}))||null;
+      }catch(e){return null}
+    },
+    put:async function(url,text,kind){
+      try{
+        var s=await open();if(!s)return false;
+        var size=new Blob([text]).size,t=Date.now();
+        if(s.c)await s.c.put(url,new Response(text,{headers:{'content-type':(kind==='css'?'text/css':'text/javascript')+';charset=utf-8','x-emit-saved':String(t),'x-emit-size':String(size),'x-emit-kind':kind}}));
+        else await tx(s.db,'readwrite',function(libs,meta){libs.put({url:url,text:text,t:t,size:size,kind:kind});meta.put({url:url,t:t,size:size,kind:kind})});
+        return true;
+      }catch(e){return false}
+    },
+    // [{url,size,t,kind}]
+    list:async function(){
+      try{
+        var s=await open();if(!s)return[];
+        if(s.c){
+          var keys=await s.c.keys(),out=[];
+          for(var i=0;i<keys.length;i++){var r=await s.c.match(keys[i]);if(r){var m=metaOf(r);m.url=keys[i].url;out.push(m)}}
+          return out;
+        }
+        return(await tx(s.db,'readonly',function(libs,meta){return meta.getAll()}))||[];
+      }catch(e){return[]}
+    },
+    clear:async function(){
+      try{
+        var s=await open();if(!s)return;
+        if(s.c){ready=null;await window.caches.delete(NAME)}
+        else await tx(s.db,'readwrite',function(libs,meta){libs.clear();meta.clear()});
+      }catch(e){}
+    }
+  };
+})();
+// url(…) and @import "…" inside a stylesheet are relative to the stylesheet's URL; text that is put into a
+// <style> element has lost that base, so they are made absolute first.
+function _cssUrlRe(){return/url\(\s*(?:"([^"]*)"|'([^']*)'|([^'")\s][^)]*?))\s*\)/gi}
+function _cssAbs(u,base){u=(u||'').trim();if(!u||/^(data:|blob:|about:|#)/i.test(u))return null;try{return new URL(u,base).href}catch(e){return null}}
+function _cssAbsUrls(text,base){
+  text=text.replace(/@import\s+(?:"([^"]+)"|'([^']+)')/gi,function(m,a,b){var u=_cssAbs(a||b,base);return u?'@import url("'+u+'")':m});
+  return text.replace(_cssUrlRe(),function(m,a,b,c){var u=_cssAbs(a||b||c,base);return u?'url("'+u.replace(/"/g,'%22')+'")':m});
+}
+async function _libCacheSave(url,kind){
+  try{
+    if(!/^https?:$/.test(new URL(url,location.href).protocol))return;
+    if(!(await _libStore.kind()))return;                         // no storage here: no extra request either
+    var m=await _libStore.meta(url);
+    if(m&&(/@\d/.test(url)||Date.now()-m.t<864e5))return;        // pinned version: never changes; otherwise once a day
+    var r=await fetch(url,{cache:'force-cache'});                // normally answered by the browser's HTTP cache
+    if(!r.ok)return;
+    var text=await r.text();
+    if(kind==='css')text=_cssAbsUrls(text,r.url||url);
+    if(await _libStore.put(url,text,kind))_libCacheLine();
+  }catch(e){}
+}
+_libCache={usable:false,get:function(url){return _libStore.get(url)},save:function(url,kind){_libCacheSave(url,kind)}};
+_libStore.kind().then(function(k){_libCache.usable=!!k},function(){});   // usable: this page has storage (decides the short offline timeout)
+function _fmtSize(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(n<10240?1:0)+' KB':(n/1048576).toFixed(n<10485760?2:1)+' MB'}
+// "Offline cache: N libraries, X MB — Clear" in the 📚 panel; nothing when the cache is empty or there is no storage.
+function _libCacheLine(){
+  var el=document.getElementById('libCacheLine');if(!el)return Promise.resolve();
+  return _libStore.list().then(function(items){
+    el=document.getElementById('libCacheLine');if(!el)return;
+    if(!items.length){el.innerHTML='';return}
+    var js=items.filter(function(i){return i.kind!=='css'}).length,css=items.length-js,bytes=0;
+    items.forEach(function(i){bytes+=i.size||0});
+    el.innerHTML='<div class="lib-live" id="libCacheInfo" style="margin:0 0 14px">Offline cache: <b>'+js+'</b> librar'+(js===1?'y':'ies')+(css?' (+'+css+' stylesheet'+(css===1?'':'s')+')':'')+', '+_fmtSize(bytes)+' &mdash; <button class="lib-add" onclick="_libCacheClear()" title="Delete the stored copies. Libraries load from the network as usual; they are stored again the next time they load.">Clear</button><br><span style="color:var(--fg3)">Used only when a library cannot be loaded from the network.</span></div>';
+  },function(){});
+}
+function _libCacheClear(){return _libStore.clear().then(_libCacheLine,_libCacheLine)}
+// A loader warning (⚠ line) is written to the Output tab before compiling. A compile error or a library error then
+// replaces the whole output — put the warnings of this Run back underneath it.
+(function(){
+  var run=compileAndRun;
+  compileAndRun=async function(){
+    _libWarnNodes.length=0;
+    var out=document.getElementById('tab-output'),res;
+    try{res=await run.apply(this,arguments)}
+    finally{try{_libWarnNodes.forEach(function(n){if(out&&!out.contains(n))out.appendChild(n)})}catch(e){}}
+    return res;
+  };
+})();
+try{document.getElementById('wlBuiltins').textContent=Object.keys(BUILTINS).length}catch(e){}   // welcome screen: the real number of builtins
 function _showLibError(e,out){var em=(e&&e.message)||String(e);var lm=e&&e.isLibError&&em.match(/^(\d+):1: /);out.innerHTML=lm?'<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">✗ '+h(em)+'</span>':sp('err','✗ '+em);setStatus('err','Library error');if(window.innerWidth<768)showView('run')}
 async function compileAndRun(){const source=ed.value,target='wasm32',out=document.getElementById('tab-output');out.innerHTML='';_canvas=null;_ctx=null;_animRunning=false;_resetJsInterop();setStatus('idle','Compiling\u2026');
 // Preload any CDN libraries from 'use' statements
@@ -3741,9 +3975,11 @@ function toggleLibs(){document.getElementById('libsOverlay').classList.toggle('s
 function activeUses(){
   var src=ed.value;
   var used=new Set();
+  // Same parsing and name resolution as the loader (_parseUses): `use three`, `use three.js as T`, comments, quotes.
+  // Line by line, so one malformed use line does not hide the others.
   src.split('\n').forEach(function(line){
-    var m=line.match(/^\s*use\s+([a-zA-Z0-9_.-]+)/);
-    if(m)used.add(m[1]);
+    if(!/^\s*use\s/.test(line))return;
+    try{_parseUses(line).forEach(function(u){if(u.lib)used.add(u.lib.name)})}catch(e){}
   });
   return used;
 }
@@ -3756,6 +3992,7 @@ function renderLibs(){
   var html='<h1 style="font-family:var(--mono);color:var(--cyan);font-size:18px;margin-bottom:8px">&#x1F4DA; Libraries</h1>';
   html+='<p style="color:var(--fg3);font-size:12px;margin-bottom:16px">Each library loads from CDN at runtime via <code style="color:var(--blue)">use &lt;name&gt;</code>. Tap a line to insert it at the cursor; <b>Example</b> puts a small working program in the editor.</p>';
   html+=_libPanelLoaded();
+  html+='<div id="libCacheLine"></div>';   // filled by _libCacheLine() when the offline cache is not empty
   // Active section
   html+='<div class="snip-cat">Active in this file ('+active.length+')</div>';
   if(active.length===0){
@@ -3772,6 +4009,7 @@ function renderLibs(){
     byCat[c].forEach(function(l){html+=renderLibCard(l,false)});
   });
   el.innerHTML=html;
+  _libCacheLine();
 }
 function renderLibCard(l,isActive){
   var h='<div class="lib-card'+(isActive?' active':'')+'">';
@@ -3972,7 +4210,15 @@ function _exportLibs(source,imports){
   var libs=[],explicit=new Set();
   _parseUses(source).forEach(function(u){
     if(u.lib)explicit.add(u.lib.cdn);
-    libs.push({label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,css:!!u.css,lib:u.lib?{name:u.lib.name,global:u.lib.global||null,needs:u.lib.needs||null,css:u.lib.css||null}:null});
+    var e={label:u.label,alias:u.alias||null,url:u.url,classicUrl:u.classicUrl,module:!!u.module,css:!!u.css,lib:u.lib?{name:u.lib.name,global:u.lib.global||null,needs:u.lib.needs||null,css:u.lib.css||null}:null};
+    if(u.altUrl)e.altUrl=u.altUrl;
+    if(u.esmOnly)e.esmOnly=true;
+    // `use … as Name`: when the program has been run, record the URL that actually worked (jsDelivr or esm.sh
+    // module, or the classic script) as the one the export loads; the other module source stays as the retry.
+    var res=u.alias&&u.module?_libResolved[_libKey(u)]:null;
+    if(res&&res.as==='classic'){e.module=false;e.url=e.classicUrl=res.url;delete e.altUrl}
+    else if(res&&res.url!==u.url){e.url=res.url;e.altUrl=u.url}
+    libs.push(e);
   });
   var needed=new Set();
   imports.forEach(function(imp){
@@ -4001,9 +4247,12 @@ async function _emitExportBoot(P,RT,opts){
   function show(msg){var d=document.createElement('div');d.className='emit-error';d.style.cssText='color:#ef4444;padding:6px 12px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word;';d.textContent='✗ '+msg;out.appendChild(d)}
   if(!opts.trace&&!out._emitQuiet){
     // The runtime also writes the IDE's small diagnostic lines ("→ call(args)", "[click 1] start");
-    // an exported page keeps them in the DOM but hidden. {trace:true} (or ?trace in the .html) shows them.
+    // an exported page keeps them in the DOM but hidden. {trace:true} (or ?trace in the .html) shows them
+    // (and leaves the output exactly as the IDE writes it, "> " prefix included).
     var add=out.appendChild;out._emitQuiet=true;
-    out.appendChild=function(n){try{if(n&&n.nodeType===1&&n.tagName==='DIV'&&!n.firstElementChild&&parseFloat(n.style.fontSize)<12&&/^(→ |\[click \d+\])/.test(n.textContent)){n.style.display='none';n.setAttribute('data-emit-trace','')}}catch(e){}return add.call(this,n)};
+    out.appendChild=function(n){try{if(n&&n.nodeType===1&&n.tagName==='DIV'&&!n.firstElementChild&&parseFloat(n.style.fontSize)<12&&/^(→ |\[click \d+\])/.test(n.textContent)){n.style.display='none';n.setAttribute('data-emit-trace','')}
+      // print/printNum/printStr lines: the IDE's "> " prefix is IDE styling, an exported page shows the text only
+      else if(n&&n.nodeType===1&&n.tagName==='DIV'&&!n.firstElementChild&&n.style.fontSize==='13px'&&n.style.padding==='2px 12px'&&n.textContent.indexOf('> ')===0){n.textContent=n.textContent.slice(2);n.setAttribute('data-emit-print','')}}catch(e){}return add.call(this,n)};
   }
   try{
     RT.stop();
@@ -4030,18 +4279,19 @@ function _exportRootCss(){
   Array.prototype.slice.call(document.styleSheets).forEach(function(sh){try{Array.prototype.slice.call(sh.cssRules).forEach(function(rule){if(rule.selectorText===':root')css+=rule.cssText})}catch(e){}});
   return css||":root{--mono:'JetBrains Mono',monospace}";
 }
-function _exportHtml(P){
+function _exportHtml(P,E){   // E: embedded libraries (offline export) or undefined
   var rt=_exportRuntime().replace(/<\/(script)/gi,'<\\/$1').replace(/<!--/g,'<\\!--');
   return '<!DOCTYPE html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emit Program</title>\n'
-    +'<!-- Exported from the Emit IDE. One self-contained page: the compiled WebAssembly (base64), the list of\n     imports it needs, the Emit runtime (the same code the IDE runs programs on) and a few lines that start it.\n     Libraries named by `use` lines are fetched from their URLs when the page opens.\n     Add ?trace to the address to see the runtime\'s call-trace lines. -->\n'
+    +'<!-- Exported from the Emit IDE. One self-contained page: the compiled WebAssembly (base64), the list of\n     imports it needs, the Emit runtime (the same code the IDE runs programs on) and a few lines that start it.\n     '+(E?'Offline export: the libraries named by `use` lines are embedded in this file; it needs no network.':'Libraries named by `use` lines are fetched from their URLs when the page opens.')+'\n     Add ?trace to the address to see the runtime\'s call-trace lines. -->\n'
     +'<style>'+_exportRootCss()+'\nhtml,body{margin:0;min-height:100%;background:var(--bg,#08090d);color:var(--fg,#d4d8e3)}\n#tab-output{font-family:var(--mono);font-size:12px;line-height:1.8;padding:12px;white-space:pre-wrap;word-break:break-word}\n</style></head><body>\n'
     +'<div id="tab-output"></div>\n'
     +'<script>\n// The compiled program\nvar __emitProgram='+_exportJson(P)+';\n<\/script>\n'
+    +(E?_offlineEmbedHtml(E):'')
     +'<script>\n// Emit runtime — copied from the IDE\n'+rt+'<\/script>\n'
     +'<script>\n'+_emitExportBoot.toString().replace(/<\/(script)/gi,'<\\/$1')+'\n'
     +'var __emitApp=_emitExportBoot(__emitProgram,__emitRT,{output:document.getElementById("tab-output"),trace:/[?&]trace\\b/.test(location.search)});\n__emitApp.catch(function(e){console.error(e)});\n<\/script>\n</body></html>\n';
 }
-function _exportJs(P){
+function _exportJs(P,E){   // E: embedded libraries (offline export) or undefined
   var libLines=P.libs.map(function(l){return' *     '+(l.alias?(l.module?'import("'+l.url+'") as window.'+l.alias:'<script src="'+l.url+'">, global '+l.alias):'<script src="'+l.url+'">')}).join('\n')||' *     (none)';
   var impLines=P.imports.map(function(i){return i.module+'.'+i.name}).join(', ')||'(none)';
   return '/**\n * Emit program — exported from the Emit IDE as an ES module.\n *\n'
@@ -4052,11 +4302,12 @@ function _exportJs(P){
     +' *   options.run     false = do not start the program. By default init() does what Run does in the IDE: it\n *                   calls every exported function without parameters (not frame / onclick_N / ontimer_N /\n *                   onhttp_N — the runtime calls those). app.run() does it later; app.entries lists them.\n'
     +' *   options.trace   true = show the runtime\'s call-trace lines (hidden by default).\n'
     +' *   app.stop()      stops the animate() frame loop.\n *\n'
-    +' * Libraries: init() loads these itself before instantiating, exactly as the IDE resolved the `use` lines:\n'+libLines+'\n'
+    +(E?' * Libraries: EMBEDDED in this file (offline export, see `embedded` below) \u2014 init() runs them before\n * instantiating and needs no network. They were fetched from:\n':' * Libraries: init() loads these itself before instantiating, exactly as the IDE resolved the `use` lines:\n')+libLines+'\n'
     +' *   If one cannot be loaded, a readable error is written to the output and init() rejects.\n *\n'
     +' * WebAssembly imports satisfied by the runtime: '+impLines.replace(/\*\//g,'* /')+'\n *\n'
     +' * Limits: one Emit program per document (the runtime uses window._wi and the id "tab-output"; use an\n * iframe for a second one). Calling init() again restarts the program and clears its output. The runtime is\n * started with new Function(), so a Content-Security-Policy without \'unsafe-eval\' blocks it — use the .html\n * export there.\n */\n'
     +'export const program = '+_exportJson(P)+';\n\n'
+    +(E?'// Libraries embedded by the offline export: source text by URL (scripts, stylesheets, ES modules with the\n// positions of their import specifiers). The runtime runs them from Blob URLs.\nexport const embedded = '+_offlineEmbedJs(E)+';\n\n':'')
     +'// Emit runtime — copied from the IDE. Kept as text so it runs as an ordinary (non-strict) script, as in the IDE.\n'
     +'const runtimeSource = '+_exportJson(_exportRuntime())+';\n\n'
     +'const boot = '+_emitExportBoot.toString()+';\n\n'
@@ -4066,16 +4317,295 @@ function _exportJs(P){
     +'  let out = document.getElementById("tab-output");\n'
     +'  if (!out) {\n    out = document.createElement("div");\n    out.id = "tab-output";\n    (options.target || document.body).appendChild(out);\n  }\n'
     +'  if (!getComputedStyle(out).getPropertyValue("--mono").trim()) out.style.setProperty("--mono", "ui-monospace,Menlo,Consolas,monospace");\n'
+    +(E?'  globalThis.__emitEmbedded = embedded;   // the runtime picks the embedded libraries up from here when it starts\n':'')
     +'  if (!runtime) runtime = new Function(runtimeSource + "\\nreturn __emitRT;")();\n'
     +'  if (started) { runtime.stop(); out.innerHTML = ""; }\n'
     +'  started = true;\n'
     +'  return boot(program, runtime, { output: out, run: options.run, trace: options.trace });\n'
     +'}\n\nexport default init;\n';
 }
+// ═══ OFFLINE EXPORT ═══
+// "Export .html (offline)" / "Export .js (offline)": the same files as the normal exports, plus the text of
+// every library the program loads, fetched now (fetch() from this page, so the server must allow cross-origin
+// reads — jsDelivr and esm.sh do) and embedded:
+//   classic scripts  as JS string literals; the exported runtime runs each from a Blob URL in a real
+//                    <script src> (see _loadLibText), so they behave as global scripts exactly as from the CDN;
+//   stylesheets      as text for a <style> element, url(…) references inlined as data: URIs when they can be
+//                    fetched and are under 200 KB, otherwise left as absolute URLs (listed in the report);
+//   ES modules       with every module they import, statically or by import("literal"): the import specifiers
+//                    are located here (_esmImports) and replaced by Blob URLs when the page opens, dependencies
+//                    first. Modules that import each other in a cycle cannot be linked that way: the export
+//                    stops with a message instead of writing a file that cannot work.
+// If anything cannot be fetched the export fails with a message naming it; no file is written.
+var _OFFLINE_CSS_INLINE_MAX=200*1024;
+// JSON string literal that is also safe inside an inline script element: "<" is escaped where it could start a closing tag or an HTML comment.
+function _exportJsStr(s){return JSON.stringify(s).replace(/<(?=[\/!])|[\u2028\u2029]/g,function(c){return'\\u'+('000'+c.charCodeAt(0).toString(16)).slice(-4)})}
+// Finds the import specifiers of an ES module without running it: a tokenizer that skips comments, strings,
+// template literals and regular expressions, then looks at import/export declarations and import("…") calls.
+// Returns {imports:[{s,e,spec,dyn}], computed}: s/e = the string literal including its quotes; computed = the
+// number of import(expression) calls whose target is not a string literal (they cannot be followed).
+function _esmImports(src){
+  var n=src.length,i=0,tt=[],ts=[],te=[];   // token type (1 word, 2 string, 3 punctuator, 4 other value), start, end
+  var braces=[],parens=[],lastParenCtl=false;
+  if(src.charCodeAt(0)===35&&src[1]==='!'){var hb=src.indexOf('\n');i=hb<0?n:hb}
+  function push(t,s,e){tt.push(t);ts.push(s);te.push(e)}
+  function regexAllowed(){
+    var k=tt.length-1;if(k<0)return true;
+    var t=tt[k];
+    if(t===2||t===4)return false;
+    if(t===1)return/^(return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/.test(src.substring(ts[k],te[k]));
+    var c=src[ts[k]];
+    if(c===')')return lastParenCtl;
+    return c!==']';
+  }
+  // i is inside a template literal; stops after its closing ` (token: value) or after a ${ (token: '{')
+  function tpl(s0){
+    while(i<n){
+      var c=src[i];
+      if(c==='\\'){i+=2;continue}
+      if(c==='`'){i++;push(4,s0,i);return}
+      if(c==='$'&&src[i+1]==='{'){i+=2;braces.push(1);push(3,i-1,i);return}
+      i++;
+    }
+    throw new Error('unterminated template literal');
+  }
+  while(i<n){
+    var c=src[i],cc=src.charCodeAt(i),j;
+    if(cc<=32||cc===0xA0||cc===0xFEFF||cc===0x2028||cc===0x2029){i++;continue}
+    if(c==='/'){
+      var d=src[i+1];
+      if(d==='/'){j=src.indexOf('\n',i);i=j<0?n:j;continue}
+      if(d==='*'){j=src.indexOf('*/',i+2);if(j<0)throw new Error('unterminated comment');i=j+2;continue}
+      if(regexAllowed()){
+        var cls=false,closed=false;j=i+1;
+        while(j<n){var r=src[j];if(r==='\n'||r==='\r')break;if(r==='\\'){j+=2;continue}if(r==='[')cls=true;else if(r===']')cls=false;else if(r==='/'&&!cls){closed=true;break}j++}
+        if(closed){j++;while(j<n&&/[A-Za-z]/.test(src[j]))j++;push(4,i,j);i=j;continue}
+      }
+      push(3,i,i+1);i++;continue;
+    }
+    if(c==='"'||c==="'"){
+      j=i+1;
+      while(j<n){var q=src[j];if(q==='\\'){j+=2;continue}if(q===c)break;if(q==='\n')throw new Error('unterminated string literal');j++}
+      if(j>=n)throw new Error('unterminated string literal');
+      push(2,i,j+1);i=j+1;continue;
+    }
+    if(c==='`'){j=i;i++;tpl(j);continue}
+    if(c==='{'){braces.push(0);push(3,i,i+1);i++;continue}
+    if(c==='}'){var b=braces.pop();i++;if(b===1)tpl(i-1);else push(3,i-1,i);continue}
+    if(c==='('){var k0=tt.length-1;parens.push(k0>=0&&tt[k0]===1&&/^(if|while|for|with)$/.test(src.substring(ts[k0],te[k0])));push(3,i,i+1);i++;continue}
+    if(c===')'){lastParenCtl=!!parens.pop();push(3,i,i+1);i++;continue}
+    if((cc>=65&&cc<=90)||(cc>=97&&cc<=122)||cc===95||cc===36||cc===92||cc>127){
+      j=i+1;
+      for(;j<n;j++){var x=src.charCodeAt(j);if(!((x>=65&&x<=90)||(x>=97&&x<=122)||(x>=48&&x<=57)||x===95||x===36||x===92||(x>127&&x!==0x2028&&x!==0x2029)))break}
+      push(1,i,j);i=j;continue;
+    }
+    if((cc>=48&&cc<=57)||(c==='.'&&src.charCodeAt(i+1)>=48&&src.charCodeAt(i+1)<=57)){
+      j=i+1;
+      for(;j<n;j++){var y=src.charCodeAt(j);if(!((y>=48&&y<=57)||(y>=65&&y<=90)||(y>=97&&y<=122)||y===95||y===46))break}
+      push(4,i,j);i=j;continue;
+    }
+    if((c==='+'||c==='-')&&src[i+1]===c){
+      // ++ / -- after a value is a postfix operator: the value stays the last token (a following / is a division)
+      var kp=tt.length-1,post=kp>=0&&(tt[kp]===4||tt[kp]===2||(tt[kp]===1&&!regexAllowed())||(tt[kp]===3&&(src[ts[kp]]===']'||(src[ts[kp]]===')'&&!lastParenCtl))));
+      if(!post)push(3,i,i+2);
+      i+=2;continue;
+    }
+    push(3,i,i+1);i++;
+  }
+  var T=tt.length,out=[],computed=0;
+  function word(k){return k<T&&tt[k]===1?src.substring(ts[k],te[k]):null}
+  function punct(k){return k<T&&tt[k]===3?src[ts[k]]:null}
+  function add(k,dyn){
+    var raw=src.substring(ts[k]+1,te[k]-1);
+    if(raw.indexOf('\\')>=0)throw new Error('an import specifier with escapes: '+raw);
+    out.push({s:ts[k],e:te[k],spec:raw,dyn:!!dyn});
+  }
+  for(var k=0;k<T;k++){
+    if(tt[k]!==1||te[k]-ts[k]!==6)continue;
+    var w=src.substring(ts[k],te[k]);
+    if(w!=='import'&&w!=='export')continue;
+    if(k>0&&punct(k-1)==='.')continue;            // obj.import / obj.export
+    if(w==='import'){
+      if(punct(k+1)==='('){
+        if(tt[k+2]===2&&(punct(k+3)===')'||punct(k+3)===','))add(k+2,true);else computed++;
+        continue;
+      }
+      if(tt[k+1]===2){add(k+1);continue}          // import "x"
+      if(!(tt[k+1]===1||punct(k+1)==='{'||punct(k+1)==='*'))continue;   // import.meta, {import:1}, …
+      for(var q=k+1;q<T;q++){
+        var pc=punct(q);
+        if(pc===';'||pc==='='||pc==='('||pc===':')break;
+        if(word(q)==='from'&&tt[q+1]===2){add(q+1);break}
+      }
+    }else{
+      var p1=punct(k+1),f=-1;
+      if(p1==='*'){f=k+2;if(word(f)==='as')f+=2}
+      else if(p1==='{'){var depth=0;for(var z=k+1;z<T;z++){var pz=punct(z);if(pz==='{')depth++;else if(pz==='}'){depth--;if(!depth){f=z+1;break}}}}
+      if(f>0&&word(f)==='from'&&tt[f+1]===2)add(f+1);
+    }
+  }
+  return{imports:out,computed:computed};
+}
+function _offlineErr(msg){var e=new Error(msg);e.isOfflineError=true;return e}
+// fetch() for the offline export: resolves to the Response, or rejects with a message that names the library.
+async function _offlineFetch(url,label,what){
+  var name=(what||'library')+' "'+label+'"'+(label===url?'':' from '+url),ctl=null,timer=null,r;
+  try{ctl=new AbortController();timer=setTimeout(function(){ctl.abort()},60000)}catch(e){}
+  try{r=await fetch(url,ctl?{signal:ctl.signal}:{})}
+  catch(e){clearTimeout(timer);throw _offlineErr('could not fetch '+name+' \u2014 the request failed (no network, a wrong URL, or that server does not let other pages read its files)')}
+  if(r.type==='opaque'||r.type==='opaqueredirect'){clearTimeout(timer);throw _offlineErr('could not read '+name+' \u2014 the server does not let other pages read its files (no CORS)')}
+  if(!r.ok){clearTimeout(timer);throw _offlineErr('could not fetch '+name+' \u2014 the server answered '+r.status+(r.statusText?' '+r.statusText:''))}
+  r._emitDone=function(){clearTimeout(timer)};
+  return r;
+}
+async function _offlineText(url,label,what){
+  var r=await _offlineFetch(url,label,what),text;
+  try{text=await r.text()}catch(e){r._emitDone();throw _offlineErr('could not read '+(what||'library')+' "'+label+'" from '+url+' \u2014 the download was interrupted')}
+  r._emitDone();
+  return{text:text,url:(r.url||url).replace(/#.*$/,''),type:(r.headers.get('content-type')||'').split(';')[0].trim().toLowerCase()};
+}
+function _blobDataUri(blob){return new Promise(function(ok,fail){var fr=new FileReader();fr.onload=function(){ok(fr.result)};fr.onerror=function(){fail(fr.error||new Error('read failed'))};fr.readAsDataURL(blob)})}
+// A stylesheet for embedding: url(…) made absolute, then inlined as data: URIs where possible.
+async function _offlineCss(url,label,report){
+  var got=await _offlineText(url,label,'stylesheet'),text=_cssAbsUrls(got.text,got.url),uris={},refs=[],re=_cssUrlRe();
+  text.replace(re,function(m,a,b,c,off){
+    var u=a||b||c||'';
+    if(!/^https?:/i.test(u)||refs.some(function(x){return x.url===u}))return m;
+    refs.push({url:u,imported:/@import\s*$/i.test(text.substring(Math.max(0,off-16),off))});
+    return m;
+  });
+  for(var i=0;i<refs.length;i++){
+    var ref=refs[i];
+    if(ref.imported){report.left.push({url:ref.url,from:url,why:'an @import inside the stylesheet is not followed'});continue}
+    try{
+      var ctl=new AbortController(),timer=setTimeout(function(){ctl.abort()},20000),r=await fetch(ref.url,{signal:ctl.signal});
+      if(!r.ok||r.type==='opaque'){clearTimeout(timer);throw new Error('status '+r.status)}
+      var blob=await r.blob();clearTimeout(timer);
+      if(blob.size>_OFFLINE_CSS_INLINE_MAX){report.left.push({url:ref.url,from:url,why:'larger than 200 KB ('+_fmtSize(blob.size)+')'});continue}
+      uris[ref.url]=await _blobDataUri(blob);
+      report.inlined.push({url:ref.url,from:url,size:blob.size});
+    }catch(e){report.left.push({url:ref.url,from:url,why:'could not be fetched'})}
+  }
+  return text.replace(re,function(m,a,b,c){var u=a||b||c||'';return uris[u]?'url("'+uris[u]+'")':m});
+}
+// An ES module and everything it imports, into E.mod (keyed by the final URL after redirects) / E.alias.
+async function _offlineModules(rootUrl,label,E,report,tick){
+  var state={},seen={};
+  async function visit(reqUrl,chain){
+    reqUrl=reqUrl.replace(/#.*$/,'');
+    if(seen[reqUrl])reqUrl=seen[reqUrl];
+    if(state[reqUrl]===2||(E.mod[reqUrl]&&!state[reqUrl]))return reqUrl;
+    if(state[reqUrl]===1)throw _offlineErr('the ES modules of "'+label+'" import each other in a cycle ('+chain.slice(chain.indexOf(reqUrl)).concat(reqUrl).join(' \u2192 ')+'). Such a module graph cannot be embedded in one file');
+    tick(chain.length?'module '+reqUrl.replace(/^https?:\/\/[^\/]+/,''):null);
+    var got=await _offlineText(reqUrl,label,chain.length?'a module of library':'library'),url=got.url;
+    if(url!==reqUrl){seen[reqUrl]=url;E.alias[reqUrl]=url;if(state[url]===2||(E.mod[url]&&!state[url]))return url;if(state[url]===1)throw _offlineErr('the ES modules of "'+label+'" import each other in a cycle ('+chain.concat(url).join(' \u2192 ')+'). Such a module graph cannot be embedded in one file')}
+    state[url]=1;
+    var m={s:got.text,d:[]};
+    if(/json|css|wasm/.test(got.type)){m.t=got.type;E.mod[url]=m;state[url]=2;report.embedded.push({url:url,kind:'module',size:got.text.length});return url}
+    var found;
+    try{found=_esmImports(got.text)}catch(e){throw _offlineErr('could not analyse the ES module '+url+' of "'+label+'" ('+e.message+')')}
+    if(found.computed)report.notes.push(url+' calls import() with a computed target '+(found.computed>1?found.computed+' times':'')+' \u2014 whatever that loads is not embedded');
+    for(var i=0;i<found.imports.length;i++){
+      var im=found.imports[i],spec=im.spec;
+      if(/^(data|blob):/i.test(spec))continue;
+      if(!/^(\.{0,2}\/|[a-z][a-z0-9+.-]*:)/i.test(spec))throw _offlineErr('the ES module '+url+' of "'+label+'" imports the bare name "'+spec+'", which a browser cannot resolve');
+      var abs;try{abs=new URL(spec,url).href}catch(e){throw _offlineErr('the ES module '+url+' of "'+label+'" imports "'+spec+'", which is not a valid URL')}
+      m.d.push([im.s,im.e,await visit(abs,chain.concat(url))]);
+    }
+    E.mod[url]=m;state[url]=2;
+    report.embedded.push({url:url,kind:'module',size:got.text.length});
+    return url;
+  }
+  return visit(rootUrl,[]);
+}
+// Fetches everything P.libs loads — in the order and by the rules of _loadUse — into the structure the
+// exported runtime reads (_libEmbedded). progress(text) is called before each fetch.
+async function _offlineEmbed(libs,progress){
+  var E={js:{},css:{},mod:{},alias:{}},report={embedded:[],inlined:[],left:[],notes:[]},jobs=[];
+  libs.forEach(function(l){
+    if(l.css){jobs.push({kind:'css',url:l.url,label:l.label});return}
+    if(l.lib&&l.lib.css)l.lib.css.forEach(function(u){jobs.push({kind:'css',url:u,label:l.label})});
+    if(l.lib&&l.lib.needs)l.lib.needs.forEach(function(u){jobs.push({kind:'js',url:u,label:l.label})});
+    jobs.push({kind:l.alias&&l.module?'mod':'js',url:l.url,label:l.label});
+  });
+  for(var i=0;i<jobs.length;i++){
+    var j=jobs[i],step='fetching '+j.label+(j.label===j.url?'':' ('+(i+1)+'/'+jobs.length+')');
+    progress(step);
+    if(j.kind==='css'){if(E.css[j.url]==null){E.css[j.url]=await _offlineCss(j.url,j.label,report);report.embedded.push({url:j.url,kind:'stylesheet',size:E.css[j.url].length})}}
+    else if(j.kind==='js'){if(E.js[j.url]==null){E.js[j.url]=(await _offlineText(j.url,j.label)).text;report.embedded.push({url:j.url,kind:'script',size:E.js[j.url].length})}}
+    else await _offlineModules(j.url,j.label,E,report,function(extra){if(extra)progress(step+' \u2014 '+extra)});
+  }
+  return{embedded:E,report:report};
+}
+// The embedded libraries as JavaScript source: an object literal for the .js module, or statements that fill
+// `name` (one <script> element per library, so no single script is larger than it has to be) for the .html.
+function _offlineEmbedJs(E){
+  var o={};
+  ['js','css','mod','alias'].forEach(function(k){
+    o[k]='{'+Object.keys(E[k]).map(function(u){
+      var v=E[k][u];
+      return _exportJsStr(u)+':'+(k==='mod'?'{s:'+_exportJsStr(v.s)+',d:'+JSON.stringify(v.d)+(v.t?',t:'+_exportJsStr(v.t):'')+'}':_exportJsStr(v));
+    }).join(',\n')+'}';
+  });
+  return'{js:'+o.js+',\ncss:'+o.css+',\nmod:'+o.mod+',\nalias:'+o.alias+'}';
+}
+function _offlineEmbedHtml(E){
+  var html='<script>\n// Libraries embedded by the offline export (source text; the runtime runs them when the program starts)\nvar __emitEmbedded={js:{},css:{},mod:{},alias:{}};\n<\/script>\n';
+  ['js','css','mod','alias'].forEach(function(k){
+    Object.keys(E[k]).forEach(function(u){
+      var v=E[k][u];
+      html+='<script>__emitEmbedded.'+k+'['+_exportJsStr(u)+']='+(k==='mod'?'{s:'+_exportJsStr(v.s)+',d:'+JSON.stringify(v.d)+(v.t?',t:'+_exportJsStr(v.t):'')+'}':_exportJsStr(v))+';<\/script>\n';
+    });
+  });
+  return html;
+}
+var _lastExportReport=null;
+function _offlineReportShow(rep){
+  var out=document.getElementById('tab-output');if(!out)return;
+  Array.prototype.slice.call(out.querySelectorAll('.emit-export-report')).forEach(function(n){n.remove()});
+  var d=document.createElement('div');d.className='emit-export-report';d.style.cssText='font-family:var(--mono);font-size:12px;line-height:1.6;padding:8px 12px;margin:8px 0;border:1px solid var(--border);border-radius:6px;color:var(--fg2);white-space:pre-wrap;word-break:break-word;';
+  var t='\u2713 '+rep.file+' \u2014 '+_fmtSize(rep.size)+', built in '+(rep.ms/1000).toFixed(1)+' s. It needs no network.\n';
+  t+=rep.embedded.length?'Embedded: '+rep.embedded.map(function(e){return e.url.replace(/^https?:\/\/(cdn\.jsdelivr\.net\/npm\/)?/,'')+' ('+e.kind+', '+_fmtSize(e.size)+')'}).join(', ')+'\n':'The program uses no libraries.\n';
+  if(rep.inlined.length)t+='Inlined into the stylesheets: '+rep.inlined.length+' file'+(rep.inlined.length===1?'':'s')+' (images, fonts)\n';
+  if(rep.left.length)t+='\u26a0 Still loaded from the network (not embedded):\n'+rep.left.map(function(l){return'  '+l.url+' \u2014 '+l.why}).join('\n')+'\n';
+  if(rep.notes.length)t+='\u26a0 '+rep.notes.join('\n\u26a0 ')+'\n';
+  d.textContent=t;out.appendChild(d);
+  if(window.innerWidth<768)showView('run');
+}
+async function _doExportOffline(fmt,source){
+  var t0=performance.now(),js=fmt==='jsoff',file=js?'program-offline.js':'program-offline.html';
+  function status(text){setStatus('idle','Offline export: '+text+'\u2026')}
+  _lastExportReport=null;
+  try{
+    status('compiling');
+    var r=compile(source,'wasm32');
+    // `use … as Name`: which source works (jsDelivr module, esm.sh module, classic script) is only known by
+    // loading it, as Run does. Already known after a Run; otherwise load it now.
+    var uses=_parseUses(source);
+    for(var i=0;i<uses.length;i++){var u=uses[i];if(u.alias&&u.module&&!_libResolved[_libKey(u)]){status('loading '+u.label);await _loadUse(u)}}
+    var P=_exportProgram(source,r);
+    var built=await _offlineEmbed(P.libs,status);
+    status('writing '+file);
+    var text=js?_exportJs(P,built.embedded):_exportHtml(P,built.embedded);
+    var size=new Blob([text]).size,rep=built.report;
+    rep.file=file;rep.size=size;rep.ms=Math.round(performance.now()-t0);
+    _download(file,text,js?'text/javascript':'text/html');
+    _lastExportReport=rep;
+    setStatus('ok','Exported '+file,_fmtSize(size));
+    _offlineReportShow(rep);
+    return rep;
+  }catch(e){
+    setStatus('err','Offline export failed');
+    var msg=(e&&e.message)||String(e);
+    window.alert('Offline export failed: '+msg+'.\n\nNo file was saved. '+(e&&(e.isOfflineError||e.isLibError)?'An offline export has to download every library now. If that is not possible, use "Export '+(js?'.js':'.html')+'" instead: that file loads its libraries from the network when it is opened.':''));
+    return null;
+  }
+}
 function doExport(fmt){
   if(!fmt)return;
   if(fmt==='import'){importFile();return}
   var source=ed.value;
+  if(fmt==='htmloff'||fmt==='jsoff')return _doExportOffline(fmt,source);   // async: resolves to the export report, or null when it failed
   if(fmt==='emit'){
     _download('program.emit',source,'text/plain');
     return;

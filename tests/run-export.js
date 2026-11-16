@@ -17,6 +17,13 @@
 //
 // Offline like the other runners: CDN requests are answered from tests/node_modules, the rest is aborted.
 //
+// Offline exports ("Export .html (offline)" / "Export .js (offline)"): for the programs marked `offline` the
+// two files are produced as well, then opened in a fresh page in which EVERY network request is aborted and
+// counted (the .js module's own two files excepted). The page must make no request at all — libraries, their
+// dependencies, stylesheets, the images a stylesheet refers to and fonts included — and show what the IDE shows.
+// Also covered: ES-module graphs (nested, shared, dynamic import; a cycle must be refused), a library that
+// throws while loading, a library that cannot be fetched (no file, readable message), no Blob URLs.
+//
 //   node tests/run-export.js [path/to/emit-ide.html] [name ...]
 //
 // Ends with a PASS/FAIL table per program for the .html and .js exports; exit code 1 on any failure.
@@ -36,14 +43,61 @@ const CDN_MAP = [
   [/tinycolor2/, 'tinycolor2/cjs/tinycolor.js'],
   [/nprogress@0\.2\.0\/nprogress\.js$/, 'nprogress/nprogress.js'],
   [/nprogress@0\.2\.0\/nprogress\.css$/, 'nprogress/nprogress.css'],
+  [/leaflet@1\.9\.4\/dist\/leaflet\.js$/, 'leaflet/dist/leaflet.js'],
+  [/leaflet@1\.9\.4\/dist\/leaflet\.css$/, 'leaflet/dist/leaflet.css'],
+  [/leaflet@1\.9\.4\/dist\/images\/layers\.png$/, 'leaflet/dist/images/layers.png'],
+  [/leaflet@1\.9\.4\/dist\/images\/layers-2x\.png$/, 'leaflet/dist/images/layers-2x.png'],
+  [/leaflet@1\.9\.4\/dist\/images\/marker-icon\.png$/, 'leaflet/dist/images/marker-icon.png'],
+  [/@popperjs\/core@2\.11\.8\/dist\/umd\/popper\.min\.js$/, '@popperjs/core/dist/umd/popper.min.js'],
+  [/tippy\.js@6\.3\.7\/dist\/tippy-bundle\.umd\.min\.js$/, 'tippy.js/dist/tippy-bundle.umd.min.js'],
 ];
-const typeOfUrl = url => (/\.css$/.test(url) ? 'text/css' : 'application/javascript');
+const typeOfUrl = url => (/\.css$/.test(url) ? 'text/css' : /\.png$/.test(url) ? 'image/png' : 'application/javascript');
 // Exact URL -> script body, for the extra programs.
 const ROUTES = {
   'https://libs.test/hello.js': 'window.helloLib={greet:function(n){return "hello "+n}};',
   'https://libs.test/mathmod.js': 'export function add(a,b){return a+b}\nexport const name="mathmod";',
   'https://libs.test/style.css': '.emit-css-probe{position:fixed;height:7px}',
+  // An ES-module graph: main -> util -> deep/leaf, main -> deep/leaf (shared), main -> lazy (dynamic import).
+  // The text also holds things that only look like imports (in a string, a comment, a regular expression, a
+  // template literal): a scanner that takes one of them for an import would ask for a URL that does not exist.
+  'https://libs.test/esm/main.js': [
+    '// import "./in-a-comment.js"',
+    '/* export * from "./in-a-block-comment.js" */',
+    'import {twice} from "./util.js";import leaf from"/esm/deep/leaf.js";',
+    'export {name} from \'./util.js\';',
+    'const notAnImport = \'import x from "./in-a-string.js"\', re = /import "\\/in-a-regex.js"/, half = 4 / 2, t = `import "./in-a-template.js" ${"}" + `nested ${1}`} from "./still-template.js"`;',
+    'const obj = {import: 1, from: "./a-property.js"}; if (half) /from "x"/.test(notAnImport);',
+    'export function calc(n) { return twice(n) + leaf + (re.test("") ? 100 : 0) + obj.import - 1 + t.length * 0 }',
+    'export const lazy = () => import("./lazy.js").then(m => m.v);',
+  ].join('\n'),
+  'https://libs.test/esm/util.js': 'import leaf from "./deep/leaf.js";\nexport const name = "util" + leaf;\nexport function twice(n) { return n * 2 }',
+  'https://libs.test/esm/deep/leaf.js': 'export default 1;',
+  'https://libs.test/esm/lazy.js': 'export const v = "lazy-ok";',
+  // Two modules that import each other: fine in a browser, impossible to link with Blob URLs.
+  'https://libs.test/cyc/a.js': 'import {b} from "./b.js";\nexport const a = 1;\nexport function sum() { return a + b }',
+  'https://libs.test/cyc/b.js': 'import {a} from "./a.js";\nexport const b = 2;\nexport function getA() { return a }',
+  // Defines its global, then throws while still loading.
+  'https://libs.test/throws.js': 'window.halfLib={ok:function(){return "half"}};\nthrow new Error("boom at load");',
+  // A global script in every sense: top-level var/function/let, non-strict code, document.currentScript,
+  // and text that must survive being embedded in a <script> element.
+  'https://libs.test/global.js': [
+    'var gVar = "v"; function gFn() { return "f" } let gLet = "l";',
+    'var gThis = (function () { return this === window ? "sloppy" : "strict" })();',
+    'var gScript = document.currentScript ? document.currentScript.tagName : "none";',
+    'var gTricky = "</script><!-- <script> \\\\ \u2028 x".length;',
+    'window.globalLib = { info: function () { return [gVar, gFn(), gLet, gThis, gScript, typeof window.gVar, typeof window.gFn, typeof window.gLet, gTricky].join(",") } };',
+  ].join('\r\n'),
+  // A stylesheet whose references cannot all be embedded: an @import, a file that is not there, one over 200 KB.
+  'https://libs.test/skin/assets.css': '@import "more.css";\n.emit-css-probe{position:fixed;height:7px;background:url(img/dot.png)}\n.never-used-a{background:url("../gone.png")}\n.never-used-b{background:url(\'big.bin\')}\n.frag{filter:url(#f)}',
+  'https://libs.test/skin/more.css': '.emit-css-probe{width:11px}',
+  'https://libs.test/skin/img/dot.png': 'not really a png',
+  'https://libs.test/skin/big.bin': 'x'.repeat(250 * 1024),
+  'https://libs.test/nocors.js': 'window.noCorsLib={hi:function(){return "no-cors-ok"}};',
 };
+// A <script src> loads these, fetch() from the IDE page fails — what a server without CORS headers (or a dropped
+// connection) looks like to the page. (Playwright adds the CORS headers to fulfilled responses itself, so a real
+// CORS refusal cannot be staged here; for the page both are the same rejected fetch().)
+const NO_FETCH = new Set(['https://libs.test/nocors.js']);
 // Runs in an exported page: what only nprogress.css gives the real NProgress bar / only style.css gives a probe.
 const NPROGRESS_STYLED = () => {
   const p = [], bar = document.querySelector('#nprogress .bar'), cs = bar && getComputedStyle(bar);
@@ -61,19 +115,47 @@ const PROBE_STYLED = () => {
   d.remove();
   return h === '7px' ? [] : ['the stylesheet from the use line is not applied (probe height ' + h + ')'];
 };
+// Offline export: the stylesheet is a <style> element, not a <link>.
+const NPROGRESS_EMBEDDED = () => {
+  const p = [], bar = document.querySelector('#nprogress .bar'), cs = bar && getComputedStyle(bar);
+  if (!bar) p.push('NProgress did not create its bar');
+  else if (cs.position !== 'fixed' || cs.height !== '2px') p.push('the NProgress bar is unstyled (embedded nprogress.css not applied): position ' + cs.position + ', height ' + cs.height);
+  if (document.querySelectorAll('link[rel="stylesheet"]').length) p.push('an offline export must not contain <link rel=stylesheet>');
+  if (document.querySelectorAll('style[data-emit-lib-css$="nprogress.css"]').length !== 1) p.push('expected exactly one embedded <style> for nprogress.css');
+  return p;
+};
+const LEAFLET_EMBEDDED = () => {
+  const p = [], d = document.createElement('div');
+  d.className = 'leaflet-container';
+  document.body.appendChild(d);
+  if (getComputedStyle(d).overflow !== 'hidden') p.push('leaflet.css is not applied (.leaflet-container overflow ' + getComputedStyle(d).overflow + ')');
+  d.className = 'leaflet-default-icon-path';
+  const bg = getComputedStyle(d).backgroundImage;
+  if (!/^url\("data:image\/png;base64,/.test(bg)) p.push('marker-icon.png should be inlined as a data: URI, computed background-image is ' + bg.slice(0, 80));
+  d.remove();
+  const st = document.querySelector('style[data-emit-lib-css$="leaflet.css"]');
+  if (!st) p.push('no embedded <style> for leaflet.css');
+  else {
+    const left = st.textContent.match(/url\(\s*(?!["']?(?:data:|#))[^)]*\)/g);
+    if (left) p.push('url() references left in the embedded stylesheet: ' + left.join(' '));
+    if ((st.textContent.match(/url\("data:image\/png;base64,/g) || []).length !== 3) p.push('expected 3 inlined images in leaflet.css');
+  }
+  return p;
+};
 const JS_ORIGIN = 'http://export.test';
 
 const prog = (useLine, body) => useLine + '\n\nexport fn main() {\n' + body + '\n}\n';
 // Programs that are not bundled examples. `drive` runs in every page after the first snapshot.
 const EXTRA = {
   '+use-url': {
+    offline: true,
     src: prog('use "https://libs.test/hello.js"', '  printStr(toStr(helloLib.greet("emit")))'), expect: 'hello emit',
     // .html?trace shows the runtime's call-trace lines that are hidden by default
     htmlCheck: async (page, url) => {
       await page.goto(url + '?trace');
       await page.waitForTimeout(800);
       const text = await page.evaluate(() => document.getElementById('tab-output').innerText);
-      return /^→ \.greet\(/m.test(text) && text.includes('hello emit') ? [] : ['?trace should show the call trace, shows: ' + JSON.stringify(text.slice(0, 200))];
+      return /^→ \.greet\(/m.test(text) && /^> hello emit$/m.test(text) ? [] : ['?trace should show the call trace, shows: ' + JSON.stringify(text.slice(0, 200))];
     },
     // The module API: init() again restarts with a cleared output; {run:false} does not call anything until run()
     jsCheck: page => page.evaluate(async () => {
@@ -88,10 +170,72 @@ const EXTRA = {
       return p;
     }),
   },
+  // ── offline exports ──
+  '+off-global': {
+    offline: true, offNoBlob: true,
+    src: prog('use "https://libs.test/global.js"', '  printStr(toStr(globalLib.info()))'), expect: 'v,f,l,sloppy,SCRIPT,string,function,undefined,28',
+  },
+  '+off-needs': {
+    offline: true,
+    src: prog('use tippy', '  let el = document.createElement("button")\n  el.textContent = "hover me"\n  document.body.appendChild(el)\n  let t = tippy(el, {content: "hello tip", duration: 0})\n  t.show()\n  if (t.state.isVisible) { printStr("visible") }\n  printStr(toStr(t.popper.textContent))\n  printStr(typeOf(Popper.createPopper))'),
+    expect: 'hello tip', expect2: 'function',
+    reportCheck: rep => (rep.embedded.length === 2 && /popper/.test(rep.embedded[0].url) && /tippy/.test(rep.embedded[1].url) ? [] : ['report should list popper, then tippy: ' + JSON.stringify(rep.embedded)]),
+  },
+  '+off-leaflet': {
+    offline: true,
+    src: prog('use leaflet', '  let el = document.createElement("div")\n  let st = el.style\n  st.width = "300px"\n  st.height = "200px"\n  document.body.appendChild(el)\n  let map = L.map(el)\n  map.setView([51.5, -0.09], 13)\n  L.circle([51.5, -0.09], {radius: 200}).addTo(map)\n  printStr(strConcat("zoom ", toStr(map.getZoom())))'),
+    expect: 'zoom 13',
+    offCheck: page => page.evaluate(LEAFLET_EMBEDDED),
+    reportCheck: rep => (rep.inlined.length === 3 && rep.left.length === 0 ? [] : ['report should list 3 inlined files and none left: ' + JSON.stringify([rep.inlined, rep.left])]),
+  },
+  '+off-css-left': {
+    offline: true,
+    src: 'use "https://libs.test/skin/assets.css"\nuse "https://libs.test/hello.js"\n\nexport fn main() {\n  printStr(toStr(helloLib.greet("skin")))\n}\n', expect: 'hello skin',
+    // The only request an offline page may make here: the @import that could not be embedded (and is reported).
+    offMayRequest: ['https://libs.test/skin/more.css'],
+    ideMayBlock: ['https://libs.test/gone.png'],   // the export tries to fetch it, as it must
+    reportCheck: rep => {
+      const left = rep.left.map(l => l.url + ' | ' + l.why).sort().join('\n');
+      const want = ['https://libs.test/gone.png | could not be fetched', 'https://libs.test/skin/big.bin | larger than 200 KB (250 KB)', 'https://libs.test/skin/more.css | an @import inside the stylesheet is not followed'].join('\n');
+      return (left === want ? [] : ['report.left should be\n' + want + '\ngot\n' + left]).concat(rep.inlined.length === 1 && rep.inlined[0].url === 'https://libs.test/skin/img/dot.png' ? [] : ['report.inlined should be dot.png: ' + JSON.stringify(rep.inlined)]);
+    },
+    offCheck: page => page.evaluate(() => {
+      const p = [], css = (document.querySelector('style[data-emit-lib-css$="assets.css"]') || {}).textContent || '';
+      for (const n of ['@import url("https://libs.test/skin/more.css")', 'url("data:image/png;base64,', 'url("https://libs.test/gone.png")', 'url("https://libs.test/skin/big.bin")', 'url(#f)']) if (!css.includes(n)) p.push('embedded stylesheet should contain ' + n + ': ' + css.slice(0, 300));
+      const d = document.createElement('div'); d.className = 'emit-css-probe'; document.body.appendChild(d);
+      if (getComputedStyle(d).height !== '7px') p.push('embedded stylesheet not applied');
+      d.remove();
+      return p;
+    }),
+  },
+  '+off-esm-nested': {
+    offline: true,
+    src: 'use "https://libs.test/esm/main.js" as G\n\nfn onLazy(v: str) {\n  printStr(v)\n}\n\nexport fn main() {\n  printStr(strConcat("calc ", toStr(G.calc(20))))\n  printStr(toStr(G.name))\n  G.lazy().then(fnRef(onLazy))\n}\n',
+    expect: 'calc 41', expect2: 'lazy-ok',
+    reportCheck: rep => (rep.embedded.filter(e => e.kind === 'module').length === 4 ? [] : ['report should list the 4 modules of the graph once each: ' + JSON.stringify(rep.embedded)]),
+  },
+  '+off-esm-npm': { offline: true, src: prog('use tinycolor2@1.6.0 as TC', '  printStr(toStr(TC.mix("#000000", "#ffffff", 50).toHexString()))'), expect: '#808080' },
+  // A cycle works online (and in the IDE) but cannot be embedded: the offline export must say so and write nothing.
+  '+off-esm-cycle': {
+    src: prog('use "https://libs.test/cyc/a.js" as Cyc', '  printStr(strConcat("sum ", toStr(Cyc.sum())))'), expect: 'sum 3',
+    offlineFails: ['Offline export failed', 'cycle', 'https://libs.test/cyc/a.js', 'https://libs.test/cyc/b.js', 'No file was saved', 'Export .html'],
+  },
+  // The library runs in the IDE (a <script src> needs no CORS) but its text cannot be read: no offline file.
+  '+off-unfetchable': {
+    src: prog('use "https://libs.test/nocors.js"', '  printStr(toStr(noCorsLib.hi()))'), expect: 'no-cors-ok',
+    offlineFails: ['Offline export failed', 'could not fetch', 'https://libs.test/nocors.js', 'No file was saved', 'Export .html'],
+  },
+  // An embedded library that throws while loading: the page says so, readably, and goes on.
+  '+off-throws': {
+    offline: true, knownPageError: /boom at load/,
+    src: prog('use "https://libs.test/throws.js"', '  printStr(toStr(halfLib.ok()))'), expect: 'half',
+    offShows: ['Embedded library', 'https://libs.test/throws.js', 'threw while loading', 'boom at load'],
+  },
   '+use-esm-as': { src: prog('use "https://libs.test/mathmod.js" as M', '  let s = M.add(2, 40)\n  printStr(toStr(s))'), expect: '42' },
   '+use-npm-esm': { src: prog('use tinycolor2@1.6.0 as TC', '  printStr(toStr(TC.mix("#000000", "#ffffff", 50).toHexString()))'), expect: '#808080' },
   // A registry library that ships a stylesheet: the export must carry the entry's `css` and load it.
   '+use-css': {
+    offline: true, offCheck: page => page.evaluate(NPROGRESS_EMBEDDED),
     src: prog('use nprogress', '  NProgress.start()\n  NProgress.set(0.4)\n  printStr("bar shown")'), expect: 'bar shown',
     programCheck: P => (P.libs.length === 1 && P.libs[0].lib && Array.isArray(P.libs[0].lib.css) && /nprogress\.css$/.test(P.libs[0].lib.css[0]) ? [] : ['exported program data does not carry the library css: ' + JSON.stringify(P.libs)]),
     htmlCheck: page => page.evaluate(NPROGRESS_STYLED),
@@ -154,7 +298,10 @@ const SNAPSHOT = ([rootSel, ideChrome]) => {
       if (ideChrome && (c.classList.contains('output') || c.classList.contains('run-result'))) continue;
       if (c.querySelector('canvas,button,input')) { walk(c); continue; }
       for (let t of c.innerText.split('\n')) {
-        t = t.trim().replace(/^> ?/, '');
+        // Printed lines carry a "> " prefix in the IDE only; an export must show the bare text. So the prefix is
+        // stripped on the IDE side alone: an export that still shows it differs from the IDE and fails.
+        t = t.trim();
+        if (ideChrome) t = t.replace(/^> ?/, '');
         if (!t) continue;
         if (ideChrome && (/^→ /.test(t) || /^\[click \d+\]/.test(t))) continue;
         // "< 7": the runtime echoes the result of a bare JS call. For setTimeout that is a timer id, which
@@ -179,7 +326,7 @@ let browser, tools, tmpDir;
 async function newPage(extra) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   const t = { page, errors: [], blocked: [] };
-  page.on('pageerror', e => t.errors.push('pageerror: ' + e.message.slice(0, 300)));
+  page.on('pageerror', e => { if (!(extra && extra.knownPageError && extra.knownPageError.test(e.message))) t.errors.push('pageerror: ' + e.message.slice(0, 300)); });
   await page.addInitScript(DETERMINISM);
   await page.route(/^https?:/, route => {
     const url = route.request().url().replace(/#.*$/, '');
@@ -189,6 +336,7 @@ async function newPage(extra) {
       return route.fulfill({ body, contentType });
     }
     const js = { contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' } };
+    if (NO_FETCH.has(url) && route.request().resourceType() === 'fetch') return route.abort();
     if (url in ROUTES) return route.fulfill({ body: ROUTES[url], ...js, contentType: typeOfUrl(url) });
     const hit = CDN_MAP.find(([re]) => re.test(url));
     const file = hit && path.join(LIBS, hit[1]);
@@ -249,7 +397,7 @@ async function observe(t, rootSel, ideChrome, c) {
 }
 
 async function runInIde(fileUrl, c) {
-  const t = await newPage();
+  const t = await newPage({ knownPageError: c.knownPageError });
   const { page } = t;
   await page.goto(fileUrl);
   await page.waitForFunction(() => typeof compileAndRun === 'function' && typeof EX === 'object');
@@ -267,7 +415,7 @@ async function runInIde(fileUrl, c) {
   const status = await page.evaluate(() => document.getElementById('sTxt').innerText);
   if (status !== 'Done') t.errors.push('IDE status: ' + status);
   // Capture every export.
-  const files = await page.evaluate(async () => {
+  const files = await page.evaluate(async wantOffline => {
     const got = {}, alerts = [];
     window._download = (name, content, type) => {
       const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : new Uint8Array(content);
@@ -279,12 +427,24 @@ async function runInIde(fileUrl, c) {
     for (const fmt of ['wasm', 'html', 'js', 'emit']) {
       try { await doExport(fmt); } catch (e) { alerts.push(fmt + ' threw: ' + e.message); }
     }
-    return { got, alerts };
-  });
+    // Offline exports: timed, with the IDE's own report; a failure is an alert and must leave no file.
+    const off = { alerts: [], reports: {}, ms: {}, status: {} };
+    if (wantOffline) {
+      window.alert = m => off.alerts.push(String(m));
+      for (const fmt of ['htmloff', 'jsoff']) {
+        const t0 = performance.now();
+        try { off.reports[fmt] = await doExport(fmt); } catch (e) { off.alerts.push(fmt + ' threw: ' + e.message); }
+        off.ms[fmt] = Math.round(performance.now() - t0);
+        off.status[fmt] = document.getElementById('sTxt').innerText + ' | ' + document.getElementById('sR').innerText;
+      }
+      off.reportShown = (document.querySelector('#tab-output .emit-export-report') || {}).textContent || '';
+    }
+    return { got, alerts, off };
+  }, !!(c.offline || c.offlineFails));
   await page.close();
   const out = {};
   for (const [name, f] of Object.entries(files.got)) out[name] = { ...f, data: Buffer.from(f.b64, 'base64') };
-  return { src, seen, errors: t.errors, blocked: t.blocked, files: out, alerts: files.alerts };
+  return { src, seen, errors: t.errors, blocked: t.blocked, files: out, alerts: files.alerts, off: files.off };
 }
 
 function diff(label, want, got) {
@@ -316,7 +476,7 @@ async function checkExport(kind, c, ide) {
   }
   if (!file) return ['no ' + kind + ' file was produced' + (ide.alerts.length ? ' (' + ide.alerts.join('; ') + ')' : '')];
   const t = await newPage({
-    block: c.exportBlocks,
+    block: c.exportBlocks, knownPageError: c.knownPageError,
     serve: kind === 'js' ? {
       [JS_ORIGIN + '/program.js']: [file.data, 'text/javascript'],
       [JS_ORIGIN + '/index.html']: ['<!DOCTYPE html><html><head><meta charset="UTF-8"><title>host</title></head><body style="background:#111;color:#eee">' +
@@ -373,6 +533,88 @@ async function checkExport(kind, c, ide) {
   return problems;
 }
 
+// The offline exports of one program. Returns {html: problems, js: problems}.
+async function checkOffline(c, ide) {
+  const res = { html: [], js: [] }, off = ide.off;
+  const names = { html: 'program-offline.html', js: 'program-offline.js' }, fmts = { html: 'htmloff', js: 'jsoff' };
+  if (c.offlineFails) {
+    for (const kind of ['html', 'js']) {
+      if (ide.files[names[kind]]) res[kind].push('a file was written although the export had to fail');
+      if (off.reports[fmts[kind]]) res[kind].push('doExport should resolve to null when the export fails');
+      if (!/Offline export failed/.test(off.status[fmts[kind]])) res[kind].push('status bar should say the export failed: ' + off.status[fmts[kind]]);
+    }
+    if (off.alerts.length !== 2) res.html.push('expected one message per failed export, got ' + JSON.stringify(off.alerts));
+    off.alerts.forEach((a, i) => {
+      const want = c.offlineFails.map(n => (i === 1 && n === 'Export .html' ? 'Export .js' : n));
+      for (const n of want) if (!a.includes(n)) res[i ? 'js' : 'html'].push('message should mention ' + JSON.stringify(n) + ': ' + a);
+      if (/\[object |undefined/.test(a)) res[i ? 'js' : 'html'].push('message is not readable: ' + a);
+    });
+    return res;
+  }
+  if (off.alerts.length) res.html.push('offline export alert: ' + off.alerts.join('; '));
+  for (const kind of ['html', 'js']) {
+    const problems = res[kind], file = ide.files[names[kind]], rep = off.reports[fmts[kind]];
+    if (!file) { problems.push('no ' + names[kind] + ' was produced'); continue; }
+    if (!rep || rep.size !== file.size || rep.file !== names[kind]) problems.push('export report is missing or has the wrong size/file: ' + JSON.stringify(rep && [rep.file, rep.size, file.size]));
+    else if (c.reportCheck) problems.push(...c.reportCheck(rep));
+    if (!off.status[fmts[kind]].startsWith('Exported ' + names[kind] + ' | ') || !/\d (B|KB|MB)$/.test(off.status[fmts[kind]])) problems.push('status bar should show the file and its size: ' + off.status[fmts[kind]]);
+    if (kind === 'js' && !(off.reportShown.includes(names.js) && off.reportShown.includes('needs no network'))) problems.push('the report is not shown in the output: ' + off.reportShown.slice(0, 120));
+    for (const noBlob of c.offNoBlob ? [false, true] : [false]) {
+      // Every request is aborted and counted. Only the two files of the module host page are served.
+      const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+      const t = { page, errors: [], attempted: [] };
+      page.on('pageerror', e => { if (!(c.knownPageError && c.knownPageError.test(e.message))) t.errors.push('pageerror: ' + e.message.slice(0, 300)); });
+      await page.addInitScript(DETERMINISM);
+      if (noBlob) await page.addInitScript(() => { URL.createObjectURL = () => { throw new Error('no Blob URLs here'); }; });
+      const host = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>host</title></head><body style="background:#111;color:#eee"><div id="app"></div><script type="module">\n' +
+        'try{const m=await import("./program.js");window.__mod=m;window.__app=await m.init({target:document.getElementById("app")});window.__state="ready";}catch(e){window.__state="error: "+(e&&e.message||e);}\n<\/script></body></html>';
+      await page.route(/^(https?|wss?):/, route => {
+        const url = route.request().url();
+        if (kind === 'js' && url === JS_ORIGIN + '/program.js') return route.fulfill({ body: file.data, contentType: 'text/javascript' });
+        if (kind === 'js' && url === JS_ORIGIN + '/index.html') return route.fulfill({ body: host, contentType: 'text/html' });
+        t.attempted.push(url);
+        return route.abort();
+      });
+      const tag = noBlob ? ' [no Blob URLs]' : '';
+      try {
+        if (kind === 'html') {
+          const f = path.join(tmpDir, c.name.replace(/[^\w.-]/g, '_') + '-offline.html');
+          fs.writeFileSync(f, file.data);
+          await page.goto('file://' + f);
+        } else {
+          await page.goto(JS_ORIGIN + '/index.html');
+          await page.waitForFunction(() => window.__state, null, { timeout: 60000 });
+          const state = await page.evaluate(() => window.__state);
+          if (state !== 'ready') problems.push('module ' + state + tag);
+        }
+        const seen = await observe(t, '#tab-output', false, c);
+        if (c.offShows) {
+          for (const when of ['before', 'after']) {
+            const errs = seen[when].lines.filter(l => /^✗ /.test(l));
+            seen[when].lines = seen[when].lines.filter(l => !/^✗ /.test(l));
+            if (errs.length !== 1) problems.push('expected exactly one error line, got ' + JSON.stringify(errs));
+            else for (const n of c.offShows) if (!errs[0].includes(n)) problems.push('error should mention ' + JSON.stringify(n) + ': ' + errs[0]);
+          }
+        }
+        problems.push(...compare(ide.seen, seen, c).map(p => p + tag));
+        if (c.offCheck) problems.push(...(await c.offCheck(page)).map(p => p + tag));
+        const libTags = await page.evaluate(() => [...document.scripts].filter(s => s.hasAttribute('data-emit-lib')).map(s => (s.src ? 'blob' : 'inline')));
+        if (noBlob && libTags.some(k => k !== 'inline')) problems.push('without Blob URLs the libraries should run as inline scripts: ' + libTags.join());
+        if (!noBlob && libTags.some(k => k !== 'blob')) problems.push('libraries should run from Blob URLs: ' + libTags.join());
+      } catch (e) {
+        problems.push('harness: ' + e.message.split('\n')[0].slice(0, 300) + tag);
+      }
+      problems.push(...t.errors.map(p => p + tag));
+      const may = c.offMayRequest || [];
+      if (may.length && kind === 'js' && !noBlob && !off.reportShown.includes('Still loaded from the network')) problems.push('the report shown in the output should list what was left online: ' + off.reportShown);
+      t.attempted = t.attempted.filter(u => !may.includes(u));
+      if (t.attempted.length) problems.push('the offline export made ' + t.attempted.length + ' network request(s)' + tag + ': ' + t.attempted.slice(0, 5).join(', '));
+      await page.close();
+    }
+  }
+  return res;
+}
+
 async function checkOthers(c, ide) {
   const p = [];
   const w = ide.files['program.wasm'], e = ide.files['program.emit'];
@@ -392,23 +634,30 @@ async function checkOthers(c, ide) {
   await tools.goto(fileUrl);
   const exNames = await tools.evaluate(() => Object.keys(EX));
   await tools.goto('about:blank');
-  const cases = exNames.map(name => ({ name })).concat(Object.entries(EXTRA).map(([name, c]) => ({ name, ...c })))
+  const OFFLINE_EXAMPLES = ['cube3d', 'orbit', 'babylon', 'confetti'];
+  const cases = exNames.map(name => ({ name, offline: OFFLINE_EXAMPLES.includes(name) })).concat(Object.entries(EXTRA).map(([name, c]) => ({ name, ...c })))
     .filter(c => !only.length || only.includes(c.name));
 
   const rows = [];
   for (const c of cases) {
     const ide = await runInIde(fileUrl, c);
-    const row = { name: c.name, ide: ide.errors.concat(ide.blocked.map(u => 'blocked: ' + u)), sizes: {} };
+    const row = { name: c.name, ide: ide.errors.concat(ide.blocked.filter(u => !(c.ideMayBlock || []).includes(u)).map(u => 'blocked: ' + u)), sizes: {} };
     for (const [n, f] of Object.entries(ide.files)) row.sizes[n.replace('program.', '')] = f.size;
     row.html = await checkExport('html', c, ide);
     row.js = await checkExport('js', c, ide);
     row.other = await checkOthers(c, ide);
+    if (c.offline || c.offlineFails) {
+      row.off = await checkOffline(c, ide);
+      const sz = k => (ide.files[k] ? ide.files[k].size : null);
+      row.offInfo = { html: sz('program-offline.html'), js: sz('program-offline.js'), ms: ide.off.ms, rep: ide.off.reports.htmloff, refused: !!c.offlineFails };
+    }
     if (ide.alerts.length) row.other.push('export alert: ' + ide.alerts.join('; '));
     rows.push(row);
     const mark = p => (p.length ? 'FAIL' : 'PASS');
-    console.log(c.name.padEnd(17) + ' html ' + mark(row.html) + '   js ' + mark(row.js) + (row.ide.length ? '   (IDE run: ' + row.ide.join('; ') + ')' : ''));
+    console.log(c.name.padEnd(17) + ' html ' + mark(row.html) + '   js ' + mark(row.js) + (row.off ? '   offline html ' + mark(row.off.html) + '   offline js ' + mark(row.off.js) : '') + (row.ide.length ? '   (IDE run: ' + row.ide.join('; ') + ')' : ''));
     if (process.env.VERBOSE || process.env.DETAILS) {
       for (const k of ['html', 'js', 'other']) for (const p of row[k]) console.log('      ' + k + ': ' + p);
+      if (row.off) for (const k of ['html', 'js']) for (const p of row.off[k]) console.log('      offline ' + k + ': ' + p);
     }
   }
   await browser.close();
@@ -420,12 +669,26 @@ async function checkOthers(c, ide) {
   for (const r of rows) console.log(r.name.padEnd(17) + why(r.html).padEnd(84) + why(r.js));
   console.log('\n' + 'program'.padEnd(17) + ['wasm', 'html', 'js', 'emit'].map(s => s.padStart(8)).join(''));
   for (const r of rows) console.log(r.name.padEnd(17) + ['wasm', 'html', 'js', 'emit'].map(s => kb(r.sizes[s]).padStart(8)).join(''));
+  const offRows = rows.filter(r => r.off);
+  if (offRows.length) {
+    console.log('\n' + 'offline export'.padEnd(17) + '.html'.padEnd(62) + '.js');
+    for (const r of offRows) console.log(r.name.padEnd(17) + why(r.off.html).slice(0, 60).padEnd(62) + why(r.off.js).slice(0, 60));
+    console.log('\n' + 'offline export'.padEnd(17) + '.html'.padStart(9) + '.js'.padStart(9) + 'build .html'.padStart(13) + 'build .js'.padStart(11) + '   embedded');
+    for (const r of offRows) {
+      const i = r.offInfo;
+      console.log(r.name.padEnd(17) + (i.refused ? '(refused, no file)'.padStart(18) : kb(i.html).padStart(9) + kb(i.js).padStart(9)) + (i.ms.htmloff + 'ms').padStart(13) + (i.ms.jsoff + 'ms').padStart(11) +
+        '   ' + (i.rep ? i.rep.embedded.map(e => e.url.replace(/^.*\//, '') + ' ' + kb(e.size)).join(', ') + (i.rep.inlined.length ? ' (+' + i.rep.inlined.length + ' inlined)' : '') + (i.rep.left.length ? ' (left online: ' + i.rep.left.map(l => l.url).join(' ') + ')' : '') : ''));
+    }
+  }
   const bad = k => rows.filter(r => r[k].length).length;
   const ex = rows.filter(r => r.name[0] !== '+'), exBad = k => ex.filter(r => r[k].length).length;
   const ideBad = rows.filter(r => r.ide.length).length;
   console.log('\n.html export: ' + (rows.length - bad('html')) + '/' + rows.length + ' passed (' + (ex.length - exBad('html')) + '/' + ex.length + ' bundled examples)');
   console.log('.js export:   ' + (rows.length - bad('js')) + '/' + rows.length + ' passed (' + (ex.length - exBad('js')) + '/' + ex.length + ' bundled examples)');
   console.log('.wasm/.emit:  ' + (rows.length - bad('other')) + '/' + rows.length + ' passed');
+  const offBad = k => offRows.filter(r => r.off[k].length).length;
+  console.log('offline .html: ' + (offRows.length - offBad('html')) + '/' + offRows.length + ' passed');
+  console.log('offline .js:   ' + (offRows.length - offBad('js')) + '/' + offRows.length + ' passed');
   if (ideBad) console.log('IDE reference run had problems for ' + ideBad + ' program(s) — see above');
-  process.exit(bad('html') || bad('js') || bad('other') || ideBad ? 1 : 0);
+  process.exit(bad('html') || bad('js') || bad('other') || offBad('html') || offBad('js') || ideBad ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
