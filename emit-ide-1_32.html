@@ -1985,6 +1985,7 @@ _jsConvFn=(function(f){return function(c){
       this.emit(Op.local_tee,...eu32(tk));
       this.emit(Op.i64_const,...ei64(0));this.emit(Op.i64_ne);
       this.emit(Op.if,VT.i64);
+      if(this.genAwaitSpill)this.genAwaitSpill(e); /* lifetime: see "PARKED SCOPES" in the runtime */
       this.emit(Op.local_get,...eu32(tk));this.jsImportCall('__await');
       this.emit(Op.local_get,...eu32(tk));this.jsImportCall('__awaitPost');
       this.emit(Op.else);
@@ -2215,6 +2216,57 @@ function _emitExportGlobals(bytes){
     try{return _emitExportGlobals(b)}catch(e){return b}
   };
 })();
+// Lifetime hook 2 (see "PARKED SCOPES" in the runtime section). Before the __await of an await that is a
+// whole statement, in a function no Emit code calls, every i64/i32 local of the function is stored at
+// 53256… and their count + 1 at 53248 (the unused part of the first page between the old string scratch
+// slots and 64KB; the runtime copies the values out and zeroes the count before the call suspends).
+// The stores are spliced in after the function is complete, so locals declared later are included.
+(function(){
+  var P=WasmCodegen.prototype,genFunc0=P.genFunc,BASE=53248,MAX=1500;
+  function isStmt(x){return !!x&&typeof x.type==='string'&&(/Stmt$/.test(x.type)||x.type==='VarDecl')}
+  function mark(x){
+    if(!x||typeof x!=='object')return;
+    if(Array.isArray(x)){for(var i=0;i<x.length;i++)mark(x[i]);return}
+    if(typeof x.type==='string'&&!isStmt(x))return; /* an expression: awaits inside it are not statements */
+    if(isStmt(x)){
+      var e=x.type==='ExprStmt'?x.expression:x.type==='VarDecl'?x.init:x.type==='ReturnStmt'?x.value:null;
+      if(e&&x.type==='ExprStmt'&&e.type==='AssignExpr'&&e.target&&e.target.type==='IdentifierExpr')e=e.value;
+      if(e&&e.type==='AwaitExpr')e.gcStmt=true;
+    }
+    for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')mark(v)}
+  }
+  function called(ast){
+    var set=new Set();
+    (function visit(x){
+      if(!x||typeof x!=='object')return;
+      if(Array.isArray(x)){for(var i=0;i<x.length;i++)visit(x[i]);return}
+      if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr')set.add(x.callee.name);
+      for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')visit(v)}
+    })(ast.body);
+    return set;
+  }
+  P.genAwaitSpill=function(e){if(e.gcStmt&&this._gcRootFn)this._gcSpills.push(this.currentCode.length)};
+  P.genFunc=function(func){
+    if(!this._gcCalled)this._gcCalled=called(this.ast);
+    this._gcSpills=[];
+    this._gcRootFn=this.target!=='wasm64'&&!this._gcCalled.has(func.node.name);
+    if(this._gcRootFn)mark(func.node.body);
+    var r=genFunc0.apply(this,arguments);
+    var at=this._gcSpills,L=this.currentLocals,code=[],n=0;
+    if(at.length&&func.code===this.currentCode){
+      for(var i=0;i<L.length;i++){
+        if(L[i]!==VT.i64&&L[i]!==VT.i32)continue;
+        code.push(Op.i32_const,...ei32(BASE+8+n*8),Op.local_get,...eu32(i));
+        if(L[i]===VT.i32)code.push(Op.i64_extend_i32_u);
+        code.push(Op.i64_store,3,0);n++;
+      }
+      code.push(Op.i32_const,...ei32(BASE),Op.i32_const,...ei32(n+1),Op.i32_store,2,0);
+      if(n<=MAX)for(var j=at.length-1;j>=0;j--)func.code.splice(at[j],0,...code);
+    }
+    this._gcSpills=[];
+    return r;
+  };
+})();
 // Build import object — std builtins get real implementations
 //#emit-runtime-begin — up to the matching end marker this is copied verbatim into exported .html/.js files (see _exportRuntime); keep IDE-only code out of it
 var _canvas=null,_ctx=null,_curColor='#ffffff',_wasmMem=null,_arrays=[];
@@ -2287,7 +2339,7 @@ function _writeBigStr(enc){
   try{
     var m=_wasmMem;
     if(m!==_strMem)_strReset(m);
-    if(!_scN)_scopeAuto();
+    if(!_scRun)_scopeAuto();
     var need=(enc.length+12)&~7,p=0;
     for(;;){
       if(_strPos+need<=_strEnd){p=_strPos;break}
@@ -2361,7 +2413,19 @@ var _argBufBase=48640;
 // A promise-returning (suspending) call MUST be announced with _scopeEnter/_scopeExit or _scopeRun.
 // If the roots cannot be read (a module without the "__emitGC" export, or no instance in window._wi yet)
 // nothing is ever released.
-var _scN=0,_scSeq=0,_scopes=new Map(),_scAutoTok=0; // active scopes: token → {h,s,a: what existed at enter, k: tick}
+// PARKED SCOPES (await). A call suspended in an `await` normally counts as "active, may hold anything". The
+// exception: an await that is a whole statement (`await p`, `let x = await p`, `x = await p`, `return await p`)
+// in a function that only JS calls (never another Emit function). The suspended WASM stack is then exactly
+// that one function with an empty operand stack, and the compiler stores all its int/str/js/arr locals in
+// linear memory right before __await (see genAwaitSpill: count+1 at _gcSpillBase, the values after it).
+// _scopePark copies them into the scope (sc.park) — from then until _scopeUnpark (the awaited promise has
+// settled, before its value gets a handle) the scope is "parked": its locals are roots like the globals, and
+// it no longer blocks a full collection. A full collection runs when every active scope is parked: at
+// _scopeExit, and when a scope parks (so an `await` loop inside one long call releases what it drops).
+// _scRun counts the active scopes that are not parked; _scCur is the scope of the Emit code running now
+// (set by _scopeRun / _emitCallExport, put back after a suspension by _scopeResume).
+var _scN=0,_scRun=0,_scCur=0,_scSeq=0,_scopes=new Map(),_scAutoTok=0; // active scopes: token → {h,s,a: what existed at enter, k: tick, park}
+var _gcSpillBase=53248;
 var _gcTick=0,_gcTickQ=false;                        // _gcTick advances at every microtask checkpoint that follows a _scopeEnter
 var _gcNewH=0,_gcNewS=0,_gcNewA=0,_gcScan=0,_gcRuns=0,_gcStale=0,_gcStaleShown=false;
 var _strMem=null,_strBlocks=new Map(),_strLog=[],_strGaps=[],_strGapI=0,_strPos=65536,_strLimit=33554432,_strEnd=33554432,_strLive=0,_strTop=65536,_strErrors=0,_strFailShown=false;
@@ -2373,17 +2437,44 @@ function _gcTickBump(){
   if(_scAutoTok){var t=_scAutoTok;_scAutoTok=0;_scopeExit(t)}
 }
 function _scopeEnter(top){
-  if(!top&&!_scN&&!_scAutoTok)_scopeAuto();
+  if(!top&&!_scRun&&!_scAutoTok)_scopeAuto();
   if(!_gcTickQ){_gcTickQ=true;Promise.resolve().then(_gcTickBump)}
   var t=++_scSeq;
-  _scopes.set(t,{h:_hNext,s:_strLog.length,a:_arrLog.length,k:_gcTick});_scN++;
+  _scopes.set(t,{h:_hNext,s:_strLog.length,a:_arrLog.length,k:_gcTick,park:null});_scN++;_scRun++;
   return t;
 }
+// The running call is about to suspend in __await (rec = its await ticket). Park its scope if the compiler
+// stored the locals; in any case remember which scope the call belongs to.
+function _scopePark(rec){
+  var t=_scCur,sc=_scopes.get(t),roots=null;
+  rec.sc=t;
+  try{
+    var view=new DataView(_wasmMem.buffer),n=view.getUint32(_gcSpillBase,true);
+    if(n){
+      view.setUint32(_gcSpillBase,0,true); /* consumed: an await without stored locals must never see it */
+      roots=[];
+      for(var i=0;i<n-1;i++)roots.push(Number(view.getBigInt64(_gcSpillBase+8+i*8,true)));
+    }
+  }catch(e){roots=null}
+  if(!sc||!roots||sc.park)return;
+  sc.park=roots;sc.k=-1;_scRun--;
+  if(!_scRun&&_gcDue())_gcCollect(null);
+}
+// The awaited promise has settled: from here on the call may hold new values again.
+function _scopeUnpark(rec){
+  var sc=_scopes.get(rec.sc);
+  if(sc&&sc.park){sc.park=null;_scRun++}
+}
+// (A call that will never be resumed — the program was stopped — has its scope ended by __await: _scopeExit(rec.sc).)
+// First thing a resumed call does (__awaitPost).
+function _scopeResume(rec){if(rec&&rec.sc)_scCur=rec.sc}
+
 function _scopeAuto(){if(!_scAutoTok)_scAutoTok=_scopeEnter(true)}
 function _scopeExit(t){
   var sc=_scopes.get(t);if(!sc)return;
   _scopes.delete(t);_scN--;
-  if(_scN===0){if(_gcDue())_gcCollect(null);return}
+  if(sc.park)sc.park=null;else _scRun--;
+  if(_scRun===0){if(_gcDue())_gcCollect(null);return}
   if(sc.k!==_gcTick)return; /* not synchronous: other scopes may have run in between */
   var made=(_hNext-sc.h)+(_arrLog.length-sc.a),madeS=_strLog.length-sc.s;
   if(!made&&!madeS)return;
@@ -2394,20 +2485,18 @@ function _scopeExit(t){
   if(sameTick&&made<Math.max(256,_gcScan)&&madeS<1024)return;
   _gcCollect(sc);
 }
-function _scopeRun(fn,args,top){
-  var t=_scopeEnter(top),r;
+function _scopeRun(fn,args,top,noWait){
+  var t=_scopeEnter(top),r,cur=_scCur;
+  _scCur=t;
   try{r=args?fn.apply(null,args):fn()}catch(e){_scopeExit(t);throw e}
-  if(r&&typeof r==='object'&&typeof r.then==='function'){
+  finally{_scCur=cur}
+  /* noWait: a promise that comes back is just a value (a callback that is not an async Emit function) */
+  if(!noWait&&r&&typeof r==='object'&&typeof r.then==='function'){
     if(typeof r.finally==='function')return r.finally(function(){_scopeExit(t)});
     return r.then(function(v){_scopeExit(t);return v},function(e){_scopeExit(t);throw e});
   }
   _scopeExit(t);
   return r;
-}
-// One animation frame, through the same scoped path the animate() loop uses.
-function _emitFrame(){
-  var w=window._wi;
-  if(w&&w.exports.frame)return _scopeRun(w.exports.frame,null,true);
 }
 function _gcDue(){
   var n=Math.max(64,_gcScan>>3);
@@ -2437,6 +2526,7 @@ function _gcMark(){
     else if(x>=65536){if(_strBlocks.has(x))ks.add(x)}
   }
   for(i=0;i<gl.length;i++){try{see(gl[i].value)}catch(e){return null}}
+  _scopes.forEach(function(sc){if(sc.park){n+=sc.park.length;for(var j=0;j<sc.park.length;j++)see(sc.park[j])}});
   _arrEsc.forEach(function(k){see(_aBase+k)});
   for(i=0;i<_arrays.length;i++)if(Array.isArray(_arrays[i]))work.push(_arrays[i]);
   while(work.length){a=work.pop();n+=a.length;for(i=0;i<a.length;i++)see(a[i])}
@@ -2460,6 +2550,7 @@ function _gcCollect(sc){
     _handles.forEach(function(v,i){if(!k.h.has(i))_gcDropH(i)});
     _strBlocks.forEach(function(z,p){if(!k.s.has(p))_gcDropS(p)});_strLog.length=0;
     _arrMap.forEach(function(a,id){if(!k.a.has(id))_gcDropA(id)});_arrLog.length=0;
+    _scopes.forEach(function(o){o.k=-1;o.s=0;o.a=0}); /* the logs are gone: what is left (parked) never sweeps by scope */
     _gcNewH=0;_gcNewS=0;_gcNewA=0;
   }
   _strRegap();
@@ -2480,14 +2571,15 @@ function _strReset(m){
 function _memReset(){
   _handles=new Map();_hIds=new Map();_hNext=2;
   _hWin=typeof window!=='undefined'?window:(typeof globalThis!=='undefined'?globalThis:{});
-  _scopes=new Map();_scN=0;_scAutoTok=0;
+  _scopes=new Map();_scN=0;_scRun=0;_scCur=0;_scAutoTok=0;
+  _traceQ=[];_traceMark=null;_traceDropped=0;
   _gcNewH=0;_gcNewS=0;_gcNewA=0;_gcScan=0;_gcRuns=0;_gcStale=0;_gcStaleShown=false;
   _strReset(null);
   _arrMap=new Map();_arrEsc=new Set();_arrLog=[];_aNext=0;
 }
 // Emit arrays: newArray (and array literals, which compile to it).
 function _arrNew(size){
-  if(!_scN)_scopeAuto();
+  if(!_scRun)_scopeAuto();
   var k=_aNext++,a=new Array(Number(size)).fill(0);
   _arrMap.set(k,a);_arrays[_aBase+k]=a;_arrLog.push(k);_gcNewA++;
   return BigInt(_aBase+k);
@@ -2499,7 +2591,7 @@ function _arrEscape(n){if(n>=_aBase&&_arrMap.has(n-_aBase))_arrEsc.add(n-_aBase)
 // Counters for tests and diagnostics.
 function _memStats(){
   var live=_arrMap.size;for(var i=0;i<_arrays.length;i++)if(_arrays[i]!==undefined&&_arrays[i]!==null)live++;
-  return{handles:_handles.size,handleIds:_hNext-2,strBytes:_strLive,strBlocks:_strBlocks.size,strTop:_strTop,strWraps:0,strErrors:_strErrors,arrays:live,arraySlots:_aNext+_arrays.length,arraysEscaped:_arrEsc.size,stale:_gcStale,collections:_gcRuns,scopes:_scN,rootsScanned:_gcScan,rootsReadable:!!_gcGlobals()};
+  return{handles:_handles.size,handleIds:_hNext-2,strBytes:_strLive,strBlocks:_strBlocks.size,strTop:_strTop,strWraps:0,strErrors:_strErrors,arrays:live,arraySlots:_aNext+_arrays.length,arraysEscaped:_arrEsc.size,stale:_gcStale,collections:_gcRuns,scopes:_scN,parked:_scN-_scRun,traceLines:_traceQ.length,traceDropped:_traceDropped,rootsScanned:_gcScan,rootsReadable:!!_gcGlobals()};
 }
 // A handle id that was issued in this run but has been released: it reads as null, with one red line per run.
 function _handleStale(n){
@@ -2509,7 +2601,7 @@ function _handleStale(n){
 }
 function _handleFor(v){
   if(v===null||v===undefined)return 0n;
-  if(!_scN)_scopeAuto();
+  if(!_scRun)_scopeAuto();
   // Primitives (numbers, strings, booleans) are wrapped in a handle too, so round-trips work.
   // The same object / string / boolean gets the same handle while that handle is live. Numbers are not
   // looked up (they rarely repeat, and it keeps the commonest result cheap): each gets a new handle.
@@ -2524,7 +2616,7 @@ function _handleFor(v){
 function _handleLive(n){
   var i=n-_hBase;
   if(i>=2&&i<_hNext){
-    if(!_scN)_scopeAuto();
+    if(!_scRun)_scopeAuto();
     var v=_handles.get(i);
     if(v!==undefined)return v;
     if(Math.floor(i)===i)return _handleStale(n);
@@ -2583,7 +2675,27 @@ function _jsInvoke(fn,thisArg,args,name){
     throw e;
   }
 }
+// The "→ call(args)" / "[click 1]" trace lines: only the newest _traceMax stay in the Output tab (one
+// "→ … N earlier trace lines dropped" line marks the cut; program output is never touched), and none are
+// created at all where the page hides them (an exported program without ?trace / {trace:true}).
+var _traceMax=300,_traceQ=[],_traceMark=null,_traceDropped=0,_logMax=2000;
+function _traceOn(){try{var out=document.getElementById('tab-output');return !!out&&!out._emitQuiet}catch(e){return false}}
+function _traceAdd(node){
+  var out=document.getElementById('tab-output');
+  if(!out||out._emitQuiet)return;
+  out.appendChild(node);_traceQ.push(node);
+  if(_traceQ.length<=_traceMax)return;
+  var old=_traceQ.shift();_traceDropped++;
+  if(!_traceMark||_traceMark.parentNode!==out){
+    _traceMark=document.createElement('div');
+    _traceMark.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:10px;';
+    if(old.parentNode===out)out.insertBefore(_traceMark,old);else out.insertBefore(_traceMark,out.firstChild);
+  }
+  if(old.parentNode)old.parentNode.removeChild(old);
+  _traceMark.textContent='→ … '+_traceDropped+' earlier trace lines dropped';
+}
 function _jsArgTrace(label,args){
+  if(!_traceOn())return;
   try{
     var dbg=document.createElement('div');
     dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
@@ -2592,7 +2704,7 @@ function _jsArgTrace(label,args){
       if(typeof a==='object'){try{return JSON.stringify(a).substring(0,200)}catch(e){return '[obj]'}}
       return String(a);
     }).join(', ')+')';
-    document.getElementById('tab-output').appendChild(dbg);
+    _traceAdd(dbg);
   }catch(e){}
 }
 // Imports for calls that are not member calls, JS literals and string `+` (see _JS_CONV_IMPORTS).
@@ -2708,7 +2820,7 @@ function _handleGet(h){
   if(idx===1)return _hWin;
   idx-=_hBase;
   if(idx<2||idx>=_hNext)return null;
-  if(!_scN)_scopeAuto();
+  if(!_scRun)_scopeAuto();
   var v=_handles.get(idx);
   return v===undefined?_handleStale(idx+_hBase):v;
 }
@@ -2810,7 +2922,7 @@ function _makeCallback(spec){
   var wrapper=function(){
     if(mem!==_wasmMem)return; /* callback left over from an earlier run — ignore */
     /* one scope per callback: its arguments, and what the Emit function creates, are released when it returns */
-    return _scopeRun(invoke,arguments);
+    return _scopeRun(invoke,arguments,false,!_emitIsAsync(name));
   };
   var invoke=function(){
     var fn=null,args=[];
@@ -2839,7 +2951,7 @@ function _resetJsInterop(){
   // Called at the start of each run so handles don't leak across runs
   _memReset();
 }
-function _log(outputLog,fn,args){outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
+function _log(outputLog,fn,args){if(outputLog.length>=_logMax)outputLog.splice(0,_logMax>>1); /* the import log keeps the newest calls only */ outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
 function buildImportObject(imports,outputLog){
   const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];var _strWritePtr=4096;
   _memReset(); /* handles, strings, array records and scopes of an earlier run (also done by _resetJsInterop) */
@@ -2965,7 +3077,7 @@ function buildImportObject(imports,outputLog){
             var dbg=document.createElement('div');
             dbg.style.cssText='color:#fbbf24;padding:2px 12px;font-family:var(--mono);font-size:11px;';
             dbg.textContent='[click '+Number(id)+'] start';
-            document.getElementById('tab-output').appendChild(dbg);
+            _traceAdd(dbg);
             if(!window._wi){console.warn('button: no instance yet');dbg.textContent+=' — no instance';return}
             var fn=window._wi.exports['onclick_'+Number(id)];
             if(!fn){console.warn('button: onclick_'+Number(id)+' not exported');dbg.textContent+=' — fn missing';return}
@@ -3434,7 +3546,7 @@ function buildImportObject(imports,outputLog){
           var args=[];
           for(var i=0;i<n;i++)args.push(_readArg(i));
           /* Visible diagnostic */
-          try{
+          if(_traceOn())try{
             var dbg=document.createElement('div');
             dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
             var argSummary=args.map(function(a){
@@ -3443,7 +3555,7 @@ function buildImportObject(imports,outputLog){
               return String(a);
             }).join(', ');
             dbg.textContent='→ .'+name+'('+argSummary+')';
-            document.getElementById('tab-output').appendChild(dbg);
+            _traceAdd(dbg);
           }catch(e){}
           _log(outputLog,'__jsCall',[name,'('+args.map(function(a){return typeof a==='object'?'[obj]':JSON.stringify(a)}).join(', ')+')']);
           var fn=recv[name];
@@ -3528,7 +3640,7 @@ function buildImportObject(imports,outputLog){
           }
           _log(outputLog,impName,realArgs);
           /* DIAGNOSTIC: render args to output panel so we can see what got marshalled */
-          try{
+          if(_traceOn())try{
             var dbg=document.createElement('div');
             dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
             var argSummary=realArgs.map(function(a){
@@ -3537,7 +3649,7 @@ function buildImportObject(imports,outputLog){
               return String(a);
             }).join(', ');
             dbg.textContent='→ '+impName+'('+argSummary+')';
-            document.getElementById('tab-output').appendChild(dbg);
+            _traceAdd(dbg);
           }catch(e){}
           // Try to call the real JS function
           var jsFn=window[impName];
@@ -3642,22 +3754,32 @@ function _emitEnter(f,args,isAsync){
 // frame() do. A function that can reach an `await` (the compiler lists them in imports.asyncFns) is
 // entered through WebAssembly.promising and the result is a promise that never rejects: a rejection is
 // reported as a red line in the output. Any other function is called directly and returns its result.
-function _emitCallExport(inst,name,args){
+// Every call is one lifetime scope (see "LIFETIME"): what it creates is released when it has completed —
+// for an async function when its promise settles. top: the caller is certainly not nested in Emit code.
+function _emitCallExport(inst,name,args,top){
   var f=inst&&inst.exports?inst.exports[name]:null;
   if(typeof f!=='function')throw new Error('there is no exported Emit function "'+name+'"');
-  if(!_emitIsAsync(name))return _emitEnter(f,args||[],false);
+  var sc=_scopeEnter(top),cur=_scCur;
+  _scCur=sc;
+  if(!_emitIsAsync(name)){
+    try{return _emitEnter(f,args||[],false)}
+    finally{_scCur=cur;_scopeExit(sc)}
+  }
   var mem=_wasmMem,p;
   try{p=_emitEnter(f,args||[],true)}catch(e){p=Promise.reject(e)}
-  p=p.then(function(v){return v},function(e){if(mem===_wasmMem)_jsErr(name+'()',e)});
+  finally{_scCur=cur}
+  p=p.then(function(v){_scopeExit(sc);return v},function(e){_scopeExit(sc);if(mem===_wasmMem)_jsErr(name+'()',e)});
   p.toString=function(){return'(async — still running; its output appears below)'};
   return p;
 }
 if(typeof window!=='undefined')window._emitCallExport=_emitCallExport; /* the export boot reaches it here (the .js export runs this code inside a function) */
 // One frame() at a time: while an async frame() is suspended in an await the next one is not started.
+// This is the one path for frames — the animate() loop and tests/run-memory.js both call it; a frame is
+// never nested in Emit code, so its scope is entered with top=true and collects when frame() returns.
 function _emitFrame(){
   var wi=window._wi;
   if(!wi||!wi.exports.frame||_frameBusy)return;
-  var r=_emitCallExport(wi,'frame',[]);
+  var r=_emitCallExport(wi,'frame',[],true);
   if(r&&typeof r.then==='function'){var gen=_awaitGen;_frameBusy=true;r.then(function(){if(gen===_awaitGen)_frameBusy=false})}
 }
 // fnRef callbacks. An async Emit function gives JS a promise, like a JS async function would (a rejection
@@ -3685,7 +3807,7 @@ function _emitCallback(fn,args,ret,name){
 // live handle becomes that JS value, a pointer to a string literal becomes the string.
 function _arrToJs(id){var out=_arrVals(id);return out?_js_returnWrap(out):0n}
 function _arrVals(id){
-  var a=_arrays[Number(id)];
+  var a=_arrGet(id);
   if(!a)return null;
   var out=[];
   for(var i=0;i<a.length;i++){
@@ -3697,6 +3819,7 @@ function _arrVals(id){
     if(n>=1024&&n<48640&&_wasmMem){
       try{var view=new DataView(_wasmMem.buffer),len=view.getUint32(n,true);if(len<10000){out.push(new TextDecoder().decode(new Uint8Array(_wasmMem.buffer,n+4,len)));continue}}catch(e){}
     }
+    _arrEscape(n); /* a nested Emit array goes to JS as its id: keep that array */
     out.push(n);
   }
   return out;
@@ -3721,16 +3844,18 @@ function _emitExtraImport(name){
       if(!_jspiOk())return function(){throw new Error(_NO_JSPI)};
       return new WebAssembly.Suspending(function(t){
         var rec=_awaits.get(Number(t));
+        _scopePark(rec); /* lifetime: the locals the compiler stored become roots; may collect */
         _tryMode=0;_canWait=false; /* while this call is suspended other calls start from a clean state */
         /* stale: the program was stopped or run again meanwhile — this call is never resumed */
         function stale(){return rec.mem!==_wasmMem||rec.gen!==_awaitGen}
         return Promise.resolve(rec.p).then(
-          function(v){return stale()?new Promise(function(){}):_js_returnWrap(v)},
-          function(e){if(stale())return new Promise(function(){});rec.failed=true;rec.err=e;return 0n});
+          function(v){if(stale()){_scopeExit(rec.sc);return new Promise(function(){})}_scopeUnpark(rec);return _js_returnWrap(v)},
+          function(e){if(stale()){_scopeExit(rec.sc);return new Promise(function(){})}_scopeUnpark(rec);rec.failed=true;rec.err=e;return 0n});
       });
     case'__awaitPost':return function(t){
       var rec=_awaits.get(Number(t));
       _awaits.delete(Number(t));
+      _scopeResume(rec);
       _tryMode=rec.mode;_canWait=true;
       if(rec.failed&&!_tryRecord(rec.err))_jsErr('await',rec.err); /* a rejection is an error like a throwing call */
     };
@@ -3739,15 +3864,15 @@ function _emitExtraImport(name){
     case'__tryTake':return function(){var e=_pendErr;_pendHas=false;_pendErr=null;return _js_returnWrap(e)};
     case'__throwStr':return function(ptr){_emitThrow(new Error(_readStr(ptr)))};
     case'__throwJs':return function(h){_emitThrow(_handleVal(h))};
-    case'__arrGet':return function(a,i){var x=_arrays[Number(a)];return x?_arrInt(x[Number(i)]||0):0n};
-    case'__arrGetN':return function(a,i){var x=_arrays[Number(a)];return x?(Number(x[Number(i)])||0):0};
-    case'__arrSet':return function(a,i,v){var x=_arrays[Number(a)];if(x)x[Number(i)]=Number(v)};
-    case'__arrSetN':return function(a,i,v){var x=_arrays[Number(a)];if(x)x[Number(i)]=v};
-    case'__arrLen':return function(a){var x=_arrays[Number(a)];return BigInt(x?x.length:0)};
-    case'__arrPush':return function(a,v){var x=_arrays[Number(a)];if(x)x.push(Number(v))};
-    case'__arrPushN':return function(a,v){var x=_arrays[Number(a)];if(x)x.push(v)};
-    case'__arrPop':return function(a){var x=_arrays[Number(a)];return(x&&x.length)?_arrInt(x.pop()):0n};
-    case'__arrPopN':return function(a){var x=_arrays[Number(a)];return(x&&x.length)?(Number(x.pop())||0):0};
+    case'__arrGet':return function(a,i){var x=_arrGet(a);return x?_arrInt(x[Number(i)]||0):0n};
+    case'__arrGetN':return function(a,i){var x=_arrGet(a);return x?(Number(x[Number(i)])||0):0};
+    case'__arrSet':return function(a,i,v){var x=_arrGet(a);if(x)x[Number(i)]=Number(v)};
+    case'__arrSetN':return function(a,i,v){var x=_arrGet(a);if(x)x[Number(i)]=v};
+    case'__arrLen':return function(a){var x=_arrGet(a);return BigInt(x?x.length:0)};
+    case'__arrPush':return function(a,v){var x=_arrGet(a);if(x)x.push(Number(v))};
+    case'__arrPushN':return function(a,v){var x=_arrGet(a);if(x)x.push(v)};
+    case'__arrPop':return function(a){var x=_arrGet(a);return(x&&x.length)?_arrInt(x.pop()):0n};
+    case'__arrPopN':return function(a){var x=_arrGet(a);return(x&&x.length)?(Number(x.pop())||0):0};
     case'__arrJs':return function(a){return _arrToJs(a)};
     case'__arrStr':return function(a){var v=_arrVals(a);return _writeStr(v?String(v):'')};
   }

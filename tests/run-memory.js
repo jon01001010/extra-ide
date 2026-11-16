@@ -12,9 +12,10 @@
 //
 // Frames are not waited for in real time: requestAnimationFrame is stubbed out before Run, and the frame
 // function is driven in a tight loop through the same runtime path the loop uses (_emitFrame()).
-// The IDE writes a small "→ call(args)" trace line to the Output tab and an entry to the import log
-// for every interop call; the test removes those every 500 frames so the JS heap figure shows what
-// the handle table keeps alive (the number of removed trace lines is reported as "trace").
+// Nothing is cleaned up by the test: the "→ call(args)" trace lines and the import log are capped by the
+// runtime itself, so the JS heap column is the real figure. "out" is the number of nodes in the Output tab.
+// Programs with `await` run on real JSPI (WebAssembly.Suspending / promising); they are driven through a
+// gate promise (memLib.gate) or real button clicks instead of the frame loop — see `drive`.
 //
 // Exit code 0 only when every assertion holds:
 //   steady programs  live handles / string bytes / arrays at the last frame are within a small margin
@@ -23,6 +24,11 @@
 //   guard programs   every value stored in globals / Emit arrays / JS objects reads back correctly
 //   string-exhaustion  a single call that keeps more than 32 MB of strings in use gets one red error line
 //                    and "" — no string a global points to is overwritten — and the program carries on
+//   await programs   values held across an await in locals, globals, arr variables and JS objects read back
+//                    correctly although collections ran while the call was suspended; an await loop that is
+//                    a statement in an entry function stays bounded; one inside a helper function is NOT
+//                    bounded (kind 'grows': measured and printed, only correctness is asserted)
+//   Output tab       the number of nodes stays bounded (trace lines are capped), program output is kept
 //   scope API        _scopeEnter/_scopeExit/_scopeRun: nested and suspended invocations keep their handles,
 //                    a released handle id reads as null with one warning line (never as another object)
 const { chromium } = require('playwright');
@@ -39,6 +45,9 @@ const BASELINE = !!process.env.BASELINE;
 
 // A stand-in library, available offline.
 const MEM_LIB = `
+window.memGate = { budget: 0, passed: 0, waiting: null };
+// await sleep(ms) with a very long ms never fires on its own: the test fires those timers when it wants to
+(function () { var st = window.setTimeout; window.__longTimers = []; window.setTimeout = function (f, ms) { if (ms >= 100000) { window.__longTimers.push(f); return 0; } return st.apply(window, arguments); }; })();
 window.memLib = (function () {
   var child = { name: 'child' };
   function Thing(n) { this.n = n; this.payload = new Array(64).fill(n); }
@@ -54,6 +63,13 @@ window.memLib = (function () {
     objs: function (n) { var a = []; for (var i = 0; i < n; i++) a.push({ n: i }); return a; },
     strs: function (n) { var a = []; for (var i = 0; i < n; i++) a.push('s' + i); return a; },
     each: function (cb) { cb({ n: 1 }); cb({ n: 2 }); },
+    fail: function (n) { return Promise.reject(new Error('fail ' + n)); },
+    tick: function (v) { return Promise.resolve(v === undefined ? 1 : v); },
+    // gate(): resolves at once while the test has granted iterations, otherwise when it grants more
+    gate: function () { var g = window.memGate; g.passed++; if (g.budget > 0) { g.budget--; return Promise.resolve(g.passed); } return new Promise(function (ok) { g.waiting = function () { g.waiting = null; g.budget--; ok(g.passed); }; }); },
+    sum: function (a) { var t = 0; for (var i = 0; i < a.length; i++) t += a[i]; return t; },
+    isArray: function (a) { return Array.isArray(a) ? 1 : 0; },
+    boom: function (n) { throw new Error('boom ' + n); },
     callZero: function () { if (window.memLibCb) window.memLibCb(); },
     setCb: function (f) { window.memLibCb = f; }
   };
@@ -103,10 +119,11 @@ export fn check() {
 }`, guard: f => ['> ' + f] },
 
   // (c) member calls returning the same object, and fresh objects (`new` in the loop)
-  { name: 'member-calls', kind: 'steady', src: `
+  { name: 'member-calls', kind: 'steady', keepLine: '> first line', src: `
 mut o: js = null
 mut cnt = 0
 export fn run() {
+  printStr("first line")
   o = memLib.makeObj()
   animate()
 }
@@ -197,7 +214,8 @@ export fn run() {
   setItem(arr, 7, nested)
   setItem(nested, 0, 4242)
   box = emptyObj()
-  box.inner = newArray(3)
+  let rawId: int = newArray(3)
+  box.inner = rawId
   let inner: int = box.inner
   setItem(inner, 2, 777)
   jsArr = memLib.list(0)
@@ -315,6 +333,285 @@ fn doCheck() {
   print(getItem(getItem(keep, 1), 0))
 }`, guard: f => ['> 31337', '> ' + Math.floor(f / 1000) * 1000] },
 
+  // ── await (real JSPI) ──
+  // (j) a frame function that awaits; locals of every kind are held across the await
+  { name: 'await-frame', kind: 'steady', drive: 'asyncFrames', src: `
+mut n = 0
+mut bad = 0
+mut caught = 0
+mut box: js = null
+mut keep: js = null
+export fn run() {
+  box = emptyObj()
+  animate()
+}
+export fn frame() {
+  n++
+  let o = memLib.tagged(n)
+  let s = "f" + intToStr(n)
+  let xs = [n, n + 1]
+  let junk = memLib.fresh()
+  box.cur = memLib.tagged(n + 7)
+  if (n % 100 == 1) { keep = memLib.tagged(n) }
+  let r = await memLib.tick(n)
+  let t: int = o.tag
+  if (t != n) { bad++ }
+  if (!strEq(s, "f" + intToStr(n))) { bad++ }
+  if (xs[1] != n + 1) { bad++ }
+  let rr: int = r
+  if (rr != n) { bad++ }
+  let c = box.cur
+  let ct: int = c.tag
+  if (ct != n + 7) { bad++ }
+  // an awaited object comes back as the same object; a rejected await lands in catch
+  let same = await memLib.tick(o)
+  let st: int = same.tag
+  if (st != n) { bad++ }
+  try {
+    await memLib.fail(n)
+    bad++
+  } catch (e) {
+    let m: str = e.message
+    if (strEq(m, "fail " + intToStr(n))) { caught++ }
+  }
+  let t2: int = o.tag
+  if (t2 != n) { bad++ }
+}
+export fn check() {
+  if (n > 0) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+  let k: int = keep.tag
+  print(k)
+  print(caught)
+}`, guard: f => ['> ' + f, '> 0', '> ' + (Math.floor((f - 1) / 100) * 100 + 1), '> ' + f] },
+
+  // (k) the idiomatic animation: one call that loops with an await as a statement. Other calls (churn) run
+  //     and collect while it is suspended; its locals must survive, and what it drops must be released.
+  { name: 'await-loop', kind: 'steady', drive: 'gate', parked: 1, src: `
+mut n = 0
+mut bad = 0
+mut box: js = null
+mut held: js = null
+mut label: str = ""
+mut churned = 0
+export fn run() {
+  box = emptyObj()
+  let first = memLib.tagged(4242)
+  let firstStr: str = memLib.label(4242)
+  let ring = [0, 0, 0]
+  while (true) {
+    n++
+    let o = memLib.tagged(n)
+    let s = "i" + intToStr(n)
+    let xs = [n, n + 1]
+    let junk = memLib.fresh()
+    let junkStr: str = memLib.big(100)
+    box.cur = memLib.tagged(n + 7)
+    ring[n % 3] = n
+    if (n % 500 == 1) {
+      held = memLib.tagged(n)
+      label = "held " + intToStr(n)
+    }
+    let g: int = await memLib.gate()
+    let t: int = o.tag
+    if (t != n) { bad++ }
+    if (!strEq(s, "i" + intToStr(n))) { bad++ }
+    if (xs[0] != n) { bad++ }
+    if (ring[n % 3] != n) { bad++ }
+    if (g != n) { bad++ }
+    let ft: int = first.tag
+    if (ft != 4242) { bad++ }
+    if (!strEq(firstStr, "label-4242")) { bad++ }
+    let c = box.cur
+    let ct: int = c.tag
+    if (ct != n + 7) { bad++ }
+  }
+}
+export fn churn() {
+  churned++
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    let s = "churn " + intToStr(i)
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+  let h: int = held.tag
+  print(h)
+  printStr(label)
+}`, guard: f => { const h = Math.floor(f / 500) * 500 + 1; return ['> ' + (f + 1), '> 0', '> ' + h, '> held ' + h]; } },
+
+  // (l) the same loop inside a helper function: the suspended stack is run() + loop(), which the runtime
+  //     cannot see, so nothing the call creates is released until it ends. Measured, not bounded.
+  { name: 'await-loop-in-helper', kind: 'grows', drive: 'gate', parked: 0, src: `
+mut n = 0
+mut bad = 0
+fn loop() {
+  while (true) {
+    n++
+    let o = memLib.tagged(n)
+    let s = "i" + intToStr(n)
+    let xs = [n, n + 1]
+    await memLib.gate()
+    let t: int = o.tag
+    if (t != n) { bad++ }
+    if (!strEq(s, "i" + intToStr(n))) { bad++ }
+    if (xs[0] != n) { bad++ }
+  }
+}
+export fn run() {
+  loop()
+}
+export fn churn() {
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+}`, guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // (m) a button handler that awaits, clicked many times while run() is suspended in a long `await sleep`
+  { name: 'await-button-during-sleep', kind: 'steady', drive: 'clicks', parked: 1, src: `
+mut clicks = 0
+mut done = 0
+mut bad = 0
+mut held: js = null
+export fn run() {
+  button("go", 1)
+  held = memLib.tagged(5)
+  let mine = memLib.tagged(6)
+  let mineStr: str = memLib.label(6)
+  let xs = [61, 62]
+  await sleep(1000000)
+  let t: int = mine.tag
+  print(t)
+  printStr(mineStr)
+  print(xs[1])
+  let h: int = held.tag
+  print(h)
+}
+export fn onclick_1() {
+  clicks++
+  let my = clicks
+  let o = memLib.tagged(my)
+  let s = "c" + intToStr(my)
+  let junk = memLib.fresh()
+  await memLib.tick()
+  let t: int = o.tag
+  if (t != my) { bad++ }
+  if (!strEq(s, "c" + intToStr(my))) { bad++ }
+  done++
+}
+export fn check() {
+  if (clicks > 0) { doCheck() }
+}
+fn doCheck() {
+  print(clicks)
+  print(done)
+  print(bad)
+}`, finish: ['> 6', '> label-6', '> 62', '> 5'], guard: f => ['> ' + f, '> ' + f, '> 0'] },
+
+  // (n) try / catch in every frame, after and between many collections
+  { name: 'try-catch-frame', kind: 'steady', src: `
+mut n = 0
+mut caught = 0
+mut bad = 0
+mut last: js = null
+export fn run() {
+  animate()
+}
+export fn frame() {
+  n++
+  let o = memLib.tagged(n)
+  let junk = memLib.fresh()
+  try {
+    memLib.boom(n)
+    bad++
+  } catch (e) {
+    let m: str = e.message
+    if (strEq(m, "boom " + intToStr(n))) { caught++ }
+    last = e
+  }
+  let t: int = o.tag
+  if (t != n) { bad++ }
+}
+export fn check() {
+  if (n > 0) { doCheck() }
+}
+fn doCheck() {
+  print(caught)
+  print(bad)
+  let m: str = last.message
+  printStr(m)
+}`, guard: f => ['> ' + f, '> 0', '> boom ' + f] },
+
+  // (o) typed arrays: xs[i], xs.push, xs.pop, xs.length, an array handed to JS — per frame, and kept in globals
+  { name: 'arr-typed', kind: 'steady', src: `
+mut keep: arr = 0
+mut keepNums: numarr = 0
+mut nested: arr = 0
+mut n = 0
+mut bad = 0
+mut total = 0
+export fn run() {
+  keep = newArray(4)
+  keepNums = [1.5, 2.5]
+  nested = newArray(2)
+  keep[0] = 31337
+  nested[0] = keep
+  animate()
+}
+export fn frame() {
+  n++
+  // small values only: an int element between 1024 and 48640 is taken for a string-literal address
+  // when an array is converted for JS (a rule of toJsArray that is older than this test)
+  let m = n % 100
+  let xs = [m, m + 1, m + 2]
+  xs.push(m + 3)
+  let v = xs[1]
+  if (v != m + 1) { bad++ }
+  if (xs.length != 4) { bad++ }
+  let s: int = memLib.sum(xs)
+  if (s != m * 4 + 6) { bad++ }
+  let isA: int = memLib.isArray(xs)
+  if (isA != 1) { bad++ }
+  let p = xs.pop()
+  if (p != m + 3) { bad++ }
+  let fs = [0.5, 1.5]
+  fs.push(2.5)
+  total += xs.length
+  if (n % 1000 == 0) {
+    keep = [n, n * 2]
+    keepNums.push(0.25)
+  }
+}
+export fn check() {
+  if (n >= 1000) { doCheck() }
+}
+fn doCheck() {
+  print(bad)
+  print(keep[1])
+  print(keep.length)
+  print(keepNums.length)
+  print(total)
+}`, guard: f => ['> 0', '> ' + Math.floor(f / 1000) * 2000, '> 2', '> ' + (2 + Math.floor(f / 1000)), '> ' + 3 * f] },
+
   // (i) one call that holds more than the whole string area: a clear error, no corruption, and it recovers
   { name: 'string-exhaustion', kind: 'exhaust', frames: 2, src: `
 mut keep: str = ""
@@ -354,6 +651,8 @@ function sampleInPage() {
   }
   if (s.arrayIds === undefined) s.arrayIds = s.arraySlots;
   s.memBytes = _wasmMem ? _wasmMem.buffer.byteLength : 0;
+  s.out = document.getElementById('tab-output').getElementsByTagName('*').length;
+  s.log = window._impLog ? window._impLog.length : 0;
   return s;
 }
 
@@ -393,50 +692,68 @@ async function runProgram(browser, fileUrl, prog) {
   const status = await page.evaluate(() => document.getElementById('sTxt').innerText);
   if (status !== 'Done') errors.push('status: ' + status + ' — ' + (await page.evaluate(() => document.getElementById('tab-output').innerText)).slice(0, 400));
 
+  const drive = prog.drive || 'frames';
   const hasFrame = await page.evaluate(() => !!(window._wi && window._wi.exports.frame));
-  if (!hasFrame) errors.push('program has no frame()');
+  if (!hasFrame && (drive === 'frames' || drive === 'asyncFrames')) errors.push('program has no frame()');
 
   const samples = [];
   const F = prog.frames || FRAMES;
   const marks = prog.frames ? [0, 1, 1, F] : [0, Math.round(F / 10), Math.round(F / 2), F];
-  let trace = 0, done = 0;
+  let done = 0;
   const t0 = Date.now();
   for (const mark of marks) {
     while (done < mark && !errors.length) {
       const n = Math.min(500, mark - done);
-      const r = await page.evaluate(n => {
+      const r = await page.evaluate(async ({ n, drive }) => {
         /* eslint-disable no-undef */
-        const f = window._wi.exports.frame;
+        const turn = () => new Promise(ok => setTimeout(ok, 0));
         try {
-          for (let i = 0; i < n; i++) { if (typeof _emitFrame === 'function') _emitFrame(); else f(); }
+          if (drive === 'frames') {
+            for (let i = 0; i < n; i++) _emitFrame();
+          } else if (drive === 'asyncFrames') {
+            // an async frame() finishes in a later microtask: wait for it before starting the next one
+            for (let i = 0; i < n; i++) { _emitFrame(); while (_frameBusy) await Promise.resolve(); }
+          } else if (drive === 'gate') {
+            // let the suspended loop run n iterations, then run other calls while it is suspended again
+            const g = window.memGate; g.budget += n; if (g.waiting) g.waiting();
+            while (g.budget > 0 || !g.waiting) await turn();
+            for (let i = 0; i < 3; i++) window._emitCallExport(window._wi, 'churn', []);
+          } else if (drive === 'clicks') {
+            const b = document.querySelector('#tab-output button');
+            for (let i = 0; i < n; i++) { b.click(); if (i % 50 === 49) await turn(); }
+            await turn();
+          }
         } catch (e) { return { err: String((e && e.message) || e) }; }
-        // drop the per-call trace lines and the import log (see the header comment)
-        let removed = 0;
-        const out = document.getElementById('tab-output');
-        for (const d of [...out.children]) {
-          if (d.tagName === 'DIV' && !d.firstElementChild && /^(→ |< )/.test(d.textContent)) { d.remove(); removed++; }
-        }
-        if (window._impLog) window._impLog.length = 0;
-        return { removed };
-      }, n);
+        return {};
+      }, { n, drive });
       if (r.err) { errors.push('frame threw: ' + r.err); break; }
-      trace += r.removed; done += n;
+      done += n;
     }
     const s = await page.evaluate(sampleInPage);
-    s.frame = mark; s.heap = await heap(); s.trace = trace;
+    s.frame = mark; s.heap = await heap();
     samples.push(s);
   }
   const ms = Date.now() - t0;
 
   // Guard: call check() through the same kind of top-level call the IDE's "Tap to call" makes.
-  let guardLines = null;
+  let guardLines = null, finishLines = null;
   if (prog.guard && !errors.length) {
-    guardLines = await page.evaluate(() => {
-      const out = document.getElementById('tab-output');
-      const before = out.children.length;
-      try { window._wi.exports.check(); } catch (e) { return ['check() threw: ' + e.message]; }
-      return [...out.children].slice(before).map(d => d.textContent).filter(t => !/^(→ |< )/.test(t));
+    // what the program prints from here on (the trace cap removes old nodes, so count from a marker node)
+    const printed = () => page.evaluate(() => {
+      const out = document.getElementById('tab-output'), all = [...out.children];
+      return all.slice(all.indexOf(window.__mark) + 1).map(d => d.textContent).filter(t => !/^(→ |< |\[click )/.test(t));
     });
+    const markHere = () => page.evaluate(() => { window.__mark = document.createElement('div'); window.__mark.style.display = 'none'; document.getElementById('tab-output').appendChild(window.__mark); });
+    if (prog.finish) {
+      // end the long sleep: the suspended run() resumes and prints what it held in locals all along
+      await markHere();
+      await page.evaluate(() => { window.__longTimers.splice(0).forEach(f => f()); });
+      await page.waitForTimeout(100);
+      finishLines = await printed();
+    }
+    await markHere();
+    const threw = await page.evaluate(() => { try { window._emitCallExport(window._wi, 'check', []); } catch (e) { return 'check() threw: ' + e.message; } return null; });
+    guardLines = threw ? [threw] : await printed();
   }
   await page.waitForTimeout(50);
   const output = await page.evaluate(() => document.getElementById('tab-output').innerText);
@@ -445,7 +762,7 @@ async function runProgram(browser, fileUrl, prog) {
   let bad = output.split('\n').filter(l => /✗|\bERROR\b|BAD /.test(l));
   const exhausted = bad.filter(l => /out of string memory/.test(l)).length;
   if (prog.kind === 'exhaust') bad = bad.filter(l => !/out of string memory/.test(l));
-  return { prog, samples, errors, guardLines, bad, output, ms, exhausted };
+  return { prog, samples, errors, guardLines, finishLines, bad, output, ms, exhausted };
 }
 
 function judge(r) {
@@ -453,6 +770,17 @@ function judge(r) {
   const [, a, , z] = r.samples;
   if (!a || !z) return fails.concat('no samples');
   if (r.bad.length) fails.push('output reports an error: ' + r.bad[0].slice(0, 200));
+  if (z.out > a.out + 400) fails.push(`Output tab grew: ${a.out} nodes at frame ${a.frame} → ${z.out} at frame ${z.frame}`);
+  if (z.log > 2000) fails.push('import log grew to ' + z.log + ' entries');
+  if (r.prog.finish && JSON.stringify(r.prog.finish) !== JSON.stringify(r.finishLines)) fails.push('values held in locals across the long await: want ' + JSON.stringify(r.prog.finish) + ' got ' + JSON.stringify(r.finishLines));
+  if (r.prog.keepLine && !BASELINE) {
+    // 100,000 trace lines later: the program's own first output line is still there, with one marker line
+    const lines = r.output.split('\n');
+    if (!lines.includes(r.prog.keepLine)) fails.push('program output line "' + r.prog.keepLine + '" was dropped from the Output tab');
+    const marks = lines.filter(l => /earlier trace lines dropped/.test(l));
+    if (marks.length !== 1) fails.push('expected one "earlier trace lines dropped" line, saw ' + marks.length);
+  }
+  if (r.prog.parked !== undefined && z.parked !== r.prog.parked) fails.push('expected ' + r.prog.parked + ' suspended call(s) with known locals (parked), the runtime reports ' + z.parked);
   if (r.prog.kind === 'steady') {
     if (z.handles > a.handles + 300) fails.push(`live handles grew: ${a.handles} at frame ${a.frame} → ${z.handles} at frame ${z.frame}`);
     if (z.strBytes > a.strBytes + 262144) fails.push(`string bytes grew: ${a.strBytes} → ${z.strBytes}`);
@@ -675,14 +1003,15 @@ async function scopeApi(browser, fileUrl) {
   let failed = 0;
   const kb = n => (n / 1024).toFixed(0) + 'K';
   console.log(`${FRAMES} frames per program${BASELINE ? '  (BASELINE: measuring only)' : ''}`);
-  console.log('program                 frame  handles   ids-issued  strBytes   strTop  wraps    arrays/ids  wasmMem  jsHeap   trace');
+  console.log('program                    frame  handles   ids-issued  strBytes   strTop  wraps    arrays/ids  wasmMem  jsHeap     out    log');
   for (const prog of progs) {
     const r = await runProgram(browser, fileUrl, prog);
     for (const s of r.samples) {
-      console.log('  ' + prog.name.padEnd(22) + String(s.frame).padStart(6) + String(s.handles).padStart(9) + String(s.handleIds).padStart(13) + kb(s.strBytes).padStart(10) + kb(s.strTop).padStart(9) + String(s.strWraps || 0).padStart(7) + (s.arrays + '/' + s.arrayIds).padStart(14) + kb(s.memBytes).padStart(9) + kb(s.heap).padStart(8) + String(s.trace).padStart(8));
+      console.log('  ' + prog.name.padEnd(25) + String(s.frame).padStart(6) + String(s.handles).padStart(9) + String(s.handleIds).padStart(13) + kb(s.strBytes).padStart(10) + kb(s.strTop).padStart(9) + String(s.strWraps || 0).padStart(7) + (s.arrays + '/' + s.arrayIds).padStart(14) + kb(s.memBytes).padStart(9) + kb(s.heap).padStart(8) + String(s.out).padStart(8) + String(s.log).padStart(7));
     }
     const fails = judge(r);
-    if (r.guardLines) console.log('      guard read-back: ' + JSON.stringify(r.guardLines));
+    if (r.guardLines) console.log('      guard read-back: ' + JSON.stringify(r.guardLines) + (r.finishLines ? '  after the long await: ' + JSON.stringify(r.finishLines) : ''));
+    if (prog.kind === 'grows' && r.samples[3]) console.log('      (not bounded by design, see the header) handles ' + r.samples[1].handles + ' → ' + r.samples[3].handles + ', string bytes ' + r.samples[1].strBytes + ' → ' + r.samples[3].strBytes + ', arrays ' + r.samples[1].arrays + ' → ' + r.samples[3].arrays);
     if (BASELINE) console.log('      (baseline) ' + (fails.length ? 'would fail: ' + fails.join(' | ') : 'would pass') + `   [${r.ms} ms]`);
     else if (fails.length) { failed++; console.log('FAIL  ' + prog.name + `   [${r.ms} ms]\n      ` + fails.join('\n      ')); }
     else console.log('PASS  ' + prog.name + `   [${r.ms} ms]`);
