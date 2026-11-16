@@ -263,7 +263,7 @@ export fn run() {
   stopAudio(id)
   print(id)
   setTimeout(fnRef(check), 800)
-}`, expect: ['> 0.5', '> 1', '> loaded', '> 0.25'] },   // id 1: slot 0 of the runtime table is the src array literal
+}`, expect: ['> 0.5', '> 0', '> loaded', '> 0.25'] },   // id 0: the first slot of the runtime table (Emit arrays such as the src literal have ids of their own since the lifetime work, they no longer take a slot)
 
   'anime.js': { pkg: 'animejs', globals: ['anime'], wait: 900, src: `
 use anime.js

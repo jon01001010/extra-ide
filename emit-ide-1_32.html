@@ -2176,6 +2176,45 @@ function ins(ch){var s=ed.selectionStart,e=ed.selectionEnd;var pairs={"(":"()","
 function setStatus(st,text,right=''){document.getElementById('sDot').className='sdot '+st;document.getElementById('sTxt').textContent=text;document.getElementById('sR').textContent=right}
 function h(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function sp(cls,t){return'<span class="'+cls+'">'+h(t)+'</span>'}
+// Lifetime hook for the runtime (see "LIFETIME" in the runtime section): the finished module is rewritten so
+// that every WASM global is also exported, as "__g<index>", and the memory a second time as "__emitGC".
+// The runtime reads the globals through these exports to find the js/str/array values a program still holds.
+// Nothing else in the module changes; if the rewrite fails the module is returned as it was (and the
+// runtime then never releases anything).
+function _emitExportGlobals(bytes){
+  var p=8,nG=0,exS=-1,exC=0,exE=0;
+  function leb(){var r=0,s=0,c;do{c=bytes[p++];r+=(c&0x7F)*Math.pow(2,s);s+=7}while(c&0x80);return r}
+  function name(){var n=leb();p+=n}
+  function limits(){var f=leb();leb();if(f&1)leb()}
+  while(p<bytes.length){
+    var at=p,id=bytes[p++],size=leb(),start=p;
+    if(id===2){
+      for(var n=leb();n>0;n--){
+        name();name();var kind=bytes[p++];
+        if(kind===0)leb();else if(kind===1){p++;limits()}else if(kind===2)limits();else if(kind===3){p+=2;nG++}else if(kind===4){p++;leb()}else throw new Error('import kind');
+      }
+    }else if(id===6)nG+=leb();
+    else if(id===7){exS=at;exC=start;exE=start+size}
+    p=start+size;
+  }
+  if(exS<0||p!==bytes.length)throw new Error('module layout');
+  p=exC;var count=leb(),body=Array.prototype.slice.call(bytes,p,exE);
+  body.push(...estr('__emitGC'),2,...eu32(0));
+  for(var g=0;g<nG;g++)body.push(...estr('__g'+g),3,...eu32(g));
+  var sec=[...eu32(count+1+nG),...body],out=new Uint8Array(exS+1+eu32(sec.length).length+sec.length+bytes.length-exE);
+  out.set(bytes.subarray(0,exS+1),0);p=exS+1;
+  out.set(eu32(sec.length),p);p+=eu32(sec.length).length;
+  out.set(sec,p);p+=sec.length;
+  out.set(bytes.subarray(exE),p);
+  return out;
+}
+(function(){
+  var enc=WasmCodegen.prototype.encodeBinary;
+  WasmCodegen.prototype.encodeBinary=function(){
+    var b=enc.apply(this,arguments);
+    try{return _emitExportGlobals(b)}catch(e){return b}
+  };
+})();
 // Build import object — std builtins get real implementations
 //#emit-runtime-begin — up to the matching end marker this is copied verbatim into exported .html/.js files (see _exportRuntime); keep IDE-only code out of it
 var _canvas=null,_ctx=null,_curColor='#ffffff',_wasmMem=null,_arrays=[];
@@ -2223,38 +2262,45 @@ function _chartInit(w,h,type){
   document.getElementById('tab-output').appendChild(cv);
 }
 function _readStr(ptr){if(!_wasmMem)return'[no memory]';var v=new DataView(_wasmMem.buffer);var len=v.getUint32(ptr,true);return new TextDecoder().decode(new Uint8Array(_wasmMem.buffer,ptr+4,len))}
-// Fallback scratch region for JS-built strings: 8 rotating slots of 512 bytes at offset 49152 (48KB)
+// Scratch region at offset 49152 (48KB). JS-built strings are no longer written here (see _writeBigStr);
+// only the "" that _writeStr returns when the string area is exhausted is.
 var _strScratchBase=49152,_strScratchSlots=8,_strScratchSize=512,_strScratchIdx=0;
 function _writeStr(str){
   if(!_wasmMem)return 0;
   var enc=new TextEncoder().encode(String(str));
-  var maxBytes=_strScratchSize-5;
-  // Every string goes to the bump allocator, so a str value stays valid for the rest of the run
-  // (until 32MB of later strings wrap it). The 8 scratch slots are only a fallback if memory cannot grow.
+  // Every string goes to the string area past the first 64KB page (see "LIFETIME" below): it stays
+  // valid for as long as the program can reach it and its space is reused afterwards.
   var big=_writeBigStr(enc);if(big)return big;
-  if(enc.length>maxBytes)enc=enc.slice(0,maxBytes);
-  var off=_strScratchBase+_strScratchIdx*_strScratchSize;
-  _strScratchIdx=(_strScratchIdx+1)%_strScratchSlots;
-  var view=new DataView(_wasmMem.buffer);
-  view.setUint32(off,enc.length,true);
-  var bytes=new Uint8Array(_wasmMem.buffer,off+4,enc.length);
-  bytes.set(enc);
-  view.setUint8(off+4+enc.length,0);
-  return off;
+  // The area is full of strings that are still in use (or memory cannot grow): never overwrite a
+  // live string — report it and hand back "" (a zero length written to the old scratch region).
+  _strErrors++;
+  if(!_strFailShown){_strFailShown=true;_jsErr('out of string memory','more than '+Math.round(_strLimit/1048576)+' MB of strings are in use at once (strings built during one call are only released when that call returns) — this string is replaced by ""')}
+  try{new DataView(_wasmMem.buffer).setUint32(_strScratchBase,0,true)}catch(e){return 0}
+  return _strScratchBase;
 }
-// JS-built strings are bump-allocated in memory grown past the first 64KB page.
-// They are not reused within a run; after 32MB the allocator wraps around to the start.
+// JS-built strings live in blocks (8-byte aligned: 4-byte length, UTF-8, NUL) in memory grown past
+// the first 64KB page, up to _strLimit. A block is never moved and never overwritten while it is
+// registered in _strBlocks; _gcCollect() unregisters the blocks the program can no longer reach and
+// _strRegap() turns the space between the remaining ones into the gaps new strings are placed in.
+// Returns 0 when no gap is large enough (the caller reports it) — there is no wrap-around any more.
 function _writeBigStr(enc){
   try{
-    var m=_wasmMem,p=m._emitBig||65536,need=enc.length+5;
-    if(p+need>33554432)p=65536;
+    var m=_wasmMem;
+    if(m!==_strMem)_strReset(m);
+    if(!_scN)_scopeAuto();
+    var need=(enc.length+12)&~7,p=0;
+    for(;;){
+      if(_strPos+need<=_strEnd){p=_strPos;break}
+      if(_strGapI>=_strGaps.length)return 0;
+      _strPos=_strGaps[_strGapI++];_strEnd=_strGaps[_strGapI++];
+    }
     var end=p+need;
     if(end>m.buffer.byteLength)m.grow(Math.ceil((end-m.buffer.byteLength)/65536));
     var view=new DataView(m.buffer);
     view.setUint32(p,enc.length,true);
     new Uint8Array(m.buffer,p+4,enc.length).set(enc);
     view.setUint8(p+4+enc.length,0);
-    m._emitBig=(end+7)&~7;
+    _strPos=end;_strBlocks.set(p,need);_strLog.push(p);_strLive+=need;_gcNewS+=need;if(end>_strTop)_strTop=end;
     return p;
   }catch(e){return 0}
 }
@@ -2271,22 +2317,218 @@ function _need2d(){
   return _ctx;
 }
 // ═══ JS INTEROP — universal dispatch via handle table ═══
-// Handles are BigInts: 0 = null/undefined, 1 = window, otherwise _hBase + index into the _handles array.
+// Handles are BigInts: 0 = null/undefined, 1 = window, otherwise _hBase + index, where index is a key of the _handles Map.
+// An index is issued once and never reused; the same JS value always gets the same handle while it is live
+// (see "LIFETIME" below for when a handle is released).
 // _hBase is 2^48 so that an ordinary Emit int (a loop counter, a size) can never be mistaken for a handle.
 // Arg buffer at offset 48640: 32 slots × 16 bytes = 512 bytes. Slot layout: [tag:u8][reserved:7][value:f64 OR i64-bits]
 // Tags: 0=int (i64; a live handle id is passed as its JS value), 1=num (f64), 2=str (ptr as u32), 3=handle (js-typed values and null), 4=bool, 5=int literal
-var _handles=[null,null];   // [0] unused, [1] = window (special global root)
+var _handles=new Map();     // index → JS value (indexes 0 and 1 are never stored: 0 = null, 1 = window)
+var _hIds=new Map();        // JS value → index: identity de-duplication (objects by identity, strings/booleans by value)
+var _hNext=2;               // next index; monotonic for the whole run, so a released id can never mean another object
+var _hWin=null;             // what handle 1 stands for
 var _hBase=281474976710656; // 2^48
 var _argBufBase=48640;
+// ═══ LIFETIME — handles, JS-built strings and Emit arrays are released when the program cannot reach them ═══
+// WHAT THE PROGRAM CAN REACH (the roots). A js/str/array value lives in exactly these places:
+//   1. a top-level variable — a WASM global. The compiler exports every global as "__g<i>" (and the
+//      memory a second time as "__emitGC" to say so; see _emitExportGlobals), so the runtime can read them.
+//   2. an element of an Emit array that is itself reachable from 1, 2 or 3.
+//   3. an Emit array whose id was handed to JS (an int argument, a callback result, a toJsArray element):
+//      JS may give the number back later, so such an array is kept for the rest of the run (_arrEsc).
+//      Anything else stored in _arrays under a small index (library objects, arrays not made by newArray)
+//      is never released and its elements are roots.
+//   4. a local variable or temporary of an invocation that has not returned yet — invisible to the runtime.
+// The scan of 1–3 is conservative: ANY number found there that equals a handle id, the address of a string
+// block or an Emit array id keeps that thing alive. Ids are chosen so that ordinary numbers do not collide:
+// handles start at 2^48, Emit arrays at 2^40 (_aBase), neither is ever reused, strings are addresses ≥ 64KB.
+// Because of 4, things are only released at the end of an invocation ("scope"), never while it runs:
+//   var t=_scopeEnter(top)  when JS is about to call into the program (frame(), a callback, an entry function)
+//   _scopeExit(t)           when that call has COMPLETED — for a call that returns a promise (a suspended
+//                           JSPI call) only when the promise settles, not when the call returns it
+//   _scopeRun(fn,args,top)  does both around fn.apply(null,args), including the promise case
+// At _scopeExit:
+//   • no other scope is active → everything not reachable from the roots is released (a full collection;
+//     skipped until enough has been created since the last one, see _gcDue).
+//   • other scopes are active (an enclosing call further down the stack, or a suspended call) → they may hold
+//     anything that existed while they ran. Only what THIS scope created is released, and only if this scope
+//     ran synchronously from enter to exit and every scope entered after it has exited; otherwise nothing.
+//     A suspended call therefore keeps every handle it could have seen until it completes.
+// A call into the program that nobody announced is still safe: the first handle/string/array operation with
+// no scope active opens an implicit scope that ends at the next microtask checkpoint, i.e. after the
+// synchronous call has returned (_scopeAuto). _scopeEnter() without `top` does the same first, in case it is
+// nested in such a call; pass top=true only where the call cannot be nested in program code (the frame loop).
+// A promise-returning (suspending) call MUST be announced with _scopeEnter/_scopeExit or _scopeRun.
+// If the roots cannot be read (a module without the "__emitGC" export, or no instance in window._wi yet)
+// nothing is ever released.
+var _scN=0,_scSeq=0,_scopes=new Map(),_scAutoTok=0; // active scopes: token → {h,s,a: what existed at enter, k: tick}
+var _gcTick=0,_gcTickQ=false;                        // _gcTick advances at every microtask checkpoint that follows a _scopeEnter
+var _gcNewH=0,_gcNewS=0,_gcNewA=0,_gcScan=0,_gcRuns=0,_gcStale=0,_gcStaleShown=false;
+var _strMem=null,_strBlocks=new Map(),_strLog=[],_strGaps=[],_strGapI=0,_strPos=65536,_strLimit=33554432,_strEnd=33554432,_strLive=0,_strTop=65536,_strErrors=0,_strFailShown=false;
+// Emit arrays made by newArray: id = _aBase + k. _arrMap: k → the array (also mirrored as _arrays[id] for code
+// that indexes _arrays directly), _arrEsc: the k that escaped to JS, _arrLog: k in creation order.
+var _aBase=1099511627776,_aNext=0,_arrMap=new Map(),_arrEsc=new Set(),_arrLog=[];
+function _gcTickBump(){
+  _gcTick++;_gcTickQ=false;
+  if(_scAutoTok){var t=_scAutoTok;_scAutoTok=0;_scopeExit(t)}
+}
+function _scopeEnter(top){
+  if(!top&&!_scN&&!_scAutoTok)_scopeAuto();
+  if(!_gcTickQ){_gcTickQ=true;Promise.resolve().then(_gcTickBump)}
+  var t=++_scSeq;
+  _scopes.set(t,{h:_hNext,s:_strLog.length,a:_arrLog.length,k:_gcTick});_scN++;
+  return t;
+}
+function _scopeAuto(){if(!_scAutoTok)_scAutoTok=_scopeEnter(true)}
+function _scopeExit(t){
+  var sc=_scopes.get(t);if(!sc)return;
+  _scopes.delete(t);_scN--;
+  if(_scN===0){if(_gcDue())_gcCollect(null);return}
+  if(sc.k!==_gcTick)return; /* not synchronous: other scopes may have run in between */
+  var made=(_hNext-sc.h)+(_arrLog.length-sc.a),madeS=_strLog.length-sc.s;
+  if(!made&&!madeS)return;
+  var later=false,sameTick=false;
+  _scopes.forEach(function(o,k){if(k>t)later=true;if(o.k===_gcTick)sameTick=true});
+  if(later)return;
+  /* an enclosing synchronous call will collect soon: only bother when this scope itself made a lot */
+  if(sameTick&&made<Math.max(256,_gcScan)&&madeS<1024)return;
+  _gcCollect(sc);
+}
+function _scopeRun(fn,args,top){
+  var t=_scopeEnter(top),r;
+  try{r=args?fn.apply(null,args):fn()}catch(e){_scopeExit(t);throw e}
+  if(r&&typeof r==='object'&&typeof r.then==='function'){
+    if(typeof r.finally==='function')return r.finally(function(){_scopeExit(t)});
+    return r.then(function(v){_scopeExit(t);return v},function(e){_scopeExit(t);throw e});
+  }
+  _scopeExit(t);
+  return r;
+}
+// One animation frame, through the same scoped path the animate() loop uses.
+function _emitFrame(){
+  var w=window._wi;
+  if(w&&w.exports.frame)return _scopeRun(w.exports.frame,null,true);
+}
+function _gcDue(){
+  var n=Math.max(64,_gcScan>>3);
+  return _gcNewH>=n||_gcNewA>=n||_gcNewS>=Math.max(16384,_gcScan*64);
+}
+// The program's WASM globals (WebAssembly.Global objects), or null when they cannot be read.
+function _gcGlobals(){
+  var m=_wasmMem;if(!m)return null;
+  if(m._emitG!==undefined)return m._emitG;
+  var inst=(typeof window!=='undefined')?window._wi:null,g=null;
+  if(!inst||!inst.exports||inst.exports.memory!==m)return null; /* instance not published yet: ask again later */
+  if(inst.exports.__emitGC){
+    g=[];
+    for(var k in inst.exports)if(/^__g\d+$/.test(k)&&inst.exports[k]&&typeof inst.exports[k]==='object')g.push(inst.exports[k]);
+  }
+  m._emitG=g;
+  return g;
+}
+// Mark: everything reachable from the roots. Returns {h,s,a} (handle indexes, string addresses, array ids) or null.
+function _gcMark(){
+  var gl=_gcGlobals();if(!gl)return null;
+  var kh=new Set(),ks=new Set(),ka=new Set(),work=[],n=gl.length,i,a;
+  function see(x){
+    if(typeof x!=='number'){if(typeof x==='bigint')x=Number(x);else return}
+    if(x>=_hBase){if(x-_hBase<_hNext)kh.add(x-_hBase)}
+    else if(x>=_aBase){var k=x-_aBase;if(!ka.has(k)){var t=_arrMap.get(k);if(t){ka.add(k);work.push(t)}}}
+    else if(x>=65536){if(_strBlocks.has(x))ks.add(x)}
+  }
+  for(i=0;i<gl.length;i++){try{see(gl[i].value)}catch(e){return null}}
+  _arrEsc.forEach(function(k){see(_aBase+k)});
+  for(i=0;i<_arrays.length;i++)if(Array.isArray(_arrays[i]))work.push(_arrays[i]);
+  while(work.length){a=work.pop();n+=a.length;for(i=0;i<a.length;i++)see(a[i])}
+  _gcScan=n;
+  return{h:kh,s:ks,a:ka};
+}
+function _gcDropH(i){var v=_handles.get(i);if(v!==undefined){_handles.delete(i);if(typeof v!=='number'&&_hIds.get(v)===i)_hIds.delete(v)}}
+function _gcDropS(p){var z=_strBlocks.get(p);if(z!==undefined){_strBlocks.delete(p);_strLive-=z}}
+function _gcDropA(k){if(_arrMap.has(k)){_arrMap.delete(k);delete _arrays[_aBase+k]}}
+// Sweep. sc = null: a full collection. sc = an exiting scope: only what that scope created.
+function _gcCollect(sc){
+  var k=_gcMark();if(!k)return false;
+  var i,keep;
+  if(sc){
+    for(i=sc.h;i<_hNext;i++)if(!k.h.has(i))_gcDropH(i);
+    keep=[];for(i=sc.s;i<_strLog.length;i++){if(k.s.has(_strLog[i]))keep.push(_strLog[i]);else _gcDropS(_strLog[i])}
+    _strLog.length=sc.s;for(i=0;i<keep.length;i++)_strLog.push(keep[i]);
+    keep=[];for(i=sc.a;i<_arrLog.length;i++){if(k.a.has(_arrLog[i]))keep.push(_arrLog[i]);else _gcDropA(_arrLog[i])}
+    _arrLog.length=sc.a;for(i=0;i<keep.length;i++)_arrLog.push(keep[i]);
+  }else{
+    _handles.forEach(function(v,i){if(!k.h.has(i))_gcDropH(i)});
+    _strBlocks.forEach(function(z,p){if(!k.s.has(p))_gcDropS(p)});_strLog.length=0;
+    _arrMap.forEach(function(a,id){if(!k.a.has(id))_gcDropA(id)});_arrLog.length=0;
+    _gcNewH=0;_gcNewS=0;_gcNewA=0;
+  }
+  _strRegap();
+  _gcRuns++;
+  return true;
+}
+// Free space of the string area = the gaps between the registered blocks, lowest first (flat list: start,end,…).
+function _strRegap(){
+  var ps=Array.from(_strBlocks.keys()).sort(function(a,b){return a-b}),g=[],at=65536;
+  for(var i=0;i<ps.length;i++){if(ps[i]>at)g.push(at,ps[i]);at=ps[i]+_strBlocks.get(ps[i])}
+  if(at<_strLimit)g.push(at,_strLimit);
+  _strGaps=g;_strGapI=0;_strPos=0;_strEnd=0;
+}
+function _strReset(m){
+  _strMem=m||null;_strBlocks=new Map();_strLog=[];_strGaps=[];_strGapI=0;_strPos=65536;_strEnd=_strLimit;_strLive=0;_strTop=65536;_strErrors=0;_strFailShown=false;
+}
+// A new run: forget every handle, string block, array record and scope of the previous one.
+function _memReset(){
+  _handles=new Map();_hIds=new Map();_hNext=2;
+  _hWin=typeof window!=='undefined'?window:(typeof globalThis!=='undefined'?globalThis:{});
+  _scopes=new Map();_scN=0;_scAutoTok=0;
+  _gcNewH=0;_gcNewS=0;_gcNewA=0;_gcScan=0;_gcRuns=0;_gcStale=0;_gcStaleShown=false;
+  _strReset(null);
+  _arrMap=new Map();_arrEsc=new Set();_arrLog=[];_aNext=0;
+}
+// Emit arrays: newArray (and array literals, which compile to it).
+function _arrNew(size){
+  if(!_scN)_scopeAuto();
+  var k=_aNext++,a=new Array(Number(size)).fill(0);
+  _arrMap.set(k,a);_arrays[_aBase+k]=a;_arrLog.push(k);_gcNewA++;
+  return BigInt(_aBase+k);
+}
+// The array behind an id (undefined if there is none, or it has been released).
+function _arrGet(id){var n=Number(id),k=n-_aBase;return k>=0?_arrMap.get(k):_arrays[n]}
+// A plain number is about to be handed to JS. If it is the id of an Emit array, JS may hand it back later.
+function _arrEscape(n){if(n>=_aBase&&_arrMap.has(n-_aBase))_arrEsc.add(n-_aBase)}
+// Counters for tests and diagnostics.
+function _memStats(){
+  var live=_arrMap.size;for(var i=0;i<_arrays.length;i++)if(_arrays[i]!==undefined&&_arrays[i]!==null)live++;
+  return{handles:_handles.size,handleIds:_hNext-2,strBytes:_strLive,strBlocks:_strBlocks.size,strTop:_strTop,strWraps:0,strErrors:_strErrors,arrays:live,arraySlots:_aNext+_arrays.length,arraysEscaped:_arrEsc.size,stale:_gcStale,collections:_gcRuns,scopes:_scN,rootsScanned:_gcScan,rootsReadable:!!_gcGlobals()};
+}
+// A handle id that was issued in this run but has been released: it reads as null, with one red line per run.
+function _handleStale(n){
+  _gcStale++;
+  if(!_gcStaleShown){_gcStaleShown=true;_jsErr('stale js value','a js value was used after it was released (handle '+n+') — it reads as null. Keep js values you need later in a top-level `mut` variable or an Emit array')}
+  return null;
+}
 function _handleFor(v){
   if(v===null||v===undefined)return 0n;
-  // Primitives (numbers, strings, booleans) are wrapped in a handle too, so round-trips work
-  var id=_handles.length;_handles.push(v);return BigInt(_hBase+id);
+  if(!_scN)_scopeAuto();
+  // Primitives (numbers, strings, booleans) are wrapped in a handle too, so round-trips work.
+  // The same object / string / boolean gets the same handle while that handle is live. Numbers are not
+  // looked up (they rarely repeat, and it keeps the commonest result cheap): each gets a new handle.
+  var i;
+  if(typeof v==='number'){i=_hNext++;_handles.set(i,v);_gcNewH++;return BigInt(_hBase+i)}
+  i=_hIds.get(v);
+  if(i===undefined){i=_hNext++;_handles.set(i,v);_hIds.set(v,i);_gcNewH++}
+  return BigInt(_hBase+i);
 }
-// Number → the live JS value behind that handle id, or undefined if it is not a handle.
+// Number → the live JS value behind that handle id, undefined if it is not a handle id of this run,
+// or null if it is one that has been released.
 function _handleLive(n){
   var i=n-_hBase;
-  if(i>=2&&i<_handles.length){var v=_handles[i];if(v!==undefined&&v!==null)return v}
+  if(i>=2&&i<_hNext){
+    if(!_scN)_scopeAuto();
+    var v=_handles.get(i);
+    if(v!==undefined)return v;
+    if(Math.floor(i)===i)return _handleStale(n);
+  }
   return undefined;
 }
 // Lenient read for toStr/toNum/toInt: a handle gives its JS value, 0 gives null, and a plain
@@ -2294,7 +2536,9 @@ function _handleLive(n){
 function _handleVal(h){
   if(h===0n||h===0)return null;
   var n=Number(h);
-  var v=_handleLive(n);return v===undefined?n:v;
+  var v=_handleLive(n);
+  if(v===undefined){_arrEscape(n);return n}
+  return v;
 }
 // Implementations of the `js`-type conversion imports (see _JS_CONV_IMPORTS in the compiler).
 function _jsIndexKey(k){return(typeof k==='number'||typeof k==='string'||typeof k==='symbol')?k:String(k)}
@@ -2461,9 +2705,12 @@ if(typeof window!=='undefined'&&window.addEventListener){
 function _handleGet(h){
   if(h===0n||h===0)return null;
   var idx=Number(h);
-  if(idx!==1)idx-=_hBase;
-  if(idx<1||idx>=_handles.length)return null;
-  return _handles[idx];
+  if(idx===1)return _hWin;
+  idx-=_hBase;
+  if(idx<2||idx>=_hNext)return null;
+  if(!_scN)_scopeAuto();
+  var v=_handles.get(idx);
+  return v===undefined?_handleStale(idx+_hBase):v;
 }
 function _readArg(slot){
   // Read one arg from the arg buffer. Returns the real JS value.
@@ -2481,6 +2728,7 @@ function _readArg(slot){
       var n=Number(bh);
       var hv=_handleLive(n);
       if(hv!==undefined)return hv;
+      _arrEscape(n);
       return n;
     }
     case 1: return view.getFloat64(off+8,true);
@@ -2493,7 +2741,9 @@ function _readArg(slot){
     case 4: return view.getUint8(off+8)!==0;
     case 5:{ // raw int literal — never a handle
       var lo=view.getUint32(off+8,true),hi=view.getInt32(off+12,true);
-      return Number((BigInt(hi)<<32n)|BigInt(lo));
+      var lit=Number((BigInt(hi)<<32n)|BigInt(lo));
+      _arrEscape(lit);
+      return lit;
     }
     default: return null;
   }
@@ -2547,7 +2797,8 @@ function _cbRet(v,t){
   if(t==='bool'||t==='i32')return !!v;
   if(t==='num'||t==='f64'||t==='f32')return v;
   var n=Number(v),hv=_handleLive(n);
-  return hv===undefined?n:hv;
+  if(hv===undefined){_arrEscape(n);return n}
+  return hv;
 }
 function _makeCallback(spec){
   var name=spec,idx=-1,ptypes=null,ret='void';
@@ -2558,6 +2809,10 @@ function _makeCallback(spec){
   var tbl=_cbTable,mem=_wasmMem;
   var wrapper=function(){
     if(mem!==_wasmMem)return; /* callback left over from an earlier run — ignore */
+    /* one scope per callback: its arguments, and what the Emit function creates, are released when it returns */
+    return _scopeRun(invoke,arguments);
+  };
+  var invoke=function(){
     var fn=null,args=[];
     if(idx>=0&&tbl){
       try{fn=tbl.get(idx)}catch(e){}
@@ -2582,12 +2837,12 @@ function _makeCallback(spec){
 }
 function _resetJsInterop(){
   // Called at the start of each run so handles don't leak across runs
-  _handles=[null,null];
-  _handles[1]=typeof window!=='undefined'?window:(typeof globalThis!=='undefined'?globalThis:{});
+  _memReset();
 }
 function _log(outputLog,fn,args){outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
 function buildImportObject(imports,outputLog){
   const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];var _strWritePtr=4096;
+  _memReset(); /* handles, strings, array records and scopes of an earlier run (also done by _resetJsInterop) */
   /* Callback table — the WASM module fills it with its functions (see cbElemSection) */
   _cbTable=null;try{_cbTable=new WebAssembly.Table({initial:Math.max(1,imports.cbCount||1),element:'anyfunc'})}catch(e){}
   obj.__cb__={table:_cbTable};
@@ -2744,15 +2999,15 @@ function buildImportObject(imports,outputLog){
           d.textContent=str;d.style.cssText='font-family:var(--mono);font-size:13px;padding:6px 12px;margin:4px;color:#d4d8e3;';
           document.getElementById('tab-output').appendChild(d);
         };break;
-        // Arrays — JS arrays stored by handle ID
-        case'newArray':s.newArray=function(size){var id=BigInt(_arrays.length);_arrays.push(new Array(Number(size)).fill(0));return id};break;
-        case'getItem':s.getItem=function(arr,idx){var a=_arrays[Number(arr)];if(!a)return 0n;return BigInt(a[Number(idx)]||0)};break;
-        case'setItem':s.setItem=function(arr,idx,val){var a=_arrays[Number(arr)];if(a)a[Number(idx)]=Number(val)};break;
-        case'getNumItem':s.getNumItem=function(arr,idx){var a=_arrays[Number(arr)];if(!a)return 0;return a[Number(idx)]||0};break;
-        case'setNumItem':s.setNumItem=function(arr,idx,val){var a=_arrays[Number(arr)];if(a)a[Number(idx)]=val};break;
-        case'push':s.push=function(arr,val){var a=_arrays[Number(arr)];if(a)a.push(Number(val))};break;
-        case'pop':s.pop=function(arr){var a=_arrays[Number(arr)];if(!a||!a.length)return 0n;return BigInt(a.pop())};break;
-        case'arrayLen':s.arrayLen=function(arr){var a=_arrays[Number(arr)];return BigInt(a?a.length:0)};break;
+        // Arrays — JS arrays stored by id (see _arrNew / _arrGet)
+        case'newArray':s.newArray=function(size){return _arrNew(size)};break;
+        case'getItem':s.getItem=function(arr,idx){var a=_arrGet(arr);if(!a)return 0n;return BigInt(a[Number(idx)]||0)};break;
+        case'setItem':s.setItem=function(arr,idx,val){var a=_arrGet(arr);if(a)a[Number(idx)]=Number(val)};break;
+        case'getNumItem':s.getNumItem=function(arr,idx){var a=_arrGet(arr);if(!a)return 0;return a[Number(idx)]||0};break;
+        case'setNumItem':s.setNumItem=function(arr,idx,val){var a=_arrGet(arr);if(a)a[Number(idx)]=val};break;
+        case'push':s.push=function(arr,val){var a=_arrGet(arr);if(a)a.push(Number(val))};break;
+        case'pop':s.pop=function(arr){var a=_arrGet(arr);if(!a||!a.length)return 0n;return BigInt(a.pop())};break;
+        case'arrayLen':s.arrayLen=function(arr){var a=_arrGet(arr);return BigInt(a?a.length:0)};break;
         // 3D (Three.js — loaded from CDN on first use)
         case'scene3d':s.scene3d=function(w,h){_init3d(Number(w),Number(h))};break;
         case'box':s.box=function(x,y,z){return BigInt(_addMesh3d(new THREE.BoxGeometry(1,1,1),x,y,z))};break;
@@ -3267,7 +3522,7 @@ function buildImportObject(imports,outputLog){
               var n=Number(raw);
               var hv=_handleLive(n);
               if(hv!==undefined){realArgs.push(hv)}
-              else{realArgs.push(n)}
+              else{_arrEscape(n);realArgs.push(n)}
             }
             else{realArgs.push(raw)}
           }
@@ -3318,6 +3573,11 @@ function buildImportObject(imports,outputLog){
     } else {
       obj[imp.module][imp.name]=function(){var args=[].slice.call(arguments);_log(outputLog,imp.name,args)};
     }
+  }
+  /* toJsArray copies the elements into a JS array as plain numbers: Emit array ids among them escape to JS */
+  if(obj.std&&obj.std.toJsArray){
+    var _toJsArray=obj.std.toJsArray;
+    obj.std.toJsArray=function(arrH){var a=_arrGet(arrH);if(Array.isArray(a))for(var i=0;i<a.length;i++)_arrEscape(a[i]);return _toJsArray(arrH)};
   }
   return obj;
 }
