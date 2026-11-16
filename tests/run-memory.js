@@ -687,6 +687,8 @@ async function runProgram(browser, fileUrl, prog) {
       window._writeBigStr = function (enc) { const p = orig(enc); if (p && p < last) window.__memWraps++; if (p) last = p; return p; };
     }
   }, { ex: prog.ex, src: prog.src });
+  // Frames are traced only for the first few (_frameTraceMax); the trace-cap check needs every frame traced.
+  if (prog.keepLine) await page.evaluate(() => { if (typeof _frameTraceMax !== 'undefined') window._frameTraceMax = 1e9; });
   await page.evaluate(() => compileAndRun()).catch(e => errors.push('run rejected: ' + e.message.slice(0, 300)));
   await page.waitForTimeout(prog.ex ? 1200 : 300);
   const status = await page.evaluate(() => document.getElementById('sTxt').innerText);
@@ -779,6 +781,14 @@ function judge(r) {
     if (!lines.includes(r.prog.keepLine)) fails.push('program output line "' + r.prog.keepLine + '" was dropped from the Output tab');
     const marks = lines.filter(l => /earlier trace lines dropped/.test(l));
     if (marks.length !== 1) fails.push('expected one "earlier trace lines dropped" line, saw ' + marks.length);
+  }
+  if (r.prog.ex === 'babylon' && !BASELINE) {
+    // By default only the first frames are traced: one note, and no per-frame trace lines piling up
+    const lines = (r.output || '').split('\n');
+    const notes = lines.filter(l => /frame\(\) keeps running/.test(l)).length;
+    const rot = lines.filter(l => /\.rotate\(/.test(l)).length;
+    if (notes !== 1) fails.push('expected one "frame() keeps running" note, saw ' + notes);
+    if (rot > 10) fails.push('frame calls are still traced after the first frames: ' + rot + ' .rotate( lines');
   }
   if (r.prog.parked !== undefined && z.parked !== r.prog.parked) fails.push('expected ' + r.prog.parked + ' suspended call(s) with known locals (parked), the runtime reports ' + z.parked);
   if (r.prog.kind === 'steady') {
