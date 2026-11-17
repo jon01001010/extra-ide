@@ -2698,6 +2698,33 @@ function _traceAdd(node){
   if(old.parentNode)old.parentNode.removeChild(old);
   _traceMark.textContent='→ … '+_traceDropped+' earlier trace lines dropped';
 }
+// Short text for one traced argument. Library objects are named by their class ([Mesh], [HTMLCanvasElement])
+// and never serialised: JSON.stringify would run their toJSON (three.js serialises the whole scene).
+// Plain {} objects and arrays are shown one level deep.
+function _traceVal(a,deep){
+  try{
+    if(a===null||a===undefined)return String(a);
+    var t=typeof a;
+    if(t==='string')return deep?JSON.stringify(a.length>40?a.substring(0,40)+'\u2026':a):a;
+    if(t==='function')return '[fn'+(a.name?' '+a.name:'')+']';
+    if(t!=='object')return String(a);
+    if(Array.isArray(a)){
+      if(deep)return '[Array('+a.length+')]';
+      return '['+a.slice(0,8).map(function(v){return _traceVal(v,true)}).join(',')+(a.length>8?',\u2026 '+a.length+' items':'')+']';
+    }
+    var proto=Object.getPrototypeOf(a);
+    if(proto===Object.prototype||proto===null){
+      if(deep)return '{\u2026}';
+      var ks=Object.keys(a);
+      return '{'+ks.slice(0,8).map(function(k){return k+':'+_traceVal(a[k],true)}).join(', ')+(ks.length>8?', \u2026 '+ks.length+' keys':'')+'}';
+    }
+    // Minified libraries have meaningless class names (qn, Wn); many objects carry a readable `type` (three.js: "Mesh")
+    var cn=a.constructor&&a.constructor.name,ty=null;
+    try{if(typeof a.type==='string'&&/^[A-Za-z][A-Za-z0-9_.]{1,39}$/.test(a.type))ty=a.type}catch(e){}
+    if(ty&&(!cn||cn.length<=3))return '['+ty+']';
+    return '['+((cn&&cn.length>3)?cn:(ty||'object'))+']';
+  }catch(e){return '[obj]'}
+}
 function _jsArgTrace(label,args){
   if(!_traceOn())return;
   try{
@@ -2705,7 +2732,7 @@ function _jsArgTrace(label,args){
     dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
     dbg.textContent='→ '+label+'('+args.map(function(a){
       if(a===null||a===undefined)return String(a);
-      if(typeof a==='object'){try{return JSON.stringify(a).substring(0,200)}catch(e){return '[obj]'}}
+      if(typeof a==='object'||typeof a==='function')return _traceVal(a);
       return String(a);
     }).join(', ')+')';
     _traceAdd(dbg);
@@ -2955,7 +2982,7 @@ function _resetJsInterop(){
   // Called at the start of each run so handles don't leak across runs
   _memReset();
 }
-function _log(outputLog,fn,args){if(outputLog.length>=_logMax)outputLog.splice(0,_logMax>>1); /* the import log keeps the newest calls only */ outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
+function _log(outputLog,fn,args){if(fn&&fn.charCodeAt(0)===95&&fn.charCodeAt(1)===95)return; /* internal __js… helpers are not listed under Results: the trace lines below show those calls readably */ if(outputLog.length>=_logMax)outputLog.splice(0,_logMax>>1); /* the import log keeps the newest calls only */ outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
 function buildImportObject(imports,outputLog){
   const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];var _strWritePtr=4096;
   _memReset(); /* handles, strings, array records and scopes of an earlier run (also done by _resetJsInterop) */
@@ -3555,7 +3582,7 @@ function buildImportObject(imports,outputLog){
             dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
             var argSummary=args.map(function(a){
               if(a===null||a===undefined)return String(a);
-              if(typeof a==='object'){try{return JSON.stringify(a).substring(0,200)}catch(e){return '[obj]'}}
+              if(typeof a==='object'||typeof a==='function')return _traceVal(a);
               return String(a);
             }).join(', ');
             dbg.textContent='→ .'+name+'('+argSummary+')';
@@ -3649,7 +3676,7 @@ function buildImportObject(imports,outputLog){
             dbg.style.cssText='color:#94a3b8;padding:2px 12px;font-family:var(--mono);font-size:10px;white-space:pre-wrap;word-break:break-all;';
             var argSummary=realArgs.map(function(a){
               if(a===null||a===undefined)return String(a);
-              if(typeof a==='object'){try{return JSON.stringify(a).substring(0,200)}catch(e){return '[obj]'}}
+              if(typeof a==='object'||typeof a==='function')return _traceVal(a);
               return String(a);
             }).join(', ');
             dbg.textContent='→ '+impName+'('+argSummary+')';
