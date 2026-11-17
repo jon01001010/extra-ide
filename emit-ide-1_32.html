@@ -377,6 +377,21 @@ public fn step(dt: num) num {
   return gravity * dt
 }</pre>
 
+<h2>Memory: regions and structs</h2>
+<p>A <strong>region</strong> is a fixed block of WebAssembly memory with a name, an element type and a length. Reading and writing it compiles to single load / store instructions &mdash; no call into JavaScript per access &mdash; so it is the fast way to keep big tables, particles, grids and pixel buffers. It is raw memory without C&rsquo;s traps: there are no pointers and no pointer arithmetic, every index is checked, memory starts zeroed, a region can be locked read-only, and the IDE can show what is in it.</p>
+<p><code>struct Ball { x: num, y: num, r: int, alive: bool }</code> &nbsp; <code>region balls: Ball[100]</code> &nbsp; <code>region fb: u8[320 * 200 * 4]</code> &nbsp; <code>region grid: int[64]</code> &mdash; at the top level of a file; <code>public struct</code> / <code>public region</code> make them visible to other modules (<code>physics.balls[i].x</code>, <code>import game.physics.Ball</code>). The size is a constant: int literals with <code>+ - * / %</code> and parentheses.</p>
+<p><strong>Element types:</strong> <code>i8 u8 i16 u16 i32 u32</code>, <code>int</code> (64-bit), <code>f32</code>, <code>num</code> (64-bit float), <code>bool</code> (1 byte) and structs. Reading a narrow integer gives an <code>int</code> (sign- or zero-extended); storing one keeps the low bits &mdash; it wraps the way the machine does (<code>u8</code>: 300 &rarr; 44, <code>i8</code>: 200 &rarr; -56). <code>f32</code> reads as a <code>num</code>; a store rounds to float precision. Storing a <code>num</code> into an integer element, or a number into a <code>bool</code>, is a compile error (round with <code>floor()</code> / <code>round()</code>, or write a comparison).</p>
+<p><strong>Structs</strong> hold fields of those types, other structs by value (<code>pos: Vec</code> &rarr; <code>balls[i].pos.x</code>) and fixed arrays of numbers (<code>hist: i16[3]</code> &rarr; <code>balls[i].hist[2]</code>). The compiler lays them out: fields in order, each at its natural alignment, the size rounded up to the largest alignment. There are no casts and no way to read the bytes as another type. A field cannot be <code>str</code>, <code>js</code> or <code>arr</code>: the memory manager does not look inside regions, so a string or JS value kept there could be released while still in use (keep an index into an <code>arr</code> instead). Arrays of structs inside a struct are not supported yet.</p>
+<p><code>grid[3] = 5</code> &nbsp; <code>grid[i] += 1</code> &nbsp; <code>grid[i]++</code> &nbsp; <code>balls[i].x = balls[i].x + 1.5</code> &nbsp; <code>balls[i].pos.y -= 1.0</code> &nbsp; <code>balls[j] = balls[i]</code> (copies the whole element) &nbsp; <code>grid.length</code> (the element count, a constant)</p>
+<p><strong>with</strong> names one element for a block without copying it: <code>with balls[i] as b { b.x += b.vx &nbsp; b.y += b.vy }</code>. The index is evaluated and checked once; inside the block <code>b.x</code> is a direct load / store. <code>b</code> is not a value: it cannot be stored in a variable, returned, passed to a function or pointed at another element, and it does not exist after the block. <code>balls[k] = b</code> copies the element.</p>
+<p><strong>Regions as parameters:</strong> <code>fn sum(r: region int) int { let s = 0 &nbsp; for (let i = 0; i &lt; r.length; i++) { s += r[i] } &nbsp; return s }</code>, then <code>sum(grid)</code>; <code>fn step(bs: region Ball)</code>. The function works on the caller&rsquo;s region itself (nothing is copied); <code>r.length</code> is that region&rsquo;s length and every index is checked against it. A region cannot be put in a variable, returned or stored &mdash; it is not a pointer &mdash; and an <code>export fn</code> or a <code>fnRef</code> callback cannot take one (JavaScript has no region to pass).</p>
+<p><strong>Whole-region operations:</strong> <code>fill(grid, 7)</code> &nbsp; <code>wipe(grid)</code> (all bytes zero; also for struct regions) &nbsp; <code>copy(src, dst)</code> &nbsp; <code>swap(a, b)</code> &mdash; <code>copy</code> and <code>swap</code> need the same element type and length (a compile error when both are known, a run-time error through a region parameter).</p>
+<p><strong>Bounds.</strong> Every <code>[i]</code> is checked: <code>0 &lt;= i &lt; length</code>. A constant index is checked by the compiler instead (<code>grid[64]</code> on a 64-element region does not compile) and costs nothing when the program runs. A failing check stops the current call with a red line such as <code>&#10007; run &rarr; grid[70]: index out of range (length 64) at main.emit:12:5</code>. Inside <code>try</code> it is caught like any other error (<code>e.message</code> is that text); in <code>frame()</code> each different message is shown once and the next frame runs normally. The check is one compare and a branch that is never taken: in a loop over a region it typically costs a few percent.</p>
+<p><strong>freeze.</strong> <code>freeze(grid)</code> makes every write from Emit code fail with <code>&#10007; write to frozen region grid at main.emit:9:3</code> (catchable the same way), including <code>fill</code>, <code>wipe</code>, <code>copy</code> into it and <code>swap</code>; <code>thaw(grid)</code> allows writes again; <code>frozen(grid)</code> tells which. Reads are never affected; the cost is one byte loaded and tested before each store. Writes from JavaScript through a view are <em>not</em> checked, and the IDE&rsquo;s Memory panel may edit a frozen region on purpose.</p>
+<p><strong>Views for JavaScript.</strong> <code>view(grid)</code> is a typed array over the region&rsquo;s bytes, without copying: <code>Int8Array</code> / <code>Uint8Array</code> / <code>Int16Array</code> / <code>Uint16Array</code> / <code>Int32Array</code> / <code>Uint32Array</code> / <code>BigInt64Array</code> (<code>int</code>) / <code>Float32Array</code> / <code>Float64Array</code> / <code>Uint8Array</code> (<code>bool</code>, and the raw bytes of a struct region). A region passed straight to a JS function arrives as such a view: <code>ctx.putImageData(new ImageData(new Uint8ClampedArray(view(fb).buffer, &hellip;)))</code>, <code>console.log(grid)</code>. Memory can grow while a program runs (strings are allocated in it), and growing makes every earlier typed array over it empty (length 0). <code>view(r)</code> always returns one that is valid at the time of the call &mdash; ask for it again instead of keeping one in JavaScript across calls that may allocate.</p>
+<p><strong>A memory-mapped screen.</strong> <code>screen(fb, 320, 200)</code> or <code>screen(fb, 160, 100, 3)</code> (each pixel 3&times;3, sharp): <code>fb</code> must be a <code>u8</code> region of at least width &times; height &times; 4 bytes, red / green / blue / alpha per pixel, row by row. It adds a canvas to the output (like <code>canvas()</code>) that shows the region and is redrawn every animation frame while the program runs, and right after every call from the runtime (Run, <code>frame()</code>, buttons, timers), so a picture drawn once appears too. Write pixels with <code>fb[(y * 320 + x) * 4] = 255</code>; set alpha to 255 to see them. <code>touchX()</code> / <code>touchY()</code> are page coordinates, as with <code>canvas()</code>: subtract the canvas position and divide by the scale to get a pixel.</p>
+<p><strong>Layout and limits.</strong> Regions live in memory from 64 KB up, in declaration order, followed by a small table (address, length, frozen flag per region); strings start after them. All regions of a program together are limited to 256 MB. Memory starts zeroed and every Run starts from fresh memory. Not supported yet: regions sized while the program runs (and released automatically), <code>str</code> / <code>js</code> / <code>arr</code> fields, arrays of structs inside structs, slices or views of part of a region, regions in the <code>wasm64</code> target.</p>
+
 <h2>Library Panel &mdash; 📚 button</h2>
 <p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
 <p><strong>Member autocomplete.</strong> Once a library has been loaded by a Run, the editor reads its real names: type <code>THREE.Sc</code> or <code>BABYLON.MeshBuilder.Cre</code> and pick from the popup (<code>class</code>, <code>fn(2)</code> = takes 2 arguments, <code>obj</code>, <code>value</code>). Library globals such as <code>confetti</code> are also suggested as you type, marked <code>lib</code>. After <code>let s = THREE.Scene()</code>, typing <code>s.</code> lists the class's methods (not fields set at run time). Before the first Run nothing is loaded yet, so the popup says &ldquo;Run once to load&rdquo;; the 📚 panel shows what is loaded and how many members each global has.</p>
@@ -2334,7 +2349,7 @@ function _emitModImports(m,byName){
 }
 function _emitModTable(fr){
   var t={};
-  fr.mods.forEach(function(m){if(!m.bad)t[m.name]={path:m.path,publics:_emitModPublics(m),imports:_emitModImports(m,fr.byName)}});
+  fr.mods.forEach(function(m){if(!m.bad){t[m.name]={path:m.path,publics:_emitModPublics(m),imports:_emitModImports(m,fr.byName)};_rgIndexAttach(t[m.name],_rgIndexOf(m))}});
   return t;
 }
 // Resolve all modules against each other and build the merged program.
@@ -2717,10 +2732,10 @@ function _emitModuleIndex(text){
     out.entry=fr.mods.length?fr.mods[0].name:'main';
     fr.mods.forEach(function(m){
       if(m.bad)return;
-      var e={path:m.path,publics:[],imports:[],structs:[],regions:[]};
+      var e={path:m.path,publics:[],imports:[]};_rgIndexAttach(e,{structs:[],regions:[]});
       out.modules[m.name]=e;
       try{
-        if(!m.failed){e.publics=_emitModPublics(m);e.imports=_emitModImports(m,fr.byName);var rx=_rgIndexOf(m);e.structs=rx.structs;e.regions=rx.regions;return}
+        if(!m.failed){e.publics=_emitModPublics(m);e.imports=_emitModImports(m,fr.byName);_rgIndexAttach(e,_rgIndexOf(m));return}
         var depth=0;
         m.source.split('\n').forEach(function(line){
           var code=line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,'""').replace(/\/\/.*$/,'');
@@ -2756,6 +2771,7 @@ function _emitModuleIndex(text){
       }catch(err){(out.errors||(out.errors=[])).push((fr.multi?m.path+':1:1: ':'1:1: ')+String((err&&err.message)||err))}
     });
     if(fr.errors.length)out.errors=(out.errors||[]).concat(fr.errors);
+    for(var mn in out.modules)_rgIndexAttach(out.modules[mn],out.modules[mn]); /* structs / regions found line by line */
   }catch(err){
     (out.errors||(out.errors=[])).push('1:1: '+String((err&&err.message)||err));
   }
@@ -2961,12 +2977,12 @@ function _rgLower(ast){
     if(t==='void')fail(what+' cannot be void — use i8 u8 i16 u16 i32 u32 int f32 num bool or a struct',loc);
     var st=SM.get(t);
     if(!st)fail('Unknown type "'+t+'" — use i8 u8 i16 u16 i32 u32 int f32 num bool or a struct name',loc);
-    layout(st);
+    layout(st,loc);
     return{struct:st,size:st.size,align:st.align};
   }
-  function layout(st){
+  function layout(st,at){
     if(st.state===2)return;
-    if(st.state===1)fail('struct '+st.src+' contains itself — a struct cannot hold itself by value',st.node.loc);
+    if(st.state===1)fail('struct '+st.src+' contains itself — a struct cannot hold itself by value',at||st.node.loc);
     st.state=1;
     var off=0,al=1,seen=new Set(),fs=[];
     if(!st.node.fields.length)fail('struct '+st.src+' has no fields',st.node.loc);
@@ -3013,7 +3029,7 @@ function _rgLower(ast){
   regions.forEach(function(r,i){r.desc=table+i*16});
   var heapBase=regions.length?Math.ceil((table+regions.length*16)/65536)*65536:65536;
   // ── lowering ──
-  var fns=new Map(),raw=new Set(),wid=0,memo=new Map(),scopes=[];
+  var fns=new Map(),raw=new Set(),wid=0,memo=new Map(),scopes=[],ended=new Map();
   body.forEach(function(n){if(n.type==='FunctionDecl')fns.set(n.name,n);else if(n.type==='ImportDecl')raw.add(n.name)});
   function look(name){
     for(var i=scopes.length-1;i>=0;i--)if(scopes[i].has(name))return scopes[i].get(name);
@@ -3096,7 +3112,7 @@ function _rgLower(ast){
     if(e.type.indexOf('Region')===0)return e;
     var r=e;
     switch(e.type){
-      case'IdentifierExpr':{var v=look(e.name);if(v&&v.k!=='local')notValue(v,e);break}
+      case'IdentifierExpr':{var v=look(e.name);if(v&&v.k!=='local')notValue(v,e);if(!v&&ended.has(e.name))fail('"'+e.name+'" was the name of '+ended.get(e.name)+' in a with block that has ended — it only exists inside that block',e.loc);break}
       case'IndexExpr':case'MemberExpr':
         if(rgLike(e)){r=asValue(place(e),e);break}
         kids(e);break;
@@ -3245,13 +3261,14 @@ function _rgLower(ast){
         def(n.alias,{k:'alias',wid:n.wid,rg:p.rg,struct:p.vt,what:p.what,path:p.path});
         S(n.body);
         scopes.pop();
+        ended.set(n.alias,p.what);
         return;
       }
     }
   }
   body.forEach(function(n){
     if(n.type==='FunctionDecl'){
-      scopes=[new Map()];
+      scopes=[new Map()];ended=new Map();
       if(_rgParamElem(n.returnType))fail('A function cannot return a region — a region is not a value (it stays where it is declared)',n.loc);
       var hasR=false;
       n.params.forEach(function(p){
@@ -3316,18 +3333,19 @@ function _rgPatchModule(b,I){
     if(t==='js')this.conv(x,'int');
     else if(!this.isI(t))this.fail((what||'An index')+' must be an int, but this is '+t,x.loc);
   };
+  function an(t){return(/^[aeiou]/.test(t)?'an ':'a ')+t}
   P.rgVal=function(v,kind,what){
     var t=this.a(v);
     if(t==='void')this.fail('This returns nothing — there is no value to store',v.loc);
     if(kind==='int'){
       if(t==='js')this.conv(v,'int');
-      else if(!this.isI(t))this.fail('Cannot store a '+t+' in '+what+' — it holds whole numbers'+(this.isN(t)||t==='f32'?': round the value first, e.g. floor(x) or round(x)':''),v.loc);
+      else if(!this.isI(t))this.fail('Cannot store '+an(t)+' in '+what+' — it holds whole numbers'+(this.isN(t)||t==='f32'?': round the value first, e.g. floor(x) or round(x)':''),v.loc);
     }else if(kind==='num'){
       if(t==='js')this.conv(v,'num');
-      else if(!(this.isI(t)||this.isN(t)||t==='f32'))this.fail('Cannot store a '+t+' in '+what+' — it holds numbers',v.loc);
+      else if(!(this.isI(t)||this.isN(t)||t==='f32'))this.fail('Cannot store '+an(t)+' in '+what+' — it holds numbers',v.loc);
     }else if(kind==='bool'){
       if(t==='js')this.conv(v,'bool');
-      else if(t!=='bool')this.fail('Cannot store a '+t+' in '+what+' — it holds true / false (write a comparison, e.g. x > 0)',v.loc);
+      else if(t!=='bool')this.fail('Cannot store '+an(t)+' in '+what+' — it holds true / false (write a comparison, e.g. x > 0)',v.loc);
     }
   };
   P.a=function(e){
@@ -3582,6 +3600,12 @@ function _rgIndexOf(m){
     else if(n.type==='RegionDecl')out.regions.push({name:n.name,public:!!n.isPublic,elem:n.elem,length:_rgTryFold(n.size)});
   });
   return out;
+}
+// Index / module-table entries always have .structs and .regions; they are enumerable (and so part of the
+// JSON) only when the module declares any — entries of programs without them stay exactly as they were.
+function _rgIndexAttach(e,rx){
+  ['structs','regions'].forEach(function(k){var v=rx[k]||[];Object.defineProperty(e,k,{value:v,enumerable:v.length>0,writable:true,configurable:true})});
+  return e;
 }
 function compile(source,target='wasm32'){const t0=performance.now();const lexer=new Lexer(source);const tokens=lexer.tokenize();const parser=new Parser(tokens);const ast=parser.parse();const inj=injectBuiltins(ast);const annotator=new TypeAnnotator();annotator.annotate(ast);const checker=new TypeChecker();const errors=checker.check(ast);const codegen=new WasmCodegen(ast,target);const wasm=codegen.generate();return{wasm,ast,tokens,errors,imports:codegen.imports,functions:codegen.functions,injected:inj.injected,autoJs:inj.autoJs,elapsed:performance.now()-t0,stats:{tokens:tokens.length,decls:ast.body.length,funcs:codegen.functions.length,imports:codegen.imports.length,bytes:wasm.length}}}
 // EXAMPLES
