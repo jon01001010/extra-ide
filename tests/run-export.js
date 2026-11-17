@@ -718,7 +718,9 @@ async function checkOthers(c, ide) {
   await tools.goto(fileUrl);
   // TEMPORARY SKIP LIST — REMOVE AT MERGE. The "modules" example (three files, import / package / public) only
   // compiles once the module-system branch is merged into the compiler. Naming it on the command line still runs it.
-  const SKIP_UNTIL_MERGE = [];
+  // "memory" (Memory tab demo: struct / region / screen / freeze) needs the structs-and-regions compiler and
+  // runtime; it was written in the mem-ide worktree before that branch was merged. REMOVE AT MERGE.
+  const SKIP_UNTIL_MERGE = ['memory'];
   const exNames = (await tools.evaluate(() => Object.keys(EX))).filter(n => !SKIP_UNTIL_MERGE.includes(n) || only.includes(n));
   await tools.goto('about:blank');
   const OFFLINE_EXAMPLES = ['cube3d', 'orbit', 'babylon', 'confetti'];
