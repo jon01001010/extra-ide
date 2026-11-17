@@ -491,7 +491,8 @@ async function runInIde(fileUrl, c) {
     ed.dispatchEvent(new Event('input'));
     // Reference run: only parameterless exported functions are called (see the header).
     window.genArgs = params => (params.length ? [] : [[]]);
-    return ed.value;
+    // The whole program: in a multi-file project the textarea shows only the active file.
+    return typeof _projText === 'function' ? _projText() : ed.value;
   }, [c.name, c.src == null ? null : c.src]);
   await page.evaluate(() => compileAndRun()).catch(e => t.errors.push('run rejected: ' + e.message.slice(0, 300)));
   const seen = await observe(t, '#tab-output', true, c);
