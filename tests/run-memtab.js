@@ -334,6 +334,8 @@ async function panelChecks(browser, fileUrl, mode, P) {
   }
   r = await overflow(page);
   check(P + 'nothing overflows the viewport horizontally', r.doc <= r.w && r.body <= r.w && r.ob <= 0, JSON.stringify(r));
+  r = await page.evaluate(() => [...document.querySelectorAll('#tab-memory button, #tab-memory input')].filter(b => b.offsetParent).map(b => { const q = b.getBoundingClientRect(); return { t: b.textContent || b.placeholder || b.className, w: Math.round(q.width), h: Math.round(q.height) }; }).filter(q => q.w < 40 || q.h < 40));
+  check(P + 'every button and field of the tab is at least 40 x 40 px', !r.length, JSON.stringify(r));
 
   // ── poke ──
   await page.evaluate(() => { window.__memStub.writes = []; });
@@ -445,6 +447,7 @@ async function panelChecks(browser, fileUrl, mode, P) {
   r0 = await reads(page); await page.waitForTimeout(700); r1 = await reads(page);
   const liveTxt = await page.evaluate(() => document.querySelector('#tab-memory .mlive').textContent);
   check(P + 'after Stop the refresh stops (the program no longer runs)', r1 === r0 && liveTxt === '', JSON.stringify([r1 - r0, liveTxt]));
+  check(P + 'with nothing running the refresh loop sleeps (no requestAnimationFrame pending)', await page.evaluate(() => _mem.raf) === 0);
   r = await poke(page, 'grid', 9, '123', mobile);
   check(P + 'poking still works after Stop', (await card(page, 'grid')).vals[9] === '123');
   await page.evaluate(() => compileAndRun());

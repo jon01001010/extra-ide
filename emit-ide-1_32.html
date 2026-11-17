@@ -7245,7 +7245,7 @@ function _projOpenFiles(files){
 // about 6 times a second (requestAnimationFrame, throttled) and only cells whose value changed are touched.
 // Nothing is read while the tab is hidden, the Output view is not shown or the page is in the background.
 var _MEM_PAGE=256,_MEM_CAP=600,_MEM_MS=160,_MEM_OPEN_MAX=64;
-var _mem={sig:null,cards:[],view:{},raf:0,last:0,dirty:false,edit:null};
+var _mem={on:false,sig:null,cards:[],view:{},raf:0,last:0,dirty:false,edit:null};
 function _memApi(){return typeof _emitRegions==='function'&&typeof _emitRegionRead==='function'}
 function _memRegions(){if(!_memApi())return[];try{var r=_emitRegions();return Array.isArray(r)?r:[]}catch(e){return[]}}
 function _memEl(){return document.getElementById('tab-memory')}
@@ -7510,6 +7510,7 @@ function _memLoop(){
   if(!_memVisible())return;   // hidden: the loop ends; showing the tab again starts it
   var now=performance.now();
   if(now-_mem.last>=_MEM_MS&&(_animRunning||_mem.dirty)){_mem.last=now;_mem.dirty=false;_memRefresh(true)}
+  if(!_animRunning&&!_mem.dirty)return;   // nothing runs: the loop sleeps until a call into the program, a poke or a Run
   _mem.raf=requestAnimationFrame(_memLoop);
 }
 function _memKick(){if(!_mem.raf&&_memVisible())_mem.raf=requestAnimationFrame(_memLoop)}
@@ -7536,7 +7537,7 @@ function _memWrite(c,k,val){
   cell.el.classList.toggle('mz',raw===0||raw===false||raw==='0');cell.el._z=raw===0||raw===false||raw==='0';
   _memFlash(cell.el,'mpk');
   if(c.frozen)_memErr(c,'🔒 front panel write: '+c.r.name+'['+cell.i+']'+(cell.f?'.'+cell.f:'')+' set although the region is frozen');
-  _mem.dirty=true;
+  _mem.dirty=true;_memKick();
   return true;
 }
 function _memEditStart(c,k){
@@ -7627,16 +7628,16 @@ function _memEditEnd(commit,keep){
   box.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.tagName==='INPUT'&&e.target.getAttribute('data-act')){e.preventDefault();e.target.blur()}});
 })();
 // ── hooks into the IDE ──
-showOTab=(function(f){return function(el){_memEditEnd(false);var r=f.apply(this,arguments);_memShow();return r}})(showOTab);
+showOTab=(function(f){return function(el){_memEditEnd(false);var r=f.apply(this,arguments);_mem.on=!!(el&&el.dataset&&el.dataset.t==='memory');_memShow();return r}})(showOTab);
 showView=(function(f){return function(){var r=f.apply(this,arguments);_memShow();return r}})(showView);
 compileAndRun=(function(f){return async function(){
   _mem.dirty=true;
   try{return await f.apply(this,arguments)}
-  finally{try{_memDot(_memRegions().length>0);_mem.dirty=true;_memShow()}catch(e){}}
+  finally{try{_memDot(_memRegions().length>0);_mem.dirty=true;_memShow()}catch(e){}}   // _memShow re-reads and wakes the loop
 }})(compileAndRun);
-stopProgram=(function(f){return function(){var r=f.apply(this,arguments);try{_mem.dirty=true;_memLive()}catch(e){}return r}})(stopProgram);
+stopProgram=(function(f){return function(){var r=f.apply(this,arguments);try{_mem.dirty=true;_memLive();_memKick()}catch(e){}return r}})(stopProgram);
 // Every call into the program (frame, buttons, timers, callbacks) may change memory: mark it for the next refresh
-_emitCallExport=(function(f){return function(){_mem.dirty=true;return f.apply(this,arguments)}})(_emitCallExport);
+_emitCallExport=(function(f){return function(){_mem.dirty=true;if(_mem.on&&!_mem.raf)_memKick();return f.apply(this,arguments)}})(_emitCallExport);
 try{window._emitCallExport=_emitCallExport}catch(e){}
 document.addEventListener('visibilitychange',function(){if(!document.hidden)_memShow()});
 // ── Output: make "at path:line:col" at the end of a red runtime line tappable ──
