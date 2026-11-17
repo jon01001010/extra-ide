@@ -314,6 +314,49 @@ const EXTRA = {
     expect: 'loaded data1',
     expect2: 'handler stops',
   },
+  // ── multi-file projects (one text, `//// file: <path>` starts a file; the first file is the entry) ──
+  // synchronous, with a frame loop; state lives in the globals of a second module; a button handler
+  // (onclick_1 in the entry file) calls into it; a non-entry export keeps its dotted name
+  '+mod-frames': {
+    src: [
+      'import game.world', 'import game.world.ticks', '',
+      'export fn main() {', '  world.setup(3)', '  printStr("start " + intToStr(world.size))', '  button("poke", 1)', '  animate()', '}', '',
+      'export fn frame() {', '  world.step()', '  if (ticks == 5) { printStr("frame 5: " + world.describe()) }', '}', '',
+      'export fn onclick_1() {', '  printStr("poked: " + intToStr(world.poke(2)))', '}',
+      '//// file: game/world.emit',
+      'package game', '',
+      'public mut size = 0', 'public mut ticks = 0', 'mut items: arr = 0', 'mut label: str = ""', 'mut pokes = 0', '',
+      'public fn setup(n: int) {', '  size = n', '  items = [1, 2, 3]', '  label = "world"', '}', '',
+      'public fn step() {', '  ticks++', '  if (ticks <= 5) { items.push(ticks) }', '}', '',
+      'public fn describe() str {', '  return label + " " + intToStr(items.length) + " items"', '}', '',
+      'export fn poke(n: int) int {', '  pokes = pokes + n', '  return pokes + items.length', '}', ''].join('\n'),
+    expect: 'frame 5: world 8 items',
+    expect2: 'poked: 10',
+    jsCheck: page => page.evaluate(() => {
+      const p = [], ex = Object.keys(window._wi.exports).filter(k => typeof window._wi.exports[k] === 'function').sort().join(',');
+      if (ex !== 'frame,game.world.poke,main,onclick_1') p.push('exports should be frame,game.world.poke,main,onclick_1 — got ' + ex);
+      const v = window._emitCallExport(window._wi, 'game.world.poke', [1n]);
+      if (typeof v !== 'bigint' || v < 9n) p.push('game.world.poke(1) called from the host should return a count, got ' + v);
+      return p;
+    }),
+  },
+  // await across modules: an async function of another module awaited in a loop, its error caught in the entry file
+  '+mod-await': {
+    src: [
+      'import net.load', '',
+      'export fn main() {', '  for (let i = 1; i <= 3; i++) {', '    try {', '      let s: str = load.item(i)', '      printStr("got " + s)',
+      '    } catch (e) {', '      printStr("caught " + e.message)', '    }', '  }', '  printStr("done " + intToStr(load.count))', '}',
+      '//// file: net/load.emit',
+      'package net', 'import net.wait.pause', '',
+      'public mut count = 0', '',
+      'public fn item(i: int) str {', '  count++', '  pause(20)', '  if (i == 2) { throw "item 2 is missing" }',
+      '  let o = await Promise.resolve({name: "item" + i})', '  let n: str = o.name', '  return n', '}',
+      '//// file: net/wait.emit',
+      'package net', '',
+      'public fn pause(ms: int) {', '  await sleep(ms)', '}', ''].join('\n'),
+    expect: 'caught item 2 is missing',
+    expect2: 'done 3',
+  },
 };
 
 // Runs in every page before its own scripts: repeatable Math.random and a frozen clock.
