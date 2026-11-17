@@ -178,11 +178,65 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .fres-row{line-height:40px;padding:0 6px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-top:1px solid var(--border)}
 .fres-row:active,.fres-row:hover{color:var(--fg);background:var(--bg4)}
 @media(min-width:768px){.fsheet-bg{align-items:center}.fsheet{border-radius:14px}.ftab{min-height:34px}.ftab-m,.ftab-add{height:34px}}
+/* Memory tab: the program's memory regions as a front panel */
+.otab .odot{display:none;width:6px;height:6px;border-radius:50%;background:#a78bfa;margin-left:5px;vertical-align:middle}
+.otab .odot.show{display:inline-block}
+.output.memtab{white-space:normal;padding:8px;max-width:100%;overflow-x:hidden;line-height:1.4}
+.mnote{color:var(--fg2);font-size:12px;line-height:1.7;padding:6px 4px}
+.mnote code{color:#a78bfa;background:var(--bg3);padding:1px 5px;border-radius:4px}
+.msum{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--fg3);font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:2px 4px 8px}
+.msum .mlive{color:var(--fg3)}.msum .mlive.on{color:var(--green)}
+.mcard{background:var(--bg3);border:1px solid var(--border);border-radius:10px;margin:0 0 8px;min-width:0;max-width:100%;overflow:hidden}
+.mcard.frozen{border-color:rgba(167,139,250,.55)}
+.mhead{display:flex;align-items:stretch;min-height:44px}
+.mtog{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 10px;background:none;border:none;color:var(--fg);text-align:left;font-family:var(--mono);cursor:pointer;min-height:44px}
+.mtog .mname{font-size:13px;font-weight:700;color:#a78bfa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mtog .mname .mchev{display:inline-block;width:12px;color:var(--fg3);font-weight:400}
+.mtog .mmod{font-size:10px;font-weight:400;color:var(--fg3);margin-left:6px}
+.mtog .mmeta{font-size:10px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mlock{flex-shrink:0;width:48px;min-height:44px;background:none;border:none;border-left:1px solid var(--border);font-size:18px;cursor:pointer;color:var(--fg)}
+.mlock[aria-pressed="true"]{background:rgba(167,139,250,.14)}
+.mbody{border-top:1px solid var(--border);padding:6px}
+.mbar{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:6px}
+.mbar button,.mbar input{height:40px;min-width:40px;font-family:var(--mono);font-size:11px;color:var(--fg);background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:0 8px;cursor:pointer}
+.mbar button.on{background:#a78bfa;border-color:#a78bfa;color:var(--bg)}
+.mbar button:disabled{opacity:.35;cursor:default}
+.mbar input{width:76px;cursor:text;outline:none}
+.mbar input:focus{border-color:#a78bfa}
+.mseg{display:flex;gap:2px}
+.mrange{font-family:var(--mono);font-size:10px;color:var(--fg3);padding:0 4px;white-space:nowrap}
+.mfz{font-size:11px;color:#c4b5fd;background:rgba(167,139,250,.08);border-radius:6px;padding:6px 8px;margin-bottom:6px;line-height:1.5}
+.merr{font-size:11px;color:var(--red);padding:0 4px 6px;display:none}
+.merr.show{display:block}
+.mgrid{display:grid;gap:3px;grid-template-columns:repeat(auto-fill,minmax(var(--mw,48px),1fr))}
+.mc{position:relative;min-height:36px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:13px 5px 3px;font-family:var(--mono);font-size:11px;text-align:right;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;-webkit-tap-highlight-color:rgba(167,139,250,.3)}
+.mc .mi{position:absolute;top:2px;left:4px;font-size:8px;color:var(--fg3)}
+.mc.mz .mv{color:var(--fg3)}
+.mc.mtarget{border-color:#a78bfa}
+.mc.medit,.mtd.medit{padding:0;border-color:#a78bfa}
+.medit input{width:100%;height:100%;min-height:34px;background:var(--bg);color:var(--fg);border:none;outline:none;font-family:var(--mono);font-size:13px;text-align:right;padding:0 5px}
+.medit.bad input{color:var(--red)}
+@keyframes memFlashA{from{background:rgba(253,224,71,.32)}to{background:var(--bg)}}
+@keyframes memFlashB{from{background:rgba(253,224,71,.32)}to{background:var(--bg)}}
+@keyframes memPoke{from{background:rgba(167,139,250,.55)}to{background:var(--bg)}}
+.mfa{animation:memFlashA .6s ease-out}.mfb{animation:memFlashB .6s ease-out}.mpk{animation:memPoke .9s ease-out}
+.mtw{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;max-width:100%}
+.mtab{border-collapse:separate;border-spacing:2px;font-family:var(--mono);font-size:11px}
+.mtab th{font-weight:500;color:var(--fg2);text-align:right;padding:2px 6px;white-space:nowrap;font-size:10px}
+.mtab th small{display:block;color:var(--fg3);font-size:9px;font-weight:400}
+.mtab th.mix,.mtab td.mix{position:sticky;left:0;background:var(--bg3);color:var(--fg3);text-align:right;font-size:9px;z-index:1}
+.mtd{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0 6px;height:34px;min-width:52px;text-align:right;white-space:nowrap;cursor:pointer}
+.mtd.mz{color:var(--fg3)}
+.mdump{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;font-family:var(--mono);font-size:10px;line-height:2.1;white-space:pre;color:var(--fg2)}
+.mdr{cursor:pointer;padding:0 2px;border-radius:3px}
+.mdr .mdo{color:var(--fg3)}.mdr .mda{color:var(--cyan)}
+.mpx{display:block;max-width:100%;image-rendering:pixelated;background:#000;border:1px solid var(--border);border-radius:4px}
+.mat{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="newfile">New file in project…</option><option value="find">Find / replace…</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="algo">Algo</option><option value="modules">Modules</option></select><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
+  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="newfile">New file in project…</option><option value="find">Find / replace…</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="algo">Algo</option><option value="memory">Memory</option><option value="modules">Modules</option></select><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
   <div class="vtabs"><div class="vtab active" data-v="edit" onclick="showView('edit')">Editor</div><div class="vtab" data-v="run" onclick="showView('run')">Output<div class="dot" id="runDot"></div></div></div>
   <div class="panels" id="panels">
     <div class="pnl" id="pnl-edit">
@@ -195,8 +249,8 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
       </div>
     </div>
     <div class="pnl off-r" id="pnl-run">
-      <div class="out-tabs"><div class="otab active" data-t="output" onclick="showOTab(this)">Output</div><div class="otab" data-t="wasm" onclick="showOTab(this)">WASM</div><div class="otab" data-t="ast" onclick="showOTab(this)">AST</div><div class="otab" data-t="tokens" onclick="showOTab(this)">Tokens</div></div>
-      <div class="out-body"><div class="output" id="tab-output"><span class="dim">Tap ▶ to compile</span></div><div class="output" id="tab-wasm" style="display:none"></div><div class="output" id="tab-ast" style="display:none"></div><div class="output" id="tab-tokens" style="display:none"></div></div>
+      <div class="out-tabs"><div class="otab active" data-t="output" onclick="showOTab(this)">Output</div><div class="otab" data-t="wasm" onclick="showOTab(this)">WASM</div><div class="otab" data-t="ast" onclick="showOTab(this)">AST</div><div class="otab" data-t="tokens" onclick="showOTab(this)">Tokens</div><div class="otab" data-t="memory" onclick="showOTab(this)">Memory<span class="odot" id="memDot"></span></div></div>
+      <div class="out-body"><div class="output" id="tab-output"><span class="dim">Tap ▶ to compile</span></div><div class="output" id="tab-wasm" style="display:none"></div><div class="output" id="tab-ast" style="display:none"></div><div class="output" id="tab-tokens" style="display:none"></div><div class="output memtab" id="tab-memory" style="display:none"></div></div>
     </div>
   </div>
   <div class="sbar"><div><span class="sdot idle" id="sDot"></span><span id="sTxt">Ready</span></div><div style="display:flex;gap:8px;align-items:center"><span id="curPos" style="color:var(--fg3)"></span><span id="sR"></span></div></div>
@@ -429,6 +483,14 @@ public fn step(dt: num) num {
 <p><strong>Saving, sharing, opening.</strong> <em>Save .emit</em>, the share link and the autosave each hold the whole project as one text: the entry file first, then every other file after a line <code>//// file: game/physics.emit</code>. A program of one file has no such line, so its <code>.emit</code> is just its source. Do not type such a line into a file: the next Run would turn the text below it into a tab of its own (and says so). <em>Open .emit</em> accepts several files at once: a file that contains <code>//// file:</code> lines is a whole project and replaces the current one (only one such file at a time); plain files become files of the project, named after the files you picked &mdash; you are asked whether to add them or to replace the project.</p>
 <p><strong>Scripts.</strong> Code that sets the editor&rsquo;s text and fires an <code>input</code> event replaces the open file &mdash; or, when the text contains <code>//// file:</code> lines, the whole project.</p>
 
+<h2>Memory tab</h2>
+<p>Output &rarr; <strong>Memory</strong> is a front panel for the program&rsquo;s memory regions (<code>region grid: int[64]</code>, <code>region balls: Ball[100]</code>): one card per region, in the order they are declared. A dot on the tab means the program has regions; without any, the tab explains how to declare one.</p>
+<p><strong>Cards.</strong> The header shows the name (and the module, for a region of another file), the element type and length, the size in bytes and the base address. Tap it to open or close the card; regions of up to 64 cells start open. A region of numbers is a grid of cells, the index above each value. A struct region is a table, one row per element and one column per field (nested fields as <code>pos.x</code>); swipe it sideways. Big regions show one page at a time: &#x21E4; &lsaquo; &rsaquo; &#x21E5; and <em>go to #</em>.</p>
+<p><strong>Display.</strong> <em>dec</em> / <em>hex</em> for whole numbers; a <code>u8</code> region also has <em>ascii</em>, <em>dump</em> (offset, 16 bytes and their characters; tap a row to edit those bytes) and <em>pixels</em> (the bytes as RGBA pixels at the width you type &mdash; a framebuffer drawn with <code>screen</code>, say).</p>
+<p><strong>Live.</strong> While the program runs and the tab is open, the visible cells are read again about six times a second and a cell that changed flashes. When nothing runs, the tab is read when you open it and after each poke. A closed tab costs nothing.</p>
+<p><strong>Poke.</strong> Tap a cell, type, Enter (Escape cancels): <code>42</code>, <code>-7</code>, <code>0x1f</code>, <code>'A'</code>, <code>2.5</code>; 64-bit values in full. A <code>bool</code> cell toggles on a tap. Input that does not fit the type writes nothing and says why. Pokes work while the program runs, after Stop and after it ended.</p>
+<p><strong>Lock.</strong> &#x1F513; / &#x1F512; freezes or thaws a region, like <code>freeze(r)</code> / <code>thaw(r)</code>: a write by the program to a frozen region stops it with a red error. A poke is a <em>front panel write</em>: it overrides the lock. A red runtime error that ends in <code>at path:line:col</code> is a link: tap it to see the place in the editor.</p>
+
 <h2>Custom Imports</h2>
 <p>For full control, declare imports explicitly:</p>
 <p><code>import fn fetchAPI(url: str) from "http"</code></p>
@@ -448,7 +510,7 @@ public fn step(dt: num) num {
 </div>
 </div>
 <script>
-const EX = {"basics":"// Emit — everything just works\n// No semicolons, no arrows, types inferred\n\nfn greet(name: str) {\n  printStr(name)\n}\n\nfn distance(x1: num, y1: num, x2: num, y2: num) num {\n  let dx = x2 - x1\n  let dy = y2 - y1\n  return sqrt(dx * dx + dy * dy)\n}\n\nexport fn demo() {\n  // Strings\n  greet(\"Hello from Emit!\")\n\n  // Math\n  printNum(distance(0.0, 0.0, 3.0, 4.0))\n  printNum(sin(3.14159 / 2.0))\n  print(max(42, 17))\n\n  // Arrays\n  let scores = newArray(5)\n  let i = 0\n  while (i < 5) {\n    setItem(scores, i, (i + 1) * 10)\n    i++\n  }\n  push(scores, 99)\n  print(arrayLen(scores))\n  print(getItem(scores, 5))\n\n  // Canvas\n  canvas(200, 100)\n  color(45, 212, 191)\n  rect(10, 10, 80, 80)\n  color(255, 100, 50)\n  circle(150, 50, 35)\n  color(255, 255, 255)\n  text(\"Emit!\", 20, 55, 16)\n\n  // Sound\n  beep(440, 150)\n  beep(550, 150)\n  beep(660, 200)\n}","draw":"// Canvas drawing — house scene\n\nexport fn house() {\n  canvas(300, 200)\n\n  // Sky\n  color(30, 30, 80)\n  rect(0, 0, 300, 140)\n\n  // Ground\n  color(30, 100, 30)\n  rect(0, 140, 300, 60)\n\n  // Sun\n  color(255, 220, 50)\n  circle(240, 45, 30)\n\n  // House\n  color(160, 80, 40)\n  rect(80, 80, 80, 60)\n\n  // Door\n  color(100, 50, 20)\n  rect(108, 105, 24, 35)\n\n  // Roof lines\n  let i = 0\n  while (i < 50) {\n    color(180, 40, 40)\n    line(70 + i, 80, 120, 40)\n    line(170 - i, 80, 120, 40)\n    i++\n  }\n\n  // Stars\n  color(255, 255, 255)\n  circle(30, 20, 2)\n  circle(80, 35, 1)\n  circle(150, 15, 2)\n  circle(200, 50, 1)\n\n  // Label\n  text(\"Home\", 100, 175, 14)\n}","art":"// Generative Art — rainbow spirograph\n\nexport fn spirograph() {\n  canvas(400, 400)\n  color(0, 0, 0)\n  rect(0, 0, 400, 400)\n\n  let cx = 200.0\n  let cy = 200.0\n  let R = 120.0\n  let r = 45.0\n  let d = 90.0\n  let t = 0.0\n  mut prevX = 0\n  mut prevY = 0\n  mut steps = 0\n\n  while (t < 62.8) {\n    let x: num = (R - r) * cos(t) + d * cos((R - r) * t / r)\n    let y: num = (R - r) * sin(t) - d * sin((R - r) * t / r)\n    let px = floor(cx + x)\n    let py = floor(cy + y)\n\n    let hue = steps % 360\n    mut cr = 0\n    mut cg = 0\n    mut cb = 0\n    if (hue < 60) { cr = 255; cg = hue * 4 }\n    if (hue >= 60) { if (hue < 120) { cr = 255 - (hue - 60) * 4; cg = 255 } }\n    if (hue >= 120) { if (hue < 180) { cg = 255; cb = (hue - 120) * 4 } }\n    if (hue >= 180) { if (hue < 240) { cg = 255 - (hue - 180) * 4; cb = 255 } }\n    if (hue >= 240) { if (hue < 300) { cr = (hue - 240) * 4; cb = 255 } }\n    if (hue >= 300) { cr = 255; cb = 255 - (hue - 300) * 4 }\n\n    color(cr, cg, cb)\n    if (steps > 0) { line(prevX, prevY, px, py) }\n    prevX = px\n    prevY = py\n    t = t + 0.02\n    steps++\n  }\n}","cube3d":"// 3D Room — drag to look around, scroll to zoom\nuse three.js\n\nexport fn room() {\n  scene3d(400, 350)\n  bgColor3d(20, 20, 35)\n\n  // Floor\n  let floor = plane(10.0, 10.0)\n  color3d(floor, 60, 60, 70)\n\n  // Walls\n  let back = wallBox(0.0, 1.5, -5.0, 10.0, 3.0, 0.1)\n  color3d(back, 80, 70, 90)\n\n  let left = wallBox(-5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(left, 90, 75, 85)\n\n  let right = wallBox(5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(right, 90, 75, 85)\n\n  let front = wallBox(0.0, 1.5, 5.0, 10.0, 3.0, 0.1)\n  color3d(front, 80, 70, 90)\n\n  // Table\n  let top = wallBox(0.0, 1.0, 0.0, 2.0, 0.1, 1.2)\n  color3d(top, 139, 90, 43)\n  let leg1 = cylinder(-0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg1, 100, 60, 30)\n  let leg2 = cylinder(0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg2, 100, 60, 30)\n  let leg3 = cylinder(-0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg3, 100, 60, 30)\n  let leg4 = cylinder(0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg4, 100, 60, 30)\n\n  // Chair\n  let seat = wallBox(-2.5, 0.6, 0.0, 0.7, 0.08, 0.7)\n  color3d(seat, 45, 100, 180)\n  let chairBack = wallBox(-2.5, 1.2, -0.35, 0.7, 1.0, 0.08)\n  color3d(chairBack, 40, 90, 170)\n\n  // Lamp on table\n  let pole = cylinder(0.5, 1.3, 0.0, 0.03, 0.5)\n  color3d(pole, 200, 200, 200)\n  let shade = sphere(0.5, 1.6, 0.0, 0.15)\n  color3d(shade, 255, 240, 180)\n\n  // Rug\n  let rug = wallBox(0.0, 0.01, 2.0, 3.0, 0.02, 2.0)\n  color3d(rug, 150, 50, 50)\n\n  // Lighting\n  ambient3d(60, 60, 80)\n  light3d(0.5, 2.8, 0.0)\n  light3d(-3.0, 2.5, 3.0)\n\n  // Camera + controls\n  camera3d(3.0, 2.5, 5.0)\n  lookAt3d(0.0, 1.0, 0.0)\n  controls3d()\n  render3d()\n}","ui":"// Interactive UI — buttons, globals, canvas\n\nmut counter = 0\n\nexport fn app() {\n  div(\"Welcome to Emit!\")\n  div(\"Click a button:\")\n  button(\"Say Hello\", 1)\n  button(\"Count\", 2)\n  button(\"Draw\", 3)\n}\n\nexport fn onclick_1() {\n  div(\"Hello from Emit!\")\n  beep(523, 100)\n}\n\nexport fn onclick_2() {\n  counter++\n  print(counter)\n  beep(440 + counter * 50, 80)\n}\n\nexport fn onclick_3() {\n  canvas(200, 100)\n  let r = floor(random() * 255.0)\n  let g = floor(random() * 255.0)\n  let b = floor(random() * 255.0)\n  color(r, g, b)\n  circle(100, 50, 40)\n  color(255, 255, 255)\n  text(\"Random!\", 55, 55, 16)\n}","sound":"// Music — beep a melody\n\nexport fn melody() {\n  // Twinkle Twinkle Little Star\n  beep(262, 300)\n  beep(262, 300)\n  beep(392, 300)\n  beep(392, 300)\n  beep(440, 300)\n  beep(440, 300)\n  beep(392, 600)\n\n  beep(349, 300)\n  beep(349, 300)\n  beep(330, 300)\n  beep(330, 300)\n  beep(294, 300)\n  beep(294, 300)\n  beep(262, 600)\n}","algo":"// Algorithms — recursion, arrays, sorting\n\nfn factorial(n: int) int {\n  if (n <= 1) { return 1 }\n  return n * factorial(n - 1)\n}\n\nfn fibonacci(n: int) int {\n  if (n <= 1) { return n }\n  let a = 0\n  let b = 1\n  let i = 2\n  while (i <= n) {\n    let t = b\n    b = a + b\n    a = t\n    i++\n  }\n  return b\n}\n\nexport fn algorithms() {\n  printStr(\"Factorials:\")\n  let i = 1\n  while (i <= 8) {\n    print(factorial(i))\n    i++\n  }\n\n  printStr(\"Fibonacci:\")\n  i = 1\n  while (i <= 10) {\n    print(fibonacci(i))\n    i++\n  }\n\n  // Sort an array\n  printStr(\"Sorted:\")\n  let arr = newArray(0)\n  push(arr, 38)\n  push(arr, 7)\n  push(arr, 91)\n  push(arr, 14)\n  push(arr, 55)\n  push(arr, 3)\n\n  let n = arrayLen(arr)\n  i = 0\n  while (i < n) {\n    let j = 0\n    while (j < n - 1 - i) {\n      if (getItem(arr, j) > getItem(arr, j + 1)) {\n        let t = getItem(arr, j)\n        setItem(arr, j, getItem(arr, j + 1))\n        setItem(arr, j + 1, t)\n      }\n      j++\n    }\n    i++\n  }\n  i = 0\n  while (i < n) {\n    print(getItem(arr, i))\n    i++\n  }\n}","pong":"// Brick Breaker — touch/mouse to move paddle\n// Smash all the bricks!\n\nmut bx = 0\nmut by = 0\nmut dx = 0\nmut dy = 0\nmut px = 0\nmut score = 0\nmut bricks = 0\nmut lives = 0\n\nexport fn breaker() {\n  bx = 150\n  by = 140\n  dx = 3\n  dy = -3\n  px = 130\n  score = 0\n  lives = 3\n\n  // Create brick grid: 8 cols x 4 rows = 32 bricks\n  bricks = newArray(32)\n  let i = 0\n  while (i < 32) {\n    setItem(bricks, i, 1)\n    i++\n  }\n\n  canvas(300, 200)\n  animate()\n}\n\nexport fn frame() {\n  // Paddle follows touch/mouse\n  let mx = touchX()\n  if (mx > 0) { px = mx - 150 }\n  if (px < 0) { px = 0 }\n  if (px > 260) { px = 260 }\n\n  // Move ball\n  bx += dx\n  by += dy\n\n  // Bounce walls\n  if (bx < 4) { dx = 0 - dx; bx = 4 }\n  if (bx > 296) { dx = 0 - dx; bx = 296 }\n  if (by < 4) { dy = 0 - dy; by = 4 }\n\n  // Bounce paddle\n  if (by > 182) {\n    if (bx > px) {\n      if (bx < px + 40) {\n        dy = 0 - dy\n        by = 182\n        // Angle based on hit position\n        dx = (bx - px - 20) / 5\n        beep(440, 30)\n      }\n    }\n  }\n\n  // Miss — lose life\n  if (by > 200) {\n    lives -= 1\n    beep(150, 300)\n    bx = 150\n    by = 140\n    dx = 3\n    dy = -3\n    if (lives < 1) {\n      // Reset all bricks\n      let i = 0\n      while (i < 32) {\n        setItem(bricks, i, 1)\n        i++\n      }\n      lives = 3\n      score = 0\n    }\n  }\n\n  // Check brick collisions\n  let row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      let idx = row * 8 + col\n      if (getItem(bricks, idx) == 1) {\n        let bkx = col * 36 + 6\n        let bky = row * 14 + 10\n        if (bx > bkx) {\n          if (bx < bkx + 34) {\n            if (by > bky) {\n              if (by < bky + 12) {\n                setItem(bricks, idx, 0)\n                dy = 0 - dy\n                score++\n                beep(660 + score * 20, 40)\n              }\n            }\n          }\n        }\n      }\n      col++\n    }\n    row++\n  }\n\n  // Draw\n  clear()\n  color(0, 0, 20)\n  rect(0, 0, 300, 200)\n\n  // Bricks\n  row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      if (getItem(bricks, row * 8 + col) == 1) {\n        // Color by row\n        if (row == 0) { color(255, 80, 80) }\n        if (row == 1) { color(255, 180, 50) }\n        if (row == 2) { color(50, 220, 100) }\n        if (row == 3) { color(80, 150, 255) }\n        rect(col * 36 + 6, row * 14 + 10, 34, 12)\n      }\n      col++\n    }\n    row++\n  }\n\n  // Ball\n  color(255, 255, 255)\n  circle(bx, by, 4)\n\n  // Paddle\n  color(45, 212, 191)\n  rect(px, 185, 40, 8)\n\n  // Score + lives\n  color(200, 200, 200)\n  text(\"Score:\", 10, 198, 10)\n}","chat":"// Chat — text input and output\n\nexport fn chatapp() {\n  div(\"Emit Chat\")\n  input(\"Type a message...\", 1)\n  button(\"Send\", 1)\n  button(\"Clear\", 2)\n}\n\nexport fn onclick_1() {\n  let val = getInput(1)\n  if (val > 0) {\n    printStr(\"You said something!\")\n    print(val)\n    beep(500, 80)\n  }\n}\n\nexport fn onclick_2() {\n  div(\"Chat cleared!\")\n  beep(300, 100)\n}","babylon":"// Babylon.js — rotating 3D cube\n// No hand-wrapped builtins: `use babylon.js` + member calls = it just works\n\nuse babylon.js\n\nmut sceneH = 0\nmut boxH = 0\n\nexport fn world() {\n  canvas(500, 400)\n  let cv = getCanvas()\n\n  // Engine + scene\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n\n  // Orbit camera — drag to rotate, scroll to zoom\n  let target = BABYLON.Vector3(0.0, 0.0, 0.0)\n  let cam = BABYLON.ArcRotateCamera(\"cam\", 1.0, 1.2, 6.0, target, scene)\n  cam.attachControl(cv, true)\n\n  // Light\n  let lightDir = BABYLON.Vector3(0.0, 1.0, 0.0)\n  BABYLON.HemisphericLight(\"light\", lightDir, scene)\n\n  // Meshes\n  let opts = emptyObj()\n  let cube = BABYLON.MeshBuilder.CreateBox(\"box\", opts, scene)\n\n  sceneH = scene\n  boxH = cube\n  animate()\n}\n\nexport fn frame() {\n  // Spin the cube around Y\n  let axis = BABYLON.Vector3(0.0, 1.0, 0.0)\n  boxH.rotate(axis, 0.02, 0)\n  sceneH.render()\n}","confetti":"// Word Confetti — particles are real words & emoji\n// textShape(text, color, scalar) builds a bitmap shape from text\n\nuse confetti\n\nexport fn party() {\n  div(\"🎉 Tap a button for word confetti!\")\n  button(\"Words\", 1)\n  button(\"Emoji\", 2)\n  button(\"Mixed\", 3)\n}\n\n// Fire confetti with a custom shape array\nfn fireShapes(shapes: int) {\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n\n  let opts = emptyObj()\n  opts.particleCount = 40\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 2.0\n  opts.ticks = 200\n  opts.shapes = shapes\n  opts.origin = origin\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  // Real words as confetti particles\n  let shapes = toJsArray([\n    textShape(\"WOW\",   \"#ff3366\", 2.0),\n    textShape(\"YES!\",  \"#fde047\", 2.0),\n    textShape(\"NICE\",  \"#22d3ee\", 2.0),\n    textShape(\"COOL\",  \"#4ade80\", 2.0),\n    textShape(\"EMIT\",  \"#a78bfa\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(880, 80)\n}\n\nexport fn onclick_2() {\n  // Emoji confetti — color is ignored for emoji glyphs\n  let shapes = toJsArray([\n    textShape(\"🎉\", \"#ffffff\", 2.0),\n    textShape(\"🎊\", \"#ffffff\", 2.0),\n    textShape(\"⭐\", \"#ffffff\", 2.0),\n    textShape(\"💖\", \"#ffffff\", 2.0),\n    textShape(\"🚀\", \"#ffffff\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(660, 80)\n}\n\nexport fn onclick_3() {\n  // Mix words, emoji, and built-in shapes\n  let shapes = toJsArray([\n    textShape(\"HI!\", \"#ff3366\", 2.0),\n    textShape(\"✨\",  \"#ffffff\", 2.0),\n    textShape(\"YAY\", \"#22d3ee\", 2.0),\n    \"star\",\n    \"circle\"\n  ])\n  fireShapes(shapes)\n  beep(990, 80)\n}","clock":"// Dayjs — chained member calls for date formatting\n// Every .format(), .year(), .month() dispatches through __jsCall\n\nuse dayjs\n\nexport fn clock() {\n  div(\"Current time (via dayjs):\")\n\n  let now = dayjs()\n  let stamp = now.format(\"YYYY-MM-DD HH:mm:ss\")\n  printStr(toStr(stamp))\n\n  let dayName = now.format(\"dddd, MMMM D\")\n  printStr(toStr(dayName))\n\n  // Math on dates — subtract 7 days\n  let lastWeek = now.subtract(7, \"day\")\n  let ago = lastWeek.format(\"YYYY-MM-DD\")\n  printStr(strConcat(\"One week ago: \", toStr(ago)))\n}","strings":"// Strings — concat, format, compare, slice\n// All the string builtins, no external libraries\n\nexport fn tour() {\n  // Build a greeting from pieces\n  let greeting = strConcat(\"Emit has \", intToStr(8))\n  let full = strConcat(greeting, \" string builtins.\")\n  printStr(full)\n\n  // Format a computed number\n  let circle = 3.14159 * 2.0 * 5.0\n  printStr(strConcat(\"Circle circumference: \", numToStr(circle)))\n\n  // Length + substring\n  let name = \"Emit language\"\n  printStr(strConcat(\"Length: \", intToStr(strLen(name))))\n  printStr(strConcat(\"Slice: \", substr(name, 5, 8)))\n\n  // Equality test\n  if (strEq(\"hello\", \"hello\")) {\n    printStr(\"✓ strEq works\")\n  }\n\n  // Char code of first character\n  let code = charAt(name, 0)\n  printStr(strConcat(\"'E' is code \", intToStr(code)))\n}","callbacks":"// Callbacks, promises, null checks — browser globals only, no library\n// fnRef(fn) hands an Emit function to JS. The parameter types you declare\n// decide how the JS arguments arrive: int / num / str / bool, or a handle.\n\nmut total = 0\nmut clicks = 0\n\n// arr.forEach calls this with (value, index)\nfn addUp(value: int, index: int) {\n  total += value\n  printStr(strConcat(\"item \", strConcat(intToStr(index), strConcat(\" = \", intToStr(value)))))\n}\n\n// arr.map uses the return value\nfn square(x: num) num {\n  return x * x\n}\n\n// Promise callbacks: the resolved value arrives with the type you declare\nfn onResolved(msg: str) {\n  printStr(strConcat(\"promise resolved: \", msg))\n}\n\n// A rejected promise passes an Error object — it arrives as a handle\nfn onRejected(err: int) {\n  let why: str = err.message\n  printStr(strConcat(\"promise rejected: \", why))\n}\n\nfn onTimer() {\n  printStr(\"timer fired after 300 ms\")\n}\n\n// DOM event listener: the event object is a handle\nfn onClick(ev: int) {\n  clicks++\n  let kind: str = ev.type\n  printStr(strConcat(kind, strConcat(\" #\", intToStr(clicks))))\n}\n\nexport fn run() {\n  // 1. Callbacks that receive arguments\n  let list = JSON.parse(\"[3, 4, 5]\")\n  list.forEach(fnRef(addUp))\n  printStr(strConcat(\"total = \", intToStr(total)))\n\n  // 2. Iterating a JS array: jsLen + jsAt\n  let squares = list.map(fnRef(square))\n  for (let i = 0; i < jsLen(squares); i++) {\n    let sq: num = jsAt(squares, i)\n    printNum(sq)\n  }\n\n  // 3. Null checks\n  let missing = document.getElementById(\"no-such-element\")\n  if (isNull(missing)) {\n    printStr(\"no such element: got null\")\n  }\n\n  // 4. Explicit new, and a typed value straight from JS\n  let d = new Date(2024, 0, 15)\n  let year: num = d.getFullYear()\n  printNum(year)\n\n  // 5. Promises, callback style (WASM cannot await)\n  Promise.resolve(\"hello from a promise\").then(fnRef(onResolved))\n  Promise.reject(new Error(\"nope\")).catch(fnRef(onRejected))\n  setTimeout(fnRef(onTimer), 300)\n\n  // 6. A real DOM button in the Output panel with an Emit click handler\n  let btn = document.createElement(\"button\")\n  btn.textContent = \"Click me\"\n  btn.addEventListener(\"click\", fnRef(onClick))\n  document.getElementById(\"tab-output\").appendChild(btn)\n}","particles":"// Particles — directed confetti via nested config objects\n// origin: {x, y} sets where particles launch from (0-1 screen coords)\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button to fire particles!\")\n  button(\"Burst from bottom\", 1)\n  button(\"Double cannons\", 2)\n  button(\"Rain from top\", 3)\n}\n\nexport fn onclick_1() {\n  // Center-bottom burst, straight up\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.9\n\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 70\n  opts.startVelocity = 55\n  opts.origin = org\n  confetti(opts)\n}\n\nexport fn onclick_2() {\n  // Left cannon — angle 60 shoots up-right\n  let orgL = emptyObj()\n  orgL.x = 0.15\n  orgL.y = 0.6\n  let optsL = emptyObj()\n  optsL.particleCount = 70\n  optsL.angle = 60\n  optsL.spread = 55\n  optsL.startVelocity = 50\n  optsL.origin = orgL\n  confetti(optsL)\n\n  // Right cannon — angle 120 shoots up-left\n  let orgR = emptyObj()\n  orgR.x = 0.85\n  orgR.y = 0.6\n  let optsR = emptyObj()\n  optsR.particleCount = 70\n  optsR.angle = 120\n  optsR.spread = 55\n  optsR.startVelocity = 50\n  optsR.origin = orgR\n  confetti(optsR)\n}\n\nexport fn onclick_3() {\n  // Falling from top, wide spread, slow\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.0\n\n  let opts = emptyObj()\n  opts.particleCount = 100\n  opts.spread = 180\n  opts.startVelocity = 20\n  opts.gravity = 0.8\n  opts.ticks = 300\n  opts.origin = org\n  confetti(opts)\n}","orbit":"// Three.js — rotating cube via pure Path C\n// Field assignment at work: opts.canvas = cv, rot.x = rotX\n\nuse three.js\n\nmut sceneH = 0\nmut rendererH = 0\nmut cubeH = 0\nmut camH = 0\nmut rotX = 0.0\nmut rotY = 0.0\n\nexport fn scene() {\n  canvas(400, 300)\n  let cv = getCanvas()\n\n  let scn = THREE.Scene()\n  sceneH = scn\n\n  let cam = THREE.PerspectiveCamera(75.0, 1.333, 0.1, 1000.0)\n  let p = cam.position\n  p.z = 5.0\n  camH = cam\n\n  // Renderer needs a config object — build it with emptyObj + field assignment\n  let optsR = emptyObj()\n  optsR.canvas = cv\n  optsR.antialias = true\n  let r = THREE.WebGLRenderer(optsR)\n  r.setSize(400, 300)\n  rendererH = r\n\n  // Material config — red cube\n  let geo = THREE.BoxGeometry(1.0, 1.0, 1.0)\n  let matOpts = emptyObj()\n  matOpts.color = 16724736\n  let mat = THREE.MeshBasicMaterial(matOpts)\n  let cube = THREE.Mesh(geo, mat)\n  scn.add(cube)\n  cubeH = cube\n\n  animate()\n}\n\nexport fn frame() {\n  // Track rotation in pure Emit vars, then write back to the cube\n  rotX = rotX + 0.01\n  rotY = rotY + 0.015\n  let rot = cubeH.rotation\n  rot.x = rotX\n  rot.y = rotY\n  rendererH.render(sceneH, camH)\n}","snake":"// Snake — tap toward where you want to go\n// No external libraries — just Emit + canvas + arrays + animate()\n\nmut headX = 10\nmut headY = 10\nmut dirX = 1\nmut dirY = 0\nmut foodX = 15\nmut foodY = 15\nmut tail = 0\nmut tailLen = 3\nmut score = 0\nmut tickN = 0\n\nfn randCell() int { return floor(random() * 18.0) + 1 }\n\nexport fn game() {\n  headX = 10\n  headY = 10\n  dirX = 1\n  dirY = 0\n  foodX = randCell()\n  foodY = randCell()\n  tailLen = 3\n  score = 0\n  tickN = 0\n\n  tail = newArray(200)\n  let i = 0\n  while (i < 200) {\n    setItem(tail, i, 0)\n    i++\n  }\n\n  canvas(300, 300)\n  animate()\n}\n\nexport fn frame() {\n  tickN++\n\n  // Step every 6 frames\n  if (tickN % 6 == 0) {\n    // Steer toward touch point\n    let tx = touchX()\n    let ty = touchY()\n    if (tx > 0) {\n      let cx = headX * 15\n      let cy = headY * 15\n      let dx = tx - cx\n      let dy = ty - cy\n      if (abs(dx) > abs(dy)) {\n        if (dx > 0) { dirX = 1; dirY = 0 }\n        if (dx < 0) { dirX = 0 - 1; dirY = 0 }\n      }\n      if (abs(dy) >= abs(dx)) {\n        if (dy > 0) { dirX = 0; dirY = 1 }\n        if (dy < 0) { dirX = 0; dirY = 0 - 1 }\n      }\n    }\n\n    let newX = headX + dirX\n    let newY = headY + dirY\n\n    // Wrap at walls\n    if (newX < 1) { newX = 18 }\n    if (newX > 18) { newX = 1 }\n    if (newY < 1) { newY = 18 }\n    if (newY > 18) { newY = 1 }\n\n    // Eat food\n    if (newX == foodX) {\n      if (newY == foodY) {\n        score++\n        tailLen++\n        foodX = randCell()\n        foodY = randCell()\n        beep(880, 60)\n      }\n    }\n\n    // Shift tail history\n    let i = tailLen\n    while (i > 0) {\n      setItem(tail, i * 2, getItem(tail, (i - 1) * 2))\n      setItem(tail, i * 2 + 1, getItem(tail, (i - 1) * 2 + 1))\n      i--\n    }\n    setItem(tail, 0, headX)\n    setItem(tail, 1, headY)\n\n    headX = newX\n    headY = newY\n  }\n\n  // Draw every frame for smooth movement\n  clear()\n  color(10, 15, 30)\n  rect(0, 0, 300, 300)\n\n  color(40, 180, 100)\n  let i = 0\n  while (i < tailLen) {\n    let x = getItem(tail, i * 2)\n    let y = getItem(tail, i * 2 + 1)\n    rect(x * 15 + 1, y * 15 + 1, 13, 13)\n    i++\n  }\n\n  color(80, 240, 140)\n  rect(headX * 15 + 1, headY * 15 + 1, 13, 13)\n\n  color(240, 80, 80)\n  circle(foodX * 15 + 7, foodY * 15 + 7, 5)\n\n  color(200, 200, 230)\n  text(\"Score:\", 8, 295, 10)\n  text(intToStr(score), 50, 295, 10)\n}","words":"// Colors — confetti with custom palettes and shape mixes\n// Uses arrays via toJsArray() — works on every browser\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button for themed confetti!\")\n  button(\"Hot Pink\", 1)\n  button(\"Ocean\", 2)\n  button(\"Stars\", 3)\n  button(\"Fire\", 4)\n}\n\nfn fire(palette: int, useStars: bool) {\n  let opts = emptyObj()\n  opts.particleCount = 80\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 1.2\n  opts.colors = palette\n\n  // Mix in star shape\n  if (useStars) {\n    let shapes = toJsArray([\"star\", \"circle\"])\n    opts.shapes = shapes\n  }\n\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n  opts.origin = origin\n\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  fire(toJsArray([\"#ff3366\", \"#ff70a6\", \"#ff85b3\", \"#ffaad4\"]), false)\n}\n\nexport fn onclick_2() {\n  fire(toJsArray([\"#0ea5e9\", \"#22d3ee\", \"#06b6d4\", \"#67e8f9\"]), false)\n}\n\nexport fn onclick_3() {\n  fire(toJsArray([\"#fde047\", \"#facc15\", \"#fbbf24\", \"#f59e0b\"]), true)\n}\n\nexport fn onclick_4() {\n  fire(toJsArray([\"#dc2626\", \"#ea580c\", \"#f97316\", \"#fb923c\", \"#fde047\"]), false)\n}","npm":"// Any npm package — no built-in registry entry needed\n// `use name@version` loads the package's browser build from the jsDelivr CDN\n\nuse tinycolor2@1.6.0\n\nexport fn colors() {\n  div(\"tinycolor2, loaded straight from npm:\")\n\n  let base = tinycolor(\"#3498db\")\n  printStr(strConcat(\"Base: \", toStr(base.toHexString())))\n\n  // Chained member calls on the library's objects\n  let light = tinycolor(\"#3498db\").lighten(20)\n  printStr(strConcat(\"Lighter: \", toStr(light.toHexString())))\n\n  let opposite = tinycolor(\"#3498db\").complement()\n  printStr(strConcat(\"Complement: \", toStr(opposite.toHexString())))\n\n  printStr(strConcat(\"As RGB: \", toStr(base.toRgbString())))\n}","countdown":"// Callbacks — pass an Emit function to JS via fnRef(\"name\")\n// Recursive setTimeout schedules itself\n\nmut n = 5\n\nfn tick() {\n  printStr(strConcat(\"Tick: \", intToStr(n)))\n  n--\n  if (n > 0) {\n    setTimeout(fnRef(\"tick\"), 1000)\n  } else {\n    printStr(\"🎉 Done!\")\n  }\n}\n\nexport fn run() {\n  div(\"Counting down from 5...\")\n  setTimeout(fnRef(\"tick\"), 1000)\n}","modules":"// Modules — one program in three files (the tabs above the editor)\n// main.emit is the entry file. It imports two modules from the folder game/:\n//   game/physics.emit  moves the balls   (module game.physics)\n//   game/draw.emit     paints them       (module game.draw)\n\nimport game.physics\nimport game.draw\n\nexport fn balls() {\n  canvas(300, 200)\n  physics.setup(7)\n  animate()\n}\n\nexport fn frame() {\n  physics.step()\n  draw.render()\n}\n//// file: game/physics.emit\npackage game\n\n// Only names marked `public` can be used from other files.\npublic let width = 300\npublic let height = 200\npublic let radius = 8\n\nmut n = 0\nmut xs = 0\nmut ys = 0\nmut vx = 0\nmut vy = 0\n\npublic fn setup(count: int) {\n  n = count\n  xs = newArray(n)\n  ys = newArray(n)\n  vx = newArray(n)\n  vy = newArray(n)\n  let i = 0\n  while (i < n) {\n    setItem(xs, i, randInt(radius, width - radius))\n    setItem(ys, i, randInt(radius, height - radius))\n    setItem(vx, i, speed())\n    setItem(vy, i, speed())\n    i++\n  }\n}\n\npublic fn step() {\n  let i = 0\n  while (i < n) {\n    let x = getItem(xs, i) + getItem(vx, i)\n    let y = getItem(ys, i) + getItem(vy, i)\n    if (outside(x, width) == 1) { setItem(vx, i, 0 - getItem(vx, i)) }\n    if (outside(y, height) == 1) { setItem(vy, i, 0 - getItem(vy, i)) }\n    setItem(xs, i, keep(x, width))\n    setItem(ys, i, keep(y, height))\n    i++\n  }\n}\n\npublic fn count() int {\n  return n\n}\n\npublic fn ballX(i: int) int {\n  return getItem(xs, i)\n}\n\npublic fn ballY(i: int) int {\n  return getItem(ys, i)\n}\n\n// Private helpers: no `public`, so other files cannot call them.\n\n// 1 to 3 pixels per frame, in either direction\nfn speed() int {\n  let s = randInt(1, 3)\n  if (randInt(0, 1) == 0) { return 0 - s }\n  return s\n}\n\n// 1 when a ball at v has left the field 0..size, else 0\nfn outside(v: int, size: int) int {\n  if (v < radius) { return 1 }\n  if (v > size - radius) { return 1 }\n  return 0\n}\n\n// v moved back into the field\nfn keep(v: int, size: int) int {\n  if (v < radius) { return radius }\n  if (v > size - radius) { return size - radius }\n  return v\n}\n//// file: game/draw.emit\npackage game\n\nimport game.physics\n\npublic fn render() {\n  color(8, 9, 13)\n  rect(0, 0, physics.width, physics.height)\n  let i = 0\n  while (i < physics.count()) {\n    paint(i)\n    circle(physics.ballX(i), physics.ballY(i), physics.radius)\n    i++\n  }\n}\n\n// Private helper: a colour for ball number i\nfn paint(i: int) {\n  color(45 + i * 30, 212 - i * 20, 191)\n}"};
+const EX = {"basics":"// Emit — everything just works\n// No semicolons, no arrows, types inferred\n\nfn greet(name: str) {\n  printStr(name)\n}\n\nfn distance(x1: num, y1: num, x2: num, y2: num) num {\n  let dx = x2 - x1\n  let dy = y2 - y1\n  return sqrt(dx * dx + dy * dy)\n}\n\nexport fn demo() {\n  // Strings\n  greet(\"Hello from Emit!\")\n\n  // Math\n  printNum(distance(0.0, 0.0, 3.0, 4.0))\n  printNum(sin(3.14159 / 2.0))\n  print(max(42, 17))\n\n  // Arrays\n  let scores = newArray(5)\n  let i = 0\n  while (i < 5) {\n    setItem(scores, i, (i + 1) * 10)\n    i++\n  }\n  push(scores, 99)\n  print(arrayLen(scores))\n  print(getItem(scores, 5))\n\n  // Canvas\n  canvas(200, 100)\n  color(45, 212, 191)\n  rect(10, 10, 80, 80)\n  color(255, 100, 50)\n  circle(150, 50, 35)\n  color(255, 255, 255)\n  text(\"Emit!\", 20, 55, 16)\n\n  // Sound\n  beep(440, 150)\n  beep(550, 150)\n  beep(660, 200)\n}","draw":"// Canvas drawing — house scene\n\nexport fn house() {\n  canvas(300, 200)\n\n  // Sky\n  color(30, 30, 80)\n  rect(0, 0, 300, 140)\n\n  // Ground\n  color(30, 100, 30)\n  rect(0, 140, 300, 60)\n\n  // Sun\n  color(255, 220, 50)\n  circle(240, 45, 30)\n\n  // House\n  color(160, 80, 40)\n  rect(80, 80, 80, 60)\n\n  // Door\n  color(100, 50, 20)\n  rect(108, 105, 24, 35)\n\n  // Roof lines\n  let i = 0\n  while (i < 50) {\n    color(180, 40, 40)\n    line(70 + i, 80, 120, 40)\n    line(170 - i, 80, 120, 40)\n    i++\n  }\n\n  // Stars\n  color(255, 255, 255)\n  circle(30, 20, 2)\n  circle(80, 35, 1)\n  circle(150, 15, 2)\n  circle(200, 50, 1)\n\n  // Label\n  text(\"Home\", 100, 175, 14)\n}","art":"// Generative Art — rainbow spirograph\n\nexport fn spirograph() {\n  canvas(400, 400)\n  color(0, 0, 0)\n  rect(0, 0, 400, 400)\n\n  let cx = 200.0\n  let cy = 200.0\n  let R = 120.0\n  let r = 45.0\n  let d = 90.0\n  let t = 0.0\n  mut prevX = 0\n  mut prevY = 0\n  mut steps = 0\n\n  while (t < 62.8) {\n    let x: num = (R - r) * cos(t) + d * cos((R - r) * t / r)\n    let y: num = (R - r) * sin(t) - d * sin((R - r) * t / r)\n    let px = floor(cx + x)\n    let py = floor(cy + y)\n\n    let hue = steps % 360\n    mut cr = 0\n    mut cg = 0\n    mut cb = 0\n    if (hue < 60) { cr = 255; cg = hue * 4 }\n    if (hue >= 60) { if (hue < 120) { cr = 255 - (hue - 60) * 4; cg = 255 } }\n    if (hue >= 120) { if (hue < 180) { cg = 255; cb = (hue - 120) * 4 } }\n    if (hue >= 180) { if (hue < 240) { cg = 255 - (hue - 180) * 4; cb = 255 } }\n    if (hue >= 240) { if (hue < 300) { cr = (hue - 240) * 4; cb = 255 } }\n    if (hue >= 300) { cr = 255; cb = 255 - (hue - 300) * 4 }\n\n    color(cr, cg, cb)\n    if (steps > 0) { line(prevX, prevY, px, py) }\n    prevX = px\n    prevY = py\n    t = t + 0.02\n    steps++\n  }\n}","cube3d":"// 3D Room — drag to look around, scroll to zoom\nuse three.js\n\nexport fn room() {\n  scene3d(400, 350)\n  bgColor3d(20, 20, 35)\n\n  // Floor\n  let floor = plane(10.0, 10.0)\n  color3d(floor, 60, 60, 70)\n\n  // Walls\n  let back = wallBox(0.0, 1.5, -5.0, 10.0, 3.0, 0.1)\n  color3d(back, 80, 70, 90)\n\n  let left = wallBox(-5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(left, 90, 75, 85)\n\n  let right = wallBox(5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(right, 90, 75, 85)\n\n  let front = wallBox(0.0, 1.5, 5.0, 10.0, 3.0, 0.1)\n  color3d(front, 80, 70, 90)\n\n  // Table\n  let top = wallBox(0.0, 1.0, 0.0, 2.0, 0.1, 1.2)\n  color3d(top, 139, 90, 43)\n  let leg1 = cylinder(-0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg1, 100, 60, 30)\n  let leg2 = cylinder(0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg2, 100, 60, 30)\n  let leg3 = cylinder(-0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg3, 100, 60, 30)\n  let leg4 = cylinder(0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg4, 100, 60, 30)\n\n  // Chair\n  let seat = wallBox(-2.5, 0.6, 0.0, 0.7, 0.08, 0.7)\n  color3d(seat, 45, 100, 180)\n  let chairBack = wallBox(-2.5, 1.2, -0.35, 0.7, 1.0, 0.08)\n  color3d(chairBack, 40, 90, 170)\n\n  // Lamp on table\n  let pole = cylinder(0.5, 1.3, 0.0, 0.03, 0.5)\n  color3d(pole, 200, 200, 200)\n  let shade = sphere(0.5, 1.6, 0.0, 0.15)\n  color3d(shade, 255, 240, 180)\n\n  // Rug\n  let rug = wallBox(0.0, 0.01, 2.0, 3.0, 0.02, 2.0)\n  color3d(rug, 150, 50, 50)\n\n  // Lighting\n  ambient3d(60, 60, 80)\n  light3d(0.5, 2.8, 0.0)\n  light3d(-3.0, 2.5, 3.0)\n\n  // Camera + controls\n  camera3d(3.0, 2.5, 5.0)\n  lookAt3d(0.0, 1.0, 0.0)\n  controls3d()\n  render3d()\n}","ui":"// Interactive UI — buttons, globals, canvas\n\nmut counter = 0\n\nexport fn app() {\n  div(\"Welcome to Emit!\")\n  div(\"Click a button:\")\n  button(\"Say Hello\", 1)\n  button(\"Count\", 2)\n  button(\"Draw\", 3)\n}\n\nexport fn onclick_1() {\n  div(\"Hello from Emit!\")\n  beep(523, 100)\n}\n\nexport fn onclick_2() {\n  counter++\n  print(counter)\n  beep(440 + counter * 50, 80)\n}\n\nexport fn onclick_3() {\n  canvas(200, 100)\n  let r = floor(random() * 255.0)\n  let g = floor(random() * 255.0)\n  let b = floor(random() * 255.0)\n  color(r, g, b)\n  circle(100, 50, 40)\n  color(255, 255, 255)\n  text(\"Random!\", 55, 55, 16)\n}","sound":"// Music — beep a melody\n\nexport fn melody() {\n  // Twinkle Twinkle Little Star\n  beep(262, 300)\n  beep(262, 300)\n  beep(392, 300)\n  beep(392, 300)\n  beep(440, 300)\n  beep(440, 300)\n  beep(392, 600)\n\n  beep(349, 300)\n  beep(349, 300)\n  beep(330, 300)\n  beep(330, 300)\n  beep(294, 300)\n  beep(294, 300)\n  beep(262, 600)\n}","algo":"// Algorithms — recursion, arrays, sorting\n\nfn factorial(n: int) int {\n  if (n <= 1) { return 1 }\n  return n * factorial(n - 1)\n}\n\nfn fibonacci(n: int) int {\n  if (n <= 1) { return n }\n  let a = 0\n  let b = 1\n  let i = 2\n  while (i <= n) {\n    let t = b\n    b = a + b\n    a = t\n    i++\n  }\n  return b\n}\n\nexport fn algorithms() {\n  printStr(\"Factorials:\")\n  let i = 1\n  while (i <= 8) {\n    print(factorial(i))\n    i++\n  }\n\n  printStr(\"Fibonacci:\")\n  i = 1\n  while (i <= 10) {\n    print(fibonacci(i))\n    i++\n  }\n\n  // Sort an array\n  printStr(\"Sorted:\")\n  let arr = newArray(0)\n  push(arr, 38)\n  push(arr, 7)\n  push(arr, 91)\n  push(arr, 14)\n  push(arr, 55)\n  push(arr, 3)\n\n  let n = arrayLen(arr)\n  i = 0\n  while (i < n) {\n    let j = 0\n    while (j < n - 1 - i) {\n      if (getItem(arr, j) > getItem(arr, j + 1)) {\n        let t = getItem(arr, j)\n        setItem(arr, j, getItem(arr, j + 1))\n        setItem(arr, j + 1, t)\n      }\n      j++\n    }\n    i++\n  }\n  i = 0\n  while (i < n) {\n    print(getItem(arr, i))\n    i++\n  }\n}","pong":"// Brick Breaker — touch/mouse to move paddle\n// Smash all the bricks!\n\nmut bx = 0\nmut by = 0\nmut dx = 0\nmut dy = 0\nmut px = 0\nmut score = 0\nmut bricks = 0\nmut lives = 0\n\nexport fn breaker() {\n  bx = 150\n  by = 140\n  dx = 3\n  dy = -3\n  px = 130\n  score = 0\n  lives = 3\n\n  // Create brick grid: 8 cols x 4 rows = 32 bricks\n  bricks = newArray(32)\n  let i = 0\n  while (i < 32) {\n    setItem(bricks, i, 1)\n    i++\n  }\n\n  canvas(300, 200)\n  animate()\n}\n\nexport fn frame() {\n  // Paddle follows touch/mouse\n  let mx = touchX()\n  if (mx > 0) { px = mx - 150 }\n  if (px < 0) { px = 0 }\n  if (px > 260) { px = 260 }\n\n  // Move ball\n  bx += dx\n  by += dy\n\n  // Bounce walls\n  if (bx < 4) { dx = 0 - dx; bx = 4 }\n  if (bx > 296) { dx = 0 - dx; bx = 296 }\n  if (by < 4) { dy = 0 - dy; by = 4 }\n\n  // Bounce paddle\n  if (by > 182) {\n    if (bx > px) {\n      if (bx < px + 40) {\n        dy = 0 - dy\n        by = 182\n        // Angle based on hit position\n        dx = (bx - px - 20) / 5\n        beep(440, 30)\n      }\n    }\n  }\n\n  // Miss — lose life\n  if (by > 200) {\n    lives -= 1\n    beep(150, 300)\n    bx = 150\n    by = 140\n    dx = 3\n    dy = -3\n    if (lives < 1) {\n      // Reset all bricks\n      let i = 0\n      while (i < 32) {\n        setItem(bricks, i, 1)\n        i++\n      }\n      lives = 3\n      score = 0\n    }\n  }\n\n  // Check brick collisions\n  let row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      let idx = row * 8 + col\n      if (getItem(bricks, idx) == 1) {\n        let bkx = col * 36 + 6\n        let bky = row * 14 + 10\n        if (bx > bkx) {\n          if (bx < bkx + 34) {\n            if (by > bky) {\n              if (by < bky + 12) {\n                setItem(bricks, idx, 0)\n                dy = 0 - dy\n                score++\n                beep(660 + score * 20, 40)\n              }\n            }\n          }\n        }\n      }\n      col++\n    }\n    row++\n  }\n\n  // Draw\n  clear()\n  color(0, 0, 20)\n  rect(0, 0, 300, 200)\n\n  // Bricks\n  row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      if (getItem(bricks, row * 8 + col) == 1) {\n        // Color by row\n        if (row == 0) { color(255, 80, 80) }\n        if (row == 1) { color(255, 180, 50) }\n        if (row == 2) { color(50, 220, 100) }\n        if (row == 3) { color(80, 150, 255) }\n        rect(col * 36 + 6, row * 14 + 10, 34, 12)\n      }\n      col++\n    }\n    row++\n  }\n\n  // Ball\n  color(255, 255, 255)\n  circle(bx, by, 4)\n\n  // Paddle\n  color(45, 212, 191)\n  rect(px, 185, 40, 8)\n\n  // Score + lives\n  color(200, 200, 200)\n  text(\"Score:\", 10, 198, 10)\n}","chat":"// Chat — text input and output\n\nexport fn chatapp() {\n  div(\"Emit Chat\")\n  input(\"Type a message...\", 1)\n  button(\"Send\", 1)\n  button(\"Clear\", 2)\n}\n\nexport fn onclick_1() {\n  let val = getInput(1)\n  if (val > 0) {\n    printStr(\"You said something!\")\n    print(val)\n    beep(500, 80)\n  }\n}\n\nexport fn onclick_2() {\n  div(\"Chat cleared!\")\n  beep(300, 100)\n}","babylon":"// Babylon.js — rotating 3D cube\n// No hand-wrapped builtins: `use babylon.js` + member calls = it just works\n\nuse babylon.js\n\nmut sceneH = 0\nmut boxH = 0\n\nexport fn world() {\n  canvas(500, 400)\n  let cv = getCanvas()\n\n  // Engine + scene\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n\n  // Orbit camera — drag to rotate, scroll to zoom\n  let target = BABYLON.Vector3(0.0, 0.0, 0.0)\n  let cam = BABYLON.ArcRotateCamera(\"cam\", 1.0, 1.2, 6.0, target, scene)\n  cam.attachControl(cv, true)\n\n  // Light\n  let lightDir = BABYLON.Vector3(0.0, 1.0, 0.0)\n  BABYLON.HemisphericLight(\"light\", lightDir, scene)\n\n  // Meshes\n  let opts = emptyObj()\n  let cube = BABYLON.MeshBuilder.CreateBox(\"box\", opts, scene)\n\n  sceneH = scene\n  boxH = cube\n  animate()\n}\n\nexport fn frame() {\n  // Spin the cube around Y\n  let axis = BABYLON.Vector3(0.0, 1.0, 0.0)\n  boxH.rotate(axis, 0.02, 0)\n  sceneH.render()\n}","confetti":"// Word Confetti — particles are real words & emoji\n// textShape(text, color, scalar) builds a bitmap shape from text\n\nuse confetti\n\nexport fn party() {\n  div(\"🎉 Tap a button for word confetti!\")\n  button(\"Words\", 1)\n  button(\"Emoji\", 2)\n  button(\"Mixed\", 3)\n}\n\n// Fire confetti with a custom shape array\nfn fireShapes(shapes: int) {\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n\n  let opts = emptyObj()\n  opts.particleCount = 40\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 2.0\n  opts.ticks = 200\n  opts.shapes = shapes\n  opts.origin = origin\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  // Real words as confetti particles\n  let shapes = toJsArray([\n    textShape(\"WOW\",   \"#ff3366\", 2.0),\n    textShape(\"YES!\",  \"#fde047\", 2.0),\n    textShape(\"NICE\",  \"#22d3ee\", 2.0),\n    textShape(\"COOL\",  \"#4ade80\", 2.0),\n    textShape(\"EMIT\",  \"#a78bfa\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(880, 80)\n}\n\nexport fn onclick_2() {\n  // Emoji confetti — color is ignored for emoji glyphs\n  let shapes = toJsArray([\n    textShape(\"🎉\", \"#ffffff\", 2.0),\n    textShape(\"🎊\", \"#ffffff\", 2.0),\n    textShape(\"⭐\", \"#ffffff\", 2.0),\n    textShape(\"💖\", \"#ffffff\", 2.0),\n    textShape(\"🚀\", \"#ffffff\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(660, 80)\n}\n\nexport fn onclick_3() {\n  // Mix words, emoji, and built-in shapes\n  let shapes = toJsArray([\n    textShape(\"HI!\", \"#ff3366\", 2.0),\n    textShape(\"✨\",  \"#ffffff\", 2.0),\n    textShape(\"YAY\", \"#22d3ee\", 2.0),\n    \"star\",\n    \"circle\"\n  ])\n  fireShapes(shapes)\n  beep(990, 80)\n}","clock":"// Dayjs — chained member calls for date formatting\n// Every .format(), .year(), .month() dispatches through __jsCall\n\nuse dayjs\n\nexport fn clock() {\n  div(\"Current time (via dayjs):\")\n\n  let now = dayjs()\n  let stamp = now.format(\"YYYY-MM-DD HH:mm:ss\")\n  printStr(toStr(stamp))\n\n  let dayName = now.format(\"dddd, MMMM D\")\n  printStr(toStr(dayName))\n\n  // Math on dates — subtract 7 days\n  let lastWeek = now.subtract(7, \"day\")\n  let ago = lastWeek.format(\"YYYY-MM-DD\")\n  printStr(strConcat(\"One week ago: \", toStr(ago)))\n}","strings":"// Strings — concat, format, compare, slice\n// All the string builtins, no external libraries\n\nexport fn tour() {\n  // Build a greeting from pieces\n  let greeting = strConcat(\"Emit has \", intToStr(8))\n  let full = strConcat(greeting, \" string builtins.\")\n  printStr(full)\n\n  // Format a computed number\n  let circle = 3.14159 * 2.0 * 5.0\n  printStr(strConcat(\"Circle circumference: \", numToStr(circle)))\n\n  // Length + substring\n  let name = \"Emit language\"\n  printStr(strConcat(\"Length: \", intToStr(strLen(name))))\n  printStr(strConcat(\"Slice: \", substr(name, 5, 8)))\n\n  // Equality test\n  if (strEq(\"hello\", \"hello\")) {\n    printStr(\"✓ strEq works\")\n  }\n\n  // Char code of first character\n  let code = charAt(name, 0)\n  printStr(strConcat(\"'E' is code \", intToStr(code)))\n}","callbacks":"// Callbacks, promises, null checks — browser globals only, no library\n// fnRef(fn) hands an Emit function to JS. The parameter types you declare\n// decide how the JS arguments arrive: int / num / str / bool, or a handle.\n\nmut total = 0\nmut clicks = 0\n\n// arr.forEach calls this with (value, index)\nfn addUp(value: int, index: int) {\n  total += value\n  printStr(strConcat(\"item \", strConcat(intToStr(index), strConcat(\" = \", intToStr(value)))))\n}\n\n// arr.map uses the return value\nfn square(x: num) num {\n  return x * x\n}\n\n// Promise callbacks: the resolved value arrives with the type you declare\nfn onResolved(msg: str) {\n  printStr(strConcat(\"promise resolved: \", msg))\n}\n\n// A rejected promise passes an Error object — it arrives as a handle\nfn onRejected(err: int) {\n  let why: str = err.message\n  printStr(strConcat(\"promise rejected: \", why))\n}\n\nfn onTimer() {\n  printStr(\"timer fired after 300 ms\")\n}\n\n// DOM event listener: the event object is a handle\nfn onClick(ev: int) {\n  clicks++\n  let kind: str = ev.type\n  printStr(strConcat(kind, strConcat(\" #\", intToStr(clicks))))\n}\n\nexport fn run() {\n  // 1. Callbacks that receive arguments\n  let list = JSON.parse(\"[3, 4, 5]\")\n  list.forEach(fnRef(addUp))\n  printStr(strConcat(\"total = \", intToStr(total)))\n\n  // 2. Iterating a JS array: jsLen + jsAt\n  let squares = list.map(fnRef(square))\n  for (let i = 0; i < jsLen(squares); i++) {\n    let sq: num = jsAt(squares, i)\n    printNum(sq)\n  }\n\n  // 3. Null checks\n  let missing = document.getElementById(\"no-such-element\")\n  if (isNull(missing)) {\n    printStr(\"no such element: got null\")\n  }\n\n  // 4. Explicit new, and a typed value straight from JS\n  let d = new Date(2024, 0, 15)\n  let year: num = d.getFullYear()\n  printNum(year)\n\n  // 5. Promises, callback style (WASM cannot await)\n  Promise.resolve(\"hello from a promise\").then(fnRef(onResolved))\n  Promise.reject(new Error(\"nope\")).catch(fnRef(onRejected))\n  setTimeout(fnRef(onTimer), 300)\n\n  // 6. A real DOM button in the Output panel with an Emit click handler\n  let btn = document.createElement(\"button\")\n  btn.textContent = \"Click me\"\n  btn.addEventListener(\"click\", fnRef(onClick))\n  document.getElementById(\"tab-output\").appendChild(btn)\n}","particles":"// Particles — directed confetti via nested config objects\n// origin: {x, y} sets where particles launch from (0-1 screen coords)\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button to fire particles!\")\n  button(\"Burst from bottom\", 1)\n  button(\"Double cannons\", 2)\n  button(\"Rain from top\", 3)\n}\n\nexport fn onclick_1() {\n  // Center-bottom burst, straight up\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.9\n\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 70\n  opts.startVelocity = 55\n  opts.origin = org\n  confetti(opts)\n}\n\nexport fn onclick_2() {\n  // Left cannon — angle 60 shoots up-right\n  let orgL = emptyObj()\n  orgL.x = 0.15\n  orgL.y = 0.6\n  let optsL = emptyObj()\n  optsL.particleCount = 70\n  optsL.angle = 60\n  optsL.spread = 55\n  optsL.startVelocity = 50\n  optsL.origin = orgL\n  confetti(optsL)\n\n  // Right cannon — angle 120 shoots up-left\n  let orgR = emptyObj()\n  orgR.x = 0.85\n  orgR.y = 0.6\n  let optsR = emptyObj()\n  optsR.particleCount = 70\n  optsR.angle = 120\n  optsR.spread = 55\n  optsR.startVelocity = 50\n  optsR.origin = orgR\n  confetti(optsR)\n}\n\nexport fn onclick_3() {\n  // Falling from top, wide spread, slow\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.0\n\n  let opts = emptyObj()\n  opts.particleCount = 100\n  opts.spread = 180\n  opts.startVelocity = 20\n  opts.gravity = 0.8\n  opts.ticks = 300\n  opts.origin = org\n  confetti(opts)\n}","orbit":"// Three.js — rotating cube via pure Path C\n// Field assignment at work: opts.canvas = cv, rot.x = rotX\n\nuse three.js\n\nmut sceneH = 0\nmut rendererH = 0\nmut cubeH = 0\nmut camH = 0\nmut rotX = 0.0\nmut rotY = 0.0\n\nexport fn scene() {\n  canvas(400, 300)\n  let cv = getCanvas()\n\n  let scn = THREE.Scene()\n  sceneH = scn\n\n  let cam = THREE.PerspectiveCamera(75.0, 1.333, 0.1, 1000.0)\n  let p = cam.position\n  p.z = 5.0\n  camH = cam\n\n  // Renderer needs a config object — build it with emptyObj + field assignment\n  let optsR = emptyObj()\n  optsR.canvas = cv\n  optsR.antialias = true\n  let r = THREE.WebGLRenderer(optsR)\n  r.setSize(400, 300)\n  rendererH = r\n\n  // Material config — red cube\n  let geo = THREE.BoxGeometry(1.0, 1.0, 1.0)\n  let matOpts = emptyObj()\n  matOpts.color = 16724736\n  let mat = THREE.MeshBasicMaterial(matOpts)\n  let cube = THREE.Mesh(geo, mat)\n  scn.add(cube)\n  cubeH = cube\n\n  animate()\n}\n\nexport fn frame() {\n  // Track rotation in pure Emit vars, then write back to the cube\n  rotX = rotX + 0.01\n  rotY = rotY + 0.015\n  let rot = cubeH.rotation\n  rot.x = rotX\n  rot.y = rotY\n  rendererH.render(sceneH, camH)\n}","snake":"// Snake — tap toward where you want to go\n// No external libraries — just Emit + canvas + arrays + animate()\n\nmut headX = 10\nmut headY = 10\nmut dirX = 1\nmut dirY = 0\nmut foodX = 15\nmut foodY = 15\nmut tail = 0\nmut tailLen = 3\nmut score = 0\nmut tickN = 0\n\nfn randCell() int { return floor(random() * 18.0) + 1 }\n\nexport fn game() {\n  headX = 10\n  headY = 10\n  dirX = 1\n  dirY = 0\n  foodX = randCell()\n  foodY = randCell()\n  tailLen = 3\n  score = 0\n  tickN = 0\n\n  tail = newArray(200)\n  let i = 0\n  while (i < 200) {\n    setItem(tail, i, 0)\n    i++\n  }\n\n  canvas(300, 300)\n  animate()\n}\n\nexport fn frame() {\n  tickN++\n\n  // Step every 6 frames\n  if (tickN % 6 == 0) {\n    // Steer toward touch point\n    let tx = touchX()\n    let ty = touchY()\n    if (tx > 0) {\n      let cx = headX * 15\n      let cy = headY * 15\n      let dx = tx - cx\n      let dy = ty - cy\n      if (abs(dx) > abs(dy)) {\n        if (dx > 0) { dirX = 1; dirY = 0 }\n        if (dx < 0) { dirX = 0 - 1; dirY = 0 }\n      }\n      if (abs(dy) >= abs(dx)) {\n        if (dy > 0) { dirX = 0; dirY = 1 }\n        if (dy < 0) { dirX = 0; dirY = 0 - 1 }\n      }\n    }\n\n    let newX = headX + dirX\n    let newY = headY + dirY\n\n    // Wrap at walls\n    if (newX < 1) { newX = 18 }\n    if (newX > 18) { newX = 1 }\n    if (newY < 1) { newY = 18 }\n    if (newY > 18) { newY = 1 }\n\n    // Eat food\n    if (newX == foodX) {\n      if (newY == foodY) {\n        score++\n        tailLen++\n        foodX = randCell()\n        foodY = randCell()\n        beep(880, 60)\n      }\n    }\n\n    // Shift tail history\n    let i = tailLen\n    while (i > 0) {\n      setItem(tail, i * 2, getItem(tail, (i - 1) * 2))\n      setItem(tail, i * 2 + 1, getItem(tail, (i - 1) * 2 + 1))\n      i--\n    }\n    setItem(tail, 0, headX)\n    setItem(tail, 1, headY)\n\n    headX = newX\n    headY = newY\n  }\n\n  // Draw every frame for smooth movement\n  clear()\n  color(10, 15, 30)\n  rect(0, 0, 300, 300)\n\n  color(40, 180, 100)\n  let i = 0\n  while (i < tailLen) {\n    let x = getItem(tail, i * 2)\n    let y = getItem(tail, i * 2 + 1)\n    rect(x * 15 + 1, y * 15 + 1, 13, 13)\n    i++\n  }\n\n  color(80, 240, 140)\n  rect(headX * 15 + 1, headY * 15 + 1, 13, 13)\n\n  color(240, 80, 80)\n  circle(foodX * 15 + 7, foodY * 15 + 7, 5)\n\n  color(200, 200, 230)\n  text(\"Score:\", 8, 295, 10)\n  text(intToStr(score), 50, 295, 10)\n}","words":"// Colors — confetti with custom palettes and shape mixes\n// Uses arrays via toJsArray() — works on every browser\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button for themed confetti!\")\n  button(\"Hot Pink\", 1)\n  button(\"Ocean\", 2)\n  button(\"Stars\", 3)\n  button(\"Fire\", 4)\n}\n\nfn fire(palette: int, useStars: bool) {\n  let opts = emptyObj()\n  opts.particleCount = 80\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 1.2\n  opts.colors = palette\n\n  // Mix in star shape\n  if (useStars) {\n    let shapes = toJsArray([\"star\", \"circle\"])\n    opts.shapes = shapes\n  }\n\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n  opts.origin = origin\n\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  fire(toJsArray([\"#ff3366\", \"#ff70a6\", \"#ff85b3\", \"#ffaad4\"]), false)\n}\n\nexport fn onclick_2() {\n  fire(toJsArray([\"#0ea5e9\", \"#22d3ee\", \"#06b6d4\", \"#67e8f9\"]), false)\n}\n\nexport fn onclick_3() {\n  fire(toJsArray([\"#fde047\", \"#facc15\", \"#fbbf24\", \"#f59e0b\"]), true)\n}\n\nexport fn onclick_4() {\n  fire(toJsArray([\"#dc2626\", \"#ea580c\", \"#f97316\", \"#fb923c\", \"#fde047\"]), false)\n}","npm":"// Any npm package — no built-in registry entry needed\n// `use name@version` loads the package's browser build from the jsDelivr CDN\n\nuse tinycolor2@1.6.0\n\nexport fn colors() {\n  div(\"tinycolor2, loaded straight from npm:\")\n\n  let base = tinycolor(\"#3498db\")\n  printStr(strConcat(\"Base: \", toStr(base.toHexString())))\n\n  // Chained member calls on the library's objects\n  let light = tinycolor(\"#3498db\").lighten(20)\n  printStr(strConcat(\"Lighter: \", toStr(light.toHexString())))\n\n  let opposite = tinycolor(\"#3498db\").complement()\n  printStr(strConcat(\"Complement: \", toStr(opposite.toHexString())))\n\n  printStr(strConcat(\"As RGB: \", toStr(base.toRgbString())))\n}","countdown":"// Callbacks — pass an Emit function to JS via fnRef(\"name\")\n// Recursive setTimeout schedules itself\n\nmut n = 5\n\nfn tick() {\n  printStr(strConcat(\"Tick: \", intToStr(n)))\n  n--\n  if (n > 0) {\n    setTimeout(fnRef(\"tick\"), 1000)\n  } else {\n    printStr(\"🎉 Done!\")\n  }\n}\n\nexport fn run() {\n  div(\"Counting down from 5...\")\n  setTimeout(fnRef(\"tick\"), 1000)\n}","modules":"// Modules — one program in three files (the tabs above the editor)\n// main.emit is the entry file. It imports two modules from the folder game/:\n//   game/physics.emit  moves the balls   (module game.physics)\n//   game/draw.emit     paints them       (module game.draw)\n\nimport game.physics\nimport game.draw\n\nexport fn balls() {\n  canvas(300, 200)\n  physics.setup(7)\n  animate()\n}\n\nexport fn frame() {\n  physics.step()\n  draw.render()\n}\n//// file: game/physics.emit\npackage game\n\n// Only names marked `public` can be used from other files.\npublic let width = 300\npublic let height = 200\npublic let radius = 8\n\nmut n = 0\nmut xs = 0\nmut ys = 0\nmut vx = 0\nmut vy = 0\n\npublic fn setup(count: int) {\n  n = count\n  xs = newArray(n)\n  ys = newArray(n)\n  vx = newArray(n)\n  vy = newArray(n)\n  let i = 0\n  while (i < n) {\n    setItem(xs, i, randInt(radius, width - radius))\n    setItem(ys, i, randInt(radius, height - radius))\n    setItem(vx, i, speed())\n    setItem(vy, i, speed())\n    i++\n  }\n}\n\npublic fn step() {\n  let i = 0\n  while (i < n) {\n    let x = getItem(xs, i) + getItem(vx, i)\n    let y = getItem(ys, i) + getItem(vy, i)\n    if (outside(x, width) == 1) { setItem(vx, i, 0 - getItem(vx, i)) }\n    if (outside(y, height) == 1) { setItem(vy, i, 0 - getItem(vy, i)) }\n    setItem(xs, i, keep(x, width))\n    setItem(ys, i, keep(y, height))\n    i++\n  }\n}\n\npublic fn count() int {\n  return n\n}\n\npublic fn ballX(i: int) int {\n  return getItem(xs, i)\n}\n\npublic fn ballY(i: int) int {\n  return getItem(ys, i)\n}\n\n// Private helpers: no `public`, so other files cannot call them.\n\n// 1 to 3 pixels per frame, in either direction\nfn speed() int {\n  let s = randInt(1, 3)\n  if (randInt(0, 1) == 0) { return 0 - s }\n  return s\n}\n\n// 1 when a ball at v has left the field 0..size, else 0\nfn outside(v: int, size: int) int {\n  if (v < radius) { return 1 }\n  if (v > size - radius) { return 1 }\n  return 0\n}\n\n// v moved back into the field\nfn keep(v: int, size: int) int {\n  if (v < radius) { return radius }\n  if (v > size - radius) { return size - radius }\n  return v\n}\n//// file: game/draw.emit\npackage game\n\nimport game.physics\n\npublic fn render() {\n  color(8, 9, 13)\n  rect(0, 0, physics.width, physics.height)\n  let i = 0\n  while (i < physics.count()) {\n    paint(i)\n    circle(physics.ballX(i), physics.ballY(i), physics.radius)\n    i++\n  }\n}\n\n// Private helper: a colour for ball number i\nfn paint(i: int) {\n  color(45 + i * 30, 212 - i * 20, 191)\n}","memory":"// Memory — falling sand that lives in memory regions\n// Open Output → MEMORY while it runs: each region is a live card there.\n// Tap a cell to poke it, tap 🔓 to lock a region.\n//\n//   fb      u8 region: the picture, 160 x 120 pixels of 4 bytes (RGBA), shown by screen()\n//   sparks  struct region: a few glowing particles\n//   stats   int region: grains poured, frames, errors caught\n//   sand/world.emit owns the grid of grains and the rules of falling sand\n//\n// Touch (or hold the mouse) to pour where you point.\n// \"Freeze grid\" locks the grid region: the sand stands still and pouring\n// becomes a write to a frozen region, an error that pour() catches.\n\nimport sand.world\n\nstruct Spark { x: num, y: num, vx: num, vy: num, life: int, alive: bool }\n\nregion fb: u8[160 * 120 * 4]\nregion sparks: Spark[12]\nregion stats: int[3]\n\nmut spout = 30\nmut dir = 1\nmut tick = 0\nmut next = 0\nmut warned = false\n\nexport fn sand() {\n  world.setup()\n  screen(fb, 160, 120, 2)\n  button(\"Freeze grid\", 1)\n  button(\"Thaw grid\", 2)\n  button(\"Clear\", 3)\n  animate()\n}\n\nexport fn onclick_1() {\n  world.lock(true)\n}\n\nexport fn onclick_2() {\n  world.lock(false)\n  warned = false\n}\n\nexport fn onclick_3() {\n  world.setup()\n  wipe(sparks)\n  fill(stats, 0)\n}\n\nexport fn frame() {\n  tick++\n  stats[1] += 1\n  // the spout wanders by itself; a touch takes it over\n  if (touching() == 1) {\n    spout = touchX() * 160 / screenW()\n  } else {\n    spout += dir\n    if (spout < 12) { dir = 1 }\n    if (spout > 148) { dir = -1 }\n  }\n  if (tick % 2 == 0) { pour(spout) }\n  world.step()\n  moveSparks()\n  paint()\n}\n\n// Drop a grain. A frozen grid refuses the write: catch it, say so once\nfn pour(x: int) {\n  try {\n    world.drop(x)\n    stats[0] += 1\n    if (tick % 8 == 0) { spark(x) }\n  } catch (e) {\n    stats[2] += 1\n    if (warned == false) {\n      printStr(\"caught: \" + e.message)\n      printStr(\"Thaw the grid, or poke it in the MEMORY tab: a front panel write overrides the lock.\")\n      warned = true\n    }\n  }\n}\n\nfn spark(x: int) {\n  let i = next\n  next = (next + 1) % sparks.length\n  sparks[i].x = x\n  sparks[i].y = 1.0\n  sparks[i].vx = random() * 2.0 - 1.0\n  sparks[i].vy = random() * 0.5\n  sparks[i].life = 45\n  sparks[i].alive = true\n}\n\nfn moveSparks() {\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      sparks[i].x = sparks[i].x + sparks[i].vx\n      sparks[i].vy = sparks[i].vy + 0.06\n      sparks[i].y = sparks[i].y + sparks[i].vy\n      sparks[i].life = sparks[i].life - 1\n      if (sparks[i].life <= 0) { sparks[i].alive = false }\n    }\n    i++\n  }\n}\n\n// The grid, one byte per cell, becomes 4 bytes per pixel in fb\nfn paint() {\n  mut p = 0\n  while (p < 160 * 120) {\n    let g = world.grid[p]\n    let o = p * 4\n    if (g == 0) {\n      fb[o] = 10\n      fb[o + 1] = 12\n      fb[o + 2] = 22\n    } else if (g == 1) {\n      fb[o] = 72\n      fb[o + 1] = 80\n      fb[o + 2] = 110\n    } else {\n      fb[o] = 205 + g % 50\n      fb[o + 1] = 150 + g % 70\n      fb[o + 2] = 60 + g % 50\n    }\n    fb[o + 3] = 255\n    p++\n  }\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      let x = floor(sparks[i].x)\n      let y = floor(sparks[i].y)\n      if (x >= 0 && x < 160 && y >= 0 && y < 120) {\n        let o = (y * 160 + x) * 4\n        fb[o] = 255\n        fb[o + 1] = 245\n        fb[o + 2] = 170\n      }\n    }\n    i++\n  }\n  // a violet bar on top while the grid is frozen\n  if (world.isFrozen()) {\n    mut x = 0\n    while (x < 160) {\n      fb[x * 4] = 167\n      fb[x * 4 + 1] = 139\n      fb[x * 4 + 2] = 250\n      x++\n    }\n  }\n}\n//// file: sand/world.emit\npackage sand\n\n// The grid: one byte per cell, 160 x 120.\n// 0 = empty, 1 = wall, 2..255 = sand (the value is the grain's shade)\npublic region grid: u8[160 * 120]\n\nlet W = 160\nlet H = 120\nmut tick = 0\n\npublic fn setup() {\n  thaw(grid)\n  wipe(grid)\n  // two shelves for the sand to pile on and slide off\n  mut x = 0\n  while (x < 56) {\n    grid[(62 + x / 4) * W + 18 + x] = 1\n    grid[(88 - x / 5) * W + 142 - x] = 1\n    x++\n  }\n}\n\npublic fn lock(on: bool) {\n  if (on) { freeze(grid) } else { thaw(grid) }\n}\n\npublic fn isFrozen() bool {\n  return frozen(grid)\n}\n\n// A new grain at the top of column x: a write, so a frozen grid refuses it\npublic fn drop(x: int) {\n  let cx = max(0, min(W - 1, x))\n  grid[W + cx] = randInt(2, 255)\n}\n\n// One step of falling sand, bottom row first so a grain moves once per step\npublic fn step() {\n  if (frozen(grid) == false) {\n    tick++\n    mut y = H - 2\n    while (y >= 0) {\n      mut i = 0\n      while (i < W) {\n        mut x = i\n        if (tick % 2 == 1) { x = W - 1 - i }\n        let p = y * W + x\n        let g = grid[p]\n        if (g > 1) { fall(p, x, g) }\n        i++\n      }\n      y--\n    }\n  }\n}\n\n// Down if free, else down-left or down-right (alternating which is tried first)\nfn fall(p: int, x: int, g: int) {\n  let below = p + W\n  mut d = 1\n  if ((x + tick) % 2 == 0) { d = -1 }\n  if (grid[below] == 0) {\n    grid[below] = g\n    grid[p] = 0\n  } else if (x + d >= 0 && x + d < W && grid[below + d] == 0) {\n    grid[below + d] = g\n    grid[p] = 0\n  } else if (x - d >= 0 && x - d < W && grid[below - d] == 0) {\n    grid[below - d] = g\n    grid[p] = 0\n  }\n}\n"};
 // ═══ EMIT COMPILER v0.4 — int/num + imports ═══
 const TT={INTEGER:'INTEGER',FLOAT:'FLOAT',STRING:'STRING',BOOLEAN:'BOOLEAN',NULL:'NULL',IDENTIFIER:'IDENTIFIER',KEYWORD:'KEYWORD',TYPE:'TYPE',PLUS:'PLUS',MINUS:'MINUS',STAR:'STAR',SLASH:'SLASH',PERCENT:'PERCENT',AMP:'AMP',PIPE:'PIPE',CARET:'CARET',TILDE:'TILDE',SHL:'SHL',SHR:'SHR',AND:'AND',OR:'OR',NOT:'NOT',EQ:'EQ',NEQ:'NEQ',LT:'LT',GT:'GT',LTE:'LTE',GTE:'GTE',ASSIGN:'ASSIGN',QUESTION:'QUESTION',NULLCOALESCE:'NULLCOALESCE',ARROW:'ARROW',DOT:'DOT',LPAREN:'LPAREN',RPAREN:'RPAREN',LBRACE:'LBRACE',RBRACE:'RBRACE',LBRACKET:'LBRACKET',RBRACKET:'RBRACKET',SEMICOLON:'SEMICOLON',COLON:'COLON',COMMA:'COMMA',PLUSPLUS:'PLUSPLUS',MINUSMINUS:'MINUSMINUS',PLUSEQ:'PLUSEQ',MINUSEQ:'MINUSEQ',STAREQ:'STAREQ',SLASHEQ:'SLASHEQ',EOF:'EOF'};
 const KW=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
@@ -7175,6 +7237,595 @@ function _projOpenFiles(files){
     });
   })).then(_projOpenTexts,function(e){alert((e&&e.message)||String(e))});
 }
+// ═══ Memory tab — the program's memory regions as a front panel (IDE only) ═══
+// Reads the runtime's region API: _emitRegions(), _emitRegionRead(id, i, field?), _emitRegionWrite(id, i, field,
+// value), _emitRegionFreeze(id, on), _emitRegionBytes(id). Without that API, or for a program without regions,
+// the tab shows a short note. One card per region; at most _MEM_CAP value cells exist in the DOM across all
+// cards (large regions are paged). While the tab is visible and the program runs, the visible cells are re-read
+// about 6 times a second (requestAnimationFrame, throttled) and only cells whose value changed are touched.
+// Nothing is read while the tab is hidden, the Output view is not shown or the page is in the background.
+var _MEM_PAGE=256,_MEM_CAP=600,_MEM_MS=160,_MEM_OPEN_MAX=64;
+var _mem={sig:null,cards:[],view:{},raf:0,last:0,dirty:false,edit:null,errT:0};
+function _memApi(){return typeof _emitRegions==='function'&&typeof _emitRegionRead==='function'}
+function _memRegions(){if(!_memApi())return[];try{var r=_emitRegions();return Array.isArray(r)?r:[]}catch(e){return[]}}
+function _memEl(){return document.getElementById('tab-memory')}
+function _memVisible(){
+  var t=_memEl();if(!t||t.style.display==='none'||document.hidden)return false;
+  if(window.innerWidth<768&&/off-/.test(document.getElementById('pnl-run').className))return false;
+  return true;
+}
+function _memKey(r){return(r.module||'main')+'.'+r.name}
+function _memSig(regs){return regs.map(function(r){return[r.id,r.name,r.module,r.base,r.length,r.elemSize,JSON.stringify(r.elem)].join('|')}).join('\n')}
+function _memIsFloat(t){return t==='f32'||t==='num'||t==='f64'}
+var _MEM_BITS={i8:8,u8:8,i16:16,u16:16,i32:32,u32:32,int:64,i64:64,u64:64};
+function _memIsIntT(t){return!!_MEM_BITS[t]}
+function _memSigned(t){return t.charAt(0)!=='u'}
+function _memFmt(v,t,mode){
+  if(v===undefined||v===null)return'—';
+  if(t==='bool'||typeof v==='boolean')return v?'true':'false';
+  if(_memIsFloat(t)){var n=Number(v);if(!isFinite(n))return String(n);if(Number.isInteger(n)&&Math.abs(n)<1e15)return String(n);return String(+n.toPrecision(t==='f32'?6:9))}
+  if(mode==='hex'&&_memIsIntT(t)){var b=_MEM_BITS[t];try{return BigInt.asUintN(b,BigInt(v)).toString(16).padStart(b/4,'0')}catch(e){return String(v)}}
+  if(mode==='ascii'){var c=Number(v);return c>=32&&c<127?"'"+String.fromCharCode(c)+"'":c===10?'\\n':c===0?'\\0':String(c)}
+  return String(v);
+}
+// Parse what was typed into a cell of type t. -> {v} (number | boolean | decimal string for 64-bit values
+// outside the safe integer range) or {err}
+function _memParse(s,t,mode){
+  s=String(s).trim();
+  if(t==='bool'){if(/^(true|1)$/i.test(s))return{v:true};if(/^(false|0)$/i.test(s))return{v:false};return{err:'type true or false'}}
+  if(_memIsFloat(t)){
+    if(!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)&&!/^[-+]?(Infinity|NaN)$/.test(s))return{err:'not a number'};
+    return{v:Number(s)};
+  }
+  if(!_memIsIntT(t))return{err:'cannot edit a '+t};
+  var b=_MEM_BITS[t],m,big,hex=false;
+  try{
+    if((m=/^'([\s\S])'$/.exec(s)))big=BigInt(m[1].charCodeAt(0));
+    else if(/^[-+]?\d+$/.test(s))big=BigInt(s.replace(/^\+/,''));
+    else if((m=/^([-+]?)0x([0-9a-f]+)$/i.exec(s))){big=BigInt('0x'+m[2]);if(m[1]==='-')big=-big;else hex=true}
+    else if(mode==='hex'&&/^[0-9a-f]+$/i.test(s)){big=BigInt('0x'+s);hex=true}
+  }catch(e){big=undefined}
+  if(big===undefined)return{err:'not a whole number'};
+  var sg=_memSigned(t),lo=sg?-(1n<<BigInt(b-1)):0n,hi=sg?(1n<<BigInt(b-1))-1n:(1n<<BigInt(b))-1n;
+  if(hex&&sg&&big>hi&&big<(1n<<BigInt(b)))big=BigInt.asIntN(b,big);   // 0xff for an i8 means -1
+  if(big<lo||big>hi)return{err:'out of range '+lo+' … '+hi};
+  return{v:(big>=-9007199254740991n&&big<=9007199254740991n)?Number(big):big.toString()};
+}
+function _memBytes(n){return n<1024?n+' B':n<1048576?(+(n/1024).toFixed(1))+' KB':(+(n/1048576).toFixed(2))+' MB'}
+function _memElemName(r){return r.elem&&typeof r.elem==='object'?r.elem.struct:String(r.elem)}
+// Columns of a struct region: the flattened fields; a fixed array field becomes one column per element (up to 16)
+function _memCols(r){
+  var out=[];
+  ((r.elem&&r.elem.fields)||[]).forEach(function(f){
+    if(f.count>1){for(var k=0;k<Math.min(f.count,16);k++)out.push({f:f.name+'['+k+']',t:f.type,h:f.name+'['+k+']'})}
+    else out.push({f:f.name,t:f.type,h:f.name});
+  });
+  return out;
+}
+function _memModes(r){
+  if(r.elem&&typeof r.elem==='object')return _memCols(r).some(function(c){return _memIsIntT(c.t)})?['dec','hex']:[];
+  var t=r.elem;
+  if(!_memIsIntT(t))return[];
+  var ms=['dec','hex'];
+  if(t==='u8'){ms.push('ascii');if(r.length>=16)ms.push('dump');if(r.length>=64)ms.push('pixels')}
+  return ms;
+}
+function _memView(r){
+  var k=_memKey(r),v=_mem.view[k];
+  if(!v){var cells=r.length*(r.elem&&typeof r.elem==='object'?Math.max(1,_memCols(r).length):1);v=_mem.view[k]={open:cells<=_MEM_OPEN_MAX,mode:'dec',start:0,pxw:0}}
+  if(_memModes(r).indexOf(v.mode)<0)v.mode='dec';
+  return v;
+}
+function _memRead(r,i,f){try{return f?_emitRegionRead(r.id,i,f):_emitRegionRead(r.id,i)}catch(e){return undefined}}
+function _memFlash(el,cls){
+  if(cls){el.classList.remove('mfa','mfb','mpk');el.classList.add(cls);el._fl=cls;return}
+  var c=el._fl==='mfa'?'mfb':'mfa';el.classList.remove('mfa','mfb','mpk');el.classList.add(c);el._fl=c;   // two identical animations: switching restarts it without a reflow
+}
+// ── building ──
+function _memRender(){
+  var box=_memEl();if(!box)return;
+  _memEditEnd(false);
+  var regs=_memRegions();_mem.sig=_memSig(regs);_mem.cards=[];
+  _memDot(regs.length>0);
+  if(!regs.length){
+    box.innerHTML='<div class="mnote"><b>No memory regions in this program.</b><br>A region is a named block of typed cells that the program keeps in memory: <code>region grid: int[64]</code>, <code>region fb: u8[320 * 200 * 4]</code>, or a <code>struct</code> type: <code>region balls: Ball[100]</code>. Declare one at the top level of a file and Run: each region shows here as a card you can watch live, poke and lock.'+(_memApi()?'':'<br><span style="color:var(--fg3)">(This build of the runtime has no region support yet.)</span>')+'</div>';
+    return;
+  }
+  var total=0;regs.forEach(function(r){total+=r.length*(r.elemSize||0)});
+  var html='<div class="msum"><span>'+regs.length+' region'+(regs.length>1?'s':'')+' · '+_memBytes(total)+'</span><span class="mlive"></span></div>';
+  regs.forEach(function(r,n){html+='<div class="mcard" data-n="'+n+'"></div>'});
+  box.innerHTML=html;
+  var budget=_MEM_CAP;
+  regs.forEach(function(r,n){
+    var c={r:r,n:n,el:box.querySelector('.mcard[data-n="'+n+'"]'),cells:[],vals:[],used:0,frozen:null};
+    _mem.cards.push(c);
+    _memCardHead(c);
+    budget-=_memCardBody(c,budget);
+  });
+  _memLive();
+}
+function _memCardHead(c){
+  var r=c.r,v=_memView(r),mod=r.module&&r.module!=='main'?'<span class="mmod">'+escH(String(r.module))+'</span>':'';
+  var cells=r.elem&&typeof r.elem==='object'?' · '+_memCols(r).length+' fields':'';
+  c.el.innerHTML='<div class="mhead"><button class="mtog" data-act="tog" aria-expanded="'+v.open+'"><span class="mname"><span class="mchev">'+(v.open?'▾':'▸')+'</span>'+escH(String(r.name))+mod+'</span>'
+    +'<span class="mmeta">'+escH(_memElemName(r))+'['+r.length+']'+cells+' · '+_memBytes(r.length*(r.elemSize||0))+' · @0x'+(Number(r.base)||0).toString(16)+'</span></button>'
+    +'<button class="mlock" data-act="lock"></button></div><div class="mbody"'+(v.open?'':' style="display:none"')+'></div>';
+  c.body=c.el.querySelector('.mbody');c.frozen=null;
+  _memLock(c,!!r.frozen);
+}
+function _memLock(c,fz){
+  if(c.frozen===fz)return;
+  c.frozen=fz;c.r.frozen=fz;
+  var b=c.el.querySelector('.mlock');
+  b.textContent=fz?'🔒':'🔓';b.setAttribute('aria-pressed',String(fz));
+  b.title=b.ariaLabel=fz?'Frozen: tap to thaw '+c.r.name:'Tap to freeze '+c.r.name;
+  b.setAttribute('aria-label',b.title);
+  c.el.classList.toggle('frozen',fz);
+  var n=c.body&&c.body.querySelector('.mfz');if(n)n.style.display=fz?'':'none';
+}
+// Body of an open card with at most `budget` value cells. Returns the number of cells it created.
+function _memCardBody(c,budget){
+  var r=c.r,v=_memView(r);
+  c.cells=[];c.vals=[];c.used=0;c.dump=null;c.px=null;
+  if(!v.open){c.body.innerHTML='';return 0}
+  var st=r.elem&&typeof r.elem==='object',cols=st?_memCols(r):null,per=st?cols.length+1:1;
+  var unit=v.mode==='dump'?16:1;   // a dump row shows 16 bytes and counts as 16 cells
+  var page=v.mode==='pixels'?0:Math.max(0,Math.min(_MEM_PAGE,Math.floor(Math.max(0,budget)/per/unit)*unit));
+  if(st)page=Math.min(page,Math.max(1,Math.floor(_MEM_PAGE/per)));
+  var html='',modes=_memModes(r);
+  if(modes.length){
+    html+='<div class="mbar"><div class="mseg" role="group" aria-label="Display">';
+    modes.forEach(function(m){html+='<button data-act="mode" data-m="'+m+'"'+(m===v.mode?' class="on" aria-pressed="true"':' aria-pressed="false"')+'>'+m+'</button>'});
+    html+='</div></div>';
+  }
+  html+='<div class="mfz"'+(c.frozen?'':' style="display:none"')+'>🔒 Frozen: a write by the program stops it with an error. A tap here still writes — a <b>front panel write</b> overrides the lock.</div>';
+  if(v.mode==='pixels'){
+    if(!v.pxw)v.pxw=_memGuessW(r.length);
+    html+='<div class="mbar"><span class="mrange">width</span><input class="mpxw" data-act="pxw" inputmode="numeric" enterkeyhint="done" aria-label="Pixel width" value="'+(v.pxw||'')+'"><span class="mrange mpxh"></span></div><canvas class="mpx"></canvas>';
+    c.body.innerHTML=html;
+    c.px={cv:c.body.querySelector('.mpx'),w:0,h:0,img:null};
+    _memPxSize(c);_memPxDraw(c);
+    return 0;
+  }
+  if(page<=0){
+    c.body.innerHTML=html+'<div class="mnote">Too many cells open at once — close another region to see this one.</div>';
+    return 0;
+  }
+  var n=r.length,start=Math.max(0,Math.min(v.start,n-1));start=Math.floor(start/page)*page;v.start=start;
+  var end=Math.min(n,start+page);
+  if(n>page){
+    var last=Math.floor((n-1)/page)*page;
+    html+='<div class="mbar mpager"><button data-act="first" aria-label="First page"'+(start?'':' disabled')+'>⇤</button><button data-act="prev" aria-label="Previous page"'+(start?'':' disabled')+'>‹</button>'
+      +'<span class="mrange">'+start+'–'+(end-1)+' of '+n+'</span>'
+      +'<button data-act="next" aria-label="Next page"'+(start<last?'':' disabled')+'>›</button><button data-act="last" aria-label="Last page"'+(start<last?'':' disabled')+'>⇥</button>'
+      +'<input class="mgoto" data-act="goto" inputmode="numeric" enterkeyhint="go" placeholder="go to #" aria-label="Go to index"></div>';
+  }
+  html+='<div class="merr" role="status"></div>';
+  c.page=page;
+  if(v.mode==='dump'){
+    var rows='';for(var o=start;o<end;o+=16)rows+='<div class="mdr" data-o="'+o+'"></div>';
+    c.body.innerHTML=html+'<div class="mdump">'+rows+'</div>';
+    c.dump={rows:[].slice.call(c.body.querySelectorAll('.mdr')),txt:[]};
+    _memDumpUpd(c,false);
+    c.used=c.dump.rows.length*16;return c.used;
+  }
+  if(st){
+    var t='<div class="mtw"><table class="mtab"><thead><tr><th class="mix">#</th>';
+    cols.forEach(function(cl){t+='<th>'+escH(cl.h)+'<small>'+escH(cl.t)+'</small></th>'});
+    t+='</tr></thead><tbody>';
+    for(var i=start;i<end;i++){t+='<tr><td class="mix">'+i+'</td>';for(var k=0;k<cols.length;k++)t+='<td class="mtd" data-i="'+i+'" data-k="'+k+'"></td>';t+='</tr>'}
+    c.body.innerHTML=html+t+'</tbody></table></div>';
+    [].forEach.call(c.body.querySelectorAll('.mtd'),function(el){var cl=cols[+el.getAttribute('data-k')];c.cells.push({el:el,i:+el.getAttribute('data-i'),f:cl.f,t:cl.t})});
+    c.used=(end-start)*per;
+  }else{
+    var t=String(r.elem),w=_memCellW(t,v.mode,end-1),g='<div class="mgrid" style="--mw:'+w+'px">';
+    for(var i=start;i<end;i++)g+='<div class="mc" data-i="'+i+'"><span class="mi">'+i+'</span><span class="mv"></span></div>';
+    c.body.innerHTML=html+g+'</div>';
+    [].forEach.call(c.body.querySelectorAll('.mc'),function(el){c.cells.push({el:el,i:+el.getAttribute('data-i'),f:null,t:t})});
+    c.used=end-start;
+  }
+  _memCellsUpd(c,false);
+  return c.used;
+}
+function _memCellW(t,mode,maxIdx){
+  var ch=mode==='hex'?(_MEM_BITS[t]||8)/4:mode==='ascii'?4:({u8:3,i8:4,u16:5,i16:6,u32:10,i32:11,int:13,i64:13,f32:9,num:11,bool:5})[t]||8;
+  ch=Math.max(ch,String(maxIdx).length*0.7);
+  return Math.round(ch*6.7+14);
+}
+function _memGuessW(len){
+  var ws=[320,256,200,160,128,100,96,80,64,48,32,16,8];
+  for(var i=0;i<ws.length;i++){var px=len/4,h=px/ws[i];if(Number.isInteger(h)&&h>=ws[i]/3&&h<=ws[i]*2)return ws[i]}
+  return Math.max(1,Math.floor(Math.sqrt(len/4)));
+}
+// ── updating ──
+function _memCellsUpd(c,flash){
+  var mode=_memView(c.r).mode;
+  for(var k=0;k<c.cells.length;k++){
+    var cell=c.cells[k],raw=_memRead(c.r,cell.i,cell.f);
+    if(k in c.vals&&Object.is(raw,c.vals[k]))continue;
+    c.vals[k]=raw;
+    if(_mem.edit&&_mem.edit.el===cell.el)continue;
+    var txt=_memFmt(raw,cell.t,mode),tg=cell.el.classList.contains('mc')?cell.el.lastChild:cell.el;
+    if(tg.textContent!==txt)tg.textContent=txt;
+    var z=raw===0||raw===false||raw==='0';
+    if(cell.el._z!==z){cell.el.classList.toggle('mz',z);cell.el._z=z}
+    if(flash)_memFlash(cell.el);
+  }
+}
+function _memDumpUpd(c,flash){
+  var b=null;try{b=_emitRegionBytes(c.r.id)}catch(e){}
+  if(!b)return;
+  for(var k=0;k<c.dump.rows.length;k++){
+    var row=c.dump.rows[k],o=+row.getAttribute('data-o'),hx='',as='';
+    for(var j=0;j<16;j++){
+      if(o+j<b.length){var x=b[o+j];hx+=(x<16?'0':'')+x.toString(16)+(j===7?'  ':' ');as+=x>=32&&x<127?String.fromCharCode(x):'.'}
+      else hx+=j===7?'    ':'   ';
+    }
+    var key=hx+as;if(c.dump.txt[k]===key)continue;
+    c.dump.txt[k]=key;
+    row.innerHTML='<span class="mdo">'+o.toString(16).padStart(6,'0')+'</span>  '+hx+' <span class="mda">'+escH(as)+'</span>';
+    if(flash)_memFlash(row);
+  }
+}
+function _memPxSize(c){
+  var v=_memView(c.r),w=Math.max(1,Math.min(4096,v.pxw|0)),h=Math.min(2048,Math.floor(c.r.length/4/w));
+  var lab=c.body.querySelector('.mpxh');
+  if(h<1){c.px.w=c.px.h=0;c.px.cv.style.display='none';if(lab)lab.textContent='too wide for '+c.r.length+' bytes';return}
+  c.px.w=w;c.px.h=h;c.px.cv.width=w;c.px.cv.height=h;c.px.cv.style.display='';c.px.cv.style.width=Math.min(w*Math.max(1,Math.floor(320/w)),9999)+'px';
+  c.px.img=null;if(lab)lab.textContent='× '+h+' RGBA';
+}
+function _memPxDraw(c){
+  if(!c.px||!c.px.w)return;
+  var b=null;try{b=_emitRegionBytes(c.r.id)}catch(e){}
+  if(!b)return;
+  try{
+    var n=c.px.w*c.px.h*4,ctx=c.px.cv.getContext('2d');
+    if(!c.px.img)c.px.img=ctx.createImageData(c.px.w,c.px.h);
+    c.px.img.data.set(b.subarray(0,n));ctx.putImageData(c.px.img,0,0);
+  }catch(e){}
+}
+function _memLive(){
+  var el=_memEl(),s=el&&el.querySelector('.mlive');if(!s)return;
+  var on=!!_animRunning,t=on?'● live':'';
+  if(s.textContent!==t){s.textContent=t;s.classList.toggle('on',on)}
+}
+// Re-read everything visible. A changed program (other regions) rebuilds the cards.
+function _memRefresh(flash){
+  if(!_memVisible())return;
+  var regs=_memRegions();
+  if(_memSig(regs)!==_mem.sig){_memRender();return}
+  _memLive();
+  for(var n=0;n<_mem.cards.length;n++){
+    var c=_mem.cards[n];
+    _memLock(c,!!(regs[n]&&regs[n].frozen));
+    if(!_memView(c.r).open)continue;
+    if(c.dump)_memDumpUpd(c,flash);
+    else if(c.px)_memPxDraw(c);
+    else _memCellsUpd(c,flash);
+  }
+}
+function _memLoop(){
+  _mem.raf=0;
+  if(!_memVisible())return;   // hidden: the loop ends; showing the tab again starts it
+  var now=performance.now();
+  if(now-_mem.last>=_MEM_MS&&(_animRunning||_mem.dirty)){_mem.last=now;_mem.dirty=false;_memRefresh(true)}
+  _mem.raf=requestAnimationFrame(_memLoop);
+}
+function _memKick(){if(!_mem.raf&&_memVisible())_mem.raf=requestAnimationFrame(_memLoop)}
+function _memShow(){if(!_memVisible())return;_memRefresh(false);_memKick()}
+function _memDot(on){var d=document.getElementById('memDot');if(d)d.classList.toggle('show',!!on)}
+function _memCardRebuild(c){
+  var others=0;_mem.cards.forEach(function(o){if(o!==c)others+=o.used});
+  _memCardBody(c,_MEM_CAP-others);
+}
+function _memErr(c,msg){
+  var e=c.body&&c.body.querySelector('.merr');if(!e)return;
+  e.textContent=msg;e.classList.add('show');
+  clearTimeout(_mem.errT);_mem.errT=setTimeout(function(){e.classList.remove('show')},2600);
+}
+// ── poke ──
+function _memCellOf(c,el){for(var k=0;k<c.cells.length;k++)if(c.cells[k].el===el)return k;return-1}
+function _memWrite(c,k,val){
+  var cell=c.cells[k],ok=false;
+  try{ok=!!_emitRegionWrite(c.r.id,cell.i,cell.f,val)}catch(e){_memErr(c,'✗ '+((e&&e.message)||e));return false}
+  if(!ok){_memErr(c,'✗ the runtime refused the write (is the program loaded?)');return false}
+  var raw=_memRead(c.r,cell.i,cell.f);c.vals[k]=raw;
+  var tg=cell.el.classList.contains('mc')?cell.el.lastChild:cell.el;
+  tg.textContent=_memFmt(raw,cell.t,_memView(c.r).mode);
+  cell.el.classList.toggle('mz',raw===0||raw===false||raw==='0');cell.el._z=raw===0||raw===false||raw==='0';
+  _memFlash(cell.el,'mpk');
+  if(c.frozen)_memErr(c,'🔒 front panel write: '+c.r.name+'['+cell.i+']'+(cell.f?'.'+cell.f:'')+' set although the region is frozen');
+  _mem.dirty=true;
+  return true;
+}
+function _memEditStart(c,k){
+  _memEditEnd(false);
+  var cell=c.cells[k];if(!cell)return;
+  if(cell.t==='bool'){var cur=_memRead(c.r,cell.i,cell.f);_memWrite(c,k,!(cur===true||cur===1));return}
+  if(!_memIsIntT(cell.t)&&!_memIsFloat(cell.t))return;
+  var mode=_memView(c.r).mode,raw=_memRead(c.r,cell.i,cell.f);
+  var inp=document.createElement('input');
+  inp.type='text';inp.setAttribute('autocomplete','off');inp.setAttribute('autocapitalize','off');inp.setAttribute('autocorrect','off');inp.spellcheck=false;
+  inp.setAttribute('enterkeyhint','done');
+  inp.setAttribute('inputmode',mode==='hex'||mode==='ascii'?'text':_memIsFloat(cell.t)?'decimal':'numeric');
+  inp.setAttribute('aria-label',c.r.name+'['+cell.i+']'+(cell.f?'.'+cell.f:''));
+  inp.value=raw===undefined?'':mode==='hex'&&_memIsIntT(cell.t)?'0x'+_memFmt(raw,cell.t,'hex'):String(raw);
+  var tg=cell.el.classList.contains('mc')?cell.el:cell.el;
+  _mem.edit={c:c,k:k,el:cell.el,inp:inp,old:tg.innerHTML};
+  tg.classList.add('medit');tg.innerHTML='';tg.appendChild(inp);
+  inp.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){e.preventDefault();_memEditEnd(true,true)}
+    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();_memEditEnd(false)}
+  });
+  inp.addEventListener('input',function(){cell.el.classList.remove('bad')});
+  inp.addEventListener('blur',function(){if(_mem.edit&&_mem.edit.inp===inp)_memEditEnd(true,false)});
+  inp.addEventListener('click',function(e){e.stopPropagation()});
+  try{inp.focus();inp.select()}catch(e){}
+}
+// End the inline editor. commit: write what was typed. keep: on invalid input keep the editor open (Enter).
+function _memEditEnd(commit,keep){
+  var ed0=_mem.edit;if(!ed0)return;
+  var c=ed0.c,cell=c.cells[ed0.k];
+  if(commit){
+    var p=_memParse(ed0.inp.value,cell.t,_memView(c.r).mode);
+    if(p.err){
+      _memErr(c,'✗ '+c.r.name+'['+cell.i+']'+(cell.f?'.'+cell.f:'')+': '+p.err+' — nothing written');
+      if(keep){ed0.el.classList.add('bad');try{ed0.inp.focus()}catch(e){}return}
+      commit=false;
+    }
+  }
+  _mem.edit=null;
+  ed0.el.classList.remove('medit','bad');ed0.el.innerHTML=ed0.old;
+  delete c.vals[ed0.k];
+  if(commit)_memWrite(c,ed0.k,p.v);
+  else _memCellsUpd(c,false);
+}
+// ── events (one delegated listener) ──
+(function(){
+  var box=_memEl();if(!box)return;
+  box.addEventListener('click',function(e){
+    var cardEl=e.target.closest&&e.target.closest('.mcard');if(!cardEl)return;
+    var c=_mem.cards[+cardEl.getAttribute('data-n')];if(!c)return;
+    var v=_memView(c.r),btn=e.target.closest('[data-act]'),act=btn&&btn.getAttribute('data-act');
+    if(act==='tog'){
+      v.open=!v.open;_memEditEnd(false);
+      c.body.style.display=v.open?'':'none';
+      btn.setAttribute('aria-expanded',String(v.open));btn.querySelector('.mchev').textContent=v.open?'▾':'▸';
+      if(!v.open){c.body.innerHTML='';c.cells=[];c.vals=[];c.used=0;c.dump=null;c.px=null}else _memCardRebuild(c);
+      return;
+    }
+    if(act==='lock'){
+      var fz=!c.frozen;
+      try{_emitRegionFreeze(c.r.id,fz)}catch(err){}
+      var regs=_memRegions();_memLock(c,!!(regs[c.n]?regs[c.n].frozen:fz));
+      return;
+    }
+    if(act==='mode'){v.mode=btn.getAttribute('data-m');_memEditEnd(false);_memCardRebuild(c);return}
+    if(act==='first'||act==='prev'||act==='next'||act==='last'){
+      var pg=c.page||_MEM_PAGE,last=Math.floor((c.r.length-1)/pg)*pg;
+      v.start=act==='first'?0:act==='last'?last:act==='prev'?Math.max(0,v.start-pg):Math.min(last,v.start+pg);
+      _memEditEnd(false);_memCardRebuild(c);return;
+    }
+    if(act)return;
+    var row=e.target.closest('.mdr');
+    if(row){v.start=+row.getAttribute('data-o');v.mode='hex';_memCardRebuild(c);return}
+    var cellEl=e.target.closest('.mc,.mtd');
+    if(cellEl&&!cellEl.classList.contains('medit')){var k=_memCellOf(c,cellEl);if(k>=0)_memEditStart(c,k)}
+  });
+  function field(e){
+    var t=e.target,act=t.getAttribute&&t.getAttribute('data-act');if(act!=='goto'&&act!=='pxw')return;
+    var cardEl=t.closest('.mcard'),c=cardEl&&_mem.cards[+cardEl.getAttribute('data-n')];if(!c)return;
+    var v=_memView(c.r),n=parseInt(t.value,10);
+    if(act==='pxw'){if(n>0){v.pxw=n;_memPxSize(c);_memPxDraw(c)}return}
+    if(isNaN(n)||n<0||n>=c.r.length){_memErr(c,'✗ index '+t.value+' is outside 0 … '+(c.r.length-1));return}
+    v.start=n;_memCardRebuild(c);
+    var hit=null;c.cells.forEach(function(cl){if(cl.i===n&&!hit)hit=cl.el});
+    if(hit){hit.classList.add('mtarget');_memFlash(hit,'mpk');try{hit.scrollIntoView({block:'nearest'})}catch(er){}}
+  }
+  box.addEventListener('change',field);
+  box.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.tagName==='INPUT'&&e.target.getAttribute('data-act')){e.preventDefault();e.target.blur()}});
+})();
+// ── hooks into the IDE ──
+showOTab=(function(f){return function(el){_memEditEnd(false);var r=f.apply(this,arguments);_memShow();return r}})(showOTab);
+showView=(function(f){return function(){var r=f.apply(this,arguments);_memShow();return r}})(showView);
+compileAndRun=(function(f){return async function(){
+  _mem.dirty=true;
+  try{return await f.apply(this,arguments)}
+  finally{try{_memDot(_memRegions().length>0);_mem.dirty=true;_memShow()}catch(e){}}
+}})(compileAndRun);
+stopProgram=(function(f){return function(){var r=f.apply(this,arguments);try{_mem.dirty=true;_memLive()}catch(e){}return r}})(stopProgram);
+// Every call into the program (frame, buttons, timers, callbacks) may change memory: mark it for the next refresh
+_emitCallExport=(function(f){return function(){_mem.dirty=true;return f.apply(this,arguments)}})(_emitCallExport);
+try{window._emitCallExport=_emitCallExport}catch(e){}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)_memShow()});
+// ── Output: make "at path:line:col" at the end of a red runtime line tappable ──
+// The runtime writes its error lines (✗ grid[70]: index out of range (length 64) at main.emit:12:5) as plain
+// text into #tab-output. Each new top-level line starting with ✗ gets its trailing position wrapped in a link.
+function _memAtJump(path,line,col){
+  if(path&&_projFind(path)>=0)_projJump(path,line,col);
+  else jumpToLine(Math.max(1,Math.min(line,ed.value.split('\n').length)));
+}
+function _memDecorate(n){
+  if(n.nodeType!==1||n._memAt||!/^\s*✗/.test(n.textContent))return;
+  if(n.classList.contains('clickable-err')||n.querySelector('.clickable-err'))return;   // compile errors are links already
+  var tn=n;while(tn&&tn.nodeType===1)tn=tn.lastChild;
+  if(!tn||tn.nodeType!==3)return;
+  var t=tn.nodeValue,m=/\bat ((?:([A-Za-z0-9_.\/-]+\.emit):)?(\d+):(\d+))\s*$/.exec(t);if(!m)return;
+  n._memAt=1;var host=tn.parentNode;
+  var a=document.createElement('span');a.className='mat clickable-err';a.textContent=m[1];
+  a.setAttribute('data-p',m[2]||'');a.setAttribute('data-l',m[3]);a.setAttribute('data-c',m[4]);
+  a.title='Show in the editor';
+  tn.nodeValue=t.substring(0,m.index+3);host.appendChild(a);
+  if(t.length>m.index+3+m[1].length)host.appendChild(document.createTextNode(t.substring(m.index+3+m[1].length)));
+}
+(function(){
+  var out=document.getElementById('tab-output');if(!out)return;
+  try{new MutationObserver(function(list){for(var i=0;i<list.length;i++){var a=list[i].addedNodes;for(var j=0;j<a.length;j++)_memDecorate(a[j])}}).observe(out,{childList:true})}catch(e){}
+  out.addEventListener('click',function(e){
+    var a=e.target.closest&&e.target.closest('.mat');if(!a)return;
+    _memAtJump(a.getAttribute('data-p'),+a.getAttribute('data-l'),+a.getAttribute('data-c'));
+  });
+})();
+// ── Editor: highlighting and autocomplete for structs and regions ──
+['struct','region'].forEach(function(n){_emitKw.add(n)});
+['i8','u8','i16','u16','u32'].forEach(function(n){_emitTy.add(n)});
+var _MEM_BLT=[
+  ['fill','fill(r: region, v)','every element = v'],['wipe','wipe(r: region)','every byte = 0'],
+  ['copy','copy(src: region, dst: region)','src into dst'],['swap','swap(a: region, b: region)','exchange contents'],
+  ['freeze','freeze(r: region)','writes stop with an error'],['thaw','thaw(r: region)','writable again'],
+  ['frozen','frozen(r: region) bool','is it frozen?'],['view','view(r: region) js','typed array, no copy'],
+  ['screen','screen(fb: region u8, w: int, h: int, scale: int)','RGBA pixels on a canvas']];
+_MEM_BLT.forEach(function(b){
+  _emitBlt.add(b[0]);
+  if(!_allBuiltins.some(function(x){return x.name===b[0]}))_allBuiltins.push({name:b[0],sig:b[1],desc:b[2]});
+});
+var _MEM_ELEMS=[['u8','0 … 255'],['i8','-128 … 127'],['u16','0 … 65535'],['i16','16-bit'],['u32','32-bit unsigned'],['i32','32-bit'],['int','64-bit'],['f32','32-bit float'],['num','64-bit float'],['bool','true / false']];
+// structs and regions declared in a source text (used when the module index has none, e.g. while a file does not parse)
+function _memScan(src){
+  var code=String(src||'').replace(/"(?:[^"\\\n]|\\.)*"/g,'""').replace(/\/\/[^\n]*/g,''),structs=[],regions=[],m;
+  var sre=/(^|\n)[ \t]*(public[ \t]+)?struct[ \t]+([A-Za-z_]\w*)[ \t]*\{([^{}]*)/g;
+  while((m=sre.exec(code))){
+    var fs=[];m[4].split(/[,\n]/).forEach(function(p){var q=/^\s*([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*(?:\s*\[[^\]]*\])?)\s*\}?\s*$/.exec(p);if(q)fs.push({name:q[1],type:q[2].replace(/\s+/g,'')})});
+    structs.push({name:m[3],public:!!m[2],fields:fs});
+  }
+  var rre=/(^|\n)[ \t]*(public[ \t]+)?region[ \t]+([A-Za-z_]\w*)[ \t]*:[ \t]*([A-Za-z_]\w*)[ \t]*\[([^\]\n]*)\]/g;
+  while((m=rre.exec(code)))regions.push({name:m[3],public:!!m[2],elem:m[4],length:m[5].trim()});
+  return{structs:structs,regions:regions};
+}
+function _memModSrc(idx,name){
+  var mod=idx.modules[name];if(!mod)return'';
+  var a=_proj.files[_proj.active];if(a&&a.path===mod.path)return ed.value;
+  var i=_projFind(mod.path);return i>=0?_proj.files[i].source:'';
+}
+// {structs, regions} of module `name`: the index's lists, completed by a scan of its source
+function _memModDecls(idx,name){
+  var mod=idx.modules[name]||{},sc=_memScan(_memModSrc(idx,name));
+  function merge(a,b){var out=Array.isArray(a)?a.filter(function(x){return x&&x.name}).slice():[],seen={};out.forEach(function(x){seen[x.name]=1});b.forEach(function(x){if(!seen[x.name])out.push(x)});return out}
+  return{structs:merge(mod.structs,sc.structs),regions:merge(mod.regions,sc.regions)};
+}
+// What the active file can name: its own structs/regions, imported public ones, and import aliases
+function _memScope(){
+  var idx=_projIndex(),cur=_projCurModule(idx),curName=null,k;
+  for(k in idx.modules)if(idx.modules[k]===cur)curName=k;
+  var regions={},structs={},quals={};
+  var own=curName?_memModDecls(idx,curName):_memScan(ed.value);
+  own.regions.forEach(function(r){regions[r.name]={r:r,mod:curName}});
+  own.structs.forEach(function(s){structs[s.name]={s:s,mod:curName}});
+  ((cur&&cur.imports)||[]).forEach(function(im){
+    if(!im||!im.module||!idx.modules[im.module])return;
+    var d=_memModDecls(idx,im.module);
+    if(im.star||(im.names&&im.names.length)){
+      d.regions.forEach(function(r){if(r.public&&(im.star||im.names.indexOf(r.name)>=0)&&!regions[r.name])regions[r.name]={r:r,mod:im.module}});
+      d.structs.forEach(function(s){if(s.public&&(im.star||im.names.indexOf(s.name)>=0)&&!structs[s.name])structs[s.name]={s:s,mod:im.module}});
+      return;
+    }
+    quals[im.alias||im.module.substring(im.module.lastIndexOf('.')+1)]=im.module;
+  });
+  return{idx:idx,cur:curName,regions:regions,structs:structs,quals:quals};
+}
+function _memFindStruct(sc,name,mod){
+  if(mod){var d=_memModDecls(sc.idx,mod);for(var i=0;i<d.structs.length;i++)if(d.structs[i].name===name)return d.structs[i]}
+  if(sc.structs[name])return sc.structs[name].s;
+  for(var k in sc.idx.modules){var e=_memModDecls(sc.idx,k);for(var j=0;j<e.structs.length;j++)if(e.structs[j].name===name)return e.structs[j]}
+  return null;
+}
+// region `name`, or `alias.name` through an import alias -> {r, mod}
+function _memRegionRef(sc,alias,name){
+  if(!alias)return sc.regions[name]||null;
+  var mod=sc.quals[alias];if(!mod)return null;
+  var d=_memModDecls(sc.idx,mod);
+  for(var i=0;i<d.regions.length;i++)if(d.regions[i].name===name&&d.regions[i].public)return{r:d.regions[i],mod:mod};
+  return null;
+}
+function _memItem(name,desc,ins){return{name:escH(name),desc:escH(desc),_libac:'member',_projac:true,_ins:ins==null?name:ins}}
+function _memShowItems(items,before,key){_builtinAC=false;_methodAC=false;if(!items.length){hideAC();return}_libACShow(items,before,key)}
+// Runs first in checkAC. Returns true when it handled the position.
+// Cheap gate: no `region` / `struct` anywhere in the project -> no index work at all
+function _memAny(){
+  var re=/\b(region|struct)\b/;if(re.test(ed.value))return true;
+  for(var i=0;i<_proj.files.length;i++)if(i!==_proj.active&&re.test(_proj.files[i].source))return true;
+  return false;
+}
+function _memACCheck(before){
+  try{
+    if(!_memAny()||_libInStrOrComment(before))return false;
+    var line=before.substring(before.lastIndexOf('\n')+1),m,sc,items,p;
+    // region name: <type>   and   param: region <type>
+    if((m=line.match(/^\s*(?:public\s+)?region\s+[A-Za-z_]\w*\s*:\s*(\w*)$/))||(m=line.match(/:\s*region\s+(\w*)$/))){
+      sc=_memScope();p=m[1].toLowerCase();items=[];
+      _MEM_ELEMS.forEach(function(t){if(t[0].indexOf(p)===0&&t[0]!==m[1])items.push(_memItem(t[0],t[1]))});
+      Object.keys(sc.structs).sort().forEach(function(n){if(n.toLowerCase().indexOf(p)===0&&n!==m[1])items.push(_memItem(n,'struct · '+(sc.structs[n].s.fields||[]).length+' fields'))});
+      _memShowItems(items,before,'mt:'+before.length+':'+m[1]);
+      return true;
+    }
+    // region[expr].field   alias.region[expr].field   (also nested: .pos.x)
+    if((m=before.match(/(?:^|[^\w$.\]])(?:([A-Za-z_]\w*)\.)?([A-Za-z_]\w*)\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\]((?:\.[A-Za-z_]\w*)*)\.(\w*)$/))){
+      sc=_memScope();var ref=_memRegionRef(sc,m[1],m[2]);
+      if(!ref&&m[1]){ref=_memRegionRef(sc,null,m[2])}
+      if(!ref)return false;
+      var st=_memFindStruct(sc,ref.r.elem,ref.mod);if(!st)return false;
+      var path=m[3]?m[3].substring(1).split('.'):[];
+      for(var i=0;i<path.length&&st;i++){
+        var fd=null;(st.fields||[]).forEach(function(f){if(f.name===path[i])fd=f});
+        st=fd?_memFindStruct(sc,String(fd.type).replace(/\[.*$/,''),ref.mod):null;
+      }
+      if(!st)return false;
+      p=m[4].toLowerCase();items=[];
+      (st.fields||[]).forEach(function(f){if(f.name.toLowerCase().indexOf(p)===0&&f.name!==m[4])items.push(_memItem(f.name,f.type+' · '+st.name))});
+      _memShowItems(items,before,'mf:'+before.length+':'+m[0]);
+      return true;
+    }
+    // region.length   alias.region.length
+    if((m=before.match(/(?:^|[^\w$.\]])(?:([A-Za-z_]\w*)\.)?([A-Za-z_]\w*)\.(\w*)$/))){
+      sc=_memScope();var rf=_memRegionRef(sc,m[1],m[2]);
+      if(!rf)return false;
+      items='length'.indexOf(m[3])===0&&m[3]!=='length'?[_memItem('length','int · '+rf.r.elem+'['+rf.r.length+']')]:[];
+      _memShowItems(items,before,'ml:'+before.length+':'+m[0]);
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+// Runs last in checkAC: region and struct names join identifier suggestions; region / struct snippets at a line start
+var _MEM_SNIPS=[['region','region name: int[64]','name'],['public region','public region name: int[64]','name'],['struct','struct Name { x: num, y: num }','Name'],['public struct','public struct Name { x: num, y: num }','Name']];
+function _memACFallback(before){
+  try{
+    if(_libInStrOrComment(before))return;
+    var any=_memAny();
+    var wm=before.match(/(?:^|[^\w$.])([A-Za-z_]\w*)$/);
+    if(!wm||wm[1].length<2)return;
+    var lineText=before.substring(before.lastIndexOf('\n')+1),lt=lineText.replace(/^\s+/,''),items=[],w=wm[1].toLowerCase();
+    if(/^(public\s+)?[A-Za-z_]\w*$/.test(lt)){
+      _MEM_SNIPS.forEach(function(s){if(s[0].indexOf(lt)===0&&s[0]!==lt&&(lt.indexOf(' ')>0||s[0].indexOf(' ')<0||'public'.indexOf(lt)===0)){var it=_memItem(s[0],s[1]);it._memSnip={text:s[1],sel:s[2],rep:lt.length};items.push(it)}});
+    }
+    if(any&&!/^(fn|export|use|import|package|struct|region|public\s+(struct|region))\s/.test(lt)&&!(/^(let|mut|const)\s/.test(lt)&&lt.indexOf('=')<0)){
+      var sc=_memScope();
+      Object.keys(sc.regions).forEach(function(n){if(n!==wm[1]&&n.toLowerCase().indexOf(w)===0){var r=sc.regions[n].r;items.push(_memItem(n,'region '+r.elem+'['+r.length+']'+(sc.regions[n].mod&&sc.regions[n].mod!==sc.cur?' · '+sc.regions[n].mod:'')))}});
+      Object.keys(sc.structs).forEach(function(n){if(n!==wm[1]&&n.toLowerCase().indexOf(w)===0)items.push(_memItem(n,'struct · '+(sc.structs[n].s.fields||[]).length+' fields'))});
+    }
+    if(!items.length)return;
+    var base=acActive?acItems.filter(function(it){return it._libac!=='hint'}):[];
+    _libACShow(items.concat(base),before,'mg:'+before.length+':'+wm[1]);
+  }catch(e){}
+}
+checkAC=(function(f){return function(){
+  var before=null;try{before=ed.value.substring(0,ed.selectionStart)}catch(e){}
+  if(before!==null&&_memACCheck(before))return;
+  var r=f.apply(this,arguments);
+  if(before!==null)_memACFallback(before);
+  return r;
+}})(checkAC);
+// A snippet replaces what was typed on the line and selects its placeholder
+_libACPick=(function(f){return function(idx){
+  var it=acItems[idx];
+  if(!it||!it._memSnip)return f.apply(this,arguments);
+  var pos=ed.selectionStart,start=Math.max(0,pos-it._memSnip.rep),txt=it._memSnip.text;
+  ed.value=ed.value.substring(0,start)+txt+ed.value.substring(pos);
+  var at=start+txt.indexOf(it._memSnip.sel);
+  ed.selectionStart=at;ed.selectionEnd=at+it._memSnip.sel.length;
+  _builtinAC=false;_methodAC=false;hideAC();updGutter();hlCode();ed.focus();
+  try{_projDirty()}catch(e){}
+}})(_libACPick);
 </script>
 <script>_libSnapshotGlobals()</script>
 </body>
