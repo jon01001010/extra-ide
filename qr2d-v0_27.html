@@ -1,0 +1,2898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QR2D</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+/* ===== Reed-Solomon (ZXing port by cho45, Apache 2.0) ===== */
+(function(){
+/*#!/usr/bin/env node
+ * Original implementation is ZXing and ported to JavaScript by cho45.
+ * Copyright 2007 ZXing authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+var GenericGF = function () { this.init.apply(this, arguments) };
+GenericGF.prototype = {
+	init : function (primitive, size, b) {
+		this.primitive = primitive;
+		this.size = size;
+		this.generatorBase = b;
+
+		this.expTable = new Int32Array(size);
+		this.logTable = new Int32Array(size);
+
+		var x = 1;
+		for (var i = 0; i < size; i++) {
+			this.expTable[i] = x;
+			x *= 2; // we're assuming the generator alpha is 2
+			if (x >= size) {
+				x ^= primitive;
+				x &= size-1;
+			}
+		}
+		for (var i = 0; i < size-1; i++) {
+			this.logTable[this.expTable[i]] = i;
+		}
+		// logTable[0] == 0 but this should never be used
+
+		this.zero = new GenericGFPoly(this, GenericGFPoly.COEFFICIENTS_ZERO);
+		this.one = new GenericGFPoly(this, GenericGFPoly.COEFFICIENTS_ONE);
+	},
+
+	buildMonomial : function (degree, coefficient) {
+		if (degree < 0) {
+			throw new Error("IllegalArgumentException()");
+		}
+		if (coefficient === 0) {
+			return this.zero;
+		}
+		var coefficients = new Int32Array(degree + 1);
+		coefficients[0] = coefficient;
+		return new GenericGFPoly(this, coefficients);
+	},
+
+	getZero : function () {
+		return this.zero;
+	},
+
+	getOne : function () {
+		return this.one;
+	},
+
+	exp : function (a) {
+		return this.expTable[a];
+	},
+
+	log : function (a) {
+		if (a === 0) {
+			throw new Error("IllegalArgumentException()");
+		}
+		return this.logTable[a];
+	},
+
+	inverse: function (a) {
+		if (a === 0) {
+			throw new Error("ArithmeticException()");
+		}
+		return this.expTable[this.size - this.logTable[a] - 1];
+	},
+
+	multiply: function (a, b) {
+		if (a === 0 || b === 0) {
+			return 0;
+		}
+		return this.expTable[(this.logTable[a] + this.logTable[b]) % (this.size - 1)];
+	},
+
+	getSize : function () {
+		return this.size;
+	},
+
+	getGeneratorBase : function () {
+		return this.generatorBase;
+	},
+
+	toString: function () {
+		return "GF(0x" + this.primitive.toString(16) + ',' + this.size + ')';
+	}
+};
+GenericGF.addOrSubtract = function (a, b) { return a ^ b };
+
+var GenericGFPoly = function () { this.init.apply(this, arguments) };
+GenericGFPoly.prototype = {
+	init : function (field, coefficients) {
+		if (coefficients.length === 0) {
+			throw new Error("IllegalArgumentException()");
+		}
+		this.field = field;
+		var coefficientsLength = coefficients.length;
+		if (coefficientsLength > 1 && coefficients[0] === 0) {
+			// Leading term must be non-zero for anything except the constant polynomial "0"
+			var firstNonZero = 1;
+			while (firstNonZero < coefficientsLength && coefficients[firstNonZero] === 0) {
+				firstNonZero++;
+			}
+			if (firstNonZero == coefficientsLength) {
+				this.coefficients = GenericGFPoly.COEFFICIENTS_ZERO;
+			} else {
+				this.coefficients = coefficients.subarray(firstNonZero, coefficientsLength);
+			}
+		} else {
+			this.coefficients = coefficients;
+		}
+		this.degree = this.coefficients.length - 1;
+	},
+
+	getCoefficients : function () {
+		return this.coefficients;
+	},
+
+	getDegree : function () {
+		return this.degree;
+	},
+
+	isZero : function () {
+		return this.coefficients[0] === 0;
+	},
+
+	getCoefficient : function (degree) {
+		return this.coefficients[this.coefficients.length - 1 - degree];
+	},
+
+	evaluateAt : function (a) {
+		if (a === 0) {
+			// Just return the x^0 coefficient
+			return this.getCoefficient(0);
+		}
+		var coefficients = this.coefficients;
+		var size = coefficients.length;
+		var result;
+		if (a == 1) {
+			// Just the sum of the coefficients
+			result = 0;
+			for (var i = 0, len = coefficients.length; i < len; i++) {
+				result = GenericGF.addOrSubtract(result, coefficients[i]);
+			}
+			return result;
+		}
+
+		result = coefficients[0];
+		for (var i = 1; i < size; i++) {
+			result = GenericGF.addOrSubtract(this.field.multiply(a, result), coefficients[i]);
+		}
+		return result;
+	},
+
+	addOrSubtract : function (other, buf) {
+		if (this.field !== other.field) {
+			throw new Error('IllegalArgumentException("GenericGFPolys do not have same GenericGF field")');
+		}
+		if (this.isZero()) {
+			return other;
+		}
+		if (other.isZero()) {
+			return this;
+		}
+
+		var smallerCoefficients = this.coefficients;
+		var largerCoefficients = other.coefficients;
+		if (smallerCoefficients.length > largerCoefficients.length) {
+			var temp = smallerCoefficients;
+			smallerCoefficients = largerCoefficients;
+			largerCoefficients = temp;
+		}
+		var sumDiff = buf ? buf.subarray(0, largerCoefficients.length) : new Int32Array(largerCoefficients.length);
+		var lengthDiff = largerCoefficients.length - smallerCoefficients.length;
+		for (var i = lengthDiff; i < largerCoefficients.length; i++) {
+			sumDiff[i] = GenericGF.addOrSubtract(smallerCoefficients[i - lengthDiff], largerCoefficients[i]);
+		}
+		// Copy high-order terms only found in higher-degree polynomial's coefficients
+		sumDiff.set(largerCoefficients.subarray(0, lengthDiff));
+
+		return new GenericGFPoly(this.field, sumDiff);
+	},
+
+	multiply : function (other) {
+		if (other instanceof GenericGFPoly) {
+			return this.multiplyGenericGFPoly(other);
+		} else {
+			return this.multiplyScalar(other);
+		}
+	},
+
+	multiplyGenericGFPoly : function (other) {
+		if (this.field !== other.field) {
+			throw new Error('IllegalArgumentException("GenericGFPolys do not have same GenericGF field")');
+		}
+		if (this.isZero() || other.isZero()) {
+			return this.field.zero;
+		}
+		var aCoefficients = this.coefficients;
+		var aLength = aCoefficients.length;
+		var bCoefficients = other.coefficients;
+		var bLength = bCoefficients.length;
+		var product = new Int32Array(aLength + bLength - 1);
+		for (var i = 0; i < aLength; i++) {
+			var aCoeff = aCoefficients[i];
+			for (var j = 0; j < bLength; j++) {
+				product[i + j] = GenericGF.addOrSubtract(product[i + j], this.field.multiply(aCoeff, bCoefficients[j]));
+			}
+		}
+		return new GenericGFPoly(this.field, product);
+	},
+
+	multiplyScalar : function (scalar) {
+		if (scalar === 0) {
+			return this.field.zero;
+		}
+		if (scalar == 1) {
+			return this;
+		}
+		var size = this.coefficients.length;
+		var product = new Int32Array(size);
+		for (var i = 0; i < size; i++) {
+			product[i] = this.field.multiply(this.coefficients[i], scalar);
+		}
+		return new GenericGFPoly(this.field, product);
+	},
+
+	multiplyByMonomial : function (degree, coefficient) {
+		if (degree < 0) {
+			throw new Error('IllegalArgumentException()');
+		}
+		if (coefficient === 0) {
+			return this.field.zero;
+		}
+		var size = this.coefficients.length;
+		var product = new Int32Array(size + degree);
+		for (var i = 0; i < size; i++) {
+			product[i] = this.field.multiply(this.coefficients[i], coefficient);
+		}
+		return new GenericGFPoly(this.field, product);
+	},
+
+	divide : function (other) {
+		if (this.field !== other.field) {
+			throw new Error('IllegalArgumentException("GenericGFPolys do not have same GenericGF field")');
+		}
+		if (other.isZero()) {
+			throw new Error('IllegalArgumentException("Divide by 0")');
+		}
+
+		var quotient = this.field.getZero();
+		var remainder = this;
+ 
+		var denominatorLeadingTerm = other.getCoefficient(other.degree);
+		var inverseDenominatorLeadingTerm = this.field.inverse(denominatorLeadingTerm);
+
+		while (remainder.degree >= other.degree && !remainder.isZero()) {
+			var degreeDifference = remainder.degree - other.degree;
+			var scale = this.field.multiply(remainder.getCoefficient(remainder.degree), inverseDenominatorLeadingTerm);
+			var term = other.multiplyByMonomial(degreeDifference, scale);
+			var iterationQuotient = this.field.buildMonomial(degreeDifference, scale);
+			quotient = quotient.addOrSubtract(iterationQuotient, quotient.coefficients);
+			remainder = remainder.addOrSubtract(term, remainder.coefficients);
+		}
+
+		return [ quotient, remainder ];
+	},
+
+	toString : function () {
+		var result = '';
+		for (var degree = this.degree; degree >= 0; degree--) {
+			var coefficient = this.getCoefficient(degree);
+			if (coefficient !== 0) {
+				if (coefficient < 0) {
+					result += " - ";
+					coefficient = -coefficient;
+				} else {
+					if (result.length > 0) {
+						result += " + ";
+					}
+				}
+				if (degree === 0 || coefficient != 1) {
+					var alphaPower = this.field.log(coefficient);
+					if (alphaPower === 0) {
+						result += '1';
+					} else if (alphaPower == 1) {
+						result += 'a';
+					} else {
+						result += "a^";
+						result += alphaPower;
+					}
+				}
+				if (degree !== 0) {
+					if (degree == 1) {
+						result += 'x';
+					} else {
+						result += "x^";
+						result += degree;
+					}
+				}
+			}
+		}
+		return result.toString();
+	}
+};
+GenericGFPoly.COEFFICIENTS_ZERO = new Int32Array([ 0 ]);
+GenericGFPoly.COEFFICIENTS_ONE  = new Int32Array([ 1 ]);
+
+var ReedSolomonEncoder = function () { this.init.apply(this, arguments) };
+ReedSolomonEncoder.prototype = {
+	init : function (field) {
+		this.field = field;
+		this.cachedGenerators = [];
+		this.cachedGenerators.push(new GenericGFPoly(field, new Int32Array([1])));
+	},
+
+	buildGenerator : function (degree) {
+		if (degree >= this.cachedGenerators.length) {
+			var lastGenerator = this.cachedGenerators[this.cachedGenerators.length - 1];
+			for (var d = this.cachedGenerators.length; d <= degree; d++) {
+				var nextGenerator = lastGenerator.multiply(new GenericGFPoly(this.field, new Int32Array([ 1, this.field.exp(d - 1 + this.field.generatorBase) ]) ));
+				this.cachedGenerators.push(nextGenerator);
+				lastGenerator = nextGenerator;
+			}
+		}
+		return this.cachedGenerators[degree];
+	},
+
+	encode : function (toEncode, ecBytes) {
+		if (ecBytes === 0) {
+			throw new Error('IllegalArgumentException("No error correction bytes")');
+		}
+		var dataBytes = toEncode.length - ecBytes;
+		if (dataBytes <= 0) {
+			throw new Error('IllegalArgumentException("No data bytes provided")');
+		}
+		var generator = this.buildGenerator(ecBytes);
+		var infoCoefficients = new Int32Array(dataBytes);
+		infoCoefficients.set(toEncode.subarray(0, dataBytes));
+
+		var info = new GenericGFPoly(this.field, infoCoefficients);
+		info = info.multiplyByMonomial(ecBytes, 1);
+		var remainder = info.divide(generator)[1];
+		var coefficients = remainder.coefficients;
+		var numZeroCoefficients = ecBytes - coefficients.length;
+		for (var i = 0; i < numZeroCoefficients; i++) {
+			toEncode[dataBytes + i] = 0;
+		}
+		toEncode.set(coefficients.subarray(0, coefficients.length), dataBytes + numZeroCoefficients);
+	}
+};
+
+var ReedSolomonDecoder = function () { this.init.apply(this, arguments) };
+ReedSolomonDecoder.prototype = {
+	init : function (field) {
+		this.field = field;
+	},
+
+	decode : function (received, twoS) {
+		var poly = new GenericGFPoly(this.field, received);
+		var syndromeCoefficients = new Int32Array(twoS);
+		var noError = true;
+		for (var i = 0; i < twoS; i++) {
+			var eval_ = poly.evaluateAt(this.field.exp(i + this.field.generatorBase));
+			syndromeCoefficients[syndromeCoefficients.length - 1 - i] = eval_;
+			if (eval_ !== 0) {
+				noError = false;
+			}
+		}
+
+		if (noError) {
+			return;
+		}
+		var syndrome = new GenericGFPoly(this.field, syndromeCoefficients);
+		var sigmaOmega = this.runEuclideanAlgorithm(this.field.buildMonomial(twoS, 1), syndrome, twoS);
+		var sigma = sigmaOmega[0];
+		var omega = sigmaOmega[1];
+		var errorLocations = this.findErrorLocations(sigma);
+		var errorMagnitudes = this.findErrorMagnitudes(omega, errorLocations);
+		for (var i = 0; i < errorLocations.length; i++) {
+			var position = received.length - 1 - this.field.log(errorLocations[i]);
+			if (position < 0) {
+				throw new Error('ReedSolomonException("Bad error location")');
+			}
+			received[position] = GenericGF.addOrSubtract(received[position], errorMagnitudes[i]);
+		}
+	},
+
+	runEuclideanAlgorithm : function (a, b, R) {
+		// Assume a's degree is >= b's
+		if (a.degree < b.degree) {
+			var temp = a;
+			a = b;
+			b = temp;
+		}
+
+		var rLast = a;
+		var r = b;
+		var tLast = this.field.zero;
+		var t = this.field.one;
+
+		// Run Euclidean algorithm until r's degree is less than R/2
+		while (r.degree >= R / 2) {
+			var rLastLast = rLast;
+			var tLastLast = tLast;
+			rLast = r;
+			tLast = t;
+
+			// Divide rLastLast by rLast, with quotient in q and remainder in r
+			if (rLast.isZero()) {
+				// Oops, Euclidean algorithm already terminated?
+				throw new Error('ReedSolomonException("r_{i-1} was zero")');
+			}
+			r = rLastLast;
+			var q = this.field.zero;
+			var denominatorLeadingTerm = rLast.getCoefficient(rLast.degree);
+			var dltInverse = this.field.inverse(denominatorLeadingTerm);
+			while (r.degree >= rLast.degree && !r.isZero()) {
+				var degreeDiff = r.degree - rLast.degree;
+				var scale = this.field.multiply(r.getCoefficient(r.degree), dltInverse);
+				q = q.addOrSubtract(this.field.buildMonomial(degreeDiff, scale));
+				r = r.addOrSubtract(rLast.multiplyByMonomial(degreeDiff, scale));
+			}
+
+			t = q.multiply(tLast).addOrSubtract(tLastLast);
+
+			if (r.degree >= rLast.degree) {
+				throw new Error('IllegalStateException("Division algorithm failed to reduce polynomial?")');
+			}
+		}
+
+		var sigmaTildeAtZero = t.getCoefficient(0);
+		if (sigmaTildeAtZero === 0) {
+			throw new Error('ReedSolomonException("sigmaTilde(0) was zero")');
+		}
+
+		var inverse = this.field.inverse(sigmaTildeAtZero);
+		var sigma = t.multiply(inverse);
+		var omega = r.multiply(inverse);
+		return [ sigma, omega ];
+	},
+
+	findErrorLocations : function (errorLocator) {
+		// This is a direct application of Chien's search
+		var numErrors = errorLocator.degree;
+		if (numErrors == 1) { // shortcut
+			return new Int32Array([  errorLocator.getCoefficient(1)  ]);
+		}
+		var result = new Int32Array(numErrors);
+		var e = 0;
+		for (var i = 1; i < this.field.size && e < numErrors; i++) {
+			if (errorLocator.evaluateAt(i) === 0) {
+				result[e] = this.field.inverse(i);
+				e++;
+			}
+		}
+		if (e != numErrors) {
+			throw new Error('ReedSolomonException("Error locator degree does not match number of roots")');
+		}
+		return result;
+	},
+
+	findErrorMagnitudes : function (errorEvaluator, errorLocations) {
+		// This is directly applying Forney's Formula
+		var s = errorLocations.length;
+		var result = new Int32Array(s);
+		for (var i = 0; i < s; i++) {
+			var xiInverse = this.field.inverse(errorLocations[i]);
+			var denominator = 1;
+			for (var j = 0; j < s; j++) {
+				if (i != j) {
+					denominator = this.field.multiply(denominator, GenericGF.addOrSubtract(1, this.field.multiply(errorLocations[j], xiInverse)));
+				}
+			}
+			result[i] = this.field.multiply(errorEvaluator.evaluateAt(xiInverse), this.field.inverse(denominator));
+			if (this.field.generatorBase !== 0) {
+				result[i] = this.field.multiply(result[i], xiInverse);
+			}
+		}
+		return result;
+	}
+};
+
+// System.arraycopy(src, srcPos, dest, destPos, length);
+// dest.set(src.subarray(srcPos, srcPos + length), destPos);
+
+function lazy (func) {
+	var val;
+	return function () {
+		if (!val) {
+			val = func();
+		}
+		return val;
+	};
+}
+
+GenericGF.AZTEC_DATA_12 = lazy(function () { return new GenericGF(0x1069, 4096, 1) }); // x^12 + x^6 + x^5 + x^3 + 1
+GenericGF.AZTEC_DATA_10 = lazy(function () { return new GenericGF(0x409, 1024, 1) }); // x^10 + x^3 + 1
+GenericGF.AZTEC_DATA_6 = lazy(function () { return new GenericGF(0x43, 64, 1) }); // x^6 + x + 1
+GenericGF.AZTEC_PARAM = lazy(function() { return new GenericGF(0x13, 16, 1) }); // x^4 + x + 1
+GenericGF.QR_CODE_FIELD_256 = lazy(function () { return new GenericGF(0x011D, 256, 0) }); // x^8 + x^4 + x^3 + x^2 + 1
+GenericGF.DATA_MATRIX_FIELD_256 = lazy(function () { return new GenericGF(0x012D, 256, 1) }); // x^8 + x^5 + x^3 + x^2 + 1
+GenericGF.AZTEC_DATA_8 = GenericGF.DATA_MATRIX_FIELD_256;
+GenericGF.MAXICODE_FIELD_64 = GenericGF.AZTEC_DATA_6;
+
+window.RSLIB={GenericGF,GenericGFPoly,ReedSolomonEncoder,ReedSolomonDecoder};
+
+function dump (array) {
+	console.log(Array.prototype.join.call(array));
+}
+
+}).call(window);
+</script>
+<script>
+/* ===== mcode: the maze code (see "map") ===== */
+(function(){
+/* mcode — a 2D code designed to be a maze.
+   frame: 1-module black border (the wall). notch: 3 white modules in the top edge at the left.
+   inside: bytes in raster order, each byte -> 12-module pattern with 3 or 4 dark (~27% dark).
+   header: [len hi, len lo, crc] then payload, then Reed-Solomon parity (RS over GF(256)). */
+
+// ---------- Reed-Solomon (zxing port: reedsolomon npm, QR field) ----------
+const RSLIB=window.RSLIB;
+const FIELD=RSLIB.GenericGF.QR_CODE_FIELD_256();
+function rsEncode(data,nsym){ const m=new Int32Array(data.length+nsym); for(let i=0;i<data.length;i++)m[i]=data[i]; new RSLIB.ReedSolomonEncoder(FIELD).encode(m,nsym); return Uint8Array.from(m); }
+function rsDecode(msg,nsym){ const m=Int32Array.from(msg); try{ new RSLIB.ReedSolomonDecoder(FIELD).decode(m,nsym); }catch(e){ return null; } return Uint8Array.from(m); }
+
+// ---------- 8 -> 12 bit constrained codebook (weight 3 then 4), chosen to avoid lone pixels ----------
+const CODE=[],DECODE=new Map();
+(()=>{ const cand=[]; for(let v=0;v<4096;v++){ let w=0; for(let i=0;i<12;i++) w+=(v>>i)&1; if(w===3||w===5) cand.push({v,w}); }   // weights 3 and 5: any single flipped module is detectable
+  cand.sort((a,b)=>a.w-b.w||a.v-b.v); for(let i=0;i<256;i++){ CODE.push(cand[i].v); DECODE.set(cand[i].v,i); } })();
+function nearestCode(v){ if(DECODE.has(v)) return DECODE.get(v); let best=0,bd=99; for(let i=0;i<256;i++){ let d=0,x=CODE[i]^v; while(x){d+=x&1;x>>=1;} if(d<bd){bd=d;best=i;} } return best; }
+
+// ---------- layout ----------
+function crc8(bytes){ let c=0; for(const b of bytes){ c^=b; for(let i=0;i<8;i++) c=(c&0x80)?((c<<1)^0x07)&0xff:(c<<1)&0xff; } return c; }
+function sizeFor(nBytes){ const mods=nBytes*12; let N=Math.ceil(Math.sqrt(mods))+2; while((N-2)*(N-2)-3<mods) N++; return N; }
+/* rooms style: each byte is a 4x4 tile. floor = 3x3 open; bits 0..6 = the tile's right wall (3 modules,
+   top to bottom) + bottom wall (3 modules, left to right) + the shared corner; bit 7 = a centre pillar.
+   Tiles abut, so a tile's right/bottom wall is the next room's left/top wall. The frame closes the outside. */
+function tileBits(b){ const t=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<3;i++){ t[i][3]=(b>>i)&1; t[3][i]=(b>>(3+i))&1; } t[3][3]=(b>>6)&1; t[1][1]=(b>>7)&1; return t; }
+function bitsTile(t){ let b=0; for(let i=0;i<3;i++){ b|=t[i][3]<<i; b|=t[3][i]<<(3+i); } b|=t[3][3]<<6; b|=t[1][1]<<7; return b; }
+function roomsSize(nBytes){ let T=Math.ceil(Math.sqrt(nBytes)); return T; }   // T x T tiles
+function encodeRooms(payload, ecFrac=0.45){
+  const data=new Uint8Array(3+payload.length); data[0]=payload.length>>8; data[1]=payload.length&255; data[2]=crc8(payload); data.set(payload,3);
+  const nsym=Math.max(8, Math.min(64, Math.ceil(data.length*ecFrac)));
+  const blocks=[]; for(let i=0;i<data.length;i+=255-nsym) blocks.push(rsEncode(data.subarray(i,Math.min(data.length,i+255-nsym)),nsym));
+  const all=[]; for(const b of blocks) for(const x of b) all.push(x);
+  const T=roomsSize(all.length), N=T*4+2;                    // frame(1) + T tiles*4 + closing wall row/col shared with frame
+  const g=[]; for(let r=0;r<N;r++) g.push(new Uint8Array(N));
+  for(let i=0;i<N;i++){ g[0][i]=g[N-1][i]=g[i][0]=g[i][N-1]=1; }
+  g[0][1]=g[0][2]=g[0][3]=g[0][4]=0;                           // 4-module notch = rooms style
+  let k=0; for(let tr=0;tr<T;tr++)for(let tc=0;tc<T;tc++){ const b=k<all.length?all[k]:0x7F; k++; const t=tileBits(b);   // unused tiles: walls closed, no pillar
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++) g[1+tr*4+i][1+tc*4+j]=t[i][j]; }
+  return {grid:g,N,nsym,bytes:all.length,style:'rooms'};
+}
+function decodeRooms(G){
+  const N=G.length, T=(N-2)/4; if(T!==Math.floor(T)) return null;
+  const bytes=[]; for(let tr=0;tr<T;tr++)for(let tc=0;tc<T;tc++){ const t=[]; for(let i=0;i<4;i++){ t.push([]); for(let j=0;j<4;j++) t[i].push(G[1+tr*4+i][1+tc*4+j]); } bytes.push(bitsTile(t)); }
+  return bytesToPayload(bytes);
+}
+function encode(payload, ecFrac=0.45){
+  const data=new Uint8Array(3+payload.length); data[0]=payload.length>>8; data[1]=payload.length&255; data[2]=crc8(payload); data.set(payload,3);
+  const nsym=Math.max(8, Math.min(64, Math.ceil(data.length*ecFrac)));
+  // RS blocks of <=255
+  const blocks=[]; for(let i=0;i<data.length;i+=255-nsym) blocks.push(rsEncode(data.subarray(i,Math.min(data.length,i+255-nsym)),nsym));
+  const all=[]; for(const b of blocks) for(const x of b) all.push(x);
+  const N=sizeFor(all.length); const g=[]; for(let r=0;r<N;r++){ g.push(new Uint8Array(N)); }
+  for(let i=0;i<N;i++){ g[0][i]=g[N-1][i]=g[i][0]=g[i][N-1]=1; }      // frame
+  g[0][1]=g[0][2]=g[0][3]=0;                                            // notch (orientation)
+  // raster fill of the interior with 12-bit codewords
+  const bits=[]; for(const b of all){ const c=CODE[b]; for(let i=11;i>=0;i--) bits.push((c>>i)&1); }
+  let k=0; for(let r=1;r<N-1&&k<bits.length;r++) for(let c=1;c<N-1&&k<bits.length;c++) g[r][c]=bits[k++];
+  return {grid:g,N,nsym,bytes:all.length};
+}
+function decodeGrid(g){
+  const N=g.length;
+  // orientation: rotate until the notch is at top-left
+  let G=g; for(let rot=0;rot<4;rot++){ if(G[0][1]===0&&G[0][2]===0&&G[0][3]===0&&G[1][0]===1&&G[0][N-2]===1) break; G=rotate(G); if(rot===3) return null; }
+  if(G[0][4]===0&&G[0][5]===1) return decodeRooms(G);    // 4-module notch: rooms style
+  const bits=[]; for(let r=1;r<N-1;r++) for(let c=1;c<N-1;c++) bits.push(G[r][c]);
+  const bytes=[]; for(let i=0;i+12<=bits.length;i+=12){ let v=0; for(let j=0;j<12;j++) v=(v<<1)|bits[i+j]; bytes.push(nearestCode(v)); }
+  return bytesToPayload(bytes);
+}
+function bytesToPayload(bytes){
+  for(const ecFrac of [0.45]){ const guessLen=(bytes[0]<<8|bytes[1])+3; const nsym=Math.max(8,Math.min(64,Math.ceil(guessLen*ecFrac)));
+    const out=[]; let ok=true; for(let i=0;i<guessLen;i+=255-nsym){ const take=Math.min(guessLen-i,255-nsym); const start=out.length?Math.floor(i/(255-nsym))*255:0; const blk=bytes.slice(start,start+take+nsym); const d=rsDecode(blk,nsym); if(!d){ok=false;break;} for(let j=0;j<take;j++) out.push(d[j]); }
+    if(!ok) continue; const len=out[0]<<8|out[1]; const pay=Uint8Array.from(out.slice(3,3+len)); if(crc8(pay)===out[2]) return pay; }
+  return null;
+}
+function rotate(G){ const N=G.length; const R=[]; for(let r=0;r<N;r++){ R.push(new Uint8Array(N)); for(let c=0;c<N;c++) R[r][c]=G[N-1-c][r]; } return R; }
+function largestRegion(g){ const N=g.length; const id=g.map(r=>Array.from(r,()=>-1)); const sizes=[]; let k=0; let free=0;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){ if(g[r][c]){continue;} free++; if(id[r][c]>=0)continue; let n=0; const Q=[[r,c]]; id[r][c]=k; while(Q.length){const [a,b]=Q.pop(); n++; for(const [dr,dc] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=a+dr,y=b+dc; if(x<0||y<0||x>=N||y>=N||g[x][y]||id[x][y]>=0)continue; id[x][y]=k; Q.push([x,y]);}} sizes.push(n); k++; }
+  return {largest:Math.max(...sizes),free}; }
+
+/* ---------- colour rooms: 8 colours = 3 bits per module ----------
+   colour index 0..3 are DARK (wall): black, blue, red, green;  4..7 are LIGHT (floor): white, yellow, cyan, magenta.
+   geometry (wall/floor) is the same rooms tile as before; every module additionally carries 2 colour bits.
+   per tile: byte0 = walls, bytes1..4 = 16 modules x 2 colour bits (raster order).  5 bytes per 4x4 tile.
+   orientation: the top-left corner of the frame is a RED L (3 modules); the other corners are black. no notch. */
+const PALETTE=[[0,0,0],[20,60,220],[210,30,30],[20,160,50],[255,255,255],[255,225,40],[60,225,255],[255,70,210],
+  [255,130,0],[165,165,165],[130,40,230],[140,75,25],[255,160,205],[95,125,165],[0,215,165],[200,0,110]];   // 8..15 map words only: boss, sword, great sword, shop, npc, armor, treasure, healer
+function encodeColor(payload, ecFrac=0.45){
+  const data=new Uint8Array(3+payload.length); data[0]=payload.length>>8; data[1]=payload.length&255; data[2]=crc8(payload); data.set(payload,3);
+  const nsym=Math.max(8, Math.min(64, Math.ceil(data.length*ecFrac)));
+  const blocks=[]; for(let i=0;i<data.length;i+=255-nsym) blocks.push(rsEncode(data.subarray(i,Math.min(data.length,i+255-nsym)),nsym));
+  const all=[]; for(const b of blocks) for(const x of b) all.push(x);
+  const tiles=Math.ceil(all.length/5), T=Math.ceil(Math.sqrt(tiles)), N=T*4+2;
+  const g=[]; for(let r=0;r<N;r++) g.push(new Uint8Array(N).fill(4));     // 4 = white floor
+  for(let i=0;i<N;i++){ g[0][i]=g[N-1][i]=g[i][0]=g[i][N-1]=0; }           // frame black
+  g[0][0]=g[0][1]=g[1][0]=2;                                                // red L in the top-left corner of the frame = orientation + module size
+  for(let k=0;k<T*T;k++){ const tr=(k/T)|0, tc=k%T; const i0=k*5; const used=i0<all.length;
+    const walls=used?all[i0]:0x7F; const cb=[1,2,3,4].map(j=>used&&i0+j<all.length?all[i0+j]:0);
+    const t=tileBits(walls); let m=0;
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++){ const col=(cb[m>>2]>>((3-(m&3))*2))&3; m++; g[1+tr*4+i][1+tc*4+j]=(t[i][j]?0:4)+col; } }
+  return {grid:g,N,nsym,bytes:all.length,style:'color'};
+}
+function decodeColor(g){
+  let G=g; const N=G.length; let rot=0; for(;rot<4;rot++){ if(G[0][0]===2&&G[0][1]===2&&G[1][0]===2&&G[0][2]!==2&&G[2][0]!==2&&G[0][N-1]!==2&&G[N-1][0]!==2) break; G=rotate(G); } if(rot===4) return null;
+  const T=(N-2)/4; if(T!==Math.floor(T)) return null;
+  const bytes=[]; for(let k=0;k<T*T;k++){ const tr=(k/T)|0, tc=k%T; const t=[]; const cb=[0,0,0,0]; let m=0;
+    for(let i=0;i<4;i++){ t.push([]); for(let j=0;j<4;j++){ const v=G[1+tr*4+i][1+tc*4+j]; t[i].push(v<4?1:0); cb[m>>2]|=(v&3)<<((3-(m&3))*2); m++; } }
+    bytes.push(bitsTile(t),...cb); }
+  return bytesToPayload(bytes);
+}
+const isDark=v=>v<4;
+window.mcode={encode,encodeRooms,encodeColor,decodeGrid,decodeColor,rsEncode,rsDecode,largestRegion,CODE,PALETTE,isDark,rotate};
+
+})();
+(function(){
+/* mcode detector: ImageData-like {data,width,height} -> grid (Uint8Array rows) or null */
+function gray(img){ const {data,width:w,height:h}=img; const g=new Float32Array(w*h); for(let i=0,j=0;i<g.length;i++,j+=4) g[i]=(data[j]*0.299+data[j+1]*0.587+data[j+2]*0.114); return g; }
+// local threshold: compare to blurred mean (box blur via integral image)
+function binarize(g,w,h,win){ const I=new Float64Array((w+1)*(h+1)); for(let y=1;y<=h;y++){ let s=0; for(let x=1;x<=w;x++){ s+=g[(y-1)*w+x-1]; I[y*(w+1)+x]=I[(y-1)*(w+1)+x]+s; } }
+  const b=new Uint8Array(w*h); const r=win>>1;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){ const x0=Math.max(0,x-r),y0=Math.max(0,y-r),x1=Math.min(w,x+r+1),y1=Math.min(h,y+r+1); const n=(x1-x0)*(y1-y0); const m=(I[y1*(w+1)+x1]-I[y0*(w+1)+x1]-I[y1*(w+1)+x0]+I[y0*(w+1)+x0])/n; b[y*w+x]=g[y*w+x]<m-6?1:0; }
+  return b; }
+function components(b,w,h){ const id=new Int32Array(w*h).fill(-1); const comps=[]; const stack=new Int32Array(w*h);
+  for(let p=0;p<w*h;p++){ if(!b[p]||id[p]>=0)continue; const k=comps.length; let sp=0; stack[sp++]=p; id[p]=k; let n=0,minx=w,maxx=0,miny=h,maxy=0; let c1=null,c2=null,c3=null,c4=null,v1=-1e9,v2=-1e9,v3=-1e9,v4=-1e9;
+    while(sp){ const q=stack[--sp]; n++; const x=q%w,y=(q-x)/w; if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y;
+      if(x+y>v1){v1=x+y;c3=[x,y];} if(x-y>v2){v2=x-y;c2=[x,y];} if(y-x>v3){v3=y-x;c4=[x,y];} if(-x-y>v4){v4=-x-y;c1=[x,y];}
+      if(x>0&&b[q-1]&&id[q-1]<0){id[q-1]=k;stack[sp++]=q-1;} if(x<w-1&&b[q+1]&&id[q+1]<0){id[q+1]=k;stack[sp++]=q+1;} if(y>0&&b[q-w]&&id[q-w]<0){id[q-w]=k;stack[sp++]=q-w;} if(y<h-1&&b[q+w]&&id[q+w]<0){id[q+w]=k;stack[sp++]=q+w;} }
+    comps.push({n,minx,maxx,miny,maxy,corners:[c1,c2,c3,c4]}); }
+  return comps; }
+// homography unit square -> quad (c1 tl, c2 tr, c3 br, c4 bl)
+function homography(q){ const [[x0,y0],[x1,y1],[x2,y2],[x3,y3]]=q; const dx1=x1-x2,dx2=x3-x2,dx3=x0-x1+x2-x3,dy1=y1-y2,dy2=y3-y2,dy3=y0-y1+y2-y3;
+  const den=dx1*dy2-dx2*dy1; const g=(dx3*dy2-dx2*dy3)/den, hh=(dx1*dy3-dx3*dy1)/den;
+  const a=x1-x0+g*x1, b=x3-x0+hh*x3, c=x0, d=y1-y0+g*y1, e=y3-y0+hh*y3, f=y0;
+  return (u,v)=>{ const w=g*u+hh*v+1; return [(a*u+b*v+c)/w,(d*u+e*v+f)/w]; }; }
+function detect(img){
+  const w=img.width,h=img.height; const g=gray(img); const b=binarize(g,w,h,Math.max(15,(Math.min(w,h)/8)|0)|1);
+  const comps=components(b,w,h).filter(c=>{ const bw=c.maxx-c.minx+1,bh=c.maxy-c.miny+1; return bw>Math.min(w,h)*0.25&&bh>Math.min(w,h)*0.25&&bw/bh>0.6&&bh/bw>0.6&&c.n<bw*bh*0.55; });
+  comps.sort((p,q)=>(q.maxx-q.minx)*(q.maxy-q.miny)-(p.maxx-p.minx)*(p.maxy-p.miny));
+  for(const c of comps.slice(0,3)){
+    // corners of the OUTER edge of the frame; shrink slightly so sampling targets module centres
+    const H=homography(c.corners);
+    const sampleAt=(u,v,m)=>{ let d=0; for(const du of [-0.2*m,0,0.2*m])for(const dv of [-0.2*m,0,0.2*m]){ const [x,y]=H(u+du,v+dv); const xi=x|0,yi=y|0; if(xi<0||yi<0||xi>=w||yi>=h) return -1; d+=b[yi*w+xi]; } return d>=5?1:0; };
+    // N search: the notch (dark, white,white,white, dark) must appear at the start of exactly one edge
+    // when sampled with the right module count. Cheap test, all N from 12 to 160, then full decode.
+    const side=Math.hypot(c.corners[1][0]-c.corners[0][0],c.corners[1][1]-c.corners[0][1]);
+    const order=[];
+    const rgbAt=(u,v,m)=>{ let R=0,Gg=0,B=0,n=0; for(const du of [-0.2*m,0,0.2*m])for(const dv of [-0.2*m,0,0.2*m]){ const [x,y]=H(u+du,v+dv); const xi=x|0,yi=y|0; if(xi<0||yi<0||xi>=w||yi>=h)continue; const p=(yi*w+xi)*4; R+=img.data[p];Gg+=img.data[p+1];B+=img.data[p+2];n++; } return n?[R/n,Gg/n,B/n]:[0,0,0]; };
+    const isRed=p=>p[0]>p[1]+35&&p[0]>p[2]+35;
+    for(let N=12;N<=200;N++){ const m=1/N;
+      // colour style: exactly one corner is a 2x2 red block and the module beyond it is not red
+      let redCorners=0; const cornerDefs=[ [[0.5,0.5],[1.5,0.5],[0.5,1.5],[2.5,0.5],[0.5,2.5]], [[N-0.5,0.5],[N-1.5,0.5],[N-0.5,1.5],[N-2.5,0.5],[N-0.5,2.5]], [[N-0.5,N-0.5],[N-1.5,N-0.5],[N-0.5,N-1.5],[N-2.5,N-0.5],[N-0.5,N-2.5]], [[0.5,N-0.5],[1.5,N-0.5],[0.5,N-1.5],[2.5,N-0.5],[0.5,N-2.5]] ];
+      for(const cd of cornerDefs){ const r=cd.map(([cx,cy])=>isRed(rgbAt(cx*m,cy*m,m))); if(r[0]&&r[1]&&r[2]&&!r[3]&&!r[4]) redCorners++; }
+      if(redCorners===1){ order.push(N); continue; } const edges=[ i=>[ (i+0.5)*m, 0.5*m ], i=>[ 1-0.5*m, (i+0.5)*m ], i=>[ 1-(i+0.5)*m, 1-0.5*m ], i=>[ 0.5*m, 1-(i+0.5)*m ] ];
+      let hits=0; for(const E of edges){ const v=[0,1,2,3,4,5].map(i=>sampleAt(...E(i),m)); const v6=sampleAt(...E(6),m), v7=sampleAt(...E(7),m); if(v[0]===1&&v[1]===0&&v[2]===0&&v[3]===0&&((v[4]===1&&v[5]===1)||(v[4]===0&&v[5]===1&&v6===1)||(v[4]===0&&v[5]===0&&v6===1&&v7===1))) hits++; }   // 3-notch (cave) or 4-notch (rooms)
+      if(hits===1) order.push(N); }
+    for(const N of order){ if(N<12||N>200)continue;
+      const grid=[]; let ok=true;
+      for(let r=0;r<N&&ok;r++){ const row=new Uint8Array(N); for(let cc=0;cc<N;cc++){ // average a small patch around the module centre
+          let d=0; for(const du of [-0.2,0,0.2])for(const dv of [-0.2,0,0.2]){ const [x,y]=H((cc+0.5+du)/N,(r+0.5+dv)/N); const xi=x|0,yi=y|0; if(xi<0||yi<0||xi>=w||yi>=h){ok=false;break;} d+=b[yi*w+xi]; } row[cc]=d>=5?1:0; }
+        grid.push(row); }
+      if(!ok) continue;
+      // frame check
+      let frame=0,tot=0; for(let i=0;i<N;i++){ tot+=4; frame+=grid[0][i]+grid[N-1][i]+grid[i][0]+grid[i][N-1]; }
+      if(frame<tot*0.92) continue;
+      // colour style? orient the binary grid; a 5-wide notch means every module carries a colour
+      const cornerRed=[[0.5,0.5],[N-0.5,0.5],[N-0.5,N-0.5],[0.5,N-0.5]].map(([cx,cy])=>isRed(rgbAt(cx/N,cy/N,1/N)));
+      if(cornerRed.filter(x=>x).length===1){
+        const rgbAt=(u,v)=>{ let R=0,Gg=0,B=0,n=0; for(const du of [-0.2/N,0,0.2/N])for(const dv of [-0.2/N,0,0.2/N]){ const [x,y]=H(u+du,v+dv); const xi=x|0,yi=y|0; if(xi<0||yi<0||xi>=w||yi>=h)continue; const p=(yi*w+xi)*4; R+=img.data[p];Gg+=img.data[p+1];B+=img.data[p+2];n++; } return [R/n,Gg/n,B/n]; };
+        // references: frame = black, notch = white (sampled in image orientation: the notch is wherever it is)
+        const cg=[]; for(let r=0;r<N;r++){ const row=[]; for(let cc=0;cc<N;cc++) row.push(rgbAt((cc+0.5)/N,(r+0.5)/N)); cg.push(row); }
+        const avg=(pts)=>{ const a=[0,0,0]; for(const p of pts){a[0]+=p[0];a[1]+=p[1];a[2]+=p[2];} return a.map(x=>x/pts.length); };
+        const black=avg([...Array(N).keys()].flatMap(i=>[cg[0][i],cg[N-1][i],cg[i][0],cg[i][N-1]]).filter(p=>p[0]+p[1]+p[2]<200&&!isRed(p)));
+        const white=avg(cg.flat().filter(p=>p[0]+p[1]+p[2]>500).sort((a,b)=>(b[0]+b[1]+b[2])-(a[0]+a[1]+a[2])).slice(0,Math.max(8,N)));
+        const norm=p=>[0,1,2].map(i=>Math.max(0,Math.min(1,(p[i]-black[i])/Math.max(20,white[i]-black[i]))));
+        const PAL=mcode.PALETTE.map(p=>p.map(x=>x/255));
+        const classify=p=>{ const q=norm(p); let best=0,bd=9; for(let i=0;i<PAL.length;i++){ const d=(q[0]-PAL[i][0])**2+(q[1]-PAL[i][1])**2+(q[2]-PAL[i][2])**2; if(d<bd){bd=d;best=i;} } return best; };
+        const CG=cg.map(row=>Uint8Array.from(row.map(classify)));
+        const out=mcode.decodeColor(CG); if(out) return {bytes:out,grid:CG,N,corners:c.corners,color:true};
+        if(window.wmap){ const W=wmap.fromGrid(CG); if(W) return {world:W,grid:CG,N,corners:c.corners,color:true}; }
+        continue;
+      }
+      const out=mcode.decodeGrid(grid); if(out) return {bytes:out,grid,N,corners:c.corners};
+    }
+  }
+  return null;
+}
+window.mdetect={detect,gray,binarize,components,homography};
+
+})();
+</script>
+
+<style>
+  :root{
+    --bg:#0d1016; --panel:#141a24; --ink:#e8ebf0; --dim:#7d8699;
+    --edge:#232c3a; --accent:#49d0b0; --hot:#ff6a4d; --warn:#ffc24b;
+    --mono:'DejaVu Sans Mono',ui-monospace,Menlo,Consolas,monospace;
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--mono);display:flex;flex-direction:column;overflow:hidden}
+
+  header{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--edge);flex:0 0 auto}
+  header .logo{font-weight:700;letter-spacing:.5px;color:var(--accent)}
+  header .logo b{color:var(--ink)}
+  header .sp{flex:1}
+  button{font-family:var(--mono);font-size:13px;background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:6px;padding:7px 12px;cursor:pointer}
+  button:hover{border-color:var(--dim)}
+  button.go{background:var(--accent);color:#05231d;border-color:var(--accent);font-weight:700}
+  select#examples{font-family:var(--mono);font-size:13px;background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:6px;padding:7px 10px;cursor:pointer}
+  select#examples:hover{border-color:var(--dim)}
+  button.go:hover{filter:brightness(1.08)}
+
+  main{flex:1;display:flex;min-height:0}
+  #left{width:46%;min-width:280px;display:flex;flex-direction:column;border-right:1px solid var(--edge);min-height:0}
+  #code{flex:1;resize:none;border:0;outline:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.5;padding:12px 14px;tab-size:2;white-space:pre;overflow:auto}
+  #right{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+  #stage{flex:1;display:flex;align-items:center;justify-content:center;background:#05070b;min-height:0;padding:10px}
+  canvas#view{background:#05070b;max-width:100%;max-height:100%;image-rendering:pixelated;border:1px solid var(--edge);border-radius:4px;touch-action:none;user-select:none;-webkit-user-select:none}
+
+  /* play mode: hide the editor, canvas fills the screen (square, as big as fits) */
+  body.play #left{display:none}
+  body.play #right{flex:1}
+  body.play #stage{padding:0}
+  body.play #stage{overflow:hidden}
+  body.play canvas#view{width:auto;height:auto;max-width:100%;max-height:100%;aspect-ratio:1/1;border-radius:0}
+  @supports not (aspect-ratio:1/1){ body.play canvas#view{width:100%;height:auto} }
+  #btn-mode{display:none}
+
+  /* phones: one pane at a time. Editor by default; ▶ run switches to play. */
+  @media (max-width:760px){
+    main{flex-direction:column}
+    #btn-mode{display:inline-block}
+    #left{width:100%;min-width:0;flex:1;border-right:0}
+    #right{display:none}
+    body.play #left{display:none}
+    body.play #right{display:flex;flex:1}
+    header{flex-wrap:wrap}
+    button{padding:9px 12px}          /* bigger tap targets */
+  }
+
+  #status{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 12px;border-top:1px solid var(--edge);font-size:12px;color:var(--dim)}
+  #status .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  #status.err .dot{background:var(--hot)}
+  #status.err{color:var(--hot)}
+
+  /* overlay (QR panels) */
+  #ov{position:absolute;inset:0;background:rgba(5,7,11,.82);display:none;align-items:center;justify-content:center;padding:20px}
+  #ov.open{display:flex}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:20px;max-width:360px;width:100%;text-align:center;max-height:calc(100% - 8px);overflow-y:auto;box-sizing:border-box}
+  #ov{padding:8px}
+  .card #pal button{padding:4px 8px;font-size:12px}
+  .card h2{margin:0 0 4px;font-size:16px;font-weight:500}
+  .card p{margin:0 0 16px;font-size:12px;color:var(--dim);line-height:1.5}
+  .card #qrbox{display:flex;justify-content:center;background:#fff;padding:12px;border-radius:8px;margin-bottom:8px;min-height:160px;align-items:center}
+  .card .meta{font-size:11px;color:var(--dim);margin-bottom:14px}
+  .card video{width:100%;border-radius:8px;background:#000;margin-bottom:8px}
+  .card .row{display:flex;gap:8px}
+  .card .row button{flex:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><b>QR</b>2D</div>
+  <div class="sp"></div>
+  <button id="btn-run" class="go">▶ run</button>
+  <button id="btn-mode" title="switch between code and the game">🎮 play</button>
+  <button id="btn-stop">■ stop</button>
+  <button id="btn-save">save → code</button>
+  <button id="btn-load">scan</button>
+  <button id="btn-paint" title="see the map, or draw one">✎ map</button>
+  <button id="btn-char" title="build a character from parts">☺ character</button>
+  <select id="examples" title="load an example program">
+    <option value="">examples…</option>
+  </select>
+</header>
+
+<main style="position:relative">
+  <section id="left">
+    <textarea id="code" spellcheck="false"></textarea>
+  </section>
+  <section id="right">
+    <div id="stage" title="tap/hold the left, right, top or bottom of the canvas to move; tap the middle to attack (space / Z on a keyboard)"><canvas id="view" width="320" height="320"></canvas></div>
+  </section>
+
+  <div id="ov">
+    <!-- filled dynamically -->
+    <div class="card" id="card"></div>
+  </div>
+</main>
+
+<div id="status"><span class="dot"></span><span id="msg">ready</span></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   QR2D  v0.27 — a terse, animation-first 2D visual language.
+   Retained objects · init/frame blocks · box collision events.
+   One file: editor + runtime + compiler + QR in/out.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ---- starter program --------------------------------------------- */
+const STARTER =
+`# QR2D — driving forward  (faux 3D, rooted to the ground)
+# Horizon at y=110. Everything lives BELOW it, on the ground.
+# Each object: spawn small at horizon -> move DOWN toward you
+# (slow far, faster near) -> grow as it comes -> recycle at bottom.
+# One flow toward the camera, not a spray.
+
+init:
+  sky: box 0, 0, 320, 110 : fill : col 30, 34, 56 : fixed
+  ground: box 0, 110, 320, 210 : fill : col 24, 38, 24 : fixed
+  tree: tri 160+(i%2*2-1)*(30+i%4*25), 100+i*10, 6, 6 : fill : col 70, 180, 110 lp 12
+  rock: box 160+(i%2*2-1)*(40+i%3*30), 104+i*14, 5, 5 : fill : col 160, 150, 130 lp 8
+
+frame:
+  tree each: mv (x-160)*0.01, 0.8 + (y-100)*0.022
+  tree each: size 6 + (y-100)*0.15
+  tree when y > 320: to 160+(i%2*2-1)*(20+rnd(110)), 100 : size 6
+  rock each: mv (x-160)*0.01, 0.8 + (y-100)*0.022
+  rock each: size 5 + (y-100)*0.13
+  rock when y > 320: to 160+(i%2*2-1)*(25+rnd(110)), 100 : size 5
+`;
+
+/* ---- example library ----------------------------------------------
+   Every program we keep. Pick one from the "examples…" menu to load it.
+   Add new ones here: {name, src}. ----------------------------------- */
+const EXAMPLES = [
+{ name:'flyover (default)', src: STARTER },
+
+{ name:'snake', src:
+`# Snake — arrow keys (or tap canvas edges) to steer
+# eat food to grow + score   hit wall or self = reset
+
+init:
+  set score 0
+  wt: box 0, 0, 320, 10 : fill : col 50, 60, 80 : fixed
+  wb: box 0, 310, 320, 10 : fill : col 50, 60, 80 : fixed
+  wl: box 0, 0, 10, 320 : fill : col 50, 60, 80 : fixed
+  wr: box 310, 0, 10, 320 : fill : col 50, 60, 80 : fixed
+  head: box 150, 150, 10, 10 : fill : col 90, 210, 255
+  head vel 5, 0
+  tail: box 140, 150, 10, 10 : fill : col 70, 170, 200
+  tail follow head
+  food: box 240, 160, 10, 10 : fill : col 255, 100, 80
+  label: txt 120, 26, "score ", score : col 230, 230, 240
+
+frame:
+  on key up: head vel 0, -5
+  on key down: head vel 0, 5
+  on key left: head vel -5, 0
+  on key right: head vel 5, 0
+  on hit head food: grow head : add score 1 : food to rnd(260)+30, rnd(240)+40
+  on hit head wt: reset
+  on hit head wb: reset
+  on hit head wl: reset
+  on hit head wr: reset
+  on hit head tail: reset
+`},
+
+{ name:'two balls (mass physics)', src:
+`# Two balls — bounce = real momentum exchange by w*h mass
+# fixed = immovable walls. Big ball shoves small.
+
+init:
+  wt: box 0, 0, 320, 6 : fill : col 50, 60, 80 : fixed
+  wb: box 0, 314, 320, 6 : fill : col 50, 60, 80 : fixed
+  wl: box 0, 0, 6, 320 : fill : col 50, 60, 80 : fixed
+  wr: box 314, 0, 6, 320 : fill : col 50, 60, 80 : fixed
+  big: circ 110, 160, 18 : fill : col 255, 120, 80
+  big vel 2, 3
+  sm: circ 210, 160, 7 : fill : col 90, 210, 255
+  sm vel -4, -2
+
+frame:
+  on hit big sm: bounce big sm
+  on hit big wt: big flip y
+  on hit big wb: big flip y
+  on hit big wl: big flip x
+  on hit big wr: big flip x
+  on hit sm wt: sm flip y
+  on hit sm wb: sm flip y
+  on hit sm wl: sm flip x
+  on hit sm wr: sm flip x
+`},
+
+{ name:'bouncy (gravity + jump)', src:
+`# Gravity is just "add to vy every frame": each: vel vx, vy+0.3
+# bounce 0.7 = keep 70% of speed. bounce 0 = land and stop.
+# push ball = the ball moves with you the moment you touch it (bounce would be mushy).
+# Arrows / tap: left-right run, up jumps (only when on the ground).
+
+init:
+  set ground 0
+  bg: box 0, 0, 320, 320 : fill : col 30, 34, 48 : fixed
+  floor: box 0, 300, 320, 20 : fill : col 70, 90, 70 : fixed
+  floor: box 0, 0, 320, 8
+  floor: box 0, 0, 8, 320
+  floor: box 312, 0, 8, 320
+  floor: box 180, 220, 100, 10
+  floor: box 60, 150, 90, 10
+  ball: circ 60+i*55, 40+i*9, 6+i*3 : fill : col 255-i*40, 120+i*30, 80+i*40 lp 4
+  ball vel 2-i, 0
+  hero: box 30, 270, 14, 20 : fill : col 90, 220, 255
+  eye: box 0, 0, 3, 3 : fill : col 20, 20, 30 : attach hero 9, 4
+
+frame:
+  set ground 0
+  ball each: vel vx, vy+0.3
+  hero each: vel vx*0.8, vy+0.4
+  on hit ball floor: bounce 0.7
+  on hit ball ball: bounce 0.9
+  on hit hero floor: bounce 0 : set ground 1
+  on hit hero ball: push ball
+  on key left: hero vel -3, vy
+  on key right: hero vel 3, vy
+  on key up: hero vel vx, vy - 9*ground
+  eye each: to 9 + key*2, 4
+`},
+
+{ name:'warp (hyperspace)', src:
+`# Hyperspace warp — the real perspective law.
+# A star's screen position is distance/z, so its screen SPEED
+# grows with distance SQUARED: crawl at center, scream at the edge.
+#   vel = direction * distance * k   (|v| = distance^2 * k)
+# size + brightness grow with distance.
+# Recycle FIRST, then set vel/size/col, so a reborn star is
+# drawn small and dim at its new spot (no big flash near center).
+# rn/rm = random 0..1, same value across one statement -> random
+# angle + random radius with no rings.
+
+init:
+  bg: box 0, 0, 320, 320 : fill : col 6, 8, 16 : fixed
+  star: box 160, 160, 1, 1 : fill : col 30, 34, 50 : to 160+sin(i*2.4)*(28+i*1.5), 160+cos(i*2.4)*(28+i*1.5) lp 70
+
+frame:
+  star when x < 0: to 160+sin(rn*6.283)*(6+rm*50), 160+cos(rn*6.283)*(6+rm*50)
+  star when x > 320: to 160+sin(rn*6.283)*(6+rm*50), 160+cos(rn*6.283)*(6+rm*50)
+  star when y < 0: to 160+sin(rn*6.283)*(6+rm*50), 160+cos(rn*6.283)*(6+rm*50)
+  star when y > 320: to 160+sin(rn*6.283)*(6+rm*50), 160+cos(rn*6.283)*(6+rm*50)
+  star each: vel (x-160)*sqrt((x-160)*(x-160)+(y-160)*(y-160))*0.0012, (y-160)*sqrt((x-160)*(x-160)+(y-160)*(y-160))*0.0012
+  star each: size 0.6 + sqrt((x-160)*(x-160)+(y-160)*(y-160))*0.055
+  star each: col 10+sqrt((x-160)*(x-160)+(y-160)*(y-160))*1.5, 14+sqrt((x-160)*(x-160)+(y-160)*(y-160))*1.6, 24+sqrt((x-160)*(x-160)+(y-160)*(y-160))*1.7
+`},
+
+{ name:'walker (linked shapes)', src:
+`# A "person" built from parts. attach PARENT dx, dy makes a shape ride
+# on PARENT at that offset; mv / to on a part move its OFFSET, so parts
+# can animate while the body walks. Arrows or tap canvas edges to walk.
+
+init:
+  set walk 0
+  bg: box 0, 0, 320, 320 : fill : col 34, 40, 60 : fixed
+  floor: box 0, 250, 320, 70 : fill : col 60, 70, 60 : fixed
+  sun: circ 260, 60, 22 : fill : col 255, 220, 120
+  body: box 150, 200, 14, 24 : fill : col 80, 160, 255
+  head: circ 0, 0, 8 : fill : col 255, 210, 170 : attach body 7, -10
+  eye: box 0, 0, 2, 2 : fill : col 20, 20, 30 : attach body 9, -12
+  armL: box 0, 0, 4, 18 : fill : col 255, 210, 170 : attach body -5, 2
+  armR: box 0, 0, 4, 18 : fill : col 255, 210, 170 : attach body 15, 2
+  legL: box 0, 0, 5, 20 : fill : col 50, 50, 80 : attach body 1, 24
+  legR: box 0, 0, 5, 20 : fill : col 50, 50, 80 : attach body 8, 24
+  hat: tri 0, 0, 22, 12 : fill : col 200, 60, 60 : attach body -4, -30
+
+frame:
+  set walk 0
+  on key left: body mv -2, 0 : set walk 1
+  on key right: body mv 2, 0 : set walk 1
+  body when x < -14: to 320, 200
+  body when x > 320: to -14, 200
+  legL each: to 1 + sin(t*0.35)*5*walk, 24
+  legR each: to 8 - sin(t*0.35)*5*walk, 24
+  armL each: to -5 - sin(t*0.35)*4*walk, 2
+  armR each: to 15 + sin(t*0.35)*4*walk, 2
+  body each: to x, 200 - abs(sin(t*0.35))*3*walk
+  eye each: to 9 + key*2, -12
+`},
+
+{ name:'dungeon (mini rpg)', src:
+`# Mini dungeon — arrows (or tap the canvas edges) to move; space / Z (or tap the middle) to swing your sword.
+# Find the key, open the door, slay the beast, take the treasure. Talk to the ? for a quest, buy armor at the $.
+# "save -> code" draws the three rooms as a map: it IS the save. "✎ map" paints one. Scan one to play it.
+# To add a room: give it a "scene 4:" block and a door box named go4: on the side it lies. No frame line needed.
+# def NAME: = a reusable thing (root shape, then its parts).  new NAME x, y places one.
+# Same name = same look, so repeat walls only need position (and size if different).
+# common: runs after every scene: hero, hud, torches, outer walls live once.
+
+def hero:
+  box 0, 0, 12, 12 : fill : col 70, 120, 220
+  head: circ 0, 0, 6 : fill : col 255, 210, 170 : attach hero 6, -7
+  hair: box 0, 0, 12, 4 : fill : col 110, 60, 30 : attach hero 0, -13
+  legL: box 0, 0, 4, 6 : fill : col 50, 50, 80 : attach hero 1, 12
+  legR: box 0, 0, 4, 6 : fill : col 50, 50, 80 : attach hero 7, 12
+
+def slime:
+  oval 0, 0, 14, 12 : fill : col 110, 220, 90
+  eye: box 0, 0, 3, 3 : fill : col 20, 30, 20 : attach slime 3, 4
+  eye: box : attach slime 8, 4
+
+def coin:
+  oval 0, 0, 10, 12 : fill : col 235, 190, 60
+  rim: oval 0, 0, 6, 8 : col 160, 110, 30 : attach coin 2, 2
+  shine: box 0, 0, 2, 3 : fill : col 255, 250, 200 : attach coin 2, 2
+
+def torch:
+  box 0, 0, 4, 10 : fill : col 110, 70, 40 : fixed
+  flame: tri 0, 0, 10, 12 : fill : col 255, 160, 40 : attach torch -3, -10
+
+def keyitem:
+  box 0, 0, 12, 4 : fill : col 255, 230, 110
+  ring: circ 0, 0, 5 : attach keyitem -2, 2 : col 255, 230, 110
+  tooth: box 0, 0, 3, 4 : fill : col 255, 230, 110 : attach keyitem 9, 4
+
+def door:
+  box 0, 0, 12, 296 : fill : col 150, 100, 55 : fixed
+  plank: box 0, 0, 2, 296 : fill : col 110, 70, 40 : attach door 4, 0
+  knob: circ 0, 0, 3 : fill : col 230, 200, 80 : attach door 10, 160
+  lock: box 0, 0, 6, 6 : fill : col 60, 50, 40 : attach door 3, 170
+
+def chest:
+  box 0, 0, 24, 18 : fill : col 140, 80, 40
+  lid: box 0, 0, 24, 8 : fill : col 170, 100, 50 : attach chest 0, -6
+  clasp: box 0, 0, 4, 6 : fill : col 255, 220, 120 : attach chest 10, -2
+
+def sword:
+  box 0, 0, 4, 14 : fill : col 190, 190, 200
+  hilt: box 0, 0, 10, 3 : fill : col 120, 80, 40 : attach sword -3, 10
+
+def sword2:
+  box 0, 0, 5, 22 : fill : col 170, 90, 255
+  hilt: box 0, 0, 14, 4 : fill : col 255, 220, 120 : attach sword2 -4, 16
+
+def shop:
+  box 0, 0, 16, 18 : fill : col 140, 75, 25
+  head: circ 0, 0, 6 : fill : col 240, 200, 160 : attach shop 8, -6
+  hat: box 0, 0, 16, 4 : fill : col 80, 40, 10 : attach shop 0, -14
+  sign: txt 0, 0, "$" : col 255, 220, 90 : attach shop 20, -4
+
+def npc:
+  box 0, 0, 12, 16 : fill : col 255, 160, 205
+  head: circ 0, 0, 6 : fill : col 240, 200, 160 : attach npc 6, -6
+  mark: txt 0, 0, "?" : col 255, 240, 120 : attach npc 16, -8
+
+def armor:
+  box 0, 0, 14, 16 : fill : col 95, 125, 165
+  neck: box 0, 0, 6, 4 : fill : col 60, 80, 110 : attach armor 4, -3
+
+def treasure:
+  box 0, 0, 28, 20 : fill : col 0, 215, 165
+  gem: tri 0, 0, 12, 10 : fill : col 255, 255, 255 : attach treasure 8, -10
+  glow: circ 0, 0, 20 : col 0, 215, 165 : attach treasure 14, 10
+
+def healer:
+  box 0, 0, 12, 16 : fill : col 200, 0, 110
+  head: circ 0, 0, 6 : fill : col 240, 200, 160 : attach healer 6, -6
+  cross: txt 0, 0, "+" : col 255, 255, 255 : attach healer 14, -8
+
+def arrow:
+  box 0, 0, 8, 2 : fill : col 230, 220, 190
+  tip: tri 0, 0, 4, 4 : fill : col 200, 200, 200 : attach arrow 8, -1
+
+def boss:
+  oval 0, 0, 36, 32 : fill : col 255, 130, 0
+  eye: box 0, 0, 6, 6 : fill : col 40, 10, 0 : attach boss 8, 10
+  eye: box : attach boss 22, 10
+  horn: tri 0, 0, 10, 12 : fill : col 255, 230, 200 : attach boss 2, -10
+  horn: tri : attach boss 24, -10
+
+common:
+  wall: box 0, 0, 320, 12 : fill : col 90, 80, 70 : fixed
+  wall: box 0, 308
+  new torch 60, 12
+  new torch 240, 12
+  new hero 20, 154
+  blade: box 0, 0, 0, 0 : fill : col 190, 190, 200 : attach hero 12, 4
+  h1: txt 128, 18, "♥" : col 230, 50, 70
+  h2: txt 140, 18, "♥" : col 230, 50, 70
+  h3: txt 152, 18, "♥" : col 230, 50, 70
+  h4: txt 164, 18, "♥" : col 230, 50, 70
+  h5: txt 176, 18, "♥" : col 230, 50, 70
+  pcoin: oval 196, 19, 8, 10 : fill : col 235, 190, 60 : fixed
+  purse: txt 208, 18, gold : col 255, 220, 90
+  qtxt: txt 20, 296, "kills ", kills : col 200, 200, 230
+  qtxt2: txt 96, 296, "of ", qgoal : col 200, 200, 230
+
+init:
+  set hp 3
+  set haskey 0
+  set unlock 0
+  set sword 0
+  set gold 0
+  set ahp 0
+  set quest 0
+  set kills 0
+  set talk 0
+  set near 0
+  set buy 0
+  set loot -1
+  set bow 0
+  set bowcd 0
+  set shoot 0
+  set sel 0
+  set hold 0
+  set held 0
+  set tapped 0
+  set heal 0
+  # QUEST: the quest giver (?) asks for qgoal slime kills. Change the number, and the say lines for talk 2, 3 and 4.
+  set qgoal 3
+  set bhp 12
+  set walk 0
+  set dir 0
+  set swing 0
+  set inv 0
+  set kb 0
+  set won 0
+  bg: box 0, 0, 320, 320 : fill : col 24, 22, 30 : fixed
+  wall: box 0, 0, 12, 320 : fill : col 90, 80, 70 : fixed
+  wall: box 308, 0, 12, 140
+  wall: box 308, 180
+  wall: box 120, 60, 12, 200
+  new coin 60, 60
+  new coin 60, 250
+  new sword 200, 240
+  new npc 250, 200
+  go2: box 308, 140, 12, 40 : fill : col 10, 10, 14
+
+scene 2:
+  bg: box 0, 0, 320, 320 : fill : col 22, 28, 26 : fixed
+  wall: box 0, 0, 12, 140 : fill : col 90, 80, 70 : fixed
+  wall: box 0, 180
+  wall: box 308, 0
+  wall: box 308, 180
+  new slime 160, 60
+  new slime 220, 250
+  new keyitem 276, 30
+  new sword2 60, 270
+  new shop 150, 260
+  new chest 40, 40
+  new healer 260, 260
+  go3: box 308, 140, 12, 40 : fill : col 10, 10, 14
+  go1: box 0, 140, 12, 40 : fill : col 10, 10, 14
+
+scene 3:
+  bg: box 0, 0, 320, 320 : fill : col 30, 22, 24 : fixed
+  wall: box 0, 0, 12, 140 : fill : col 90, 80, 70 : fixed
+  wall: box 0, 180
+  wall: box 308, 0, 12, 320
+  new door 200, 12
+  new boss 240, 60
+  new armor 230, 250
+  new treasure 258, 150
+  go2: box 0, 140, 12, 40 : fill : col 10, 10, 14
+  bar: box 20, 296, 120, 6 : fill : col 220, 40, 40 : fixed
+
+frame:
+  set walk 0
+  on key up: hero mv 0, -2 : set walk 1 : set dir 3
+  on key down: hero mv 0, 2 : set walk 1 : set dir 1
+  on key left: hero mv -2, 0 : set walk 1 : set dir 2
+  on key right: hero mv 2, 0 : set walk 1 : set dir 0
+  on key hit: set swing 8*(swing<=0)*(sword>0) + swing*(swing>0)
+  if swing > 0: add swing -1
+  if dir = 0: blade to 12, 4 : blade shape sword*9*(swing>0), 3
+  if dir = 2: blade to -2-sword*9, 4 : blade shape sword*9*(swing>0), 3
+  if dir = 1: blade to 4, 12 : blade shape 3, sword*9*(swing>0)
+  if dir = 3: blade to 4, -2-sword*9 : blade shape 3, sword*9*(swing>0)
+  if inv > 0: add inv -1
+  if kb > 0: hero mv kx*3, ky*3 : add kb -1
+  hero each: col 70+(inv>0)*(floor(t/3)%2)*150+(ahp>0)*25, 120+(ahp>0)*5, 220-(ahp>0)*55
+  h1 each: col 60+170*(hp>=1), 50, 70
+  h2 each: col 60+170*(hp>=2), 50, 70
+  h3 each: col 60+170*(hp>=3), 50, 70
+  h4 each: col 60+170*(hp>=4), 50, 70
+  h5 each: col 60+170*(hp>=5), 50, 70
+  qtxt each: to 20+400*(1-(quest=1)), 296
+  qtxt2 each: to 96+400*(1-(quest=1)), 296
+  bar each: shape bhp*10, 6
+  legL each: to 1, 12 + sin(t*0.5)*2*walk
+  legR each: to 7, 12 - sin(t*0.5)*2*walk
+  flame each: col 255, 120+rn*100, 30 : size 9+rn*4
+  shine each: to 2+floor(t/20)%3*2, 2
+  blade each: col 190, 190+sword*0, 200+sword*25
+  on hit hero sword: destroy sword : set sword sword+(sword<1) : say "A sword! Tap the middle (or space) to swing."
+  on hit hero sword2: destroy sword2 : set sword 2 : say "A great sword!"
+  on hit blade slime: destroy slime : add kills 1 : say "Slash!"
+  on hit blade boss: add bhp -sword : set swing 0 : boss to 40+rn*240, 40+rm*240 : say "Hit!"
+  on hit hero boss: add ahp -(inv<=0)*(ahp>0) : add hp -(inv<=0)*(ahp<=0) : set inv 40 : say "Crunch!" : set kb 8 : set kx (dir=2)-(dir=0) : set ky (dir=3)-(dir=1)
+  boss each: chase hero 0.45
+  on hit boss wall: block boss
+  if bhp <= 0: destroy boss : say "The beast is slain!"
+  on hit hero wall: block hero
+  on hit hero door: block hero : say "Locked. Find the key." : set unlock haskey
+  on hit hero coin: destroy coin : add gold 1 : say "+1 gold"
+  on hit hero keyitem: destroy keyitem : set haskey 1 : say "Got the key!"
+  on hit hero slime: add ahp -(inv<=0)*(ahp>0) : add hp -(inv<=0)*(ahp<=0) : set inv 40 : say "Ouch!" : set kb 8 : set kx (dir=2)-(dir=0) : set ky (dir=3)-(dir=1)
+  slime each: chase hero 0.7
+  if unlock = 1: destroy door : set haskey 0 : set unlock 0 : say "The key turns. The door opens."
+  if hp <= 0: say "You died." : reset
+  on hit hero chest: destroy chest : set loot floor(rn*3)
+  if loot = 0: add gold 5 : say "The chest held 5 gold." : set loot -1
+  if loot = 1: add hp 1 : say "The chest held a heart." : set loot -1
+  if loot = 2: set haskey 1 : say "The chest held a key!" : set loot -1
+  on hit hero armor: destroy armor : set ahp 3 : say "Armor! It will take three hits."
+  if near > 0: add near -1
+  on hit hero shop: block hero : set near 40
+  set held 0
+  on key hit: set held 1 : add hold 1
+  if held = 0: set tapped (hold>0)*(hold<15)*(near>0) : set hold 0
+  if tapped = 1: set sel (sel+1)%4 : set tapped 0 : set near 40
+  if near*(sel=0) > 0: say "SHOP  > heart 5g <  tap hit: next, hold hit: buy"
+  if near*(sel=1) > 0: say "SHOP  > armor 10g <  tap hit: next, hold hit: buy"
+  if near*(sel=2) > 0: say "SHOP  > sword 15g <  tap hit: next, hold hit: buy"
+  if near*(sel=3) > 0: say "SHOP  > bow 20g <  tap hit: next, hold hit: buy"
+  if hold = 30: set buy (near>0)*(1+sel) : set near 0
+  if buy = 1: set buy 10*(gold>=5)+9*(gold<5)
+  if buy = 2: set buy 11*(gold>=10)+9*(gold<10)
+  if buy = 3: set buy 12*(gold>=15)+9*(gold<15)
+  if buy = 4: set buy 13*(gold>=20)+9*(gold<20)
+  if buy = 9: set buy 0 : say "Not enough gold."
+  if buy = 10: add gold -5 : add hp 1 : set buy 0 : say "A heart. Sold!"
+  if buy = 11: add gold -10 : set ahp 3 : set buy 0 : say "Armor fitted. Sold!"
+  if buy = 12: add gold -15 : set sword 1+(sword>=1) : set buy 0 : say "A sword. Sold!"
+  if buy = 13: add gold -20 : set bow 1 : set buy 0 : say "A bow! Hold hit away from the shop to shoot."
+  if heal > 0: add heal -1
+  on hit hero healer: block hero : set heal 40 : say "Full hearts for 3 gold. Hold hit."
+  if hold*(heal>0) = 30: set heal 0 : set buy 14
+  if buy = 14: set buy 15*(gold>=3)+9*(gold<3)
+  if buy = 15: add gold -3 : set hp 5 : set buy 0 : say "Healed."
+  if bowcd > 0: add bowcd -1
+  if hold*(near<=0)*(heal<=0) = 10: set shoot bow*(bowcd<=0)
+  if shoot = 1: new arrow hx+2, hy+5 : arrow vel (dir=0)*5-(dir=2)*5, (dir=1)*5-(dir=3)*5 : set bowcd 15 : set shoot 0
+  on hit arrow slime: destroy slime : destroy arrow : add kills 1
+  on hit arrow boss: add bhp -1 : destroy arrow : say "Hit!"
+  on hit arrow wall: destroy arrow
+  on hit arrow door: destroy arrow
+  on hit hero npc: block hero : set talk 1
+  if talk = 1: set talk 2*(quest=0)+3*(quest=1)*(kills>=qgoal)+4*(quest=1)*(kills<qgoal)+5*(quest=2)
+  if talk = 2: set quest 1 : set talk 0 : say "QUEST: slay the slimes for me. I will pay."
+  if talk = 3: set quest 2 : add gold 10 : set haskey 1 : set talk 0 : say "Well done! Take 10 gold and this key."
+  if talk = 4: set talk 0 : say "Not done yet. Keep swinging."
+  if talk = 5: set talk 0 : say "Thank you, hero."
+  on hit hero treasure: destroy treasure : set won 1 : set inv 9999
+  if won = 1: say "The treasure is yours. You win!"
+`},
+
+{ name:'dungeon code (the save is the map)', src:
+`# The level IS this program's save code, module for module: rooms, doors, carpets.
+# Press save -> code and compare. Change any character and it changes.
+# mx1,my1 free cell near top-left   mx2,my2 bottom-right   cell = module px
+
+init:
+  set hp 3
+  bg: box 0, 0, 320, 320 : fill : col 16, 16, 22 : fixed
+  map wall
+  chest: box mx2, my2, cell-2, cell-2 : fill : col 255, 200, 80
+  slime: oval mx3, my3, cell-2, cell-2 : fill : col 110, 220, 90
+  slime: oval mx4, my4
+  hero: box mx1, my1, cell-2, cell-2 : fill : col 90, 220, 255
+  hud: txt 160, 12, "hp ", hp : col 230, 230, 240
+
+frame:
+  on key up: hero mv 0, -2
+  on key down: hero mv 0, 2
+  on key left: hero mv -2, 0
+  on key right: hero mv 2, 0
+  on hit hero wall: block hero
+  slime each: chase hero 0.5
+  on hit slime wall: block slime
+  on hit hero slime: add hp -1 : slime to mx3, my3 : say "Ouch!"
+  if hp <= 0: say "You died." : reset
+  on hit hero chest: say "You escaped the code!" : reset
+`},
+
+{ name:'breakout', src:
+`# Breakout — paddle (arrows / tap left-right), ball, bricks
+# key = -1/0/1 from left/right arrows
+
+init:
+  p: box 130, 300, 60, 10 : fill : col 80, 200, 255
+  b: circ 160, 160, 6 : fill : col 255, 220, 90
+  b vel 2, -3
+  wt: box 0, 0, 320, 6 : fill : col 50, 60, 80 : fixed
+  wl: box 0, 0, 6, 320 : fill : col 50, 60, 80 : fixed
+  wr: box 314, 0, 6, 320 : fill : col 50, 60, 80 : fixed
+  brick: box 18+i*49, 40, 42, 16 : fill : col 255, 100, 80 lp 6
+
+frame:
+  p mv key*6, 0
+  on hit b p: b flip y
+  on hit b wt: b flip y
+  on hit b wl: b flip x
+  on hit b wr: b flip x
+  on hit b brick: b flip y : destroy brick
+  b when y > 330: reset
+`},
+];
+
+/* ════════════════════════════════════════════════════════════════
+   1. TOKENIZER
+   ════════════════════════════════════════════════════════════════ */
+function tokenize(line){
+  const t=[]; let i=0, s=line;
+  while(i<s.length){
+    const c=s[i];
+    if(c===' '||c==='\t'){i++;continue;}
+    if(c==='#'){break;}                                   // comment
+    if(c==='"'){                                          // string
+      let j=i+1,str='';
+      while(j<s.length&&s[j]!=='"'){str+=s[j++];}
+      t.push({k:'str',v:str}); i=j+1; continue;
+    }
+    if(c===':'){t.push({k:'sep'}); i++; continue;}        // clause separator
+    if(c===','){t.push({k:'comma'}); i++; continue;}       // argument separator
+    if(c==='>'||c==='<'||c==='='){                        // comparison (>, <, =, >=, <=)
+      let op=c; if(s[i+1]==='='){op+='=';i++;} t.push({k:'op',v:op}); i++; continue;
+    }
+    if('+-*/%()'.includes(c)){t.push({k:'op',v:c}); i++; continue;}
+    if(/[0-9.]/.test(c)){
+      let j=i,n='';
+      while(j<s.length&&/[0-9.]/.test(s[j])){n+=s[j++];}
+      t.push({k:'num',v:parseFloat(n)}); i=j; continue;
+    }
+    if(/[a-zA-Z_]/.test(c)){
+      let j=i,w='';
+      while(j<s.length&&/[a-zA-Z0-9_]/.test(s[j])){w+=s[j++];}
+      t.push({k:'word',v:w}); i=j; continue;
+    }
+    i++; // skip unknown
+  }
+  return t;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   2. EXPRESSION PARSER  (infix, precedence, reads t/key/mx/my/i + fns)
+   builds a tiny AST we can eval per-frame
+   ════════════════════════════════════════════════════════════════ */
+function parseExpr(toks,pos){
+  // pos is {i}. returns AST node.
+  function peek(){return toks[pos.i];}
+  function eat(){return toks[pos.i++];}
+  function prim(){
+    const tk=peek();
+    if(!tk) throw 'unexpected end of expression';
+    if(tk.k==='op'&&tk.v==='('){eat();const e=compare();const n=peek();if(n&&n.k==='op'&&n.v===')')eat();return e;}   // (a > b) is 1 or 0: usable in arithmetic
+    if(tk.k==='op'&&tk.v==='-'){eat();return {t:'neg',a:prim()};}
+    if(tk.k==='num'){eat();return {t:'num',v:tk.v};}
+    if(tk.k==='word'){
+      eat();
+      const fns=['sin','cos','abs','sqrt','floor','rnd'];
+      if(fns.includes(tk.v)){
+        const n=peek();
+        if(n&&n.k==='op'&&n.v==='('){eat();const arg=addsub();const c=peek();if(c&&c.k==='op'&&c.v===')')eat();return {t:'call',f:tk.v,a:arg};}
+        return {t:'call',f:tk.v,a:prim()};
+      }
+      return {t:'var',v:tk.v};  // t,key,mx,my,i
+    }
+    throw 'bad token in expression: '+(tk.v??tk.k);
+  }
+  function muldiv(){let a=prim();while(peek()&&peek().k==='op'&&'*/%'.includes(peek().v)){const o=eat().v;a={t:'bin',o,a,b:prim()};}return a;}
+  function addsub(){let a=muldiv();while(peek()&&peek().k==='op'&&'+-'.includes(peek().v)){const o=eat().v;a={t:'bin',o,a,b:muldiv()};}return a;}
+  function compare(){let a=addsub();while(peek()&&peek().k==='op'&&['>','<','=','>=','<='].includes(peek().v)){const o=eat().v;a={t:'cmp',o,a,b:addsub()};}return a;}
+  return compare();
+}
+function evalExpr(node,env){
+  switch(node.t){
+    case 'num':return node.v;
+    case 'neg':return -evalExpr(node.a,env);
+    case 'var':return env[node.v]??0;
+    case 'bin':{const a=evalExpr(node.a,env),b=evalExpr(node.b,env);
+      return node.o==='+'?a+b:node.o==='-'?a-b:node.o==='*'?a*b:node.o==='/'?(b===0?0:a/b):a%b;}
+    case 'call':{const a=evalExpr(node.a,env);
+      switch(node.f){case 'sin':return Math.sin(a);case 'cos':return Math.cos(a);
+        case 'abs':return Math.abs(a);case 'sqrt':return Math.sqrt(Math.max(0,a));
+        case 'floor':return Math.floor(a);case 'rnd':return Math.random()*a;}}
+    case 'cmp':{const a=evalExpr(node.a,env),b=evalExpr(node.b,env);
+      switch(node.o){case '>':return a>b?1:0;case '<':return a<b?1:0;
+        case '=':return a===b?1:0;case '>=':return a>=b?1:0;case '<=':return a<=b?1:0;}}
+  }
+  return 0;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   3. COMPILER  source → program {init:[stmt], frame:[stmt], events:[]}
+   Each stmt is a small object the runtime executes.
+   ════════════════════════════════════════════════════════════════ */
+const SPAWN={box:4,circ:3,tri:4,oval:4,line:4,dot:2,txt:2};   // oval x, y, w, h = ellipse in that box   // verb -> #numeric args (txt also string)
+const XFORM={mv:2,to:2,vel:2,rot:1,scl:1,size:1,shape:2,flip:1,follow:0,grow:0,attach:2,chase:1};  /* size = absolute w&h; shape = absolute w, h */
+const APPEAR={col:3,fill:0,unfill:0,fixed:0};  /* fixed = immovable (infinite mass) */
+
+function compile(src){
+  const prog={init:[],frame:[],err:null,hits:new Set(),scenes:{},src};  // hits: "a|b" group pairs with an on-hit event
+  prog.scenes[1]=prog.init;  // init: == scene 1:   extra rooms:  scene 2:  scene 3: ...
+  prog.common=[];            // common: runs after every scene's own statements (hero, hud, walls...)
+  prog.defs={};              // def NAME: reusable thing (root shape + attached parts); place with `new NAME x, y`
+  const lines=src.split('\n');
+  let block=null;           // array the current statements go into
+  let blockName=null;
+  try{
+    for(let ln=0;ln<lines.length;ln++){
+      const raw=lines[ln];
+      const toks=tokenize(raw);
+      if(toks.length===0) continue;
+
+      // block header?  init:   frame:
+      if(toks.length===2&&toks[0].k==='word'&&toks[1].k==='sep'){
+        const w=toks[0].v;
+        if(w==='init'||w==='frame'||w==='common'){block=prog[w];blockName=w;continue;}
+      }
+      // def NAME:   (a reusable thing: first line is its root shape, following lines its parts)
+      if(toks.length===3&&toks[0].k==='word'&&toks[0].v==='def'&&toks[1].k==='word'&&toks[2].k==='sep'){
+        const n=toks[1].v; prog.defs[n]=[]; block=prog.defs[n]; blockName='def:'+n; continue;
+      }
+      // scene N:   (another init block; `scene N` in logic jumps to it, keeping variables)
+      if(toks.length===3&&toks[0].k==='word'&&toks[0].v==='scene'&&toks[1].k==='num'&&toks[2].k==='sep'){
+        const n=toks[1].v; prog.scenes[n]=prog.scenes[n]||[]; block=prog.scenes[n]; blockName='scene'; continue;
+      }
+      if(!block) throw `line ${ln+1}: statement outside init:/frame:`;
+
+      const stmt=parseStatement(toks,ln+1);
+      if(stmt&&blockName.startsWith('def:')&&stmt.t==='make'&&stmt.spawn&&!stmt.name) stmt.name=blockName.slice(4);  // root takes the def's name
+      if(stmt){ block.push(stmt); if(stmt.t==='on_hit'){ prog.hits.add(stmt.a+'|'+stmt.b); prog.hits.add(stmt.b+'|'+stmt.a); } }
+    }
+  }catch(e){prog.err=''+e;}
+  return prog;
+}
+
+/* a "statement" is a colon-separated chain of clauses on one line.
+   first clause may be:  name: <spawn...>   |   <spawn...>   |   name <xform/appear>
+   | on hit a b: <logic chain>   | destroy name   | name <xform>
+   subsequent clauses apply to the subject established by the first.
+   trailing  lp N  repeats the whole statement N times with var i=0..N-1  */
+function parseStatement(toks,ln){
+  // detect trailing  lp N
+  let loop=1;
+  for(let i=0;i<toks.length-1;i++){
+    if(toks[i].k==='word'&&toks[i].v==='lp'){
+      // lp and the rest must be a count expression -> compile it
+      const pos={i:i+1};
+      const expr=parseExpr(toks,pos);
+      loop=expr;
+      toks=toks.slice(0,i);   // strip lp... from the clause tokens
+      break;
+    }
+  }
+
+  // events:  on hit A B : <logic>   |   on key DIR : <logic>
+  if(toks[0].k==='word'&&toks[0].v==='on'){
+    const kind=toks[1]?.v;
+    let si=toks.findIndex(t=>t.k==='sep');
+    const logicToks = si>=0? toks.slice(si+1):[];
+    const logic=parseClauseChain(logicToks,ln,true);
+    if(kind==='hit'){
+      const a=toks[2]?.v, b=toks[3]?.v;
+      if(!a||!b) throw `line ${ln}: on hit needs two names`;
+      return {t:'on_hit',a,b,logic};
+    }
+    if(kind==='key'){
+      const dir=toks[2]?.v;  // up/down/left/right
+      if(!['up','down','left','right','hit'].includes(dir)) throw `line ${ln}: on key needs up/down/left/right/hit`;   // hit = space, Z, X, or a tap in the middle of the screen
+      return {t:'on_key',dir,logic};
+    }
+    throw `line ${ln}: unknown event 'on ${kind||''}'`;
+  }
+
+  // destroy NAME
+  if(toks[0].k==='word'&&toks[0].v==='destroy'){
+    return {t:'destroy',name:toks[1]?.v,loop};
+  }
+
+  // set VAR EXPR   (declare/assign a global variable)
+  if(toks[0].k==='word'&&toks[0].v==='set'){
+    const vname=toks[1]?.v;
+    if(!vname) throw `line ${ln}: set needs a variable name`;
+    const pos={i:2}; const expr=toks.length>2?parseExpr(toks,pos):{t:'num',v:0};
+    return {t:'set',name:vname,expr};
+  }
+  // add VAR EXPR   (increment: add EXPR to VAR)
+  if(toks[0].k==='word'&&toks[0].v==='add'){
+    const vname=toks[1]?.v;
+    if(!vname) throw `line ${ln}: add needs a variable name`;
+    const pos={i:2}; const expr=toks.length>2?parseExpr(toks,pos):{t:'num',v:1};
+    return {t:'add',name:vname,expr};
+  }
+  // reset   (restart the whole program from init)
+  if(toks[0].k==='word'&&toks[0].v==='reset'){
+    return {t:'reset'};
+  }
+  // start N   (in init: begin in room N — a loaded map puts the hero where the hero was)
+  if(toks[0].k==='word'&&toks[0].v==='start'&&toks[1]&&toks[1].k==='num'){ return {t:'start',n:toks[1].v}; }
+  // map NAME : actions   (the program's own QR code becomes terrain: dark modules -> fixed boxes named NAME)
+  if(toks[0].k==='word'&&toks[0].v==='map'){
+    const name=toks[1]&&toks[1].k==='word'?toks[1].v:'wall';
+    const si=toks.findIndex(t=>t.k==='sep');
+    const str=toks.slice(0, si<0?toks.length:si).find(t=>t.k==='str');   // optional seed text
+    return {t:'map',name,seed:str?str.v:null,actions:si>=0?parseActions(toks.slice(si+1),ln):[]};
+  }
+  // new NAME x, y : actions   (place a def'd thing; actions apply to its root)
+  if(toks[0].k==='word'&&toks[0].v==='new'){
+    if(!toks[1]||toks[1].k!=='word') throw `line ${ln}: new needs a name`;
+    const si=toks.findIndex(t=>t.k==='sep');
+    const exprs=splitExprs(toks.slice(2, si<0?toks.length:si),ln);
+    const actions=si>=0?parseActions(toks.slice(si+1),ln):[];
+    return {t:'new',name:toks[1].v,exprs,actions};
+  }
+  // if COND : logic   (global condition on variables / t / key / mx / my)
+  if(toks[0].k==='word'&&toks[0].v==='if'){
+    const si=toks.findIndex(t=>t.k==='sep');
+    const condToks=toks.slice(1, si<0?toks.length:si);
+    if(!condToks.length) throw `line ${ln}: if needs a condition`;
+    const cond=parseExpr(condToks,{i:0});
+    const logic=parseClauseChain(si>=0?toks.slice(si+1):[],ln,false);
+    return {t:'if',cond,logic};
+  }
+
+  // NAME when CONDITION : logic   (per-object conditional)
+  // runs the logic on each object in NAME whose condition is true this frame
+  {
+    const wi=toks.findIndex(t=>t.k==='word'&&t.v==='when');
+    if(wi>0 && toks[0].k==='word' && !isVerb(toks[0].v)){
+      const name=toks[0].v;
+      const si=toks.findIndex(t=>t.k==='sep');
+      const condToks = toks.slice(wi+1, si<0?toks.length:si);
+      const pos={i:0}; const cond=parseExpr(condToks,pos);
+      const logicToks = si>=0? toks.slice(si+1):[];
+      const logic=parseClauseChain(logicToks,ln,true);
+      return {t:'when',name,cond,logic};
+    }
+  }
+
+  // NAME each : logic   (run logic on EVERY object in NAME this frame, with its props)
+  {
+    const ei=toks.findIndex(t=>t.k==='word'&&t.v==='each');
+    if(ei>0 && toks[0].k==='word' && !isVerb(toks[0].v)){
+      const name=toks[0].v;
+      const si=toks.findIndex(t=>t.k==='sep');
+      const logicToks = si>=0? toks.slice(si+1):[];
+      const logic=parseClauseChain(logicToks,ln,true);
+      return {t:'when',name,cond:{t:'num',v:1},logic};  // each = when always-true
+    }
+  }
+
+  // split into clauses by sep
+  const clauses=[]; let cur=[];
+  for(const tk of toks){ if(tk.k==='sep'){clauses.push(cur);cur=[];} else cur.push(tk); }
+  clauses.push(cur);
+
+  // first clause: binding or spawn or ref+action
+  let name=null, spawn=null, actions=[];
+  let first=clauses[0];
+  // name:  (binding)  -> detected because original had a sep right after word,
+  // but we've split on sep; so binding shows as first clause == [word] and
+  // the spawn verb sits in clause[1]. Handle both "name:" and inline.
+  let ci=0;
+  if(first.length===1 && first[0].k==='word' && !isVerb(first[0].v)){
+    // could be  name:  (binding, spawn follows)  OR  a bare ref with actions in later clauses
+    // decide: if next clause starts with a spawn verb -> binding; else it's a ref
+    const nxt=clauses[1]||[];
+    if(nxt[0] && SPAWN[nxt[0].v]!==undefined){ name=first[0].v; ci=1; first=clauses[1]; }
+  }
+
+  // now `first` should begin with a verb (spawn/xform/appear) or a ref word
+  if(first[0] && SPAWN[first[0].v]!==undefined){
+    spawn=parseSpawn(first,ln);
+  } else if(first[0] && first[0].k==='word' && !isVerb(first[0].v)){
+    // reference:  NAME <action...>
+    name=name||first[0].v;
+    const act=parseActions(first.slice(1),ln);
+    actions.push(...act);
+  } else {
+    // first clause is an action with implicit "last" subject
+    actions.push(...parseActions(first,ln));
+  }
+
+  // remaining clauses are actions on the subject
+  for(let k=ci+1;k<clauses.length;k++){
+    actions.push(...parseActions(clauses[k],ln));
+  }
+
+  return {t:'make',name,spawn,actions,loop};
+}
+
+function isVerb(w){return SPAWN[w]!==undefined||XFORM[w]!==undefined||APPEAR[w]!==undefined;}
+
+function parseSpawn(cl,ln){
+  const verb=cl[0].v;
+  const node={verb,args:[],str:null,livevar:null};
+  if(verb==='txt'){
+    // txt x, y, "label"[, varname]  -> x,y are exprs; string is the label;
+    // an optional trailing bare word is a live variable shown after the label.
+    const nums=cl.slice(1).filter(t=>t.k==='num'||t.k==='op'||t.k==='comma');
+    node.exprs=splitExprs(cl.slice(1).filter(t=>t.k!=='str'&&!(t.k==='word')),ln);
+    const str=cl.find(t=>t.k==='str'); if(str) node.str=str.v;
+    // last word token (that isn't the verb) = live variable
+    const words=cl.slice(1).filter(t=>t.k==='word');
+    if(words.length) node.livevar=words[words.length-1].v;
+    return node;
+  }
+  const argToks=cl.slice(1).filter(t=>t.k!=='str');
+  node.exprs=splitExprs(argToks,ln);
+  const str=cl.find(t=>t.k==='str'); if(str) node.str=str.v;
+  return node;
+}
+
+function parseActions(cl,ln){
+  if(cl.length===0) return [];
+  const out=[];
+  let i=0;
+  while(i<cl.length){
+    const w=cl[i];
+    if(w.k!=='word'){i++;continue;}
+    const v=w.v;
+    if(v==='flip'){ // flip  |  flip x  |  flip y
+      let axis=2; // both
+      if(cl[i+1]&&cl[i+1].k==='word'&&(cl[i+1].v==='x'||cl[i+1].v==='y')){
+        axis=cl[i+1].v==='x'?0:1; i++;
+      }
+      out.push({verb:'flip',axis}); i++;
+    }
+    else if(v==='follow'){ // follow <leader> [gap]
+      const leader=cl[i+1]&&cl[i+1].k==='word'?cl[i+1].v:null; i+=2;
+      let gap=null;
+      if(cl[i]&&cl[i].k==='num'){gap=cl[i].v;i++;}
+      out.push({verb:'follow',leader,gap}); // gap null -> default
+    }
+    else if(v==='chase'){ // chase TARGET speed  -> head toward the newest TARGET at speed px/frame
+      const target=cl[i+1]&&cl[i+1].k==='word'?cl[i+1].v:null; let j=i+2;
+      const argToks=[]; while(j<cl.length && !(cl[j].k==='word'&&isVerb(cl[j].v))){argToks.push(cl[j]);j++;}
+      out.push({verb:'chase',target,exprs:splitExprs(argToks,ln)}); i=j;
+    }
+    else if(v==='attach'){ // attach PARENT dx, dy  -> this object rides on PARENT at that offset
+      const parent=cl[i+1]&&cl[i+1].k==='word'?cl[i+1].v:null; let j=i+2;
+      const argToks=[]; while(j<cl.length && !(cl[j].k==='word'&&isVerb(cl[j].v))){argToks.push(cl[j]);j++;}
+      out.push({verb:'attach',parent,exprs:splitExprs(argToks,ln)}); i=j;
+    }
+    else if(v==='grow'){ // grow  |  grow <name>
+      let gname=null;
+      if(cl[i+1]&&cl[i+1].k==='word'&&!isVerb(cl[i+1].v)){gname=cl[i+1].v;i++;}
+      out.push({verb:'grow',gname}); i++;
+    }
+    else if(XFORM[v]!==undefined||APPEAR[v]!==undefined){
+      const n=(XFORM[v]!==undefined?XFORM[v]:APPEAR[v]);
+      const argToks=[]; let j=i+1;
+      // take all following tokens until next known verb; splitExprs handles commas
+      while(j<cl.length && !(cl[j].k==='word'&&isVerb(cl[j].v))){argToks.push(cl[j]);j++;}
+      const exprs=splitExprs(argToks,ln);
+      out.push({verb:v,exprs:exprs.slice(0,n)});
+      i=j;
+    } else i++;
+  }
+  return out;
+}
+
+/* split a flat token list into arguments on comma boundaries.
+   Each comma-delimited segment is parsed as one infix expression,
+   so negatives and math inside an arg are unambiguous:
+   vel 2, -3   -> [2, -3]      box 20+i*48, 40  -> [20+i*48, 40]  */
+function splitExprs(toks,ln){
+  const exprs=[];
+  let seg=[];
+  const flush=()=>{ if(seg.length){const pos={i:0};exprs.push(parseExpr(seg,pos));seg=[];} };
+  for(const tk of toks){
+    if(tk.k==='comma'){flush();} else seg.push(tk);
+  }
+  flush();
+  return exprs;
+}
+
+/* logic chain used inside events: a sequence of ref-actions / destroy / flip */
+function parseClauseChain(toks,ln,subjectKnown){
+  // supports:  destroy NAME  |  NAME flip  |  flip  |  col r g b  ... chained by sep
+  const clauses=[];let cur=[];
+  for(const tk of toks){if(tk.k==='sep'){clauses.push(cur);cur=[];}else cur.push(tk);}
+  clauses.push(cur);
+  const ops=[];
+  for(const cl of clauses){
+    if(cl.length===0)continue;
+    if(cl[0].v==='destroy'){ops.push({t:'destroy',name:cl[1]?.v});continue;}
+    if(cl[0].v==='new'&&cl[1]&&cl[1].k==='word'){ ops.push({t:'new',name:cl[1].v,exprs:splitExprs(cl.slice(2),ln),actions:[]}); continue; }   // new NAME x, y inside logic (e.g. fire an arrow at hx, hy)
+    if(cl[0].v==='bounce'){ // bounce [e]   e = bounciness 0..1 (default 1 = perfectly elastic)
+      const e=cl[1]&&cl[1].k==='num'?cl[1].v:1; ops.push({t:'bounce',e});continue;}
+    if(cl[0].v==='reset'){ops.push({t:'reset'});continue;}
+    if(cl[0].v==='block'){ops.push({t:'block',name:cl[1]?.v});continue;}    // push NAME back out of what it hit
+    if(cl[0].v==='push'){ops.push({t:'push',name:cl[1]?.v});continue;}      // NAME takes the other's speed along the contact (shove, no lag)
+    if(cl[0].v==='scene'){ops.push({t:'scene',expr:cl.length>1?parseExpr(cl,{i:1}):{t:'num',v:1}});continue;}  // jump to room N (vars kept); `room` = current
+    if(cl[0].v==='say'){const st=cl.find(t=>t.k==='str');ops.push({t:'say',text:st?st.v:''});continue;}  // message line
+    if(cl[0].v==='set'){const p={i:2};ops.push({t:'set',name:cl[1]?.v,expr:cl.length>2?parseExpr(cl,p):{t:'num',v:0}});continue;}
+    if(cl[0].v==='add'){const p={i:2};ops.push({t:'add',name:cl[1]?.v,expr:cl.length>2?parseExpr(cl,p):{t:'num',v:1}});continue;}
+    if(cl[0].k==='word'&&!isVerb(cl[0].v)){ // NAME action
+      ops.push({t:'act',name:cl[0].v,actions:parseActions(cl.slice(1),ln)});
+    } else {
+      ops.push({t:'act',name:null,actions:parseActions(cl,ln)});
+    }
+  }
+  return ops;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   4. RUNTIME  — retained objects, init once, frame loop, collisions
+   ════════════════════════════════════════════════════════════════ */
+const cv=document.getElementById('view');
+const cx=cv.getContext('2d');
+let prog=null, objs=[], running=false, frameN=0, raf=0;
+let lastObj=null;                 // implicit subject for bare actions
+const named={};                   // name -> array of objects (lp makes many)
+let vars={};                      // global variables (score, lives, etc.)
+let resetFlag=false;              // set by `reset`; re-runs init next tick
+let sceneN=1, pendingScene=0, pendingSide=null, doorCool=0;     // current room; pendingScene>0 = switch after this frame
+let sayText='', sayLeft=0;        // message line + frames remaining (a countdown, so it survives
+function say(txt){ sayText=txt; sayLeft=180; }   // the frame counter being reset, but still expires)
+/* push `mover` fully out of `other` along the shallower overlap axis (other does not move) */
+function pushOut(mover,other){
+  const A=bounds(mover),B=bounds(other);
+  const ox=Math.min(A.r,B.r)-Math.max(A.l,B.l), oy=Math.min(A.b,B.b)-Math.max(A.t,B.t);
+  if(ox<=0||oy<=0) return;
+  if(ox<oy){ const dir=(A.l+A.r)/2<(B.l+B.r)/2?-1:1; placeX(mover,mover.x+dir*ox); }
+  else     { const dir=(A.t+A.b)/2<(B.t+B.b)/2?-1:1; placeY(mover,mover.y+dir*oy); }
+}
+/* shared executor for the simple (object-free) ops; returns true if it handled the op */
+function globalOp(op,env){
+  if(op.t==='reset'){ resetFlag=true; return true; }
+  if(op.t==='scene'){ pendingScene=Math.max(1,Math.round(evalExpr(op.expr,env))); return true; }
+  if(op.t==='say'){ say(op.text); return true; }
+  if(op.t==='new'){ runNew(op); return true; }
+  if(op.t==='set'){ vars[op.name]=evalExpr(op.expr,env); return true; }
+  if(op.t==='add'){ vars[op.name]=(vars[op.name]||0)+evalExpr(op.expr,env); return true; }
+  return false;
+}
+let keyState=0, mouse={x:0,y:0};
+
+function newObj(spawn,env){
+  const E=spawn.exprs.map(e=>evalExpr(e,env));
+  const o={kind:spawn.verb,x:0,y:0,w:10,h:10,r:6,x2:0,y2:0,
+           vx:0,vy:0,rotd:0,sx:1,sy:1,fill:false,fixed:false,
+           col:[255,255,255],txt:spawn.str||'',livevar:spawn.livevar||null,alive:true,
+           leader:null,gap:0,hist:[],chain:null,   // follow link + position history
+           parent:null,ox:0,oy:0};                 // attach: ride on parent at offset
+  switch(spawn.verb){
+    case 'box': o.x=E[0]||0;o.y=E[1]||0;o.w=E[2]||10;o.h=E[3]||10;break;
+    case 'tri': o.x=E[0]||0;o.y=E[1]||0;o.w=E[2]||10;o.h=E[3]||10;break;
+    case 'oval':o.x=E[0]||0;o.y=E[1]||0;o.w=E[2]||10;o.h=E[3]||10;break;
+    case 'circ':o.x=E[0]||0;o.y=E[1]||0;o.r=E[2]||6;o.w=o.h=o.r*2;break;
+    case 'line':o.x=E[0]||0;o.y=E[1]||0;o.x2=E[2]||0;o.y2=E[3]||0;break;
+    case 'dot': o.x=E[0]||0;o.y=E[1]||0;o.w=o.h=2;break;
+    case 'txt': o.x=E[0]||0;o.y=E[1]||0;break;
+  }
+  return o;
+}
+
+/* axis-aligned bounds of any object: {l,t,r,b, cx,cy} */
+/* hit box = the object's own shape plus everything attached to it,
+   so a key with a ring, or a hero with a head, is as big as it looks. */
+function bounds(o){
+  let B=ownBounds(o);
+  if(o.parts&&o.parts.length){
+    B={...B};
+    for(const c of o.parts){ if(!c.alive)continue; const cb=bounds(c);
+      if(cb.l<B.l)B.l=cb.l; if(cb.t<B.t)B.t=cb.t; if(cb.r>B.r)B.r=cb.r; if(cb.b>B.b)B.b=cb.b; }
+  }
+  return B;
+}
+function ownBounds(o){
+  if(o.kind==='circ') return {l:o.x-o.r,t:o.y-o.r,r:o.x+o.r,b:o.y+o.r};
+  if(o.kind==='line') return {l:Math.min(o.x,o.x2),t:Math.min(o.y,o.y2),r:Math.max(o.x,o.x2),b:Math.max(o.y,o.y2)};
+  if(o.kind==='dot')  return {l:o.x-1,t:o.y-1,r:o.x+1,b:o.y+1};
+  return {l:o.x,t:o.y,r:o.x+o.w,b:o.y+o.h};            // box, tri, txt
+}
+/* move an object so its edge sits exactly against a surface on one axis */
+function placeX(o,nx){const d=nx-o.x;o.x+=d;if(o.kind==='line')o.x2+=d;}
+function placeY(o,ny){const d=ny-o.y;o.y+=d;if(o.kind==='line')o.y2+=d;}
+
+function applyAction(o,a,env,against){
+  const E=a.exprs?a.exprs.map(e=>evalExpr(e,env)):[];
+  switch(a.verb){
+    case 'mv': if(o.parent){o.ox+=E[0]||0;o.oy+=E[1]||0;break;}           // attached: move the offset
+               o.x+=E[0]||0;o.y+=E[1]||0; if(o.kind==='line'){o.x2+=E[0]||0;o.y2+=E[1]||0;} break;
+    case 'to': {if(o.parent){o.ox=E[0]||0;o.oy=E[1]||0;break;}             // attached: set the offset
+               const nx=E[0]||0,ny=E[1]||0; o.x=nx;o.y=ny; o.hist=[]; break;}  // absolute; clear trail
+    case 'chase':{const L=named[a.target]||[]; const T=L[L.length-1]; if(!T||o.parent) break;
+      const A=bounds(o),B=bounds(T); const dx=(B.l+B.r)/2-(A.l+A.r)/2, dy=(B.t+B.b)/2-(A.t+A.b)/2;
+      const d=Math.hypot(dx,dy)||1, sp=E[0]!==undefined?E[0]:1;
+      o.vx=dx/d*sp; o.vy=dy/d*sp; break;}
+    case 'attach':{const L=named[a.parent]||[]; const P=L[L.length-1];   // newest member of that group
+      if(P&&P!==o){ o.parent=P; o.ox=E[0]||0; o.oy=E[1]||0; o.vx=0; o.vy=0; }
+      break;}
+    case 'vel':if(o.leader)break; o.vx=E[0]||0;o.vy=E[1]||0;break;
+    case 'rot':o.rotd+=E[0]||0;break;
+    case 'scl':{const f=E[0]||1;o.sx*=f;o.sy*=f;o.w*=f;o.h*=f;o.r*=f;break;}
+    case 'shape':{ o.w=E[0]||0; o.h=E[1]||0; o.r=Math.min(o.w,o.h)/2; break; }   // absolute width, height (top-left stays)
+    case 'size':{const s=E[0]||1;
+      if(o.kind==='box'||o.kind==='tri'||o.kind==='oval'){ o.x+=(o.w-s)/2; o.y+=(o.h-s)/2; }  // keep center put
+      o.w=s;o.h=s;o.r=s/2;break;}  // absolute size
+    case 'flip':{ // bounce: reverse velocity on axis. Separation is handled by the engine's
+      // swept resolver, so flip only has to decide the new direction.
+      // If an axis isn't given, infer it from the contact: hit mostly left/right -> x, else y.
+      let ax=a.axis;
+      if(ax===undefined && against){
+        const A=bounds(o), W=bounds(against);
+        const ox=Math.min(A.r,W.r)-Math.max(A.l,W.l);   // x overlap depth
+        const oy=Math.min(A.b,W.b)-Math.max(A.t,W.t);   // y overlap depth
+        ax = ox<oy ? 0 : 1;   // shallower axis is the contact axis
+      }
+      if(ax===undefined) ax=2;
+      if(ax===0||ax===2) o.vx=-o.vx;
+      if(ax===1||ax===2) o.vy=-o.vy;
+      break;}
+    case 'col':o.col=[E[0]|0,E[1]|0,E[2]|0];break;
+    case 'fill':o.fill=true;break;
+    case 'unfill':o.fill=false;break;
+    case 'fixed':o.fixed=true;o.vx=0;o.vy=0;break;
+    case 'follow':{ // link o to trail a leader object by path-history
+      const L=(named[a.leader]||[])[0];
+      if(L){ o.leader=L; o.gap=a.gap!=null?a.gap:Math.max(1,Math.round((o.w||o.r*2))); 
+             o.chain = L.chain || L; }  // chain root = the head everyone ultimately follows
+      break;}
+    case 'grow':{ // add a new segment to the tail of a chain and link it
+      const chainName=a.gname||null;
+      growChain(o,chainName);
+      break;}
+  }
+}
+
+/* path-history follow: each frame, followers copy their leader's position from
+   `gap` frames ago (stored in leader.hist). Call AFTER leaders have moved. */
+function updateFollowers(){
+  // record every object's current center into its history ring
+  for(const o of objs){
+    o.hist.push({x:o.x,y:o.y});
+    if(o.hist.length>240) o.hist.shift();  // cap memory (~4s at 60fps)
+  }
+  // place each follower back along the CHAIN ROOT's path, at a cumulative
+  // distance = its depth in the chain * gap. One clean path = exact, drift-free spacing.
+  for(const o of objs){
+    if(!o.leader) continue;
+    const root=o.chain||o.leader;
+    if(!root||!root.alive) continue;
+    // depth: how many links from root to this follower
+    let depth=0, p=o;
+    while(p && p!==root && depth<9999){ depth++; p=p.leader; }
+    const h=root.hist;
+    if(h.length<2) continue;
+    let need=o.gap*depth, i=h.length-1;
+    while(i>0 && need>0){
+      const dx=h[i].x-h[i-1].x, dy=h[i].y-h[i-1].y;
+      const seg=Math.hypot(dx,dy);
+      if(seg>=need){ const f=need/seg; o.x=h[i].x-dx*f; o.y=h[i].y-dy*f; need=0; break; }
+      need-=seg; i--;
+    }
+    if(need>0 && i<=0){ o.x=h[0].x; o.y=h[0].y; }
+  }
+}
+
+/* attached parts ride on their parent: x = parent.x + offset. Two passes so parts
+   of parts settle in one frame. A part dies with its parent. */
+function updateAttached(){
+  for(const o of objs) o.parts=null;
+  for(const o of objs){ const P=o.parent; if(P){ (P.parts=P.parts||[]).push(o); } }
+  for(let pass=0;pass<2;pass++){
+    for(const o of objs){
+      const P=o.parent; if(!P) continue;
+      if(!P.alive){ o.alive=false; continue; }
+      const dx=P.x+o.ox-o.x, dy=P.y+o.oy-o.y;
+      o.x+=dx; o.y+=dy; if(o.kind==='line'){o.x2+=dx;o.y2+=dy;}
+    }
+  }
+}
+
+/* grow: spawn a segment copying the tail's look, linked to follow the current tail.
+   `seed` is any object in the chain (usually the head); segments collect under
+   the chain's name list so they render and persist. */
+function growChain(seed, chainName){
+  // find the tail: walk followers of the chain root
+  const root = seed.chain || seed;
+  // tail = the object in objs whose leader is the deepest in this chain
+  let tail=root, members=[root];
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(const o of objs){ if(o.leader===tail){ tail=o; members.push(o); changed=true; break; } }
+  }
+  const seg={...tail, x:tail.x, y:tail.y, hist:[], leader:tail,
+             gap: Math.max(1,Math.round((tail.w||tail.r*2))), chain:root, alive:true};
+  // fresh arrays (spread copied references)
+  seg.col=[...tail.col];
+  seg.vx=0; seg.vy=0;                    // followers never carry their own velocity
+  objs.push(seg);
+  // register the segment under the group the current tail belongs to (e.g. "tail"),
+  // NOT under the head's name — otherwise `head vel` / `on hit head ...` would start
+  // steering and scoring with the body. Fall back to chainName only if the tail is unnamed.
+  let group=null;
+  for(const k in named){ if(named[k].includes(tail)){ group=k; break; } }
+  if(!group && chainName) group=chainName;
+  if(group){ (named[group]=named[group]||[]).push(seg); }
+}
+
+function runMake(st,phase){
+  const N=typeof st.loop==='number'?st.loop:Math.max(1,evalExpr(st.loop,baseEnv(0)));
+  for(let i=0;i<N;i++){
+    const env=baseEnv(i);
+    if(st.spawn){
+      const o=newObj(st.spawn,env);
+      const G=st.name&&named[st.name]; const T=G&&G[G.length-1];   // template: newest member of this name
+      if(T&&T.kind===o.kind){           // same name = same look unless this line says otherwise
+        o.fill=T.fill; o.col=[...T.col]; o.fixed=T.fixed;
+        const n=st.spawn.exprs.length;  // size omitted? inherit it too
+        if(o.kind==='box'||o.kind==='tri'||o.kind==='oval'){ if(n<3){o.w=T.w;} if(n<4){o.h=T.h;} }
+        if(o.kind==='circ'&&n<3){ o.r=T.r; o.w=o.h=T.r*2; }
+      }
+      o.idx=i;                          // remember spawn index so when/each can use `i`
+      o.group=st.name||null;            // group name, used to decide which pairs are solid
+      for(const a of st.actions) applyAction(o,a,env);
+      objs.push(o); lastObj=o;
+      if(st.name){ (named[st.name]=named[st.name]||[]).push(o); }
+    } else {
+      // reference / implicit subject actions (per frame)
+      const targets = st.name? (named[st.name]||[]) : (lastObj?[lastObj]:[]);
+      for(const o of targets){ for(const a of st.actions) applyAction(o,a,env); }
+    }
+  }
+}
+
+function baseEnv(i){ const h=(named.hero||[]).find(o=>o.alive); return {t:frameN,i,key:keyState,mx:mouse.x,my:mouse.y,rn:Math.random(),rm:Math.random(),room:sceneN,hx:h?h.x:0,hy:h?h.y:0,...vars};}   // hx, hy = the hero
+/* rn, rm = two random numbers 0..1, fixed for the whole statement (so `to sin(a)*rn, cos(a)*rn` is consistent) */
+/* env for per-object conditions: base vars plus this object's live properties */
+function objEnv(o){return {...baseEnv(0), i:(o.idx||0), x:o.x, y:o.y, w:o.w, h:o.h, r:o.r,
+  size:(o.kind==='circ'?o.r*2:o.w), vx:o.vx, vy:o.vy};}
+
+/* mass = bounding-box area (w*h). fixed objects are immovable (infinite mass).
+   dot/line get a small floor so they still participate in separation. */
+function mass(o){ if(o.fixed) return Infinity; const B=bounds(o); return Math.max(4,(B.r-B.l)*(B.b-B.t)); }
+
+/* static AABB overlap (used for event firing and as the fallback test) */
+function overlap(a,b){
+  const A=bounds(a),B=bounds(b);
+  return A.l<B.r && A.r>B.l && A.t<B.b && A.b>B.t;
+}
+
+/* Swept AABB: will A (moving by rel velocity rvx,rvy this frame) hit static B?
+   Returns time-of-impact t in [0,1] and the contact axis, or null if no hit. */
+function sweptAABB(A,rvx,rvy,B){
+  // expand B by A's half-size -> reduces A to a point moving from its center
+  const aw=A.r-A.l, ah=A.b-A.t;
+  const acx=(A.l+A.r)/2, acy=(A.t+A.b)/2;
+  const ex={l:B.l-aw/2, r:B.r+aw/2, t:B.t-ah/2, b:B.b+ah/2};
+  // entry/exit times on each axis
+  let xEntry,xExit,yEntry,yExit;
+  if(rvx>0){xEntry=(ex.l-acx)/rvx; xExit=(ex.r-acx)/rvx;}
+  else if(rvx<0){xEntry=(ex.r-acx)/rvx; xExit=(ex.l-acx)/rvx;}
+  else {xEntry=-Infinity; xExit=Infinity; if(acx<ex.l||acx>ex.r) return null;}
+  if(rvy>0){yEntry=(ex.t-acy)/rvy; yExit=(ex.b-acy)/rvy;}
+  else if(rvy<0){yEntry=(ex.b-acy)/rvy; yExit=(ex.t-acy)/rvy;}
+  else {yEntry=-Infinity; yExit=Infinity; if(acy<ex.t||acy>ex.b) return null;}
+  const entry=Math.max(xEntry,yEntry), exit=Math.min(xExit,yExit);
+  if(entry>exit || entry<0 || entry>1) return null;    // no hit this frame
+  const axis = xEntry>yEntry ? 0 : 1;                  // which face was crossed first
+  return {t:entry, axis};
+}
+
+/* elastic momentum exchange along the contact normal, weighted by w*h mass.
+   A fixed object acts as infinite mass: the mover reflects, the fixed one stays. */
+function bouncePair(a,b,e=1){
+  const A=bounds(a),B=bounds(b);
+  const ox=Math.min(A.r,B.r)-Math.max(A.l,B.l);
+  const oy=Math.min(A.b,B.b)-Math.max(A.t,B.t);
+  // contact normal = shallower overlap axis
+  const axis = (ox<oy)?0:1;
+  const ma=mass(a), mb=mass(b);
+  // e scales the velocity relative to the centre of mass after the exchange:
+  // e=1 elastic, e=0 the pair stops dead on that axis (a ball resting on a floor).
+  const k=axis===0?'vx':'vy';
+  const ua=a[k], ub=b[k];
+  // only respond if the pair is closing on this axis; something already moving away
+  // (a jump starting while still touching the floor) must not be cancelled
+  const ca=axis===0?(A.l+A.r)/2:(A.t+A.b)/2, cb=axis===0?(B.l+B.r)/2:(B.t+B.b)/2;
+  const toward=cb>ca?1:-1;                 // direction from a to b
+  if((ua-ub)*toward<=0) return;            // separating or at rest relative to each other
+  if(ma===Infinity){ b[k]=-ub*e; }
+  else if(mb===Infinity){ a[k]=-ua*e; }
+  else {
+    const vc=(ma*ua+mb*ub)/(ma+mb);
+    const na=((ma-mb)*ua+2*mb*ub)/(ma+mb), nb=((mb-ma)*ub+2*ma*ua)/(ma+mb);
+    a[k]=vc+(na-vc)*e; b[k]=vc+(nb-vc)*e;
+  }
+  if(Math.abs(a[k])<0.05) a[k]=0; if(Math.abs(b[k])<0.05) b[k]=0;   // settle instead of micro-jitter
+}
+
+/* chain distance between two objects that share a follow-chain (Infinity if unrelated).
+   Used so a snake head doesn't "collide" with the segments right behind it. */
+function chainDist(a,b){
+  let d=0,p=a; while(p&&d<9999){ if(p===b) return d; p=p.leader; d++; }
+  d=0;p=b; while(p&&d<9999){ if(p===a) return d; p=p.leader; d++; }
+  return Infinity;
+}
+
+function runEvent(st){
+  const A=named[st.a]||[], B=named[st.b]||[];
+  for(const a of A){ if(!a.alive)continue;
+    for(const b of B){ if(!b.alive)continue;
+      if(a===b) continue;
+      if((a.kind==='box'&&(a.w<=0||a.h<=0))||(b.kind==='box'&&(b.w<=0||b.h<=0))) continue;   // a shape 0 box is nothing
+      if(st.a===st.b && A.indexOf(a)>A.indexOf(b)) continue;   // same group: handle each pair once
+      // self-collision guard: ignore segments within 2 links in the same chain
+      const cd=chainDist(a,b); if(cd<=2) continue;
+      if(overlap(a,b) || touched(a,b)){
+        let destroyed=false;
+        let physical=false;  // did this event produce a solid response (flip/bounce)?
+        for(const op of st.logic){
+          if(op.t==='destroy'){
+            const kill = op.name===st.a? a : op.name===st.b? b : null;
+            if(kill){kill.alive=false; if(kill===a||kill===b) destroyed=true;}
+          } else if(op.t==='bounce'){
+            bouncePair(a,b,op.e); physical=true;
+          } else if(op.t==='push'){             // shove: the pushed thing moves at the pusher's speed right now
+            const pushed = op.name===st.b? b : a, pusher = pushed===a? b : a;
+            const A=bounds(pusher),B=bounds(pushed);
+            const ox=Math.min(A.r,B.r)-Math.max(A.l,B.l), oy=Math.min(A.b,B.b)-Math.max(A.t,B.t);
+            const k = ox<oy ? 'vx' : 'vy';
+            const dir = k==='vx' ? Math.sign((B.l+B.r)-(A.l+A.r)) : Math.sign((B.t+B.b)-(A.t+A.b));
+            if(pusher[k]*dir > pushed[k]*dir) pushed[k]=pusher[k];       // only ever speed it up, never pull back
+            physical=true;
+          } else if(op.t==='block'){            // solid stop for a key-moved object
+            const mover = op.name===st.b? b : a;
+            pushOut(mover, mover===a? b : a);
+          } else if(globalOp(op,baseEnv(0))){
+          } else { // act — pass the OTHER object as the surface we hit (drives flip axis)
+            const actsOnA = op.name===st.a || (op.name==null);
+            const tgt = op.name===st.a? a : op.name===st.b? b : (op.name?named[op.name]:[a]);
+            const partner = actsOnA? b : a;
+            const list=Array.isArray(tgt)?tgt:[tgt];
+            for(const o of list){ if(o&&o.alive) for(const ac of op.actions){ applyAction(o,ac,baseEnv(0),partner); if(ac.verb==='flip')physical=true; } }
+          }
+          if(resetFlag||pendingScene) break;
+        }
+        // separate only for solid responses; triggers (eat/score/destroy) pass through
+        if(physical && !destroyed && a.alive && b.alive) separate(a,b);
+      }
+    }
+  }
+}
+
+let consumed=new Set();   // things taken or killed in rooms already visited: they stay gone when you come back (a fresh run clears it)
+function doInit(scene,keepVars){
+  objs=[]; for(const k in named) delete named[k]; lastObj=null; frameN=0;
+  if(!keepVars){ vars={}; consumed=new Set(); }   // say-text is kept so a final message survives reset
+  resetFlag=false; pendingScene=0; sceneN=scene||1;
+  const sceneSts=prog.scenes[sceneN]||prog.init;
+  for(const st of [...sceneSts, ...(prog.common||[])]){
+    if(st.t==='make') runMake(st,'init');
+    else if(st.t==='start'){ if(!keepVars&&st.n!==sceneN){ pendingScene=st.n; pendingSide='none'; } }
+    else if(st.t==='destroy'){ (named[st.name]||[]).forEach(o=>o.alive=false); }
+    else if(st.t==='set'){ if(keepVars&&sceneSts===prog.init&&st.name in vars) continue; vars[st.name]=evalExpr(st.expr,baseEnv(0)); }   // room 1's starting values apply once
+    else if(st.t==='add'){ vars[st.name]=(vars[st.name]||0)+evalExpr(st.expr,baseEnv(0)); }
+    else if(st.t==='if'){ runIf(st); }
+    else if(st.t==='new'){
+      if(sceneSts.includes(st)){ const E=st.exprs.map(e=>evalExpr(e,baseEnv(0))); const key=sceneN+':'+st.name+':'+E.join(',');
+        if(consumed.has(key)) continue;                                              // already taken or killed
+        runNew(st); const o=(named[st.name]||[]).slice(-1)[0]; if(o) o.wkey=key; }
+      else runNew(st); }
+    else if(st.t==='map'){ runMap(st); }
+  }
+  updateAttached();
+}
+
+/* map NAME ["seed"] — a code as a level.
+   No seed: the level IS this program's save code (what "save -> code" shows), module for module:
+   the frame is the wall, the data is the maze. Editing any byte changes it.
+   With seed text: that text's QR code at full resolution, isolated dark modules dropped.
+   Dark modules become fixed boxes named NAME.
+   Sets vars:
+     cell        size of one module in px
+     mx1,my1     top-left corner of a free cell near the top-left, inside the main open region
+     mx2,my2     ... near the bottom-right      mx3,my3 top-right      mx4,my4 bottom-left */
+function runMap(st){
+  let q,N,g,cgrid=null;   // cgrid: 0..7 colour indices when the map is the colour save code
+  try{
+    if(st.seed!=null){                           // seed text: that code, full resolution, thinned
+      q=qrcode(0,'L'); q.addData(st.seed,'Byte'); q.make(); N=q.getModuleCount();
+      const D=[]; for(let r=0;r<N;r++){ D.push([]); for(let c=0;c<N;c++) D[r].push(q.isDark(r,c)?1:0); }
+      g=D.map((row,r)=>row.map((v,c)=>v&&(row[c+1]||row[c-1]||(D[r+1]||[])[c]||(D[r-1]||[])[c])?1:0));
+    } else {                                     // no seed: THE SAVE CODE of this program, module for module
+      const enc=mcode.encodeColor(packBin(prog.src)); N=enc.N; cgrid=enc.grid;
+      g=cgrid.map(r=>Uint8Array.from(r,v=>v<4?1:0));
+    }
+  }catch(e){   // the QR / deflate libraries load from a CDN: offline, `map` cannot build the code. Say so, and give cell a usable size.
+    vars.cell=vars.cell||16; setStatus('map: needs the QR libraries from the internet — '+(e&&e.message||e),true); return; }
+  const cell=cv.width/N; vars.cell=cell;
+  const env=baseEnv(0);
+  // colour code: wall colour follows the module (black/blue/red/green, dimmed); floor colours are carpets
+  const WALLCOL=[[70,70,90],[50,80,200],[190,50,50],[40,150,70]], FLOORCOL=[null,[60,58,30],[26,54,62],[62,30,56]];
+  if(cgrid){ for(let r=1;r<N-1;r++){ let c=1; while(c<N-1){ const v=cgrid[r][c]; if(v<4||v===4){c++;continue;} let c2=c; while(c2<N-1&&cgrid[r][c2]===v) c2++;
+      const o=newObj({verb:'box',exprs:[]},env); o.x=c*cell; o.y=r*cell; o.w=(c2-c)*cell; o.h=cell; o.fill=true; o.fixed=true; o.col=FLOORCOL[v-4]; o.group=null; objs.push(o); c=c2; } } }
+  for(let r=0;r<N;r++){
+    let c=0;
+    while(c<N){
+      if(!g[r][c]){ c++; continue; }
+      const v=cgrid?cgrid[r][c]:0; let c2=c; while(c2<N&&g[r][c2]&&(!cgrid||cgrid[r][c2]===v)) c2++;
+      const o=newObj({verb:'box',exprs:[]},env);
+      o.x=c*cell; o.y=r*cell; o.w=(c2-c)*cell; o.h=cell; o.fill=true; o.fixed=true; o.col=[...WALLCOL[v]];
+      o.group=st.name; for(const a of st.actions) applyAction(o,a,env);
+      objs.push(o); lastObj=o; (named[st.name]=named[st.name]||[]).push(o);
+      c=c2;
+    }
+  }
+  // largest connected open region; anchors are its cells nearest each corner
+  const id=g.map(r=>Array.from(r,()=>-1)); const sizes=[]; let k=0;   // (Array.from: rows may be Uint8Array)
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){ if(g[r][c]||id[r][c]>=0)continue; let n=0; const Q=[[r,c]]; id[r][c]=k;
+    while(Q.length){ const [a,b]=Q.pop(); n++; for(const [dr,dc] of [[1,0],[-1,0],[0,1],[0,-1]]){ const x=a+dr,y=b+dc; if(x<0||y<0||x>=N||y>=N||g[x][y]||id[x][y]>=0)continue; id[x][y]=k; Q.push([x,y]); } }
+    sizes.push(n); k++; }
+  const main=sizes.indexOf(Math.max(...sizes));
+  const near=(r0,c0)=>{ let best=null,bd=1e9; for(let r=0;r<N;r++)for(let c=0;c<N;c++){ if(id[r][c]!==main)continue; const d=(r-r0)*(r-r0)+(c-c0)*(c-c0); if(d<bd){bd=d;best=[c*cell,r*cell];} } return best||[cell,cell]; };
+  [vars.mx1,vars.my1]=near(1,1); [vars.mx2,vars.my2]=near(N-2,N-2);
+  [vars.mx3,vars.my3]=near(0,N-1); [vars.mx4,vars.my4]=near(N-1,0);
+}
+
+/* new NAME x, y : actions — stamp out a def: run its statements, shift the root to x,y,
+   then apply the extra actions to the root (parts ride along via attach). */
+function runNew(st){
+  const D=prog.defs[st.name]; if(!D){ return; }
+  const env=baseEnv(0); const E=st.exprs.map(e=>evalExpr(e,env));
+  const before=(named[st.name]||[]).length;
+  for(const d of D){ if(d.t==='make') runMake(d,'init'); else if(d.t==='new') runNew(d); }
+  const root=(named[st.name]||[])[before]; if(!root) return;
+  root.x+=E[0]||0; root.y+=E[1]||0; if(root.kind==='line'){root.x2+=E[0]||0;root.y2+=E[1]||0;}
+  for(const a of st.actions) applyAction(root,a,env);
+  lastObj=root;
+}
+
+/* if COND : logic — global condition, runs once per frame */
+function runIf(st){
+  const env=baseEnv(0);
+  if(!evalExpr(st.cond,env)) return;
+  for(const op of st.logic){
+    if(globalOp(op,env)) continue;
+    if(op.t==='destroy'){ (named[op.name]||[]).forEach(o=>o.alive=false); }
+    else if(op.t==='act'){ const list=op.name?(named[op.name]||[]):(lastObj?[lastObj]:[]);
+      for(const o of list){ if(o&&o.alive) for(const ac of op.actions) applyAction(o,ac,env); } }
+    if(resetFlag) break;
+  }
+}
+
+/* separate two overlapping objects along the shallower axis, split by inverse mass.
+   fixed objects don't move; the movable one takes the full push. */
+function separate(a,b){
+  const A=bounds(a),B=bounds(b);
+  const ox=Math.min(A.r,B.r)-Math.max(A.l,B.l);   // x penetration
+  const oy=Math.min(A.b,B.b)-Math.max(A.t,B.t);   // y penetration
+  if(ox<=0||oy<=0) return;
+  const ma=mass(a),mb=mass(b);
+  const inv=1/((ma===Infinity?0:1/ma)+(mb===Infinity?0:1/mb)||1);
+  const shareA = ma===Infinity?0:(mb===Infinity?1:(1/ma)/((1/ma)+(1/mb)));
+  const shareB = 1-shareA;
+  if(ox<oy){ // push on x
+    const dir = (A.l+A.r)/2 < (B.l+B.r)/2 ? -1 : 1;
+    placeX(a, a.x + dir*ox*shareA);
+    placeX(b, b.x - dir*ox*shareB);
+  } else {   // push on y
+    const dir = (A.t+A.b)/2 < (B.t+B.b)/2 ? -1 : 1;
+    placeY(a, a.y + dir*oy*shareA);
+    placeY(b, b.y - dir*oy*shareB);
+  }
+}
+
+/* advance every object along its velocity, stopping movers at the earliest
+   swept contact so nothing tunnels — even two movers (relative velocity).
+   Each object independently consumes its frame-time in up to a few hops. */
+let contacts=[];   // [[objA,objB], ...] pairs that touched this frame (either direction)
+function touched(a,b){ for(const c of contacts){ if((c[0]===a&&c[1]===b)||(c[0]===b&&c[1]===a)) return true; } return false; }
+
+/* two objects resting against each other (touching within a hair on one axis, overlapping on the other) */
+function adjacent(a,b){
+  const A=bounds(a),B=bounds(b);
+  const gx=Math.max(B.l-A.r, A.l-B.r), gy=Math.max(B.t-A.b, A.t-B.b);
+  return (gx<=0.01&&gy<0)||(gy<=0.01&&gx<0);
+}
+function integrateWithSweep(){
+  const EPS=0.001;
+  // contacts persist while the pair is still resting together, so a thing standing on a
+  // floor stays "touching" every frame (jump checks, bounce 0) instead of every other frame
+  const prev=contacts; contacts=[];
+  for(const o of objs){
+    if(o.fixed || o.leader || o.parent) continue;   // followers/parts are placed by their leader/parent
+    let trem=1;                                  // fraction of this frame left to spend
+    for(let hop=0; hop<4 && trem>EPS; hop++){
+      const A=bounds(o);
+      let best=1, hitObj=null;
+      for(const q of objs){
+        if(q===o||!q.alive) continue;
+        // only SOLID obstacles stop a mover: fixed objects (walls) or other movers.
+        // a non-fixed, stationary object is a trigger/pickup -> pass through it.
+        const qSolid = q.fixed || (!q.leader && !q.parent && (q.vx!==0 || q.vy!==0));
+        if(!qSolid) continue;
+        // two things only block each other if the program listens for their collision;
+        // otherwise (e.g. a field of stars) they pass through freely instead of clumping.
+        if(!prog.hits.has(o.group+'|'+q.group)) continue;
+        const rvx=o.vx-(q.fixed?0:q.vx);
+        const rvy=o.vy-(q.fixed?0:q.vy);
+        if(rvx===0&&rvy===0) continue;
+        const r=sweptAABB(A, rvx*trem, rvy*trem, bounds(q));
+        if(!r) continue;
+        // an obstacle BEHIND us (we're moving away from it, it's catching up) is its problem,
+        // not ours: without this a pushed ball stalls while the pusher keeps pressing.
+        const QB=bounds(q);
+        if(r.axis===0){ const d=Math.sign((QB.l+QB.r)-(A.l+A.r)); if(o.vx*d<=0) continue; }
+        else          { const d=Math.sign((QB.t+QB.b)-(A.t+A.b)); if(o.vy*d<=0) continue; }
+        if(r.t<best){ best=r.t; hitObj=q; }
+      }
+      // advance to the contact fraction (leave a hair short so we rest ON the face)
+      const f = hitObj ? Math.max(0, best - EPS) * trem : trem;
+      o.x+=o.vx*f; o.y+=o.vy*f; if(o.kind==='line'){o.x2+=o.vx*f;o.y2+=o.vy*f;}
+      trem-=f;
+      if(!hitObj) break;                          // clear path -> done
+      contacts.push([o,hitObj]);                  // remember the touch so the event fires
+      break;                                       // rest at contact; event flips velocity next
+    }
+  }
+  // carry over last frame's contacts that are STILL resting together after this move
+  for(const c of prev){ if(c[0].alive&&c[1].alive&&!touched(c[0],c[1])&&adjacent(c[0],c[1])) contacts.push(c); }
+}
+
+function step(){
+  frameN++; if(doorCool>0) doorCool--;
+  if(sayLeft>0 && --sayLeft===0) sayText='';
+  integrateWithSweep();
+  // frame block: actions, key events, collision events, variable ops
+  for(const st of prog.frame){
+    if(st.t==='make') runMake(st,'frame');
+    else if(st.t==='on_hit') runEvent(st);
+    else if(st.t==='on_key') runKey(st);
+    else if(st.t==='destroy'){ (named[st.name]||[]).forEach(o=>o.alive=false); }
+    else if(st.t==='set'){ vars[st.name]=evalExpr(st.expr,baseEnv(0)); }
+    else if(st.t==='add'){ vars[st.name]=(vars[st.name]||0)+evalExpr(st.expr,baseEnv(0)); }
+    else if(st.t==='when'){ runWhen(st); }
+    else if(st.t==='if'){ runIf(st); }
+    else if(st.t==='new'){ runNew(st); }
+    else if(st.t==='reset'){ resetFlag=true; }
+    if(resetFlag) break;             // a reset short-circuits the rest of the frame
+  }
+  if(resetFlag){ doInit(1,false); draw(); return; }   // restart cleanly next tick
+  { const h=(named.hero||[]).find(o=>o.alive); if(h&&!pendingScene){ const B=bounds(h); const cx=(B.l+B.r)/2, cy=(B.t+B.b)/2;   // no door took the hero: keep it in the room
+      if(cx<2) h.x+=2-cx; else if(cx>318) h.x-=cx-318; if(cy<2) h.y+=2-cy; else if(cy>318) h.y-=cy-318; updateAttached(); } }
+  if(!pendingScene&&doorCool===0){ const h=(named.hero||[]).find(o=>o.alive); if(h){ const B=ownBounds(h);   // goN: a door to room N, no frame line needed
+      for(const o of objs){ const m=o.alive&&o.group&&/^go(\d+)$/.exec(o.group); if(!m) continue; const C=bounds(o);
+        if(B.l<C.r&&B.r>C.l&&B.t<C.b&&B.b>C.t){ pendingScene=+m[1]; pendingSide=sideOf(o); break; } } } }
+  if(pendingScene){
+    const n=pendingScene; const h=(named.hero||[]).find(o=>o.alive); let cx=null,cy=null; if(h){ const B=bounds(h); cx=(B.l+B.r)/2; cy=(B.t+B.b)/2; }
+    doInit(n,true);                                                            // room change, keep vars
+    const h2=(named.hero||[]).find(o=>o.alive);                                // the hero enters where it left: mirrored across the side it crossed
+    let side=pendingSide; pendingSide=null;
+    if(!side&&cx!==null){ const d=[['left',cx],['right',320-cx],['top',cy],['bottom',320-cy]].sort((a,b)=>a[1]-b[1])[0]; if(d[1]<=40) side=d[0]; }
+    if(h&&h2&&cx!==null&&side&&side!=='none'){ let nx=cx,ny=cy; if(side==='right')nx=WT+10; else if(side==='left')nx=320-WT-10; else if(side==='bottom')ny=WT+10; else ny=320-WT-10;
+      if(nx!==cx||ny!==cy){ const B=bounds(h2); h2.x+=nx-(B.l+B.r)/2; h2.y+=ny-(B.t+B.b)/2; updateAttached();
+        const B2=bounds(h2); if(B2.t<WT+2) h2.y+=WT+2-B2.t; if(B2.b>320-WT-2) h2.y-=B2.b-(320-WT-2); if(B2.l<WT+2) h2.x+=WT+2-B2.l; if(B2.r>320-WT-2) h2.x-=B2.r-(320-WT-2); updateAttached(); }
+      doorCool=20; }
+    draw(); return; }
+  updateFollowers();                 // chains trail their leaders (snake body)
+  updateAttached();                  // parts ride on their parent (a "person")
+  for(const o of objs) if(!o.alive&&o.wkey) consumed.add(o.wkey);        // taken or killed: stays gone when you come back
+  objs=objs.filter(o=>o.alive);
+  for(const k in named) named[k]=named[k].filter(o=>o.alive);
+  draw();
+}
+
+/* NAME when COND : logic — for each object in NAME whose condition is true,
+   run the logic on that object (per-object props available in the condition). */
+function runWhen(st){
+  const list=named[st.name]||[];
+  for(const o of list){
+    if(!o.alive) continue;
+    if(evalExpr(st.cond, objEnv(o))){
+      for(const op of st.logic){
+        if(globalOp(op,objEnv(o))) continue;
+        if(op.t==='destroy'){ o.alive=false; }
+        else if(op.t==='act'){
+          // act with no name -> this object; named -> that named group
+          const targets = op.name? (named[op.name]||[]) : [o];
+          for(const tg of targets){ if(tg&&tg.alive) for(const ac of op.actions) applyAction(tg,ac,objEnv(o)); }
+        }
+      }
+    }
+  }
+}
+
+/* on_key DIR : fires its logic while that arrow is held */
+const keysHeld={up:false,down:false,left:false,right:false,hit:false};
+function runKey(st){
+  if(!keysHeld[st.dir]) return;
+  for(const op of st.logic){
+    if(globalOp(op,baseEnv(0))) continue;
+    if(op.t==='destroy'){ (named[op.name]||[]).forEach(o=>o.alive=false); }
+    else if(op.t==='bounce'||op.t==='block'||op.t==='push'){ /* n/a for key */ }
+    else { const list = op.name? (named[op.name]||[]) : (lastObj?[lastObj]:[]);
+           for(const o of list){ if(o&&o.alive) for(const ac of op.actions) applyAction(o,ac,baseEnv(0)); } }
+  }
+}
+
+function draw(){
+  cx.clearRect(0,0,cv.width,cv.height);
+  cx.fillStyle='#05070b'; cx.fillRect(0,0,cv.width,cv.height);
+  for(const o of objs){
+    const color=`rgb(${o.col[0]},${o.col[1]},${o.col[2]})`;
+    cx.save();
+    cx.translate(o.x+(o.kind==='box'||o.kind==='tri'||o.kind==='oval'?o.w/2:0),
+                 o.y+(o.kind==='box'||o.kind==='tri'||o.kind==='oval'?o.h/2:0));
+    if(o.rotd) cx.rotate(o.rotd*Math.PI/180);
+    cx.strokeStyle=color; cx.fillStyle=color; cx.lineWidth=1.5;
+    if(o.kind==='box'){ const w=o.w,h=o.h; o.fill?cx.fillRect(-w/2,-h/2,w,h):cx.strokeRect(-w/2,-h/2,w,h); }
+    else if(o.kind==='circ'){ cx.beginPath();cx.arc(0,0,Math.abs(o.r)||0,0,7);o.fill?cx.fill():cx.stroke(); }   // a shrunk-past-zero size draws mirrored, never throws
+    else if(o.kind==='oval'){ cx.beginPath();cx.ellipse(0,0,Math.abs(o.w/2)||0,Math.abs(o.h/2)||0,0,0,7);o.fill?cx.fill():cx.stroke(); }
+    else if(o.kind==='tri'){ const w=o.w,h=o.h; cx.beginPath();cx.moveTo(0,-h/2);cx.lineTo(w/2,h/2);cx.lineTo(-w/2,h/2);cx.closePath();o.fill?cx.fill():cx.stroke(); }
+    else if(o.kind==='line'){ cx.beginPath();cx.moveTo(0,0);cx.lineTo(o.x2-o.x,o.y2-o.y);cx.stroke(); }
+    else if(o.kind==='dot'){ cx.fillRect(-1,-1,2,2); }
+    else if(o.kind==='txt'){ cx.font='16px monospace';
+      const val=o.livevar!=null?(Math.round((vars[o.livevar]||0)*100)/100):'';
+      cx.fillText(o.txt+val,0,0); }
+    cx.restore();
+  }
+  if(sayText && sayLeft>0){                  // message line
+    cx.save(); cx.font='13px monospace'; cx.textAlign='center';
+    const w=Math.min(cv.width-16, cx.measureText(sayText).width+20);
+    cx.fillStyle='rgba(5,7,11,.85)'; cx.fillRect((cv.width-w)/2,cv.height-34,w,24);
+    cx.fillStyle='#e8ebf0'; cx.fillText(sayText,cv.width/2,cv.height-17); cx.restore();
+  }
+}
+
+function loop(){ if(!running)return; step(); raf=requestAnimationFrame(loop); }
+
+/* ════════════════════════════════════════════════════════════════
+   5. DRIVE  (compile + run)
+   ════════════════════════════════════════════════════════════════ */
+const codeEl=document.getElementById('code');
+const statusEl=document.getElementById('status');
+const msgEl=document.getElementById('msg');
+codeEl.value=STARTER;
+
+/* examples menu: fill from the library, load + run on pick */
+{
+  const sel=document.getElementById('examples');
+  EXAMPLES.forEach((ex,n)=>{ const o=document.createElement('option'); o.value=n; o.textContent=ex.name; sel.appendChild(o); });
+  sel.onchange=()=>{
+    const n=sel.value; if(n==='') return;
+    codeEl.value=EXAMPLES[+n].src;
+    sel.value='';                       // reset label so the same item can be re-picked
+    run();
+  };
+}
+
+function setStatus(txt,err){statusEl.classList.toggle('err',!!err);msgEl.textContent=txt;}
+
+function run(){
+  stop();
+  prog=compile(codeEl.value);
+  if(prog.err){setStatus(prog.err,true);return;}
+  const n=prog.init.length+prog.frame.length;
+  setStatus(`running · ${n} statements`,false);
+  sayText=''; sayLeft=0;               // a new program starts with a clean message line
+  doInit(); draw();
+  running=true; raf=requestAnimationFrame(loop);
+}
+function stop(){running=false;cancelAnimationFrame(raf);}
+
+document.getElementById('btn-run').onclick=()=>{ run(); if(isPhone()) setPlay(true); };
+const isPhone=()=>window.matchMedia('(max-width:760px)').matches;
+function setPlay(on){ document.body.classList.toggle('play',on); document.getElementById('btn-mode').textContent=on?'⌨ code':'🎮 play'; }
+document.getElementById('btn-mode').onclick=()=>setPlay(!document.body.classList.contains('play'));
+document.getElementById('btn-stop').onclick=()=>{stop();setStatus('stopped',false);};
+
+/* input */
+const ARROW={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',' ':'hit',z:'hit',Z:'hit',x:'hit',X:'hit'};
+window.addEventListener('keydown',e=>{
+  const d=ARROW[e.key]; if(d){keysHeld[d]=true; e.preventDefault();}
+  if(e.key==='ArrowLeft')keyState=-1; if(e.key==='ArrowRight')keyState=1;
+});
+window.addEventListener('keyup',e=>{
+  const d=ARROW[e.key]; if(d)keysHeld[d]=false;
+  if(e.key==='ArrowLeft'&&keyState===-1)keyState=0; if(e.key==='ArrowRight'&&keyState===1)keyState=0;
+});
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();mouse.x=(e.clientX-r.left)*cv.width/r.width;mouse.y=(e.clientY-r.top)*cv.height/r.height;});
+
+/* touch / tap d-pad: the canvas is split into four triangles by its diagonals.
+   Press-and-hold a side = hold that arrow. Drag across to change direction. */
+let touchDir=null;
+function touchToDir(e){
+  const r=cv.getBoundingClientRect();
+  const dx=(e.clientX-r.left)/r.width-0.5, dy=(e.clientY-r.top)/r.height-0.5;
+  if(Math.hypot(dx,dy)<0.17) return 'hit';                        // the middle of the screen = the attack button
+  return Math.abs(dx)>Math.abs(dy) ? (dx<0?'left':'right') : (dy<0?'up':'down');
+}
+function setTouchDir(d){
+  if(touchDir===d) return;
+  if(touchDir){ keysHeld[touchDir]=false; if(touchDir==='left'&&keyState===-1)keyState=0; if(touchDir==='right'&&keyState===1)keyState=0; }
+  touchDir=d;
+  if(d){ keysHeld[d]=true; if(d==='left')keyState=-1; if(d==='right')keyState=1; }
+}
+cv.addEventListener('pointerdown',e=>{ if(e.pointerType==='mouse'&&e.button!==0)return; cv.setPointerCapture(e.pointerId); setTouchDir(touchToDir(e)); e.preventDefault(); });
+cv.addEventListener('pointermove',e=>{ if(touchDir) setTouchDir(touchToDir(e)); });
+const endTouch=()=>setTouchDir(null);
+cv.addEventListener('pointerup',endTouch); cv.addEventListener('pointercancel',endTouch); cv.addEventListener('lostpointercapture',endTouch);
+
+/* ════════════════════════════════════════════════════════════════
+   6. QR  save / load
+   For v0.1 the QR payload is the source text itself (deflate-free),
+   so a scanned QR *is* readable source. Bytecode packing comes next.
+   ════════════════════════════════════════════════════════════════ */
+const ov=document.getElementById('ov');
+const card=document.getElementById('card');
+function closeOv(){ov.classList.remove('open');card.innerHTML='';if(window._qrStop){window._qrStop();window._qrStop=null;}}
+
+/* ── Dual packer ──────────────────────────────────────────────────
+   QR payload = 2-char marker + base64(bytes). Two schemes, smaller wins:
+     QD = deflate(source)                 generic fallback
+     QB = deflate(bytecode(source))       keyword-tokenized, then deflated
+   v0.14+: saved codes are BINARY ('Q','Z' + raw deflate of bytecode), see packBin.
+   Bytecode replaces each known keyword with one high byte (128+), so the
+   pre-deflate stream is shorter and more regular -> smaller after deflate.
+   It round-trips exactly back to readable source. ─────────────────── */
+function toB64(bytes){let s='';for(let i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s);}
+function fromB64(b64){const s=atob(b64);const a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
+
+// token table: every reserved word -> a byte 128..255. Order fixed = stable codes.
+/* source as saved: comments and blank/trailing whitespace dropped (the editor keeps them) */
+function stripForSave(src){
+  return src.split('\n').map(l=>{
+    let out='',q=false;
+    for(const c of l){ if(c==='"')q=!q; if(c==='#'&&!q)break; out+=c; }
+    return out.replace(/\s+$/,'');
+  }).filter(l=>l.length).join('\n');
+}
+const TOKENS=['init','frame','on','hit','key','up','down','left','right',
+  'box','circ','tri','line','dot','txt','mv','to','vel','rot','scl','flip','follow','grow',
+  'col','fill','unfill','fixed','bounce','destroy','lp','sin','cos','abs','sqrt','floor','rnd',
+  't','i','mx','my','x','y','set','add','reset','score','head','tail','food',
+  'when','each','size','star','w','h','vx','vy','rn','rm','if','block','scene','say','room','attach','common','def','new','oval','chase','push','map','cell','mx1','my1','mx2','my2','mx3','my3','mx4','my4','start','shape'];   // append only: codes must stay stable
+const TOK2BYTE={}, BYTE2TOK={};
+TOKENS.forEach((w,n)=>{ const b=128+n; TOK2BYTE[w]=b; BYTE2TOK[b]=w; });
+
+/* bytecode: tokens 128..255 become one byte; all other text is UTF-8 bytes (0..127
+   stay literal, multibyte UTF-8 uses 0xC0.. which never collide with our 128-byte
+   token range because we only emit token bytes for matched words). Decoder maps
+   token bytes back to words and passes the rest through a UTF-8 decode. */
+const UTF8E=new TextEncoder(), UTF8D=new TextDecoder();
+function toBytecode(src){
+  const out=[];
+  const re=/[A-Za-z_][A-Za-z0-9_]*|[^A-Za-z_]+/g; let m;
+  while((m=re.exec(src))){
+    const chunk=m[0];
+    if(/^[A-Za-z_][A-Za-z0-9_]*$/.test(chunk) && TOK2BYTE[chunk]!==undefined){
+      out.push(0xFF, TOK2BYTE[chunk]);          // 0xFF escape + token byte (unambiguous)
+    } else {
+      const u=UTF8E.encode(chunk);
+      for(const b of u){ out.push(b===0xFF?0xFF:b, ...(b===0xFF?[0x00]:[])); } // escape literal 0xFF
+    }
+  }
+  return new Uint8Array(out);
+}
+function fromBytecode(bytes){
+  const lit=[]; let s='';
+  const flush=()=>{ if(lit.length){ s+=UTF8D.decode(new Uint8Array(lit)); lit.length=0; } };
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i]===0xFF){
+      const nx=bytes[i+1];
+      if(nx===0x00){ lit.push(0xFF); i++; }                 // escaped literal 0xFF
+      else if(BYTE2TOK[nx]!==undefined){ flush(); s+=BYTE2TOK[nx]; i++; }
+      else { lit.push(0xFF); }
+    } else lit.push(bytes[i]);
+  }
+  flush();
+  return s;
+}
+
+/* binary payload (v0.14+): bytes  'Q' 'Z' + raw-deflate(bytecode(stripped source)).
+   No base64 (QR byte mode carries bytes directly) and no zlib header: ~35% more room.
+   Returned as a Uint8Array. Older text schemes are still read by unpackSrc. */
+function packBin(src){
+  const clean=stripForSave(src);
+  const bc=toBytecode(clean);
+  const body=fromBytecode(bc)===clean ? pako.deflateRaw(bc) : pako.deflateRaw(UTF8E.encode(clean));
+  const out=new Uint8Array(body.length+2); out[0]=0x51; out[1]=0x5A; out.set(body,2);   // 'Q','Z'
+  return out;
+}
+function unpackBin(bytes){
+  if(bytes.length<2||bytes[0]!==0x51||bytes[1]!==0x5A) return null;
+  const body=pako.inflateRaw(bytes.subarray(2));
+  const s=fromBytecode(body); return s;
+}
+function packSrc(src){   // legacy text packer (kept for reference / tests)
+  const dDeflate = pako.deflate(src);
+  let best = 'QD'+toB64(dDeflate);
+  try{
+    const bc=toBytecode(src);
+    if(fromBytecode(bc)===src){
+      const dByte=pako.deflate(bc);
+      if(dByte.length < dDeflate.length) best='QB'+toB64(dByte);
+    }
+  }catch(e){ /* fall back to deflate */ }
+  return best;
+}
+const QR_MAX=2331;        // version 40, level M, byte mode
+function unpackSrc(payload){
+  if(payload.startsWith('QB')){ return fromBytecode(pako.inflate(fromB64(payload.slice(2)))); }
+  if(payload.startsWith('QD')){ return pako.inflate(fromB64(payload.slice(2)),{to:'string'}); }
+  if(payload.startsWith('Q2')){ return pako.inflate(fromB64(payload.slice(2)),{to:'string'}); } // v0.1 codes
+  return payload;  // plain source
+}
+
+document.getElementById('btn-save').onclick=()=>{
+  const src=codeEl.value;
+  let bytes;
+  try{ bytes=packBin(src); }catch(e){ setStatus('compress failed: '+e.message,true); return; }
+  const pct=Math.round(100*bytes.length/QR_MAX);
+  card.innerHTML=`<h2>save → code</h2>
+    <p>Your program as a dungeon code: 8 colours, 3 bits a module. Every 4×4 tile is a room; walls, doors and carpets are the data. Scan it back with “scan” to reload. It is exactly what <code>map</code> builds.</p>
+    <div id="qrbox"></div>
+    <div class="meta">${src.length} chars → ${bytes.length} bytes</div>
+    <div class="row"><button id="qr-dl">download png</button><button id="qr-close">close</button></div>`;
+  ov.classList.add('open');
+  const box=document.getElementById('qrbox'); box.innerHTML='';
+  try{
+    let W=null; try{ if(!running) prog=compile(src); if(wSpeaks()) W=progToMap(running); }catch(e){ W=null; }
+    if(W){ const g=wmap.toGrid(W), N=g.length;
+      card.querySelector('p').textContent='Your dungeon as it is right now: every tile is a room, every module is a thing in it, the hero is where the hero is, hp is the blue run in the top edge. Scan it, or paint on it, and play from there.';
+      box.appendChild(wmap.render(g,Math.min(300,window.innerWidth-120))); card.querySelector('.meta').textContent=`${Object.keys(prog.scenes).length} rooms → ${N}×${N} map`; }
+    else {
+    const enc=mcode.encodeColor(bytes); const g=enc.grid, N=enc.N;
+    const c=document.createElement('canvas'); const cell=Math.max(2,Math.floor(560/N)), pad=cell*2;
+    c.width=c.height=N*cell+pad*2; const gx=c.getContext('2d');
+    gx.fillStyle='#fff'; gx.fillRect(0,0,c.width,c.height);
+    for(let r=0;r<N;r++)for(let k=0;k<N;k++){ const P=mcode.PALETTE[g[r][k]]; gx.fillStyle=`rgb(${P[0]},${P[1]},${P[2]})`; gx.fillRect(pad+k*cell,pad+r*cell,cell,cell); }
+    c.style.width=c.style.height='240px'; c.style.imageRendering='pixelated'; box.appendChild(c);
+    card.querySelector('.meta').textContent=`${src.length} chars → ${bytes.length} bytes → ${N}×${N} code`;
+    }
+  }catch(e){
+    box.innerHTML='<div style="color:#a32d2d;font-size:12px;padding:20px">Program too large for one QR even compressed ('+bytes.length+' bytes, max '+QR_MAX+'). Trim it and try again.</div>';
+  }
+  document.getElementById('qr-close').onclick=closeOv;
+  document.getElementById('qr-dl').onclick=()=>{
+    const img=box.querySelector('img')||box.querySelector('canvas');
+    if(!img){setStatus('nothing to download',true);return;}
+    const url=img.tagName==='IMG'?img.src:img.toDataURL();
+    const a=document.createElement('a');a.href=url;a.download=box.querySelector('canvas')&&card.querySelector('.meta').textContent.includes('map')?'qr2d-map.png':'qr2d-code.png';a.click();
+  };
+};
+
+document.getElementById('btn-load').onclick=async()=>{
+  card.innerHTML=`<h2>scan</h2>
+    <p>Point your camera at a map (or an older code), or pick a picture of one. A map is rewritten into the scenes of the program in the editor; a code replaces the editor.</p>
+    <video id="qr-vid" playsinline muted autoplay></video>
+    <div class="row"><button id="qr-file">picture…</button><button id="qr-close">cancel</button></div>
+    <input id="qr-fin" type="file" accept="image/*" style="display:none">`;
+  ov.classList.add('open');
+  document.getElementById('qr-close').onclick=closeOv;
+  const fin=document.getElementById('qr-fin'); document.getElementById('qr-file').onclick=()=>fin.click();
+  fin.onchange=()=>{ const f=fin.files[0]; if(!f)return; const im=new Image(); im.onload=()=>{ const c=document.createElement('canvas'); const sc=Math.min(1,1200/Math.max(im.width,im.height)); c.width=im.width*sc|0; c.height=im.height*sc|0; const x=c.getContext('2d'); x.drawImage(im,0,0,c.width,c.height); if(!wLoadFrom(x.getImageData(0,0,c.width,c.height))) setStatus('no map or code found in that picture',true); }; im.src=URL.createObjectURL(f); };
+  const vid=document.getElementById('qr-vid');
+  let stream;
+  try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}); }
+  catch(e){ card.querySelector('p').textContent='No camera available: '+e.message; return; }
+  vid.srcObject=stream; await vid.play();
+  const scan=document.createElement('canvas'); const sx=scan.getContext('2d',{willReadFrequently:true});
+  let on=true;
+  window._qrStop=()=>{on=false;stream.getTracks().forEach(t=>t.stop());};
+  (function tick(){
+    if(!on)return;
+    if(vid.readyState===vid.HAVE_ENOUGH_DATA){
+      scan.width=vid.videoWidth;scan.height=vid.videoHeight;
+      sx.drawImage(vid,0,0);
+      const img=sx.getImageData(0,0,scan.width,scan.height);
+      let src=null;
+      try{ const m=mdetect.detect(img); if(m&&m.world){ wLoad(m.world); return; } if(m) src=unpackBin(m.bytes); }catch(e){ src=null; }   // map / maze code
+      if(src===null){                                                                            // old QR codes
+        const res=(typeof jsQR==='function')?jsQR(img.data,img.width,img.height):null;
+        if(res&&(res.binaryData||res.data)){
+          try{ src=unpackBin(Uint8Array.from(res.binaryData||[])); }catch(e){ src=null; }
+          if(src===null){ try{ src=unpackSrc(res.data); }catch(e){ src=res.data; } }
+        }
+      }
+      if(src!==null){ codeEl.value=src; closeOv(); setStatus('loaded from code',false); run(); return; }
+    }
+    requestAnimationFrame(tick);
+  })();
+};
+
+/* ════════════════════════════════════════════════════════════════
+   7. MAP — the save is the map, the map is the game.
+   Every `scene` of a program is one 6×6 tile: a 5×5 floor (320px room → 64px cells, things snapped to
+   the cell their centre is in), a right-wall column and a bottom-wall row (an `exit` on a side = a gap;
+   the left/top walls are the neighbours' right/bottom walls). Tiles sit next to each other the way the
+   exits connect them; rooms that don't exist are rock. One colour = one word:
+     black wall · white floor · blue hero · yellow coin · green slime · red door · cyan key · magenta chest
+   The top edge of the frame carries the state: a red L (orientation), hp as blue modules, cyan at the far
+   right = has the key. The hero is drawn in the room the hero is in.
+   Reading goes the other way: a map (scanned, pictured, or painted) is rewritten into scene blocks and
+   played with the def/common/frame rules in the editor. ═══════════════════════════════════════════════ */
+const WC={WALL:0,HERO:1,DOOR:2,SLIME:3,FLOOR:4,COIN:5,KEY:6,CHEST:7,BOSS:8,SWORD:9,SWORD2:10,SHOP:11,NPC:12,ARMOR:13,TREASURE:14,HEALER:15};
+const WNAME=['wall','hero','door','slime','floor','coin','key','chest','boss','sword','sword2','shop','npc','armor','treasure','healer'];
+const WT=12, WCELL=(320-2*WT)/5;                         // outer wall px, floor cell px
+const wmap={
+  blank(R){ const tiles=[]; for(let y=0;y<R;y++){ tiles.push([]); for(let x=0;x<R;x++) tiles[y].push(new Uint8Array(36).fill(WC.WALL)); } return {R,tiles,hp:3,haskey:0}; },
+  toGrid(W){ const R=W.R,N=R*6+2; const g=[]; for(let r=0;r<N;r++) g.push(new Uint8Array(N).fill(WC.WALL));
+    g[0][0]=g[0][1]=g[1][0]=WC.DOOR;
+    for(let ry=0;ry<R;ry++)for(let rx=0;rx<R;rx++){ const t=W.tiles[ry][rx]; for(let i=0;i<6;i++)for(let j=0;j<6;j++) g[1+ry*6+i][1+rx*6+j]=t[i*6+j]; }
+    for(let i=0;i<R;i++) g[1+i*6+5][N-1]=g[N-1][1+i*6+5]=WC.WALL;
+    for(let k=0;k<Math.min(W.hp|0,N-6);k++) g[0][3+k]=WC.HERO;
+    if(W.haskey) g[0][N-2]=WC.KEY;
+    if(W.sword===1) g[0][N-3]=WC.SWORD; else if(W.sword>=2) g[0][N-3]=WC.SWORD2;
+    if(W.ahp>0) g[0][N-4]=WC.ARMOR; if(W.quest===1) g[0][N-5]=WC.NPC; else if(W.quest>=2) g[0][N-5]=WC.TREASURE; if(W.bow) g[0][N-6]=WC.SWORD;
+    for(let k=0;k<Math.min(W.gold|0,N-7);k++) g[N-1][3+k]=WC.COIN;
+    return g; },
+  fromGrid(g){ const N=g.length; if(N<8||(N-2)%6) return null; const R=(N-2)/6;
+    let bad=0; for(let i=0;i<N;i++){ if(g[N-1][i]!==WC.WALL&&!(i>=3&&i<N-4&&g[N-1][i]===WC.COIN))bad++; if(g[i][N-1]!==WC.WALL)bad++; if(i>1&&g[i][0]!==WC.WALL)bad++; }
+    if(g[0][2]!==WC.WALL||g[1][1]===WC.DOOR||g[2][0]!==WC.WALL) bad+=3;
+    for(let ry=0;ry<R;ry++)for(let rx=0;rx<R;rx++){ if(g[1+ry*6+5][1+rx*6+5]!==WC.WALL) bad+=2; if(g[1+ry*6+5][N-2]!==WC.WALL) bad++; if(g[N-2][1+rx*6+5]!==WC.WALL) bad++; }
+    if(bad>2) return null;
+    const W=wmap.blank(R); let floor=0;
+    for(let ry=0;ry<R;ry++)for(let rx=0;rx<R;rx++){ const t=W.tiles[ry][rx]; for(let i=0;i<6;i++)for(let j=0;j<6;j++){ const v=g[1+ry*6+i][1+rx*6+j]; t[i*6+j]=v; if(v!==WC.WALL)floor++; } t[35]=WC.WALL; }
+    if(!floor) return null;
+    let hp=0; for(let k=3;k<N-3;k++) if(g[0][k]===WC.HERO) hp++; W.hp=hp; W.haskey=g[0][N-2]===WC.KEY?1:0; W.sword=g[0][N-3]===WC.SWORD?1:g[0][N-3]===WC.SWORD2?2:0;
+    W.ahp=g[0][N-4]===WC.ARMOR?3:0; W.quest=g[0][N-5]===WC.NPC?1:g[0][N-5]===WC.TREASURE?2:0; W.bow=g[0][N-6]===WC.SWORD?1:0; let gold=0; for(let k=3;k<N-4;k++) if(g[N-1][k]===WC.COIN) gold++; W.gold=gold;
+    return W; },
+  render(g,css){ const N=g.length; const c=document.createElement('canvas'); const cell=Math.max(2,Math.floor(560/N)), pad=cell*2;
+    c.width=c.height=N*cell+pad*2; const gx=c.getContext('2d'); gx.fillStyle='#fff'; gx.fillRect(0,0,c.width,c.height);
+    for(let r=0;r<N;r++)for(let k=0;k<N;k++){ const P=mcode.PALETTE[g[r][k]]; gx.fillStyle=`rgb(${P[0]},${P[1]},${P[2]})`; gx.fillRect(pad+k*cell,pad+r*cell,cell,cell); }
+    if(css){ c.style.width=c.style.height=css+'px'; } c.style.imageRendering='pixelated'; return c; },
+  hero(W){ for(let ry=0;ry<W.R;ry++)for(let rx=0;rx<W.R;rx++){ const t=W.tiles[ry][rx]; for(let k=0;k<36;k++) if(t[k]===WC.HERO) return {rx,ry,i:(k/6)|0,j:k%6}; } return null; },
+  hasFloor(t){ for(let i=0;i<5;i++)for(let j=0;j<5;j++) if(t[i*6+j]!==WC.WALL) return true; return false; }
+};
+window.wmap=wmap;
+const cellOf=v=>Math.max(0,Math.min(4,Math.floor((v-WT)/WCELL)));
+const cellsIn=(a,b)=>{ const out=[]; for(let k=0;k<5;k++){ const c=WT+(k+0.5)*WCELL; if(c>=a&&c<=b) out.push(k); } return out.length?out:[cellOf((a+b)/2)]; };
+
+/* ── program → map ─────────────────────────────────────────────── */
+/* run a scene's init without disturbing the running game; returns its root objects by group */
+function dryScene(n){
+  const keep={objs,named:{...named},vars:{...vars},sceneN,lastObj,frameN,pendingScene,resetFlag,sayText,sayLeft};
+  let roots=[];
+  try{ doInit(n,true); roots=objs.filter(o=>o.alive&&!o.parent); }catch(e){ roots=[]; }
+  objs=keep.objs; for(const k in named) delete named[k]; Object.assign(named,keep.named); vars=keep.vars; sceneN=keep.sceneN; lastObj=keep.lastObj; frameN=keep.frameN; pendingScene=keep.pendingScene; resetFlag=keep.resetFlag; sayText=keep.sayText; sayLeft=keep.sayLeft;
+  return roots;
+}
+const sideOf=o=>{ const cx=o.x+o.w/2, cy=o.y+o.h/2; if(o.h>=o.w) return cx<160?'left':'right'; return cy<160?'top':'bottom'; };
+const DIR={right:[1,0],left:[-1,0],top:[0,-1],bottom:[0,1]};
+/* one room's objects → one tile (+ exits for the neighbours) */
+function roomTile(roots,withHero){
+  const t=new Uint8Array(36).fill(WC.FLOOR); for(let k=0;k<5;k++){ t[k*6+5]=WC.WALL; t[30+k]=WC.WALL; } t[35]=WC.WALL;
+  const exits=[], things=[];
+  for(const o of roots){
+    const g=o.group||''; const target=/^go(\d+)$/.exec(g);
+    if(g==='exit'||target){ const s=sideOf(o); if(!s) continue; const cells=(s==='left'||s==='right')?cellsIn(o.y,o.y+o.h):cellsIn(o.x,o.x+o.w); exits.push({side:s,cells,to:target?+target[1]:null}); continue; }
+    if(g==='wall'&&o.fixed){ if(o.x<WT||o.x+o.w>320-WT||o.y<WT||o.y+o.h>320-WT){ if(o.w<WT*2||o.h<WT*2) continue; }   // outer walls are implicit
+      if(o.h>=o.w){ const j=cellOf(o.x+o.w/2); for(const i of cellsIn(o.y,o.y+o.h)) t[i*6+j]=WC.WALL; } else { const i=cellOf(o.y+o.h/2); for(const j of cellsIn(o.x,o.x+o.w)) t[i*6+j]=WC.WALL; } continue; }
+    if(g==='door'){ const B=bounds(o); const cx=(B.l+B.r)/2, cy=(B.t+B.b)/2;
+      if(cx<WT||cx>320-WT||cy<WT||cy>320-WT){ const side=cx<WT?'left':cx>320-WT?'right':cy<WT?'top':'bottom'; const cells=(side==='left'||side==='right')?cellsIn(B.t,B.b):cellsIn(B.l,B.r); exits.push({side,cells,to:null,door:true}); continue; }
+      if(B.b-B.t>=B.r-B.l){ const j=cellOf(cx); for(const i of cellsIn(B.t,B.b)) t[i*6+j]=WC.DOOR; } else { const i=cellOf(cy); for(const j of cellsIn(B.l,B.r)) t[i*6+j]=WC.DOOR; } continue; }
+    const v=g==='keyitem'?WC.KEY:WNAME.indexOf(g); if(v<0||v===WC.WALL||v===WC.FLOOR) continue; if(v===WC.HERO&&!withHero) continue;
+    const B=bounds(o); things.push({v,i:cellOf((B.t+B.b)/2),j:cellOf((B.l+B.r)/2)});
+  }
+  for(const th of things){ let best=null,bd=1e9; for(let i=0;i<5;i++)for(let j=0;j<5;j++){ if(t[i*6+j]!==WC.FLOOR) continue; const d=(i-th.i)**2+(j-th.j)**2; if(d<bd){bd=d;best=i*6+j;} } if(best!==null) t[best]=th.v; }
+  return {t,exits};
+}
+/* every scene of the compiled program → a map; the current room (if `live`) from the live objects */
+function progToMap(live){
+  const nums=Object.keys(prog.scenes).map(Number).sort((a,b)=>a-b); if(!nums.length) return null;
+  const rooms={}; for(const n of nums){ const roots=(live&&n===sceneN)?objs.filter(o=>o.alive&&!o.parent):dryScene(n); rooms[n]=roomTile(roots,n===sceneN); }
+  // layout: rooms sit where their exits lead. `exit` with no number means the next room.
+  const pos={}, used={}; const key=(x,y)=>x+','+y;
+  const re=/^(init|scene\s+(\d+))\s*:\s*#\s*at\s+(\d+)\s*,\s*(\d+)/gm; let mm;      // positions a loaded map wrote into the headers
+  while((mm=re.exec(codeEl.value))){ const n=mm[2]?+mm[2]:1; if(rooms[n]&&!pos[n]&&!used[key(+mm[3],+mm[4])]){ pos[n]=[+mm[3],+mm[4]]; used[key(+mm[3],+mm[4])]=n; } }
+  if(!pos[nums[0]]&&!used[key(0,0)]){ pos[nums[0]]=[0,0]; used[key(0,0)]=nums[0]; }
+  for(const n of nums){ if(!pos[n]){ let p=null; for(let r=0;r<nums.length*2&&!p;r++) for(let x=0;x<=r&&!p;x++){ const q=[x,r-x]; if(!used[key(...q)]) p=q; } pos[n]=p; used[key(...p)]=n; }
+    for(const e of rooms[n].exits){ if(e.door) continue; const to=e.to!=null?e.to:n+1; if(pos[to]||!rooms[to]) continue; const d=DIR[e.side]; const q=[pos[n][0]+d[0],pos[n][1]+d[1]]; if(!used[key(...q)]){ pos[to]=q; used[key(...q)]=to; } } }
+  let mx=1e9,my=1e9,Mx=-1e9,My=-1e9; for(const n of nums){ const [x,y]=pos[n]; mx=Math.min(mx,x);my=Math.min(my,y);Mx=Math.max(Mx,x);My=Math.max(My,y); }
+  const keepR=/^#\s*map\s+(\d+)x\d+/m.exec(codeEl.value);                                          // a loaded map also records its size, so zoomed-out space survives
+  if(keepR&&+keepR[1]>=Mx+1&&+keepR[1]>=My+1){ mx=0; my=0; }
+  const R=keepR&&+keepR[1]>=Math.max(Mx-mx+1,My-my+1)?+keepR[1]:Math.max(Mx-mx+1,My-my+1); const W=wmap.blank(R); W.at={};
+  for(const n of nums){ const x=pos[n][0]-mx,y=pos[n][1]-my; W.tiles[y][x]=rooms[n].t; W.at[n]=[x,y]; }
+  for(const n of nums){ const [x,y]=W.at[n]; for(const e of rooms[n].exits){ const d=DIR[e.side]; const nx=x+d[0],ny=y+d[1]; if(nx<0||ny<0||nx>=R||ny>=R) continue;
+    const v=e.door?WC.DOOR:WC.FLOOR; const put=(tt,k)=>{ if(tt[k]===WC.WALL||v===WC.DOOR) tt[k]=v; };
+    if(e.side==='right') for(const i of e.cells) put(W.tiles[y][x],i*6+5); else if(e.side==='bottom') for(const j of e.cells) put(W.tiles[y][x],30+j);
+    else if(e.side==='left') for(const i of e.cells) put(W.tiles[y][nx],i*6+5); else for(const j of e.cells) put(W.tiles[ny][x],30+j); } }
+  W.hp=Math.max(0,vars.hp|0); W.haskey=vars.haskey?1:0; W.sword=vars.sword|0; W.ahp=vars.ahp|0; W.quest=vars.quest|0; W.gold=vars.gold|0; W.bow=vars.bow|0;
+  return W;
+}
+
+/* ── map → program ─────────────────────────────────────────────── */
+const PLACE=/^\s*(wall|exit|go\d+|bg)\s*:|^\s*new\s+(coin|slime|key|keyitem|chest|door|boss|sword|sword2|shop|npc|armor|treasure|healer)\b|^\s*set\s+(hp|haskey|sword|ahp|quest|gold|bow)\b|^\s*start\b/;
+function px(k){ return Math.round((WT+k*WCELL)*10)/10; }
+const f1=v=>Math.round(v*10)/10;
+function mapToSrc(W,src){
+  // split the editor text into blocks
+  const lines=src.split('\n'); const blocks=[]; let cur={head:null,lines:[]};
+  for(const l of lines){ const m=/^(init|common|frame|scene\s+\d+|def\s+\w+)\s*:\s*(#.*)?$/.exec(l); if(m){ blocks.push(cur); cur={head:m[1].replace(/\s+/g,' '),lines:[]}; } else cur.lines.push(l); }
+  blocks.push(cur);
+  const bgLine=blocks.flatMap(b=>b.lines).find(l=>/^\s*bg\s*:/.test(l))||'  bg: box 0, 0, 320, 320 : fill : col 24, 22, 30 : fixed';
+  // rooms = tiles with floor, numbered in reading order; the hero's room starts
+  const R=W.R; const num={}; let n=0; for(let y=0;y<R;y++)for(let x=0;x<R;x++) if(wmap.hasFloor(W.tiles[y][x])) num[x+','+y]=++n;
+  const H=wmap.hero(W); const startN=H?num[H.rx+','+H.ry]:1;
+  const T=(x,y)=>(x>=0&&y>=0&&x<R&&y<R&&num[x+','+y])?W.tiles[y][x]:null;
+  const links=new Set(); const out=[];
+  for(let y=0;y<R;y++)for(let x=0;x<R;x++){ const t=T(x,y); if(!t) continue; const me=num[x+','+y];
+    const old=blocks.find(b=>b.head===(me===1?'init':'scene '+me)); const kept=(old?old.lines:[]).filter(l=>!PLACE.test(l)&&l.trim().length);
+    const body=[]; if(me===1){ body.push('  set hp '+W.hp,'  set haskey '+W.haskey,'  set sword '+(W.sword|0),'  set ahp '+(W.ahp|0),'  set quest '+(W.quest|0),'  set gold '+(W.gold|0),'  set bow '+(W.bow|0)); if(startN!==1) body.push('  start '+startN); }
+    body.push(bgLine); body.push(...kept);
+    const L=T(x-1,y),U=T(x,y-1),Rr=T(x+1,y),D=T(x,y+1);
+    const open={left:i=>L&&L[i*6+5]!==WC.WALL, top:j=>U&&U[30+j]!==WC.WALL, right:i=>Rr&&t[i*6+5]!==WC.WALL, bottom:j=>D&&t[30+j]!==WC.WALL};
+    const nb={left:L&&num[(x-1)+','+y],top:U&&num[x+','+(y-1)],right:Rr&&num[(x+1)+','+y],bottom:D&&num[x+','+(y+1)]};
+    let first=true; const wall=(a,b,c,d)=>{ body.push(`  wall: box ${a}, ${b}, ${c}, ${d}`+(first?' : fill : col 90, 80, 70 : fixed':'')); first=false; };
+    for(const side of ['left','right','top','bottom']){ let k=0; while(k<5){ if(open[side](k)){ let k2=k; while(k2<5&&open[side](k2)) k2++; const a=px(k), b=f1(px(k2)-px(k));
+          const to=nb[side]; const box=side==='left'?`0, ${a}, ${WT}, ${b}`:side==='right'?`${320-WT}, ${a}, ${WT}, ${b}`:side==='top'?`${a}, 0, ${b}, ${WT}`:`${a}, ${320-WT}, ${b}, ${WT}`;
+          body.push(`  go${to}: box ${box} : fill : col 10, 10, 14`); links.add(to);
+          const slot=side==='left'?i=>L[i*6+5]:side==='top'?j=>U[30+j]:side==='right'?i=>t[i*6+5]:j=>t[30+j];
+          let d=k; while(d<k2){ if(slot(d)!==WC.DOOR){d++;continue;} let d2=d; while(d2<k2&&slot(d2)===WC.DOOR) d2++; const a2=px(d), b2=f1(px(d2)-px(d));
+            const dbox=side==='left'?`0, ${a2}, ${WT}, ${b2}`:side==='right'?`${320-WT}, ${a2}, ${WT}, ${b2}`:side==='top'?`${a2}, 0, ${b2}, ${WT}`:`${a2}, ${320-WT}, ${b2}, ${WT}`;
+            body.push(`  door: box ${dbox} : fill : col 150, 100, 55 : fixed`); d=d2; }
+          k=k2; } else { let k2=k; while(k2<5&&!open[side](k2)) k2++; const a=k===0?0:px(k), b=f1((k2===5?320:px(k2))-a);
+          if(side==='left') wall(0,a,WT,b); else if(side==='right') wall(320-WT,a,WT,b); else if(side==='top') wall(a,0,b,WT); else wall(a,320-WT,b,WT); k=k2; } } }
+    for(let i=0;i<5;i++){ let j=0; while(j<5){ if(t[i*6+j]!==WC.WALL){ j++; continue; } let j2=j; while(j2<5&&t[i*6+j2]===WC.WALL) j2++; wall(px(j),px(i),f1(px(j2)-px(j)),f1(px(i+1)-px(i))); j=j2; } }
+    const seen=new Set();
+    for(let i=0;i<5;i++)for(let j=0;j<5;j++){ const v=t[i*6+j], k=i*6+j; if(v===WC.WALL||v===WC.FLOOR||v===WC.HERO||seen.has(k)) continue;
+      if(v===WC.DOOR){ let i2=i+1; while(i2<5&&t[i2*6+j]===WC.DOOR) i2++; let j2=j+1; while(j2<5&&t[i*6+j2]===WC.DOOR) j2++;
+        if(i2-i>=j2-j){ for(let q=i;q<i2;q++) seen.add(q*6+j); body.push(`  door: box ${f1(px(j)+WCELL/2-6)}, ${px(i)}, ${WT}, ${f1(px(i2)-px(i))} : fill : col 150, 100, 55 : fixed`); }
+        else { for(let q=j;q<j2;q++) seen.add(i*6+q); body.push(`  door: box ${px(j)}, ${f1(px(i)+WCELL/2-6)}, ${f1(px(j2)-px(j))}, ${WT} : fill : col 150, 100, 55 : fixed`); }
+        continue; }
+      const nm=(v===WC.KEY&&prog&&prog.defs&&prog.defs.keyitem&&!prog.defs.key)?'keyitem':WNAME[v];
+      body.push(`  new ${nm} ${Math.round(px(j)+WCELL/2-7)}, ${Math.round(px(i)+WCELL/2-7)}`); }
+    out.push((me===1?'init:':'scene '+me+':')+`  # at ${x},${y}`+'\n'+body.join('\n'));
+  }
+  // rules: defs, common (hero placed where the map says), frame (exits rewired)
+  const rules=[]; const heroXY=H?`${Math.round(px(H.j)+WCELL/2-6)}, ${Math.round(px(H.i)+WCELL/2-6)}`:'20, 154';
+  for(const b of blocks){ if(!b.head||/^(init|scene)/.test(b.head)) continue; let ls=b.lines;
+    if(b.head==='common'){ ls=ls.filter(l=>!/^\s*wall\s*:/.test(l)); ls=ls.map(l=>/^\s*new\s+hero\b/.test(l)?'  new hero '+heroXY:l); if(!ls.some(l=>/^\s*new\s+hero\b/.test(l))) ls=['  new hero '+heroXY,...ls]; }
+    if(b.head==='frame'){ ls=ls.filter(l=>!/^\s*on\s+hit\s+hero\s+(exit|go\d+)\b/.test(l)); }
+    rules.push(b.head+':\n'+ls.join('\n').replace(/\n+$/,'')); }
+  if(!blocks.some(b=>b.head==='common')) rules.push('common:\n  new hero '+heroXY);
+  const head=blocks[0].lines.filter(l=>/^\s*#/.test(l)&&!/^#\s*map\s+\d+x\d+/.test(l)).join('\n');
+  return `# map ${R}x${R}\n`+(head?head+'\n\n':'')+rules.join('\n\n')+'\n\n'+out.join('\n\n')+'\n';
+}
+/* a map arrived (scan / picture / painter): rewrite the scenes in the editor and play */
+function wLoad(W){ codeEl.value=mapToSrc(W,codeEl.value); closeOv(); run(); setStatus('map loaded',false); }
+function wLoadFrom(img){ let m=null; try{ m=mdetect.detect(img); }catch(e){} if(m&&m.world){ wLoad(m.world); return true; }
+  if(m&&m.bytes){ try{ const src=unpackBin(m.bytes); if(src!==null){ codeEl.value=src; closeOv(); run(); return true; } }catch(e){} } return false; }
+/* does this program speak map? (a hero def and at least one scene) */
+function wSpeaks(){ return !!(prog&&!prog.err&&prog.defs&&prog.defs.hero); }
+
+/* ── the painter: draw a map by hand. Fractal: a block is 3×3 rooms; zoom out and the block is one of nine. ── */
+document.getElementById('btn-paint').onclick=()=>{
+  let W=null; try{ if(!running){ prog=compile(codeEl.value); } if(wSpeaks()) W=progToMap(running); }catch(e){} if(!W) W=wmap.blank(3);
+  const padTo=(W,R)=>{ if(W.R===R) return W; const W2=wmap.blank(R); for(let y=0;y<Math.min(R,W.R);y++)for(let x=0;x<Math.min(R,W.R);x++) W2.tiles[y][x]=W.tiles[y][x]; W2.hp=W.hp; W2.haskey=W.haskey; W2.sword=W.sword; W2.ahp=W.ahp; W2.quest=W.quest; W2.gold=W.gold; W2.bow=W.bow; return W2; };
+  W=padTo(W,Math.max(3,Math.ceil(W.R/3)*3));
+  let brush=WC.FLOOR, win=null, undo=[];          // win: {ox,oy} = the 3×3 block being painted (room units); null = overview
+  if(W.R===3) win={ox:0,oy:0};
+  const snap=()=>{ undo.push(W.tiles.map(r=>r.map(t=>Uint8Array.from(t)))); if(undo.length>40) undo.shift(); };
+  card.innerHTML=`<h2>paint the map</h2>
+    <div class="row"><button id="pt-play" class="go">▶ play it</button><button id="pt-undo">undo</button><button id="pt-view">overview</button><button id="pt-out">zoom out ×3</button><button id="qr-close">close</button></div>
+    <div id="pal" class="row" style="flex-wrap:wrap"></div>
+    <div id="qrbox" style="touch-action:none"></div>
+    <p id="pt-help" style="margin:0 0 8px"></p>
+    <div class="meta"></div>
+    <div class="row"><button id="pt-dl">download png</button><button id="pt-print">print blank grid</button><button id="pt-new">new</button></div>`;
+  ov.classList.add('open'); document.getElementById('qr-close').onclick=closeOv;
+  const pal=document.getElementById('pal'), box=document.getElementById('qrbox'), help=document.getElementById('pt-help'); let c;
+  const TOOLS=[['room','carve or fill a whole room'],['passage','open or close a wall between rooms']];
+  const paintPal=()=>{ pal.innerHTML='';
+    WNAME.forEach((n,v)=>{ const b=document.createElement('button'); const P=mcode.PALETTE[v]; b.textContent=n; b.style.borderColor=v===brush?'#fff':`rgb(${P[0]},${P[1]},${P[2]})`; b.style.borderWidth='2px'; b.style.background=`rgba(${P[0]},${P[1]},${P[2]},.35)`; b.onclick=()=>{brush=v;paintPal();}; pal.appendChild(b); });
+    TOOLS.forEach(([n,tip])=>{ const b=document.createElement('button'); b.textContent='⌗ '+n; b.title=tip; b.style.borderWidth='2px'; b.style.borderColor=brush===n?'#fff':'#5a6478'; b.onclick=()=>{brush=n;paintPal();}; pal.appendChild(b); }); };
+  const sub=()=>{ if(!win) return W; const V={R:3,tiles:[],hp:W.hp,haskey:W.haskey,sword:W.sword,ahp:W.ahp,quest:W.quest,gold:W.gold,bow:W.bow}; for(let y=0;y<3;y++){ V.tiles.push([]); for(let x=0;x<3;x++) V.tiles[y].push(W.tiles[win.oy+y][win.ox+x]); } return V; };   // tiles shared: painting writes through
+  const redraw=()=>{ box.innerHTML=''; const V=sub(); const g=wmap.toGrid(V), N=g.length;
+    if(win){ for(let q=0;q<3;q++){ const L=win.ox>0?W.tiles[win.oy+q][win.ox-1]:null, U=win.oy>0?W.tiles[win.oy-1][win.ox+q]:null;   // passages into the blocks left/above: notches in the frame (view only)
+        for(let k=0;k<5;k++){ if(L&&L[k*6+5]!==WC.WALL) g[1+q*6+k][0]=L[k*6+5]; if(U&&U[30+k]!==WC.WALL) g[0][1+q*6+k]=U[30+k]; } } }
+    c=wmap.render(g,Math.min(560,card.clientWidth-48,window.innerWidth-80)); box.appendChild(c);
+    const cell=c.width/(N+4);
+    if(!win){ const gx=c.getContext('2d'); gx.strokeStyle='rgba(255,80,80,.7)'; gx.lineWidth=Math.max(1,cell/3);   // block dividers (editor only; the download is clean)
+      for(let k=3;k<W.R;k+=3){ const q=(k*6+1+2)*cell; gx.beginPath(); gx.moveTo(q,3*cell); gx.lineTo(q,(N+1)*cell); gx.moveTo(3*cell,q); gx.lineTo((N+1)*cell,q); gx.stroke(); } }
+    help.textContent=win?`Block ${win.ox/3+1},${win.oy/3+1} of ${W.R/3}×${W.R/3}. Tap to paint. ⌗ room carves a room, ⌗ passage opens a wall; white in a wall is an opening, red a locked door.`:`Overview: ${W.R}×${W.R} rooms in ${W.R/3}×${W.R/3} blocks. Tap a block to paint its nine rooms.`;
+    card.querySelector('.meta').textContent=`${W.R}×${W.R} rooms · ${W.R*6+2}×${W.R*6+2} modules`;
+    document.getElementById('pt-view').style.display=win&&W.R>3?'':'none';
+    let down=false, stroked=false; const at=e=>{ const r=c.getBoundingClientRect(); return [Math.floor((e.clientX-r.left)*c.width/r.width/cell)-2, Math.floor((e.clientY-r.top)*c.height/r.height/cell)-2]; };
+    const paint=e=>{ const [x,y]=at(e); if(x<1||y<1||x>=N-1||y>=N-1) return; const i=(y-1)%6,j=(x-1)%6, t=V.tiles[((y-1)/6)|0][((x-1)/6)|0];
+      if(brush==='room'){ if(stroked) return; stroked=true; const v=wmap.hasFloor(t)?WC.WALL:WC.FLOOR; for(let q=0;q<5;q++)for(let w=0;w<5;w++) t[q*6+w]=v; redraw(); return; }
+      if(brush==='passage'){ if(stroked) return; stroked=true;
+        const rx=((x-1)/6)|0, ry=((y-1)/6)|0; const d=[['top',i],['left',j],['right',5-j],['bottom',5-i]].sort((a,b)=>a[1]-b[1])[0][0];   // nearest side of the room
+        const ox=win?win.ox:0, oy=win?win.oy:0; const Tt=(ax,ay)=>{ ax+=ox; ay+=oy; return (ay>=0&&ay<W.R&&ax>=0&&ax<W.R)?W.tiles[ay][ax]:null; }; let tt=null,k=0;   // whole map, not just this block
+        if(d==='right'&&Tt(rx+1,ry)){ tt=t; k=2*6+5; } else if(d==='bottom'&&Tt(rx,ry+1)){ tt=t; k=30+2; } else if(d==='left'&&Tt(rx-1,ry)){ tt=Tt(rx-1,ry); k=2*6+5; } else if(d==='top'&&Tt(rx,ry-1)){ tt=Tt(rx,ry-1); k=30+2; }
+        if(!tt){ setStatus('no room on that side',true); return; }
+        tt[k]=tt[k]===WC.WALL?WC.FLOOR:WC.WALL; redraw(); return; }
+      if(i===5&&j===5) return; if((i===5||j===5)&&brush!==WC.WALL&&brush!==WC.FLOOR&&brush!==WC.DOOR) return;
+      t[i*6+j]=brush; const gx=c.getContext('2d'); const P=mcode.PALETTE[brush]; gx.fillStyle=`rgb(${P[0]},${P[1]},${P[2]})`; gx.fillRect((x+2)*cell,(y+2)*cell,cell,cell); };
+    const pick=e=>{ const [x,y]=at(e); if(x<1||y<1||x>=N-1||y>=N-1) return; win={ox:Math.floor((x-1)/18)*3,oy:Math.floor((y-1)/18)*3}; redraw(); };
+    if(win){ c.onpointerdown=e=>{down=true;stroked=false;snap();c.setPointerCapture(e.pointerId);paint(e);e.preventDefault();}; c.onpointermove=e=>{if(down)paint(e);}; c.onpointerup=c.onpointercancel=()=>{down=false;}; }
+    else { c.onpointerdown=e=>{pick(e);e.preventDefault();}; c.style.cursor='zoom-in'; } };
+  paintPal(); redraw();
+  document.getElementById('pt-undo').onclick=()=>{ const u=undo.pop(); if(!u) return; W.tiles=u; redraw(); };
+  document.getElementById('pt-view').onclick=()=>{ win=null; redraw(); };
+  document.getElementById('pt-out').onclick=()=>{ const R=W.R*3; if(R*6+2>200){ setStatus('that is as far out as a picture can be read',true); return; }
+    const W2=wmap.blank(R); const o=W.R; for(let y=0;y<W.R;y++)for(let x=0;x<W.R;x++) W2.tiles[o+y][o+x]=W.tiles[y][x]; W2.hp=W.hp; W2.haskey=W.haskey; W2.sword=W.sword; W2.ahp=W.ahp; W2.quest=W.quest; W2.gold=W.gold; W2.bow=W.bow; W=W2; win=null; undo=[]; redraw(); };
+  document.getElementById('pt-play').onclick=()=>{ let any=false; for(const row of W.tiles)for(const t of row) if(wmap.hasFloor(t)) any=true; if(!any){ setStatus('that map has no floor',true); return; } wLoad(W); };
+  document.getElementById('pt-dl').onclick=()=>{ const a=document.createElement('a'); a.href=wmap.render(wmap.toGrid(W)).toDataURL(); a.download='qr2d-map.png'; a.click(); };
+  document.getElementById('pt-print').onclick=()=>{ const R=win?3:W.R, N=R*6+2, m=24, pad=30;   // frame and the red L solid; rooms as a faint grid to colour in. A PNG, so it prints from anywhere.
+    const c=document.createElement('canvas'); c.width=N*m+pad*2; c.height=N*m+pad*2+140; const gx=c.getContext('2d'); gx.fillStyle='#fff'; gx.fillRect(0,0,c.width,c.height);
+    for(let r=0;r<N;r++)for(let k=0;k<N;k++){ const edge=r===0||k===0||r===N-1||k===N-1; const L=(r===0&&k<2)||(r===1&&k===0); const i=(r-1)%6,j=(k-1)%6; const slot=!edge&&(i===5||j===5);
+      gx.fillStyle=L?'#d21e1e':edge?'#000':slot?'#c8c8c8':'#fff'; gx.fillRect(pad+k*m,pad+r*m,m,m); gx.strokeStyle='#bbb'; gx.lineWidth=1; gx.strokeRect(pad+k*m+0.5,pad+r*m+0.5,m-1,m-1); }
+    gx.fillStyle='#000'; gx.font='15px monospace'; const lines=[`QR2D blank map, ${R}×${R} rooms. Rooms: leave white, black for walls. Grey slots are the walls between rooms:`,
+      'white = opening, red = locked door. Blue hero, yellow coin, green slime, cyan key, magenta chest,','orange boss, grey sword, purple great sword, brown shopkeeper, pink quest giver, steel armor, mint treasure, deep-pink healer.','Top edge after the red L: one blue per hp. Photograph flat, scan.'];
+    lines.forEach((l,q)=>gx.fillText(l,pad,N*m+pad*2+22+q*22));
+    const a=document.createElement('a'); a.href=c.toDataURL(); a.download=`qr2d-blank-${R}x${R}.png`; a.click(); setStatus('blank grid saved as a picture: print it from your gallery',false); };
+  document.getElementById('pt-new').onclick=()=>{ snap(); W=wmap.blank(3); win={ox:0,oy:0}; redraw(); };
+};
+/* ── character builder: an object linker. Parts (box / circ / oval / tri) hang off a root at an offset; it writes the def. ── */
+document.getElementById('btn-char').onclick=()=>{
+  const defNames=[...codeEl.value.matchAll(/^def\s+(\w+)\s*:/gm)].map(m=>m[1]);
+  let name=defNames.includes('hero')?'hero':(defNames[0]||'thing'), parts=[];
+  const defRange=nm=>{ const L=codeEl.value.split('\n'); const a=L.findIndex(l=>new RegExp('^def\\s+'+nm+'\\s*:').test(l)); if(a<0) return null; let b=a+1; while(b<L.length&&(/^\s/.test(L[b])||L[b].trim()==='')){ if(L[b].trim()===''&&!(b+1<L.length&&/^\s/.test(L[b+1]))) break; b++; } return [a,b,L]; };
+  const parseDef=nm=>{ const r=defRange(nm); const out=[]; if(!r) return out;
+    for(const l of r[2].slice(r[0]+1,r[1])){ const pm=/^\s*(?:(\w+)\s*:\s*)?(box|circ|oval|tri)\b\s*([^:]*)(.*)$/.exec(l); if(!pm){ if(l.trim()) out.push({raw:l}); continue; }
+      const nums=pm[3].split(',').map(v=>parseFloat(v)).filter(v=>!isNaN(v)); const col=/col\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/.exec(pm[4]); const at=/attach\s+(\w+)\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/.exec(pm[4]);
+      const p={name:pm[1]||'',shape:pm[2],w:nums[2]||12,h:nums[3]||nums[2]||12,fill:/\bfill\b/.test(pm[4]),col:col?[+col[1],+col[2],+col[3]]:[200,200,200],dx:at?+at[2]:0,dy:at?+at[3]:0,root:!at,extra:pm[4].replace(/:\s*(fill|col\s*[\d.,\s]+|attach\s+\w+\s*[-\d.,\s]+)\s*/g,'').trim()};
+      if(p.shape==='circ'){ p.w=p.h=(nums[2]||6)*2; } out.push(p); }
+    return out; };
+  parts=parseDef(name); if(!parts.length) parts=[{name:'',shape:'box',w:12,h:12,fill:true,col:[70,120,220],dx:0,dy:0,root:true,extra:''}];
+  const hex=c=>'#'+c.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); const unhex=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+  card.innerHTML=`<h2>build a character</h2>
+    <div class="row"><input id="ch-name" value="${name}" style="width:110px;font-family:inherit;background:#0f1218;color:#e6e9ef;border:1px solid var(--edge);border-radius:6px;padding:6px"><select id="ch-pick" style="font-family:inherit;background:#0f1218;color:#e6e9ef;border:1px solid var(--edge);border-radius:6px;padding:6px"><option value="">edit existing…</option>${defNames.map(d=>`<option>${d}</option>`).join('')}</select><button id="ch-add">+ part</button></div>
+    <div id="qrbox" style="min-height:120px"></div>
+    <div id="ch-parts" style="text-align:left;font-size:12px;max-height:220px;overflow:auto"></div>
+    <p style="margin:8px 0">The first row is the root; every other part hangs off it at dx, dy. Negative dy is up. Width × height; circles use width.</p>
+    <div class="row"><button id="ch-ins" class="go">insert into program</button><button id="qr-close">close</button></div>`;
+  ov.classList.add('open'); document.getElementById('qr-close').onclick=closeOv;
+  const box=document.getElementById('qrbox'), list=document.getElementById('ch-parts'), nameEl=document.getElementById('ch-name');
+  const preview=()=>{ box.innerHTML=''; const c=document.createElement('canvas'); const S=4; c.width=c.height=240; const g=c.getContext('2d'); g.fillStyle='#24222e'; g.fillRect(0,0,240,240);
+    const ox=100,oy=100; parts.forEach(p=>{ if(p.raw) return; const x=ox+(p.root?0:p.dx)*S, y=oy+(p.root?0:p.dy)*S, w=p.w*S, h=p.h*S; g.fillStyle=g.strokeStyle=`rgb(${p.col.join(',')})`; g.lineWidth=2; g.beginPath();
+      if(p.shape==='box') g.rect(x,y,w,h); else if(p.shape==='circ') g.ellipse(x,y,Math.abs(w/2),Math.abs(h/2),0,0,Math.PI*2); else if(p.shape==='oval') g.ellipse(x+w/2,y+h/2,Math.abs(w/2),Math.abs(h/2),0,0,Math.PI*2); else { g.moveTo(x+w/2,y); g.lineTo(x+w,y+h); g.lineTo(x,y+h); g.closePath(); }   // circ: x,y is the centre, as in the game
+      if(p.fill) g.fill(); else g.stroke(); });
+    c.style.width=c.style.height='180px'; c.style.imageRendering='pixelated'; box.appendChild(c); };
+  const inp=(v,w,cb,type='number')=>{ const e=document.createElement('input'); e.type=type; e.value=v; e.style.cssText=`width:${w}px;font-family:inherit;font-size:12px;background:#0f1218;color:#e6e9ef;border:1px solid var(--edge);border-radius:4px;padding:3px`; e.oninput=()=>{cb(e.value);preview();}; return e; };
+  const render=()=>{ list.innerHTML=''; parts.forEach((p,i)=>{ const row=document.createElement('div'); row.style.cssText='display:flex;gap:4px;align-items:center;margin:3px 0;flex-wrap:wrap';
+      if(p.raw){ row.textContent=p.raw.trim()+'  (kept as is)'; row.style.color='#8a93a6'; const x=document.createElement('button'); x.textContent='×'; x.onclick=()=>{parts.splice(i,1);render();}; row.appendChild(x); list.appendChild(row); return; }
+      if(!p.root) row.appendChild(inp(p.name,56,v=>p.name=v,'text')); else { const r=document.createElement('span'); r.textContent='root'; r.style.width='56px'; r.style.color='#4ad7b0'; row.appendChild(r); }
+      const sh=document.createElement('select'); ['box','circ','oval','tri'].forEach(s=>{const o=document.createElement('option');o.textContent=s;o.selected=p.shape===s;sh.appendChild(o);}); sh.style.cssText='font-family:inherit;font-size:12px;background:#0f1218;color:#e6e9ef;border:1px solid var(--edge);border-radius:4px'; sh.onchange=()=>{p.shape=sh.value;preview();}; row.appendChild(sh);
+      row.appendChild(inp(p.w,40,v=>p.w=+v||1)); row.appendChild(inp(p.h,40,v=>p.h=+v||1));
+      const col=inp(hex(p.col),32,v=>p.col=unhex(v),'color'); col.style.padding='0'; col.style.height='24px'; row.appendChild(col);
+      const f=document.createElement('input'); f.type='checkbox'; f.checked=p.fill; f.title='fill'; f.onchange=()=>{p.fill=f.checked;preview();}; row.appendChild(f);
+      if(!p.root){ row.appendChild(inp(p.dx,40,v=>p.dx=+v||0)); row.appendChild(inp(p.dy,40,v=>p.dy=+v||0)); const x=document.createElement('button'); x.textContent='×'; x.onclick=()=>{parts.splice(i,1);render();preview();}; row.appendChild(x); }
+      list.appendChild(row); });
+    const hdr=document.createElement('div'); hdr.style.cssText='color:#8a93a6;margin-top:4px'; hdr.textContent='name · shape · w · h · colour · fill · dx · dy'; list.appendChild(hdr); preview(); };
+  document.getElementById('ch-add').onclick=()=>{ parts.push({name:'part'+parts.length,shape:'box',w:6,h:6,fill:true,col:[220,200,160],dx:0,dy:-8,root:false,extra:''}); render(); };
+  document.getElementById('ch-pick').onchange=e=>{ if(!e.target.value) return; name=e.target.value; nameEl.value=name; parts=parseDef(name); if(!parts.length) parts=[{name:'',shape:'box',w:12,h:12,fill:true,col:[200,200,200],dx:0,dy:0,root:true,extra:''}]; render(); };
+  document.getElementById('ch-ins').onclick=()=>{ name=nameEl.value.trim()||'thing'; const dim=p=>p.shape==='circ'?`${p.w/2}`:`${p.w}, ${p.h}`;
+    const lines=parts.map(p=>p.raw?p.raw:`  ${p.root?'':(p.name||'part')+': '}${p.shape} 0, 0, ${dim(p)}${p.fill?' : fill':''} : col ${p.col.join(', ')}${p.root?'':` : attach ${name} ${p.dx}, ${p.dy}`}${p.extra?' '+p.extra:''}`);
+    const block=`def ${name}:\n${lines.join('\n')}`; const r=defRange(name);
+    if(r){ const L=r[2]; L.splice(r[0],r[1]-r[0],block); codeEl.value=L.join('\n'); } else codeEl.value=block+'\n\n'+codeEl.value;
+    closeOv(); run(); setStatus(`def ${name} written`,false); };
+  render();
+};
+
+/* autorun on first load */
+run();
+</script>
+</body>
+</html>
