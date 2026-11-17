@@ -71,7 +71,9 @@ async function runSource(browser, fileUrl, src, stats, waitMs) {
   await probe.waitForFunction(() => typeof EX === 'object' && typeof LIBS === 'object');
   // TEMPORARY SKIP LIST — REMOVE AT MERGE. The "modules" example (three files, import / package / public) only
   // compiles once the module-system branch is merged into the compiler.
-  const SKIP_UNTIL_MERGE = [];
+  // "memory" (Memory tab demo: struct / region / screen / freeze) needs the structs-and-regions compiler and
+  // runtime; it was written in the mem-ide worktree before that branch was merged. REMOVE AT MERGE.
+  const SKIP_UNTIL_MERGE = ['memory'];
   const exNames = (await probe.evaluate(() => Object.keys(EX))).filter(n => !SKIP_UNTIL_MERGE.includes(n));
   const libs = await probe.evaluate(() => LIBS.map(l => ({ name: l.name, example: l.example || null, cdn: l.cdn })));
   await probe.context().close();
