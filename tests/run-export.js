@@ -717,7 +717,7 @@ async function checkOthers(c, ide) {
   await tools.goto(fileUrl);
   // TEMPORARY SKIP LIST — REMOVE AT MERGE. The "modules" example (three files, import / package / public) only
   // compiles once the module-system branch is merged into the compiler. Naming it on the command line still runs it.
-  const SKIP_UNTIL_MERGE = ['modules'];
+  const SKIP_UNTIL_MERGE = [];
   const exNames = (await tools.evaluate(() => Object.keys(EX))).filter(n => !SKIP_UNTIL_MERGE.includes(n) || only.includes(n));
   await tools.goto('about:blank');
   const OFFLINE_EXAMPLES = ['cube3d', 'orbit', 'babylon', 'confetti'];

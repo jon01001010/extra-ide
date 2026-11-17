@@ -74,7 +74,7 @@ async function runExample(browser, fileUrl, name) {
   // TEMPORARY SKIP LIST — REMOVE AT MERGE. The "modules" example is a project of three files that uses
   // import / package / public; it only compiles once the module-system branch is merged into the compiler.
   // (Naming it on the command line still runs it.)
-  const SKIP_UNTIL_MERGE = ['modules'];
+  const SKIP_UNTIL_MERGE = [];
   const all = await probe.evaluate(() => Object.keys(EX));
   const skippedNames = all.filter(n => SKIP_UNTIL_MERGE.includes(n) && !only.includes(n));
   const names = all.filter(n => !skippedNames.includes(n)).filter(n => !only.length || only.includes(n));
