@@ -76,7 +76,7 @@ async function runExample(browser, fileUrl, name) {
   // (Naming it on the command line still runs it.)
   // "memory" (Memory tab demo: struct / region / screen / freeze) needs the structs-and-regions compiler and
   // runtime; it was written in the mem-ide worktree before that branch was merged. REMOVE AT MERGE.
-  const SKIP_UNTIL_MERGE = ['memory'];
+  const SKIP_UNTIL_MERGE = [];
   const all = await probe.evaluate(() => Object.keys(EX));
   const skippedNames = all.filter(n => SKIP_UNTIL_MERGE.includes(n) && !only.includes(n));
   const names = all.filter(n => !skippedNames.includes(n)).filter(n => !only.length || only.includes(n));

@@ -5572,6 +5572,9 @@ buildImportObject=(function(build){return function(imports,outputLog){
 // lengths / element types, the struct layouts and the table of source positions error messages point at.
 // imports.heapBase moves the string allocator above the regions (_strHeapBase).
 var _rgMeta=null,_rgViews=[],_rgScreens=[],_rgGen=0,_rgLoopGen=-1,_rgFrameSeen=new Set();
+// Screens are redrawn by the animation-frame loop while the program animates (once per frame), and once after
+// any other change (a call, a front-panel poke) — so nothing is drawn twice, and a stopped program costs nothing.
+var _rgDirty=false;
 var _RG_TA={i8:Int8Array,u8:Uint8Array,i16:Int16Array,u16:Uint16Array,i32:Int32Array,u32:Uint32Array,int:BigInt64Array,f32:Float32Array,num:Float64Array,bool:Uint8Array};
 function _rgSetup(imports){
   var m=null;
@@ -5645,7 +5648,7 @@ function _rgBlitAll(){for(var i=0;i<_rgScreens.length;i++)_rgBlit1(_rgScreens[i]
 function _rgLoop(){
   if(_rgLoopGen===_rgGen||typeof requestAnimationFrame!=='function')return;
   var g=_rgLoopGen=_rgGen;
-  function tick(){if(g!==_rgGen)return;_rgBlitAll();requestAnimationFrame(tick)}
+  function tick(){if(g!==_rgGen)return;if(_animRunning||_rgDirty){_rgDirty=false;_rgBlitAll()}requestAnimationFrame(tick)}
   requestAnimationFrame(tick);
 }
 function _rgScreen(d,w,h,scale,pos){
@@ -5725,6 +5728,10 @@ function _emitRegionRead(id,index,field){
 // A write from outside the program (the Memory panel): converted / truncated like a store from Emit, and
 // deliberately NOT stopped by freeze. false for a bad id, index, field or value (NaN, non-numeric text).
 function _emitRegionWrite(id,index,field,value){
+  var ok=_emitRegionWrite1(id,index,field,value);if(ok)_rgDirty=true;   // a poke shows on the screen at the next frame
+  return ok;
+}
+function _emitRegionWrite1(id,index,field,value){
   var R=_rgReg(id);if(!R)return false;
   var x=_rgAddrOf(R,index,field);if(!x)return false;
   var dv=new DataView(_wasmMem.buffer),a=x.a,t=x.type,s=typeof value==='string'?value.trim():null;
@@ -5789,7 +5796,7 @@ buildImportObject=(function(build){return function(imports,outputLog){
 // once per message (frame() keeps being called; the failing call itself stopped at the check).
 _emitCallExport=(function(call){return function(inst,name,args,top){
   var r=call.apply(this,arguments);
-  if(_rgScreens.length){if(r&&typeof r.then==='function')r.then(_rgBlitAll,_rgBlitAll);else _rgBlitAll()}
+  if(_rgScreens.length){var redraw=function(){if(_animRunning)_rgDirty=true;else _rgBlitAll()};if(r&&typeof r.then==='function')r.then(redraw,redraw);else redraw()}
   return r;
 }})(_emitCallExport);
 _emitFrame=(function(frame){return function(){

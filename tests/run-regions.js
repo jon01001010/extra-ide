@@ -812,11 +812,14 @@ public fn total(r: region Item) int {
     const interop = fs.readFileSync(path.join(__dirname, 'run-interop.js'), 'utf8');
     const a = interop.indexOf('const TESTS = ['), b = interop.indexOf('\nasync function runTest');
     const progs = eval(interop.slice(interop.indexOf('const FAKE_LIB'), a) + interop.slice(a, b) + '\nTESTS.map(t => t.src.trim() + "\\n")');
+    // Programs are matched by key (example name, or interop index), so examples added later — such as the
+    // region-based 'memory' example — are compared only where the old file has the same example.
     const sums = async pg => pg.evaluate(progs => {
-      const srcs = Object.keys(EX).map(k => EX[k]).concat(progs), out = [];
-      for (const s of srcs) {
-        try { const r = compile(s, 'wasm32'), props = {}; Object.keys(r.imports).forEach(k => { if (!/^\d+$/.test(k)) props[k] = r.imports[k]; }); out.push(Array.from(r.wasm).join(',') + '|' + JSON.stringify(props)); }
-        catch (e) { out.push('THROW ' + e.message); }
+      const keys = Object.keys(EX).map(k => 'ex:' + k).concat(progs.map((_, i) => 'interop:' + i));
+      const srcs = Object.keys(EX).map(k => EX[k]).concat(progs), out = {};
+      for (let n = 0; n < srcs.length; n++) { const s = srcs[n], key = keys[n];
+        try { const r = compile(s, 'wasm32'), props = {}; Object.keys(r.imports).forEach(k => { if (!/^\d+$/.test(k)) props[k] = r.imports[k]; }); out[key] = Array.from(r.wasm).join(',') + '|' + JSON.stringify(props); }
+        catch (e) { out[key] = 'THROW ' + e.message; }
       }
       return out;
     }, progs);
@@ -828,9 +831,11 @@ public fn total(r: region Item) int {
     const before = await sums(op);
     await op.close();
     const p = [];
-    if (now.length !== before.length || now.length < 100) p.push('program count ' + now.length + ' / ' + before.length);
-    now.forEach((x, i) => { if (x !== before[i]) p.push('program ' + i + ' differs'); });
-    ctx.note = now.length + ' programs (examples + interop) byte-identical to ' + BASE_COMMIT;
+    const common = Object.keys(before).filter(k => k in now);
+    if (common.length < 100 || common.length !== Object.keys(before).length) p.push('programs compared ' + common.length + ' of ' + Object.keys(before).length + ' in ' + BASE_COMMIT);
+    common.forEach(k => { if (now[k] !== before[k]) p.push(k + ' differs'); });
+    const added = Object.keys(now).filter(k => !(k in before));
+    ctx.note = common.length + ' programs (examples + interop) byte-identical to ' + BASE_COMMIT + (added.length ? '; not in ' + BASE_COMMIT + ': ' + added.join(', ') : '');
     return p;
   } },
 ];
