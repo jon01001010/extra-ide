@@ -71,6 +71,8 @@ window.memLib = (function () {
     isArray: function (a) { return Array.isArray(a) ? 1 : 0; },
     boom: function (n) { throw new Error('boom ' + n); },
     callZero: function () { if (window.memLibCb) window.memLibCb(); },
+    // memory regions: every string block lies above the heap base the program declared (and that base is past 64 KB)
+    strsAboveHeap: function () { var ok = 1; _strBlocks.forEach(function (z, a) { if (a < _strHeapBase) ok = 0; }); return (_strHeapBase > 65536 && ok) ? 1 : 0; },
     setCb: function (f) { window.memLibCb = f; }
   };
 })();
@@ -302,6 +304,43 @@ export fn check() {
   printStr(keep)
   printStr(keepLate)
 }`, guard: f => ['> label-1', f >= 1500 ? '> late 1500' : '> '] },
+
+  // (h0) memory regions: struct / int regions updated every frame while strings and handles churn; the collector
+  //      must neither treat region bytes as roots nor place a string inside a region (they lie below the heap base)
+  { name: 'regions-guard', kind: 'steady', src: `
+struct P { x: num, n: int, tag: u8 }
+region ps: P[256]
+region hist: int[1000]
+mut n = 0
+export fn run() {
+  for (let i = 0; i < ps.length; i++) {
+    ps[i].x = i * 0.5
+    ps[i].n = i
+    ps[i].tag = i
+  }
+  animate()
+}
+export fn frame() {
+  n++
+  let s = "frame " + n + memLib.big(100)
+  let o = memLib.fresh()
+  hist[n % 1000] += 1
+  with ps[n % 256] as p { p.n += 256 }
+}
+export fn check() {
+  let bad = 0
+  let total = 0
+  let nsum = 0
+  for (let i = 0; i < ps.length; i++) {
+    if (ps[i].tag != i || ps[i].x != i * 0.5) { bad++ }
+    nsum += ps[i].n
+  }
+  for (let i = 0; i < hist.length; i++) { total += hist[i] }
+  print(bad)
+  print(total)
+  print(nsum)
+  print(toInt(memLib.strsAboveHeap()))
+}`, guard: f => ['> 0', '> ' + f, '> ' + (32640 + 256 * f), '> 1'] },
 
   // (h) Emit arrays created every frame
   { name: 'arrays-per-frame', kind: 'steady', src: `

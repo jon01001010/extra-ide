@@ -143,6 +143,26 @@ const LEAFLET_EMBEDDED = () => {
   return p;
 };
 const JS_ORIGIN = 'http://export.test';
+// Exported pages with memory regions: the introspection API is on window, the heap base reached the runtime.
+const REGIONS_PAGE_CHECK = () => {
+  var p = [], rs = window._emitRegions ? window._emitRegions() : null;
+  if (!rs || rs.length !== 2) return ['window._emitRegions() should list 2 regions, got ' + JSON.stringify(rs)];
+  if (rs[0].name !== 'balls' || rs[0].elem.struct !== 'Ball' || rs[0].elemSize !== 32 || rs[1].frozen !== true) p.push('regions: ' + JSON.stringify(rs));
+  if (window._emitRegionRead(0, 4, 'pos.x') !== 2.5 || window._emitRegionRead(0, 4, 'hist[1]') !== -2 || window._emitRegionRead(1, 15) !== 15) p.push('_emitRegionRead');
+  if (window._emitRegionWrite(1, 0, undefined, 5) !== true || window._emitRegionRead(1, 0) !== 5) p.push('_emitRegionWrite (frozen bypass)');
+  if (window._emitRegionBytes(1).length !== 128) p.push('_emitRegionBytes');
+  return p;
+};
+const SCREEN_PAGE_CHECK = async () => {
+  await new Promise(r => setTimeout(r, 300));
+  const c = document.querySelector('canvas[data-emit-screen]');
+  if (!c) return ['no screen canvas'];
+  const p = [], d = c.getContext('2d').getImageData(5, 3, 1, 1).data, d0 = c.getContext('2d').getImageData(0, 0, 1, 1).data;
+  if (c.width !== 8 || c.height !== 8 || c.style.width !== '32px') p.push('canvas ' + c.width + 'x' + c.height + ' ' + c.style.width);
+  if (!(d[0] > 0) || d[2] !== 200 || d[3] !== 255) p.push('pixel 5,3 = ' + Array.from(d).join(','));
+  if (d0[0] !== 0 || d0[2] !== 200) p.push('pixel 0,0 = ' + Array.from(d0).join(','));
+  return p;
+};
 
 const prog = (useLine, body) => useLine + '\n\nexport fn main() {\n' + body + '\n}\n';
 // Programs that are not bundled examples. `drive` runs in every page after the first snapshot.
@@ -313,6 +333,35 @@ const EXTRA = {
       '  if (me == 1) { throw "handler stops" }', '}', ''].join('\n'),
     expect: 'loaded data1',
     expect2: 'handler stops',
+  },
+  // ── memory regions and structs: the heap base and the region metadata travel on the import list ──
+  '+regions': {
+    offline: true,
+    src: [
+      'struct Vec { x: num, y: num }', 'struct Ball { pos: Vec, n: int, hist: i16[2] }',
+      'region balls: Ball[8]', 'region grid: int[16]', '',
+      'fn total(r: region int) int {', '  let s = 0', '  for (let i = 0; i < r.length; i++) { s += r[i] }', '  return s', '}', '',
+      'export fn main() {', '  for (let i = 0; i < grid.length; i++) { grid[i] = i }',
+      '  with balls[3] as b { b.pos.x = 2.5  b.n = 7  b.hist[1] = -2 }', '  balls[4] = balls[3]',
+      '  printStr("total " + total(grid) + " n " + balls[4].n + " x " + balls[4].pos.x)',
+      '  freeze(grid)', '  try { grid[0] = 1 } catch (e) { printStr("caught: " + e.message) }',
+      '  let i = 99', '  try { print(grid[i]) } catch (e) { printStr("caught: " + e.message) }',
+      '  let s: str = toStr(JSON.stringify([1, 2, 3])) + "!"', '  printStr("strings still work " + s)',
+      '}', ''].join('\n'),
+    expect: 'caught: write to frozen region grid at main.emit:18:9',
+    expect2: 'caught: grid[99]: index out of range (length 16) at main.emit:20:15',
+    htmlCheck: page => page.evaluate(REGIONS_PAGE_CHECK),
+    jsCheck: page => page.evaluate(REGIONS_PAGE_CHECK),
+  },
+  '+regions-screen': {
+    src: [
+      'region fb: u8[8 * 8 * 4]', 'mut t = 0', '',
+      'export fn main() {', '  for (let i = 0; i < 64; i++) {', '    fb[i * 4 + 2] = 200', '    fb[i * 4 + 3] = 255', '  }',
+      '  screen(fb, 8, 8, 4)', '  printStr("screen up")', '  animate()', '}', '',
+      'export fn frame() {', '  t++', '  if (t < 200) { fb[(3 * 8 + 5) * 4] = t }', '}', ''].join('\n'),
+    expect: 'screen up',
+    htmlCheck: page => page.evaluate(SCREEN_PAGE_CHECK),
+    jsCheck: page => page.evaluate(SCREEN_PAGE_CHECK),
   },
   // ── multi-file projects (one text, `//// file: <path>` starts a file; the first file is the entry) ──
   // synchronous, with a frame loop; state lives in the globals of a second module; a button handler
