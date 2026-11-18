@@ -1362,6 +1362,8 @@ const SPECIAL = [
         n++;
         // a multi-file example (added later by the IDE) has no "before": the old compiler cannot read it
         if (sources[k].split('\n').some(l => l.indexOf(MARK) === 0) || /^\s*(import\s+(?!fn\b)|public\s|package\s)/m.test(sources[k])) { n--; continue; }
+        // an example the base page does not have (EX is a const there, so `before` only covers its own examples)
+        if (!before[k]) { n--; continue; }
         if (JSON.stringify(now[k]) !== JSON.stringify(before[k])) problems.push('example "' + k + '" compiles differently than before the module system' + (now[k].thrown || before[k].thrown ? ': ' + JSON.stringify([before[k].thrown, now[k].thrown]) : ''));
         else if (now[k].thrown) problems.push('example "' + k + '" does not compile: ' + now[k].thrown);
       }
