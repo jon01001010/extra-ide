@@ -2638,12 +2638,14 @@ function _emitModPublics(m){
   });
   return out;
 }
+// the module name as the files spell it (module names are case-insensitive: import Game.Physics is game.physics)
+function _ncModName(byName,name){if(!byName||byName.has(name))return name;var k=String(name).toLowerCase(),r=name;byName.forEach(function(v,n){if(n.toLowerCase()===k)r=n});return r}
 function _emitModImports(m,byName){
   var out=[];
   if(!m.ast)return out;
   m.ast.body.forEach(function(n){
     if(n.type!=='ModImportDecl')return;
-    var full=n.path.join('.'),pre=n.path.slice(0,-1).join('.');
+    var full=_ncModName(byName,n.path.join('.')),pre=_ncModName(byName,n.path.slice(0,-1).join('.'));
     if(n.star)out.push({module:full,alias:null,names:null,star:true});
     else if(byName.has(full)||n.path.length<2||!byName.has(pre))out.push({module:full,alias:n.alias||n.path[n.path.length-1],names:null,star:false});
     else out.push({module:pre,alias:n.alias||null,names:[n.path[n.path.length-1]],star:false});
@@ -5099,7 +5101,7 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
           case'start':case'tap':case'touch':break;
           case'key':case'keydown':case'keyup':r.key=keyTok(C,'on '+e.value);break;
           case'press':case'hold':r.btn=btnTok(C,'on '+e.value);break;
-          case'hit':r.a=C.word('two things after on hit — on hit hero coin');r.b=C.word('a second thing after on hit '+r.a.value+' — on hit '+r.a.value+' coin (or wall, edge)');break;
+          case'hit':r.a=C.word('two things after on hit — on hit hero coin');r.b=C.word('a second thing after on hit '+r.a.value+' — on hit '+r.a.value+' coin (or wall, edge)');[r.a,r.b].forEach(function(t){if(/^(wall|edge)$/i.test(t.value))t.value=t.value.toLowerCase()});break;
           default:{var h=_emitModClosest(e.value,['start','key','keydown','keyup','press','hold','tap','touch','hit']);throw E(e,'Unknown event "on '+e.value+'"'+(h?' — did you mean "on '+h+'"?':' — use on start, on key K, on keydown K, on keyup K, on press A, on hold A, on tap, on touch, on hit A B'))}
         }
         break;
@@ -5238,7 +5240,7 @@ function _lgLower(prog){
     if(kinds.has(d.name))throw E(d.nameTok,'thing '+d.name+' is already declared at line '+kinds.get(d.name).decl.loc.line);
     if(userNames.has(d.name))throw E(d.nameTok,'"'+d.name+'" is already declared at line '+((userNames.get(d.name).loc||{}).line||1)+' of this file — a thing name is a top-level name too (its region)');
     if(/^__lg/.test(d.name))throw E(d.nameTok,'Names starting with __lg are reserved');
-    if(d.name==='wall'||d.name==='edge')throw E(d.nameTok,'"'+d.name+'" is a word of on hit (solid map tiles / the screen edge) — call the thing something else');
+    if(/^(wall|edge)$/i.test(d.name))throw E(d.nameTok,'"'+d.name+'" is a word of on hit (solid map tiles / the screen edge) — call the thing something else');
     if(/^(sqrt|sin|cos|canvas|animate|wipe|rnd|count|stickX|stickY|tapX|tapY|i|game|frame)$/.test(d.name))throw E(d.nameTok,'"'+d.name+'" is used by the game code (a builtin, a rules helper or an entry point) — call the thing something else');
     var K={name:d.name,decl:d,idx:KL.length,shape:null,sprite:null,at:null,size:null,count:null,pool:null,map:null,beh:[],flags:{},fields:[],fieldSet:new Set(),struct:'__lgT_'+d.name,track:false};
     var seen={};
@@ -13856,7 +13858,7 @@ hlCode=(function(hl){return function(){
   var r=hl.apply(this,arguments);
   try{
     var src=ed.value;
-    if(!/(^|\n)(sound|music|sprite|map|controls|thing)[ \t]+[A-Za-z_]\w*[ \t]*:|(^|\n)rules[ \t]*:/.test(src))return r;
+    if(!/(^|\n)(sound|music|sprite|map|controls|thing)[ \t]+[A-Za-z_]\w*[ \t]*:|(^|\n)rules[ \t]*:/i.test(src))return r;
     var blocks=_drawerScan(src);if(!blocks.length)return r;
     var html=hlInner.innerHTML,out=html.split('\n'),lines=src.split('\n');
     if(out.length<lines.length)return r;
@@ -13877,9 +13879,9 @@ var _BLK_SNIPS=[['sound','sound name: square 880, 120ms','name'],['music','music
 function _blkACCheck(before){
   try{
     if(_libInStrOrComment(before))return false;
-    var m=/(?:^|[^\w$.])(play|music)\(\s*(\w*)$/.exec(before);
+    var m=/(?:^|[^\w$.])(play|music)\(\s*(\w*)$/i.exec(before);
     if(!m)return false;
-    var kind=m[1]==='play'?'sound':'music',typed=m[2].toLowerCase(),items=[];
+    var kind=m[1].toLowerCase()==='play'?'sound':'music',typed=m[2].toLowerCase(),items=[];
     _drawerBlocks(kind).forEach(function(b){
       if(b.name.toLowerCase().indexOf(typed)!==0||b.name===m[2])return;
       var d=_drawerBody(b.text,kind).trim().split('\n')[0];
@@ -13969,9 +13971,9 @@ function _sprHlBlock(lines){
   function cmt(c){return c?'<span class="cmt">'+escH(c)+'</span>':''}
   return lines.map(function(raw,i){
     var ca=_sprCmtAt(raw),code=ca>=0?raw.slice(0,ca):raw,c=ca>=0?raw.slice(ca):'',hm;
-    if(i===0&&(hm=/^(sprite)(\s+)(\w+)(.*)$/.exec(code)))return'<span class="kw">sprite</span>'+hm[2]+'<span class="spr">'+escH(hm[3])+'</span>'+escH(hm[4])+cmt(c);
-    if((hm=/^(\s+)palette\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">palette</span>'+hm[2].replace(/[^\s]+/g,function(h){return/^#?[0-9a-fA-F]{6}$/.test(h)?'<span class="spc" style="box-shadow:inset 0 -3px #'+h.replace('#','')+'">'+escH(h)+'</span>':escH(h)})+cmt(c);
-    if((hm=/^(\s+)(frame|rle)\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">'+hm[2]+'</span>'+escH(hm[3]).replace(/\brle\b/,'<span class="kw">rle</span>').replace(/"[^"]*"/,function(q){return'<span class="str">'+q+'</span>'})+cmt(c);
+    if(i===0&&(hm=/^(sprite)(\s+)(\w+)(.*)$/i.exec(code)))return'<span class="kw">'+hm[1]+'</span>'+hm[2]+'<span class="spr">'+escH(hm[3])+'</span>'+escH(hm[4])+cmt(c);
+    if((hm=/^(\s+)palette\b(.*)$/i.exec(code)))return hm[1]+'<span class="kw">'+code.substr(hm[1].length,7)+'</span>'+hm[2].replace(/[^\s]+/g,function(h){return/^#?[0-9a-fA-F]{6}$/.test(h)?'<span class="spc" style="box-shadow:inset 0 -3px #'+h.replace('#','')+'">'+escH(h)+'</span>':escH(h)})+cmt(c);
+    if((hm=/^(\s+)(frame|rle)\b(.*)$/i.exec(code)))return hm[1]+'<span class="kw">'+hm[2]+'</span>'+escH(hm[3]).replace(/\brle\b/i,function(w){return'<span class="kw">'+w+'</span>'}).replace(/"[^"]*"/,function(q){return'<span class="str">'+q+'</span>'})+cmt(c);
     if((hm=/^(\s+)"([^"]*)"(\s*)$/.exec(code))){
       var out='',t=hm[2];
       for(var k=0;k<t.length;){var ch=t[k],n=1;while(t[k+n]===ch)n++;var v=_SPR_CHARS.indexOf(ch),hx=v>0?pal[v-1]:null;
@@ -13992,7 +13994,7 @@ hlCode=(function(hl){return function(){
     }
   }catch(e){}
   try{
-    if(ed.value.indexOf('sprite')<0&&!(_proj.files.length>1&&_proj.files.some(function(f){return f.source.indexOf('sprite')>=0})))return r;
+    if(!/sprite/i.test(ed.value)&&!(_proj.files.length>1&&_proj.files.some(function(f){return /sprite/i.test(f.source)})))return r;
     var names=_sprProjectBlocks().map(function(b){return b.name});
     if(!names.length)return r;
     var re=new RegExp('\\b('+names.join('|')+')\\b','g'),kids=Array.prototype.slice.call(hlInner.childNodes);
@@ -15002,6 +15004,7 @@ function _stEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className
 function _stBtn(txt,fn,title){var b=_stEl('button',null,txt);b.type='button';if(title)b.title=title;b.onclick=fn;return b}
 function _stBlockModel(kind,name,text){
   var bl=_stFindBlocks(String(text||'')).filter(function(b){return b.kind===kind&&b.name===name});
+  if(!bl.length)bl=_stFindBlocks(String(text||'')).filter(function(b){return b.kind===kind&&String(b.name).toLowerCase()===String(name).toLowerCase()});   /* names are case-insensitive */
   if(!bl.length)return null;
   var b=bl[0];b.line=0;
   return kind==='map'?_stParseMap(b):_stParseControls(b);
@@ -15714,7 +15717,7 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
     }
     return null;
   }
-  function headRe(kind,name){return kind==='rules'?/^rules\s*:/:new RegExp('^thing\\s+'+name+'\\s*:')}
+  function headRe(kind,name){return kind==='rules'?/^rules\s*:/i:new RegExp('^thing\\s+'+name+'\\s*:','i')}
   function fileStart(lines,i){for(var k=i;k>=0;k--)if(/^\/\/\/\/ file: /.test(lines[k]))return{line:k+1,path:lines[k].slice(11).trim()};return{line:0,path:null}}
   // ── the tool ──
   function open(ctx){
@@ -15760,7 +15763,7 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
       // positions after every replacement: find each block again by its header
       var L2=full.split('\n'),spots=[];
       S.things.forEach(function(T,i){var r=blockRange(L2,headRe('thing',T.name));if(r)spots.push({key:'t'+i,r:r})});
-      var rr=blockRange(L2,/^rules\s*:/);if(rr)spots.push({key:'r',r:rr});
+      var rr=blockRange(L2,/^rules\s*:/i);if(rr)spots.push({key:'r',r:rr});
       var errs=[];
       try{var c=compile(full,'wasm32');errs=c.errors||[]}catch(e){errs=[String(e.message||e)]}
       errs.forEach(function(msg){
@@ -15847,7 +15850,7 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
       var box=pane.querySelector('.lg-thing');if(!box)return;
       function ch(){T.dirty=true;dirty()}
       var raw=box.querySelector('.lg-raw');
-      if(raw)raw.oninput=function(){T.raw=raw.value;T.dirty=true;var m=/^thing\s+(\w+)/.exec(raw.value);if(m)T.name=m[1];dirty()};
+      if(raw)raw.oninput=function(){T.raw=raw.value;T.dirty=true;var m=/^thing\s+(\w+)/i.exec(raw.value);if(m)T.name=m[1];dirty()};
       box.querySelector('.lg-del-thing').onclick=function(){
         var gone=S.things.splice(S.sel,1)[0];
         if(gone&&gone.origName)S.removed.push(gone.origName);
@@ -16827,8 +16830,8 @@ hlCode=(function(hl){return function(){
     var out=hlInner.innerHTML.split('\n'),real=src.split('\n');
     if(out.length<real.length)return r;
     bl.forEach(function(b){
-      var hm=/^script([ \t]+)([A-Za-z_]\w*)([ \t]*:)(.*)$/.exec(real[b.start].replace(/\r$/,''));
-      if(hm)out[b.start]='<span class="kw">script</span>'+hm[1]+'<span class="ty">'+hm[2]+'</span>'+escH(hm[3].slice(0,-1))+'<span class="dl">:</span>'+_moteHlLines(hm[4]).join('');
+      var hm=/^script([ \t]+)([A-Za-z_]\w*)([ \t]*:)(.*)$/i.exec(real[b.start].replace(/\r$/,''));
+      if(hm)out[b.start]='<span class="kw">'+real[b.start].substr(0,6)+'</span>'+hm[1]+'<span class="ty">'+hm[2]+'</span>'+escH(hm[3].slice(0,-1))+'<span class="dl">:</span>'+_moteHlLines(hm[4]).join('');
       var body=real.slice(b.start+1,b.end+1).map(function(l){return l.replace(/\r$/,'')}),ind=Infinity;
       body.forEach(function(l){if(/\S/.test(l)){var k=l.length-l.replace(/^[ \t]+/,'').length;if(k<ind)ind=k}});
       if(ind===Infinity)ind=0;
@@ -17888,6 +17891,7 @@ function _ncCanon(text){
           if(structNext){kind='struct';structNext=false}
           else if(p&&((p.k==='p'&&p.v!==')'&&p.v!=='}'&&p.v!==']')||(p.k==='w'&&/^(return|throw|await)$/i.test(p.v))))kind='obj';
           var ns=new Scope(scope,kind,f);
+          if(scope.forHdr&&!scope.bodyOpen){scope.bodyOpen=true;ns.closesFor=true}
           if(kind==='block'){pending.forEach(function(x){declare(f,ns,x.tok,x.kind,x.extra)});}
           pending=[];
           stack.push(scope);scope=ns;
@@ -17895,8 +17899,11 @@ function _ncCanon(text){
           objKey.push(kind==='obj'||kind==='struct');
           continue;
         }
-        if(t.v==='}'){if(stack.length){if(scope.kind==='struct')structFields=null;scope=stack.pop()}objKey.pop();continue}
-        if(t.v==='('){parens.push({forHdr:isW(T[i-1],'for'),catchHdr:isW(T[i-1],'catch')});continue}
+        if(t.v==='}'){if(stack.length){if(scope.kind==='struct')structFields=null;var cf=scope.closesFor;scope=stack.pop();if(cf&&stack.length)scope=stack.pop()}objKey.pop();continue}
+        if(t.v==='('){var fh=isW(T[i-1],'for');parens.push({forHdr:fh,catchHdr:isW(T[i-1],'catch')});
+          /* for (let i …; i < n; i++) { … }: i is seen in the header and the body (a scope from ( to the body's }) */
+          if(fh){stack.push(scope);scope=new Scope(scope,'block',f);scope.forHdr=true}
+          continue}
         if(t.v===')'){parens.pop();continue}
         continue;
       }
@@ -17933,8 +17940,7 @@ function _ncCanon(text){
         continue;
       }
       if((key==='let'||key==='mut'||key==='const')&&isW(next)){
-        var inFor=parens.length&&parens[parens.length-1].forHdr;
-        if(inFor)pending.push({tok:next,kind:'var'});else declare(f,scope,next,'var');
+        declare(f,scope,next,'var');
         next.done=true;next.scope=scope;i++;continue;
       }
       if(key==='catch'&&isP(next,'(')&&isW(T[i+2])){pending.push({tok:T[i+2],kind:'var'});T[i+2].done=true;T[i+2].scope=scope;continue}
