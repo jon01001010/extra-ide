@@ -5708,55 +5708,243 @@ function _emitExportGlobals(bytes){
     try{return _emitExportGlobals(b)}catch(e){return b}
   };
 })();
-// Lifetime hook 2 (see "PARKED SCOPES" in the runtime section). Before the __await of an await that is a
-// whole statement, in a function no Emit code calls, every i64/i32 local of the function is stored at
-// 53256… and their count + 1 at 53248 (the unused part of the first page between the old string scratch
-// slots and 64KB; the runtime copies the values out and zeroes the count before the call suspends).
-// The stores are spliced in after the function is complete, so locals declared later are included.
-(function(){
-  var P=WasmCodegen.prototype,genFunc0=P.genFunc,BASE=53248,MAX=1500;
-  function isStmt(x){return !!x&&typeof x.type==='string'&&(/Stmt$/.test(x.type)||x.type==='VarDecl')}
-  function mark(x){
-    if(!x||typeof x!=='object')return;
-    if(Array.isArray(x)){for(var i=0;i<x.length;i++)mark(x[i]);return}
-    if(typeof x.type==='string'&&!isStmt(x))return; /* an expression: awaits inside it are not statements */
-    if(isStmt(x)){
-      var e=x.type==='ExprStmt'?x.expression:x.type==='VarDecl'?x.init:x.type==='ReturnStmt'?x.value:null;
-      if(e&&x.type==='ExprStmt'&&e.type==='AssignExpr'&&e.target&&e.target.type==='IdentifierExpr')e=e.value;
-      if(e&&e.type==='AwaitExpr')e.gcStmt=true;
-    }
-    for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')mark(v)}
+// Lifetime hook 2: the SHADOW STACK (compiler half; the runtime half is "PARKED SCOPES" in the runtime section).
+// A call suspended in an `await` (JSPI) keeps its whole WASM stack — every Emit frame from the function JS called
+// down to the await, with their locals and operand-stack temporaries — where the runtime cannot see it. So that
+// collections can run while such a call is suspended, the finished module is rewritten. Only a module that
+// imports __js__.__await is touched; every other module is returned byte for byte as it was.
+//   • S = the functions that can reach a call of __await through direct calls, found in the code itself (the
+//     compiler emits no call_indirect, so this is exact — whatever wrapper generated the function).
+//   • In every function of S, right before each call that can suspend (a call of __await or of a function in S):
+//       1. operand-stack values below the call's arguments, and below every enclosing block/loop/if of this
+//          function, from the lowest i32/i64 one up (an i32/i64 can be a handle, a string address or an array id)
+//          are popped into fresh locals and pushed back: the stack is unchanged, the values are now in locals;
+//       2. every i32/i64 local of the function (parameters, variables, temporaries, the fresh locals of 1) is
+//          stored in this frame's slots of the shadow stack: SP = the u32 at _SS_ADDR (bytes in use), the slots
+//          are _SS_BASE+SP … +8n, then SP += 8n. If they would not fit below 64 KB nothing is stored (SP still
+//          moves; the runtime sees SP past _SS_CAP and does not count the call as parked).
+//     and right after the call: SP -= 8n — except after __await, which resumes from a promise job: there the
+//     frame size 8n is stored at _SS_ADDR+4 before the call, and __awaitPost (the call after it) puts the
+//     invocation's region back and sets SP to its end minus 8n (see _scopeResume).
+//     Per suspending call: 18 + 3n instructions (+1 per i32 local); per await 15 + 3n; plus 2 per value of
+//     step 1 (usually none: statement-level awaits and calls leave nothing on the operand stack).
+//   • The memory is exported once more as "__emitSS": the runtime's sign that the module keeps a shadow stack.
+// Functions outside S are not changed at all. An instruction or construct the rewriter does not know, or an
+// invalid result, makes it give up and return the module unchanged (without "__emitSS" the runtime never parks
+// a suspended call: nothing it holds is released before it completes — safe, as before).
+var _SS_ADDR=53248,_SS_BASE=53256,_SS_CAP=12280; /* 53248…65535: unused part of the first page (above the string scratch slots) */
+function _emitAwaitRoots(bytes){
+  var b=bytes,p=8,I=0x7F,L=0x7E,F=0x7D,D=0x7C;
+  function u(){var r=0,s=0,c;do{c=b[p++];r+=(c&0x7F)*Math.pow(2,s);s+=7}while(c&0x80);return r}
+  function s33(){var r=0,s=0,c;do{c=b[p++];r+=(c&0x7F)*Math.pow(2,s);s+=7}while(c&0x80);if(c&0x40)r-=Math.pow(2,s);return r}
+  function skip(){while(b[p++]&0x80);}
+  function name(){var n=u(),s='';for(var i=0;i<n;i++)s+=String.fromCharCode(b[p+i]);p+=n;return s}
+  function vt(c){if(c===I||c===L||c===F||c===D)return c;throw new Error('value type 0x'+c.toString(16))}
+  function limits(){var f=u();u();if(f&1)u();return f}
+  // one instruction at p: {op, x} where x is the index / block type / sub-opcode immediate
+  function ins(){
+    var op=b[p++],x=0;
+    if(op===0x02||op===0x03||op===0x04)x=s33();
+    else if(op===0x0C||op===0x0D||op===0x10||(op>=0x20&&op<=0x24))x=u();
+    else if(op===0x0E){for(var n=u();n>=0;n--)u()}
+    else if(op===0x11){x=u();u()}
+    else if(op===0x1C){if(u()!==1)throw new Error('select');x=vt(b[p++])}
+    else if(op>=0x28&&op<=0x3E){if(u()&0x40)throw new Error('memidx');u()}
+    else if(op===0x3F||op===0x40){if(b[p++]!==0)throw new Error('memidx')}
+    else if(op===0x41||op===0x42)skip();
+    else if(op===0x43)p+=4;
+    else if(op===0x44)p+=8;
+    else if(op===0xFC){x=u();if(x===8){u();p++}else if(x===9)u();else if(x===10)p+=2;else if(x===11)p++;else if(x>7)throw new Error('0xFC '+x)}
+    else if(!(op===0x00||op===0x01||op===0x05||op===0x0B||op===0x0F||op===0x1A||op===0x1B||(op>=0x45&&op<=0xC4)))throw new Error('opcode 0x'+op.toString(16));
+    return{op:op,x:x};
   }
-  function called(ast){
-    var set=new Set();
-    (function visit(x){
-      if(!x||typeof x!=='object')return;
-      if(Array.isArray(x)){for(var i=0;i<x.length;i++)visit(x[i]);return}
-      if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr')set.add(x.callee.name);
-      for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')visit(v)}
-    })(ast.body);
-    return set;
+  // ── sections ──
+  var secs=[],types=[],funcs=[],globals=[],nImp=0,awaitIdx=-1,code=null,exp=null;
+  while(p<b.length){
+    var at=p,id=b[p++],size=u(),start=p,n,k;
+    secs.push({id:id,at:at,start:start,end:start+size});
+    if(id===1)for(n=u();n>0;n--){
+      if(b[p++]!==0x60)throw new Error('type form');
+      var ps=[],rs=[];for(k=u();k>0;k--)ps.push(vt(b[p++]));for(k=u();k>0;k--)rs.push(vt(b[p++]));
+      types.push({p:ps,r:rs});
+    }else if(id===2)for(n=u();n>0;n--){
+      var mod=name(),nm=name(),kind=b[p++];
+      if(kind===0){if(mod==='__js__'&&nm==='__await')awaitIdx=funcs.length;funcs.push(u());nImp++}
+      else if(kind===1){p++;limits()}
+      else if(kind===2){if(limits()&4)return bytes} /* memory64: not handled */
+      else if(kind===3){globals.push(vt(b[p++]));p++}
+      else throw new Error('import kind');
+    }else if(id===3)for(n=u();n>0;n--)funcs.push(u());
+    else if(id===5){for(n=u();n>0;n--)if(limits()&4)return bytes}
+    else if(id===6)for(n=u();n>0;n--){globals.push(vt(b[p++]));p++;while(ins().op!==0x0B);}
+    else if(id===7)exp=secs[secs.length-1];
+    else if(id===10)code=secs[secs.length-1];
+    p=start+size;
   }
-  P.genAwaitSpill=function(e){if(e.gcStmt&&this._gcRootFn)this._gcSpills.push(this.currentCode.length)};
-  P.genFunc=function(func){
-    if(!this._gcCalled)this._gcCalled=called(this.ast);
-    this._gcSpills=[];
-    this._gcRootFn=this.target!=='wasm64'&&!this._gcCalled.has(func.node.name);
-    if(this._gcRootFn)mark(func.node.body);
-    var r=genFunc0.apply(this,arguments);
-    var at=this._gcSpills,L=this.currentLocals,code=[],n=0;
-    if(at.length&&func.code===this.currentCode){
-      for(var i=0;i<L.length;i++){
-        if(L[i]!==VT.i64&&L[i]!==VT.i32)continue;
-        code.push(Op.i32_const,...ei32(BASE+8+n*8),Op.local_get,...eu32(i));
-        if(L[i]===VT.i32)code.push(Op.i64_extend_i32_u);
-        code.push(Op.i64_store,3,0);n++;
+  if(awaitIdx<0)return bytes;
+  if(!code||!exp)throw new Error('module layout');
+  // ── function bodies: locals, instructions, direct calls ──
+  var bodies=[];
+  p=code.start;
+  for(n=u();n>0;n--){
+    var sz=u(),bs=p,be=p+sz,groups=[],locals=[];
+    for(k=u();k>0;k--){var c=u(),t=vt(b[p++]);groups.push([c,t]);for(var j=0;j<c;j++)locals.push(t)}
+    var is=p,list=[],calls=new Set();
+    while(p<be){var at=p,r=ins();list.push({at:at,end:p,op:r.op,x:r.x});if(r.op===0x10)calls.add(r.x);if(r.op===0x11)throw new Error('call_indirect')}
+    if(p!==be)throw new Error('body size');
+    bodies.push({bs:bs,be:be,is:is,groups:groups,locals:locals,list:list,calls:calls});
+  }
+  if(bodies.length!==funcs.length-nImp)throw new Error('function count');
+  var S=new Set(),more=true;
+  while(more){
+    more=false;
+    bodies.forEach(function(B,i){
+      var fi=nImp+i;if(S.has(fi))return;
+      for(var c of B.calls)if(c===awaitIdx||S.has(c)){S.add(fi);more=true;break}
+    });
+  }
+  // ── stack effects ──
+  var SIG={},o;
+  function sg(op,a,r){SIG[op]=[a,r]}
+  sg(0x45,[I],I);for(o=0x46;o<=0x4F;o++)sg(o,[I,I],I);sg(0x50,[L],I);for(o=0x51;o<=0x5A;o++)sg(o,[L,L],I);
+  for(o=0x5B;o<=0x60;o++)sg(o,[F,F],I);for(o=0x61;o<=0x66;o++)sg(o,[D,D],I);
+  for(o=0x67;o<=0x69;o++)sg(o,[I],I);for(o=0x6A;o<=0x78;o++)sg(o,[I,I],I);
+  for(o=0x79;o<=0x7B;o++)sg(o,[L],L);for(o=0x7C;o<=0x8A;o++)sg(o,[L,L],L);
+  for(o=0x8B;o<=0x91;o++)sg(o,[F],F);for(o=0x92;o<=0x98;o++)sg(o,[F,F],F);
+  for(o=0x99;o<=0x9F;o++)sg(o,[D],D);for(o=0xA0;o<=0xA6;o++)sg(o,[D,D],D);
+  [[L,I],[F,I],[F,I],[D,I],[D,I],[I,L],[I,L],[F,L],[F,L],[D,L],[D,L],[I,F],[I,F],[L,F],[L,F],[D,F],[I,D],[I,D],[L,D],[L,D],[F,D],[F,I],[D,L],[I,F],[L,D],[I,I],[I,I],[L,L],[L,L],[L,L]]
+    .forEach(function(c,i){sg(0xA7+i,[c[0]],c[1])});
+  [I,L,F,D,I,I,I,I,L,L,L,L,L,L].forEach(function(t,i){sg(0x28+i,[I],t)});
+  [I,L,F,D,I,I,L,L,L].forEach(function(t,i){sg(0x36+i,[I,t],null)});
+  sg(0x41,[],I);sg(0x42,[],L);sg(0x43,[],F);sg(0x44,[],D);sg(0x3F,[],I);sg(0x40,[I],I);sg(0x1A,[0],null);
+  var SAT=[[F,I],[F,I],[D,I],[D,I],[F,L],[F,L],[D,L],[D,L]];
+  function blockSig(x){if(x===-64)return{p:[],r:[]};if(x<0&&x>=-4)return{p:[],r:[128+x]};var t=types[x];if(!t)throw new Error('block type');return t}
+  function leb(v){return eu32(v)}
+  function sleb(v){return ei32(v)}
+  // ── rewrite one function of S ──
+  function rewrite(B,fi){
+    var ft=types[funcs[fi]],lt=ft.p.concat(B.locals),nFix=lt.length,temps=[];
+    var stack=[],ctl=[{h:0,unr:false,dead:false,res:ft.r,rec:null}],fixes=[],sites=[];
+    function pop(){var f=ctl[ctl.length-1];if(stack.length<=f.h){if(f.unr)return 0;throw new Error('stack underflow')}return stack.pop()}
+    function popT(t){var v=pop();if(v&&t&&v!==t)throw new Error('stack type');return v}
+    function cut(f){f.unr=true;stack.length=f.h}
+    B.list.forEach(function(it,k){
+      var f=ctl[ctl.length-1],op=it.op,x=it.x,s,i;
+      if(op===0x02||op===0x03||op===0x04){
+        s=blockSig(x);if(s.p.length)throw new Error('block params');
+        if(op===0x04)popT(I);
+        var rec={k:k,lvl:stack.slice(f.h),top:op===0x04?[I]:[],need:false,dead:f.dead||f.unr};
+        fixes.push(rec);
+        ctl.push({h:stack.length,unr:false,dead:rec.dead,res:s.r,rec:rec});
+      }else if(op===0x05){stack.length=f.h;f.unr=false}
+      else if(op===0x0B){ctl.pop();stack.length=f.h;for(i=0;i<f.res.length;i++)stack.push(f.res[i])}
+      else if(op===0x00||op===0x0C||op===0x0F)cut(f);
+      else if(op===0x0D)popT(I);
+      else if(op===0x0E){popT(I);cut(f)}
+      else if(op===0x10){
+        var ct=types[funcs[x]];
+        if((x===awaitIdx||S.has(x))&&!f.unr&&!f.dead){
+          var na=ct.p.length,lvl=stack.slice(f.h,stack.length-na),top=stack.slice(stack.length-na);
+          if(lvl.length+f.h+na!==stack.length||stack.length-na<f.h)throw new Error('call arguments');
+          sites.push({k:k,lvl:lvl,top:top,aw:x===awaitIdx});
+          for(i=1;i<ctl.length;i++)ctl[i].rec.need=true;
+        }
+        for(i=ct.p.length-1;i>=0;i--)popT(ct.p[i]);
+        for(i=0;i<ct.r.length;i++)stack.push(ct.r[i]);
       }
-      code.push(Op.i32_const,...ei32(BASE),Op.i32_const,...ei32(n+1),Op.i32_store,2,0);
-      if(n<=MAX)for(var j=at.length-1;j>=0;j--)func.code.splice(at[j],0,...code);
+      else if(op===0x1B){popT(I);var a=pop(),c=pop();stack.push(a||c)}
+      else if(op===0x1C){popT(I);pop();pop();stack.push(x)}
+      else if(op===0x20)stack.push(lt[x]);
+      else if(op===0x21)popT(lt[x]);
+      else if(op===0x22){popT(lt[x]);stack.push(lt[x])}
+      else if(op===0x23)stack.push(globals[x]);
+      else if(op===0x24)popT(globals[x]);
+      else if(op===0xFC){if(x<=7){popT(SAT[x][0]);stack.push(SAT[x][1])}else if(x!==9){popT(I);popT(I);popT(I)}}
+      else if(op===0x01){}
+      else if(SIG[op]){s=SIG[op];for(i=s[0].length-1;i>=0;i--)popT(s[0][i]);if(s[1])stack.push(s[1])}
+      else throw new Error('opcode 0x'+op.toString(16));
+    });
+    if(ctl.length)throw new Error('unbalanced');
+    if(!sites.length)return null;
+    function temp(t){temps.push(t);return nFix+temps.length-1}
+    // pop the values from the lowest i32/i64 one up (and the `top` values above them) into fresh locals, push back
+    function save(lvl,top){
+      var j=-1,i;
+      for(i=0;i<lvl.length;i++)if(lvl[i]===I||lvl[i]===L){j=i;break}
+      if(j<0)return[];
+      var keep=lvl.slice(j).concat(top),ix=[],out=[];
+      for(i=0;i<keep.length;i++){if(!keep[i])throw new Error('unknown stack type');ix.push(temp(keep[i]))}
+      for(i=ix.length-1;i>=0;i--)out.push(0x21,...leb(ix[i]));
+      for(i=0;i<ix.length;i++)out.push(0x20,...leb(ix[i]));
+      return out;
     }
-    this._gcSpills=[];
-    return r;
+    var pre=new Map(),post=new Map();
+    fixes.forEach(function(r){if(r.need&&!r.dead){var c=save(r.lvl,r.top);if(c.length)pre.set(r.k,c)}});
+    sites.forEach(function(st){st.save=save(st.lvl,st.top)});
+    var sp=temp(I),all=lt.concat(temps),slots=[];
+    for(var i=0;i<all.length;i++)if((all[i]===I||all[i]===L)&&i!==sp)slots.push(i);
+    var SIZE=slots.length*8,spill=[],pop2=[];
+    if(SIZE){
+      spill.push(0x41,...sleb(_SS_ADDR),0x28,2,0,0x22,...leb(sp));
+      if(SIZE<=_SS_CAP){
+        spill.push(0x41,...sleb(_SS_CAP-SIZE),0x4D,0x04,0x40);
+        slots.forEach(function(li,q){spill.push(0x20,...leb(sp),0x20,...leb(li));if(all[li]===I)spill.push(0xAD);spill.push(0x37,3,...leb(_SS_BASE+q*8))});
+        spill.push(0x0B);
+      }else spill.push(0x1A);
+      spill.push(0x41,...sleb(_SS_ADDR),0x20,...leb(sp),0x41,...sleb(SIZE),0x6A,0x36,2,0);
+      pop2.push(0x41,...sleb(_SS_ADDR),0x41,...sleb(_SS_ADDR),0x28,2,0,0x41,...sleb(SIZE),0x6B,0x36,2,0);
+    }else spill=[];
+    /* an await: the frame size goes to _SS_ADDR+4 instead of the pop — the call resumes in a promise job, and
+       __awaitPost (the next call) puts the region back and sets SP to its end minus this frame */
+    var awSize=[0x41,...sleb(_SS_ADDR+4),0x41,...sleb(SIZE),0x36,2,0];
+    sites.forEach(function(st){
+      var c=(pre.get(st.k)||[]).concat(st.save,spill,st.aw?awSize:[]);if(c.length)pre.set(st.k,c);
+      if(pop2.length&&!st.aw)post.set(st.k,pop2);
+    });
+    // locals: the original groups, then the new ones
+    var g=B.groups.slice(),last=null;
+    temps.forEach(function(t){if(last&&last[1]===t)last[0]++;else{last=[1,t];g.push(last)}});
+    var head=leb(g.length);g.forEach(function(x){head.push(...leb(x[0]),x[1])});
+    var parts=[new Uint8Array(head)],pos=B.is;
+    B.list.forEach(function(it,k){
+      var c=pre.get(k);
+      if(c){parts.push(b.subarray(pos,it.at),new Uint8Array(c));pos=it.at}
+      c=post.get(k);
+      if(c){parts.push(b.subarray(pos,it.end),new Uint8Array(c));pos=it.end}
+    });
+    parts.push(b.subarray(pos,B.be));
+    return parts;
+  }
+  // ── reassemble ──
+  var out=[],total=0;
+  function add(x){x=x instanceof Uint8Array?x:new Uint8Array(x);out.push(x);total+=x.length}
+  var cparts=[],clen=0;
+  bodies.forEach(function(B,i){
+    var parts=S.has(nImp+i)?rewrite(B,nImp+i):null;
+    if(!parts)parts=[b.subarray(B.bs,B.be)];
+    var len=0;parts.forEach(function(x){len+=x.length});
+    var h=new Uint8Array(leb(len));cparts.push(h);clen+=h.length;
+    parts.forEach(function(x){cparts.push(x);clen+=x.length});
+  });
+  add(b.subarray(0,8));
+  secs.forEach(function(s){
+    if(s.id===10){
+      var cnt=leb(bodies.length);add([10].concat(leb(cnt.length+clen)));add(cnt);cparts.forEach(add);
+    }else if(s.id===7){
+      p=s.start;var c=u(),rest=b.subarray(p,s.end),tail=[].concat(estr('__emitSS'),[2],leb(0)),head=leb(c+1);
+      add([7].concat(leb(head.length+rest.length+tail.length)));add(head);add(rest);add(tail);
+    }else add(b.subarray(s.at,s.end));
+  });
+  var res=new Uint8Array(total),q=0;
+  out.forEach(function(x){res.set(x,q);q+=x.length});
+  if(typeof WebAssembly!=='undefined'&&WebAssembly.validate&&!WebAssembly.validate(res))throw new Error('rewritten module does not validate');
+  return res;
+}
+(function(){
+  var enc=WasmCodegen.prototype.encodeBinary;
+  WasmCodegen.prototype.encodeBinary=function(){
+    var b=enc.apply(this,arguments);
+    try{return _emitAwaitRoots(b)}catch(e){return b}
   };
 })();
 // Build import object — std builtins get real implementations
@@ -5905,19 +6093,28 @@ var _argBufBase=48640;
 // A promise-returning (suspending) call MUST be announced with _scopeEnter/_scopeExit or _scopeRun.
 // If the roots cannot be read (a module without the "__emitGC" export, or no instance in window._wi yet)
 // nothing is ever released.
-// PARKED SCOPES (await). A call suspended in an `await` normally counts as "active, may hold anything". The
-// exception: an await that is a whole statement (`await p`, `let x = await p`, `x = await p`, `return await p`)
-// in a function that only JS calls (never another Emit function). The suspended WASM stack is then exactly
-// that one function with an empty operand stack, and the compiler stores all its int/str/js/arr locals in
-// linear memory right before __await (see genAwaitSpill: count+1 at _gcSpillBase, the values after it).
-// _scopePark copies them into the scope (sc.park) — from then until _scopeUnpark (the awaited promise has
-// settled, before its value gets a handle) the scope is "parked": its locals are roots like the globals, and
-// it no longer blocks a full collection. A full collection runs when every active scope is parked: at
-// _scopeExit, and when a scope parks (so an `await` loop inside one long call releases what it drops).
+// PARKED SCOPES (await). A call suspended in an `await` (JSPI) keeps its whole WASM stack, which the runtime
+// cannot read. So the compiler keeps a SHADOW STACK in every function that can reach an await (see
+// _emitAwaitRoots in the compiler; a module that has one exports its memory once more as "__emitSS"): before
+// each call that can suspend, the calling frame stores its i32/i64 locals — operand-stack temporaries are moved
+// into locals first — at _ssBase+SP…; SP (the u32 at _ssAddr) grows by the frame, and shrinks when the call
+// returns. Each call into an async Emit function (_emitEnter with isAsync) is an INVOCATION, _ssInv = {ss0: SP
+// when it started, sc: its scope}. When it suspends (__await → _scopePark) its region [ss0, SP) holds exactly
+// the frames of its suspended stack: the bytes are copied out (inv.bytes), the values become the scope's roots
+// (sc.park), and SP goes back to ss0 for whatever JS runs next. When it resumes (__awaitPost → _scopeResume)
+// the bytes are put back at the same place (nothing else runs then: a resumed call starts from a promise job)
+// and SP is set to its end minus the awaiting frame (whose size the compiled code put at _ssAddr+4: the frame
+// ends with the await, the code after it does not pop it). From _scopePark until _scopeUnpark (the awaited
+// promise has settled, before its value gets a handle) the scope is "parked": its frames' values are roots like
+// the globals, and it no longer blocks a full collection. A full collection runs when every active scope is parked: at _scopeExit,
+// and when a scope parks (so an `await` loop at any call depth releases what it drops).
+// Never parked (such a call stays "active, may hold anything" until it completes, as without a shadow stack):
+// a module without "__emitSS" (an older build, wasm64), a suspension whose frames did not all fit below 64 KB
+// (SP past _ssCap: very deep recursion, or functions with very many locals), an await outside a known invocation.
 // _scRun counts the active scopes that are not parked; _scCur is the scope of the Emit code running now
 // (set by _scopeRun / _emitCallExport, put back after a suspension by _scopeResume).
 var _scN=0,_scRun=0,_scCur=0,_scSeq=0,_scopes=new Map(),_scAutoTok=0; // active scopes: token → {h,s,a: what existed at enter, k: tick, park}
-var _gcSpillBase=53248;
+var _ssAddr=53248,_ssBase=53256,_ssCap=12280,_ssInv=null,_ssU32=null; // shadow stack: SP word, first slot, bytes for slots; the running invocation
 var _gcTick=0,_gcTickQ=false;                        // _gcTick advances at every microtask checkpoint that follows a _scopeEnter
 var _gcNewH=0,_gcNewS=0,_gcNewA=0,_gcScan=0,_gcRuns=0,_gcStale=0,_gcStaleShown=false;
 var _strHeapBase=65536;       // first byte of the string area: 65536, or the page after the program's memory regions (imports.heapBase)
@@ -5927,6 +6124,7 @@ var _strMem=null,_strBlocks=new Map(),_strLog=[],_strGaps=[],_strGapI=0,_strPos=
 var _aBase=1099511627776,_aNext=0,_arrMap=new Map(),_arrEsc=new Set(),_arrLog=[];
 function _gcTickBump(){
   _gcTick++;_gcTickQ=false;
+  _ssIdle(); /* a microtask: no Emit code is running */
   if(_scAutoTok){var t=_scAutoTok;_scAutoTok=0;_scopeExit(t)}
 }
 function _scopeEnter(top){
@@ -5936,31 +6134,65 @@ function _scopeEnter(top){
   _scopes.set(t,{h:_hNext,s:_strLog.length,a:_arrLog.length,k:_gcTick,park:null});_scN++;_scRun++;
   return t;
 }
-// The running call is about to suspend in __await (rec = its await ticket). Park its scope if the compiler
-// stored the locals; in any case remember which scope the call belongs to.
+// Does the running module keep a shadow stack? (asked again until the instance is published in window._wi)
+function _ssOn(){
+  var m=_wasmMem;if(!m)return false;
+  if(m._emitSS!==undefined)return m._emitSS;
+  var inst=(typeof window!=='undefined')?window._wi:null;
+  if(!inst||!inst.exports||inst.exports.memory!==m)return false;
+  return(m._emitSS=!!inst.exports.__emitSS);
+}
+// SP of the shadow stack: _ssSP() reads it, _ssSP(v) sets it.
+function _ssSP(v){
+  var buf=_wasmMem.buffer;
+  if(!_ssU32||_ssU32.buffer!==buf)_ssU32=new Uint32Array(buf,_ssAddr,1);
+  if(v===undefined)return _ssU32[0];
+  _ssU32[0]=v>>>0;
+}
+// No Emit code is running (a promise job): nothing is on the shadow stack.
+function _ssIdle(){try{if(_ssOn())_ssSP(0)}catch(e){}}
+// The running call is about to suspend in __await (rec = its await ticket). Copy its shadow-stack region out
+// and park its scope with those values as roots; in any case remember which scope and invocation it belongs to.
 function _scopePark(rec){
-  var t=_scCur,sc=_scopes.get(t),roots=null;
-  rec.sc=t;
-  try{
-    var view=new DataView(_wasmMem.buffer),n=view.getUint32(_gcSpillBase,true);
-    if(n){
-      view.setUint32(_gcSpillBase,0,true); /* consumed: an await without stored locals must never see it */
-      roots=[];
-      for(var i=0;i<n-1;i++)roots.push(Number(view.getBigInt64(_gcSpillBase+8+i*8,true)));
-    }
-  }catch(e){roots=null}
+  var t=_scCur,sc=_scopes.get(t),inv=_ssInv,roots=null;
+  rec.sc=t;rec.inv=inv;_ssInv=null;
+  if(inv&&_ssOn()){
+    try{
+      var sp=_ssSP();
+      if(sp<inv.ss0)inv.bad=true; /* SP below where the call started: the region is not its frames */
+      inv.len=sp-inv.ss0;inv.top=new Uint32Array(_wasmMem.buffer,_ssAddr+4,1)[0]; /* the awaiting frame's size */
+      if(inv.top>inv.len)inv.bad=true;
+      inv.bytes=inv.bad?null:new Uint8Array(_wasmMem.buffer.slice(_ssBase+inv.ss0,_ssBase+Math.max(inv.ss0,Math.min(sp,_ssCap))));
+      if(!inv.bad&&sp<=_ssCap&&inv.sc===t){
+        var dv=new DataView(inv.bytes.buffer);roots=[];
+        for(var i=0;i+8<=inv.bytes.length;i+=8)roots.push(Number(dv.getBigInt64(i,true)));
+      }
+      _ssSP(inv.ss0);
+    }catch(e){roots=null;inv.bad=true}
+  }
   if(!sc||!roots||sc.park)return;
   sc.park=roots;sc.k=-1;_scRun--;
   if(!_scRun&&_gcDue())_gcCollect(null);
 }
 // The awaited promise has settled: from here on the call may hold new values again.
 function _scopeUnpark(rec){
+  _ssIdle(); /* called from the promise job that settles the await: no Emit code is running */
   var sc=_scopes.get(rec.sc);
   if(sc&&sc.park){sc.park=null;_scRun++}
 }
 // (A call that will never be resumed — the program was stopped — has its scope ended by __await: _scopeExit(rec.sc).)
-// First thing a resumed call does (__awaitPost).
-function _scopeResume(rec){if(rec&&rec.sc)_scCur=rec.sc}
+// First thing a resumed call does (__awaitPost): its scope is current again, its shadow-stack region is back.
+function _scopeResume(rec){
+  if(!rec)return;
+  if(rec.sc)_scCur=rec.sc;
+  var inv=rec.inv||null;_ssInv=inv;
+  if(inv&&_ssOn()){
+    try{
+      if(inv.bytes&&inv.bytes.length)new Uint8Array(_wasmMem.buffer,_ssBase+inv.ss0,inv.bytes.length).set(inv.bytes);
+      inv.bytes=null;_ssSP(inv.ss0+inv.len-inv.top); /* the awaiting frame is gone: SP as after a returned call */
+    }catch(e){inv.bad=true}
+  }
+}
 
 function _scopeAuto(){if(!_scAutoTok)_scAutoTok=_scopeEnter(true)}
 function _scopeExit(t){
@@ -6065,6 +6297,7 @@ function _memReset(){
   _handles=new Map();_hIds=new Map();_hNext=2;
   _hWin=typeof window!=='undefined'?window:(typeof globalThis!=='undefined'?globalThis:{});
   _scopes=new Map();_scN=0;_scRun=0;_scCur=0;_scAutoTok=0;
+  _ssInv=null;_ssU32=null;
   _traceQ=[];_traceMark=null;_traceDropped=0;_frameCount=0;_frameQuiet=false;
   _gcNewH=0;_gcNewS=0;_gcNewA=0;_gcScan=0;_gcRuns=0;_gcStale=0;_gcStaleShown=false;
   _strReset(null);
@@ -7303,6 +7536,23 @@ function _emitCallExport(inst,name,args,top){
   return p;
 }
 if(typeof window!=='undefined')window._emitCallExport=_emitCallExport; /* the export boot reaches it here (the .js export runs this code inside a function) */
+// Shadow stack (see PARKED SCOPES): a call into an async Emit function is an invocation whose region starts at
+// the SP of the moment; when its synchronous part returns — suspended, finished or failed — SP is put back.
+// A synchronous call has no invocation (an await reached in it cannot suspend, and must not park the caller).
+_emitEnter=(function(enter){return function(f,args,isAsync){
+  if(!_ssOn())return enter.apply(this,arguments);
+  var prev=_ssInv,s0=_ssSP();
+  _ssInv=isAsync?{ss0:s0,sc:_scCur,bytes:null,len:0,bad:false}:null;
+  try{return enter.apply(this,arguments)}
+  finally{_ssInv=prev;_ssSP(s0)}
+}})(_emitEnter);
+// The IDE and the export boot publish the instance in window._wi only after the entry functions have been
+// called: learn whether it keeps a shadow stack from the instance the call is made on.
+_emitCallExport=(function(call){return function(inst,name,args,top){
+  var m=_wasmMem;
+  if(m&&m._emitSS===undefined&&inst&&inst.exports&&inst.exports.memory===m)m._emitSS=!!inst.exports.__emitSS;
+  return call.apply(this,arguments);
+}})(_emitCallExport);
 // One frame() at a time: while an async frame() is suspended in an await the next one is not started.
 // This is the one path for frames — the animate() loop and tests/run-memory.js both call it; a frame is
 // never nested in Emit code, so its scope is entered with top=true and collects when frame() returns.
