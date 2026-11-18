@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Maps and controls: `map` / `controls` blocks, their compile errors (exact positions), every builtin
-// (drawMap pixels, a sprite tile through a TEST-ONLY _spriteDraw stand-in, setTile at run time, objects),
+// (drawMap pixels, a sprite tile drawn from a real sprite block, setTile at run time, objects),
 // the runtime helpers for other runtime code (_mapInfo & co., _ctlState), multi-file projects, the exported
 // .html / .js / offline pages, the on-screen controls under synthesized multi-touch, the keyboard mapping,
 // and byte identity of programs without these blocks. Runs in headless Chromium, offline.
@@ -23,12 +23,19 @@ const MARK = '//// file: ';
 const join = files => files.map((f, i) => (i === 0 && f[0] === 'main.emit' ? '' : MARK + f[0] + '\n') + f[1].replace(/^\n/, '')).join('\n');
 const BASE_COMMIT = '8d7f2b4'; // last commit without maps and controls
 
-// TEST-ONLY stand-in for the SPRITE agent's runtime helper: draws a magenta square, records the call.
-const SPRITE_STANDIN = `window._spriteDraw = function (ctx, name, frame, x, y, opts) {
-  (window.__sprCalls = window.__sprCalls || []).push([name, frame, x, y, opts && opts.w, opts && opts.h]);
-  if (name === 'missing') return false;
-  ctx.fillStyle = '#ff00ff'; ctx.fillRect(x, y, opts.w, opts.h); return true;
-};`;
+// Real sprite blocks (SPRITE) for the map legend's `sprite grass` / `sprite other`: drawMap draws them through
+// the real _spriteDraw at the tile size (opts w / h), pixel-crisp.
+const SPR_GRASS4 = `
+sprite grass: 2x2
+  palette ff00ff 00ffff ffff00 ffffff
+  "12"
+  "34"
+`;
+const SPR_GRASS_MAGENTA = `
+sprite grass: 1x1
+  palette ff00ff
+  "1"
+`;
 
 const M4 = `
 map m: 4x2, tile 16
@@ -103,37 +110,44 @@ export fn run() {
     for (const [k, v] of Object.entries(want)) { const [x, y] = k.split(',').map(Number); const got = await px(page, x, y); if (got !== v) p.push('pixel ' + k + ': ' + got + ', want ' + v); }
     return p;
   } },
-  { name: 'drawmap-sprite-tile-through-spritedraw-standin', init: SPRITE_STANDIN, src: M4 + `
+  { name: 'drawmap-sprite-tile-from-sprite-block', src: M4 + SPR_GRASS4 + `
 export fn run() {
   canvas(64, 32)
   drawMap(m)
 }`, expect: [], after: async page => {
     const p = [];
-    if (await px(page, 40, 8) !== '255,0,255') p.push('sprite tile pixel ' + await px(page, 40, 8));
+    // the 2x2 sprite stretched to the 16x16 tile at (32, 0): four 8x8 quarters, crisp edges
+    const want = [[32, 0, '255,0,255'], [39, 7, '255,0,255'], [40, 0, '0,255,255'], [47, 7, '0,255,255'], [32, 8, '255,255,0'], [39, 15, '255,255,0'], [40, 8, '255,255,255'], [47, 15, '255,255,255']];
+    for (const [x, y, c] of want) { const got = await px(page, x, y); if (got !== c) p.push('sprite tile pixel ' + x + ',' + y + ' = ' + got + ', want ' + c); }
     if (await px(page, 8, 8) !== '255,0,0') p.push('colour tile pixel ' + await px(page, 8, 8));
-    const calls = await page.evaluate(() => window.__sprCalls);
-    if (JSON.stringify(calls) !== JSON.stringify([['grass', 0, 32, 0, 16, 16]])) p.push('_spriteDraw calls ' + JSON.stringify(calls));
+    if (await px(page, 48, 8) !== '255,0,0') p.push('the next tile is untouched: ' + await px(page, 48, 8));
+    const info = await page.evaluate(() => { const c = document.createElement('canvas').getContext('2d'); return [_spriteDraw(c, 'grass', 0, 0, 0, { w: 16, h: 16 }), _spriteDraw(c, 'nosuch', 0, 0, 0, { w: 16, h: 16 }), _spriteDraw(c, 'grass', 'nosuchframe', 0, 0, { w: 16, h: 16 })]; });
+    if (JSON.stringify(info) !== '[true,false,false]') p.push('_spriteDraw returns ' + JSON.stringify(info) + ', want [true,false,false]');
     return p;
   } },
-  { name: 'drawmap-sprite-falls-back-to-colour', init: SPRITE_STANDIN, src: `
-map m: 2x1, tile 8
-  legend a one sprite missing #123456,  b two sprite other
+  { name: 'drawmap-sprite-falls-back-to-colour', src: `
+map m: 3x1, tile 8
+  legend a one sprite missing #123456,  b two sprite other,  c three sprite gone
   rows
-    "ab"
+    "abc"
+sprite other: 1x1
+  palette ff00ff
+  "1"
 export fn run() {
-  canvas(16, 8)
+  canvas(24, 8)
   drawMap(m)
 }`, expect: [], after: async page => {
     const p = [];
-    if (await px(page, 4, 4) !== '18,52,86') p.push('sprite helper said no: colour expected, got ' + await px(page, 4, 4));
+    if (await px(page, 4, 4) !== '18,52,86') p.push('unknown sprite: its colour expected, got ' + await px(page, 4, 4));
     if (await px(page, 12, 4) !== '255,0,255') p.push('sprite tile ' + await px(page, 12, 4));
+    if (await px(page, 20, 4) !== '128,128,128') p.push('unknown sprite without a colour: grey expected, got ' + await px(page, 20, 4));
     return p;
   } },
-  { name: 'drawmap-sprite-without-helper-uses-colour', src: M4 + `
+  { name: 'drawmap-sprite-without-sprite-block-uses-colour', src: M4 + `
 export fn run() {
   canvas(64, 32)
   drawMap(m)
-}`, expect: [], after: async page => (await px(page, 40, 8)) === '0,0,255' ? [] : ['no _spriteDraw: colour expected, got ' + await px(page, 40, 8)] },
+}`, expect: [], after: async page => (await px(page, 40, 8)) === '0,0,255' ? [] : ['no sprite block grass: colour expected, got ' + await px(page, 40, 8)] },
   { name: 'settile-at-run-time-redraws', src: M4 + `
 mut n = 0
 export fn main() {
@@ -352,9 +366,9 @@ export fn check() {
     return JSON.stringify(out) === '["> 1","> 0"]' ? [] : ['justPressed outside frame(): ' + JSON.stringify(out)];
   } },
   // ── exported pages ──
-  { name: 'export-html-js-offline', touch: true, init: SPRITE_STANDIN, page: async (page, ctx) => {
+  { name: 'export-html-js-offline', touch: true, page: async (page, ctx) => {
     const p = [];
-    const src = M4 + `
+    const src = M4 + SPR_GRASS_MAGENTA + `
 controls pad: stick left, buttons A
 export fn main() {
   canvas(64, 32)
@@ -397,7 +411,6 @@ export fn frame() {
       if (g !== '255,0,255') p.push(tag + ': button A in the exported page did not reach pressed(): ' + g);
     };
     const ctxT = await ctx.browser.newContext({ hasTouch: true, viewport: { width: 800, height: 700 } });
-    await ctxT.addInitScript(SPRITE_STANDIN);
     for (const n of ['program.html', 'program-offline.html']) {
       fs.writeFileSync(path.join(dir, n), files[n]);
       const pg = await ctxT.newPage();

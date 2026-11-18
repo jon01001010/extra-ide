@@ -7050,8 +7050,10 @@ if(typeof window!=='undefined'){
 // The program's sprites arrive as imports.spriteData (JSON: name, size, fps, palette, frames as w*h pixel
 // characters). Each frame is turned into pixels once, when it is first drawn: a Uint32Array of RGBA (for blit)
 // and an offscreen canvas (for draw). For other runtime code (things / tiles):
-//   _spriteDraw(ctx2d, name, frame, x, y, opts)  frame: a frame name or index; opts {flipX, flipY, scale, alpha}
-//                                                 all optional. Pixel-crisp (no smoothing), x / y rounded.
+//   _spriteDraw(ctx2d, name, frame, x, y, opts)  frame: a frame name or index; opts {flipX, flipY, scale, alpha,
+//                                                 w, h} all optional. Pixel-crisp (no smoothing), x / y rounded.
+//                                                 w / h: draw the frame stretched to w x h pixels (a map tile);
+//                                                 they win over scale (only one given: the other keeps the shape).
 //                                                 An index past the last frame wraps around; a negative index or
 //                                                 an unknown name draws nothing. Returns true when it drew.
 //   _spriteInfo(name)                             {w, h, frames: [names], fps} or null
@@ -7119,9 +7121,16 @@ function _spriteDraw(ctx,name,frame,x,y,opts){
   if(!S||!ctx)return false;
   var fi=_sprIx(S,frame==null?0:frame);
   if(fi<0)return false;
-  var o=opts||{},sc=o.scale==null?1:Number(o.scale);
-  if(!(sc>0)||!isFinite(sc))return false;
-  var w=Math.max(1,Math.round(S.w*sc)),h=Math.max(1,Math.round(S.h*sc)),cv=_sprCanvas(S,fi);
+  var o=opts||{},sc=o.scale==null?1:Number(o.scale),ow=o.w==null?NaN:Number(o.w),oh=o.h==null?NaN:Number(o.h),w,h;
+  if(ow>0&&isFinite(ow)||oh>0&&isFinite(oh)){
+    if(!(ow>0&&isFinite(ow)))ow=oh*S.w/S.h;
+    if(!(oh>0&&isFinite(oh)))oh=ow*S.h/S.w;
+    w=Math.max(1,Math.round(ow));h=Math.max(1,Math.round(oh));
+  }else{
+    if(!(sc>0)||!isFinite(sc))return false;
+    w=Math.max(1,Math.round(S.w*sc));h=Math.max(1,Math.round(S.h*sc));
+  }
+  var cv=_sprCanvas(S,fi);
   x=Math.round(Number(x)||0);y=Math.round(Number(y)||0);
   ctx.save();
   ctx.imageSmoothingEnabled=false;
@@ -12557,6 +12566,17 @@ function _stBlockModel(kind,name,text){
   var b=bl[0];b.line=0;
   return kind==='map'?_stParseMap(b):_stParseControls(b);
 }
+// A sprite of the program text as a canvas (its first frame) for the STAGE view: read through ctx like every
+// block, parsed with SPRITE's own parser (tolerant), cached per tool session in `cache`. null: no such sprite.
+function _stSpriteCanvas(ctx,cache,name){
+  if(Object.prototype.hasOwnProperty.call(cache,name))return cache[name];
+  var cv=null;
+  try{
+    var t=ctx.read('sprite',name);
+    if(t&&typeof _sprParse==='function'&&typeof _sprFrameCanvas==='function'){var d=_sprParse(String(t).split('\n'),1,true);if(d&&d.w>0&&d.h>0&&d.frames&&d.frames.length)cv=_sprFrameCanvas(d,0,1)}
+  }catch(e){cv=null}
+  cache[name]=cv;return cv;
+}
 function _stSpriteNames(ctx){try{return(ctx.blocks('sprite')||[]).map(function(b){return b.name})}catch(e){return[]}}
 function _stUnique(base,taken){if(taken.indexOf(base)<0)return base;for(var i=2;;i++)if(taken.indexOf(base+i)<0)return base+i}
 function _stHue(s){var h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))%360;return'hsl('+h+',70%,60%)'}
@@ -12692,7 +12712,9 @@ function _stageOpen(ctx){
     refresh();
   }
   // ── brushes and legend editor ──
-  function chip(e){var c=_stEl('span','stg-chip');c.style.background=e&&e.color?e.color:e&&e.sprite?'repeating-linear-gradient(45deg,#666 0 3px,#999 3px 6px)':'transparent';return c}
+  function chip(e){var c=_stEl('span','stg-chip'),sc=e&&e.sprite?_stSpriteCanvas(ctx,S.sprCache||(S.sprCache={}),e.sprite):null;c.style.background=e&&e.color?e.color:e&&e.sprite?'repeating-linear-gradient(45deg,#666 0 3px,#999 3px 6px)':'transparent';
+    if(sc){try{c.style.background='url('+sc.toDataURL()+') center/100% 100% no-repeat'+(e.color?' '+e.color:'');c.style.imageRendering='pixelated';c.setAttribute('data-sprite',e.sprite)}catch(x){}}
+    return c}
   function brushes(){
     r3.innerHTML='';
     M().legend.forEach(function(e){
@@ -12771,7 +12793,9 @@ function _stageOpen(ctx){
     var r=view.getBoundingClientRect(),dpr=window.devicePixelRatio||1,W=Math.max(1,Math.round((r.width||300)*dpr)),H=Math.max(1,Math.round((r.height||200)*dpr));
     if(cv.width!==W)cv.width=W;if(cv.height!==H)cv.height=H;
     var g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
-    var o=origin(),c=o.c,rows=grid(),spr=typeof _spriteDraw==='function'?_spriteDraw:null;
+    var o=origin(),c=o.c,rows=grid(),rt=typeof _spriteDraw==='function'?_spriteDraw:null;
+    /* sprite tiles: the sprite block of the program text; else the running program's sprite (runtime registry) */
+    var spr=function(g2,name,f,x0,y0,op){var sc=_stSpriteCanvas(ctx,S.sprCache||(S.sprCache={}),name);if(!sc)return rt?rt(g2,name,f,x0,y0,op):false;g2.save();g2.imageSmoothingEnabled=false;g2.drawImage(sc,x0,y0,op.w,op.h);g2.restore();return true};
     for(var y=0;y<M().h;y++)for(var x=0;x<M().w;x++){
       var ch=rows[y][x],e=entry(ch),px=o.x+x*c,py=o.y+y*c;
       if(px>r.width||py>r.height||px+c<0||py+c<0)continue;

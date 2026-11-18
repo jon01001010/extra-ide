@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // The STAGE (map painter) and CONTROLS drawer tools of an Emit IDE build, in headless Chromium.
-// The drawer framework is not part of this build yet: a TEST-ONLY stand-in (page.addInitScript) collects the
-// tools registered with _drawerRegister and opens one in a full-screen sheet with the ctx the shared contract
-// describes (blocks / read / write / remove over the project's files, toast, setDirty …). A sprite list and a
-// _spriteDraw are stood in the same way. The checks run twice: on a phone viewport with touch (360 px wide)
-// and on a desktop viewport with a mouse.
+// The tools open in the real drawer (CORE) with its real ctx; sprite tiles are drawn from real sprite blocks
+// (SPRITE). The checks run twice: on a phone viewport with touch (360 px wide) and on a desktop viewport with a
+// mouse.
 //
 //   node tests/run-stage-tool.js [path/to/emit-ide.html] [phone|desk]
 const { chromium } = require('playwright');
@@ -18,49 +16,25 @@ function check(label, ok, detail) {
 const PHONE = { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true };
 const DESK = { viewport: { width: 1200, height: 800 } };
 
-// ── TEST-ONLY stand-ins: the drawer framework (CORE) and the sprite helpers (SPRITE) ──
-const STANDIN = `
-window.__tools = {}; window.__toasts = []; window.__dirty = null;
-window._drawerRegister = function (t) { window.__tools[t.id] = t; };
-window.__fakeSprites = ['grass', 'rock'];
-window._spriteDraw = function (ctx, name, frame, x, y, o) { ctx.fillStyle = name === 'grass' ? '#00aa00' : '#999999'; ctx.fillRect(x, y, o.w, o.h); return true; };
+// ── The real drawer (CORE) and the real sprites (SPRITE) ──
+// Test hooks over the real drawer: __openTool(id) opens tool id afresh (also when it is already open), __ctx is
+// the ctx the real drawer gave the tool, __toasts records ctx.toast, __dirty reads the drawer's dirty flag,
+// __writes counts ctx.write. The sprites grass (all #00aa00) and rock (all #999999) are real sprite blocks
+// in sprites.emit, which the STAGE view draws from the program text.
+const HOOKS = `
+window.__toasts = []; window.__writes = 0;
 window.__openTool = function (id) {
-  var old = document.getElementById('drw-sheet'); if (old) old.remove();
-  var sheet = document.createElement('div'); sheet.id = 'drw-sheet';
-  sheet.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0f1118;display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto';
-  var head = document.createElement('div'), body = document.createElement('div'), foot = document.createElement('div');
-  head.style.cssText = 'padding:8px;color:#fff'; body.style.cssText = 'padding:8px;flex:1;min-width:0'; foot.style.cssText = 'padding:8px';
-  sheet.append(head, body, foot); document.body.appendChild(sheet);
-  function files() { _projText(); return _proj.files.map(function (f) { return { path: f.path, source: f.source }; }); }
-  function find(kind, name) {
-    var fs = files();
-    for (var i = 0; i < fs.length; i++) { var bl = _stFindBlocks(fs[i].source); for (var k = 0; k < bl.length; k++) if (bl[k].kind === kind && bl[k].name === name) return { fs: fs, i: i, b: bl[k] }; }
-    return { fs: fs, i: -1, b: null };
-  }
-  function store(fs) { _projLoad(_emitJoinBundle(fs), _proj.active); }
-  var ctx = {
-    body: body, footer: foot,
-    title: function (t) { head.textContent = t; }, close: function () { sheet.remove(); },
-    setDirty: function (b) { window.__dirty = b; }, toast: function (t) { window.__toasts.push(t); },
-    files: function () { return files().map(function (f) { return f.path; }); },
-    blocks: function (kind) {
-      if (kind === 'sprite') return window.__fakeSprites.map(function (n) { return { kind: 'sprite', name: n, path: 'sprites.emit', startLine: 0, endLine: 0, text: 'sprite ' + n + ':' }; });
-      var out = []; files().forEach(function (f) { _stFindBlocks(f.source).forEach(function (b) { if (b.kind === kind) out.push({ kind: kind, name: b.name, path: f.path, startLine: b.line, endLine: b.end, text: b.lines.join('\\n') }); }); });
-      return out;
-    },
-    read: function (kind, name) { var r = find(kind, name); return r.b ? r.b.lines.join('\\n') : null; },
-    write: function (kind, name, text, pref) {
-      var r = find(kind, name), fs = r.fs;
-      if (r.b) { var L = fs[r.i].source.split('\\n'); L.splice(r.b.line, r.b.end - r.b.line + 1, text); fs[r.i].source = L.join('\\n'); }
-      else { var p = pref || 'stages.emit', f = fs.filter(function (x) { return x.path === p; })[0]; if (!f) { f = { path: p, source: '' }; fs.push(f); } f.source = f.source.replace(/\\n*$/, '') + (f.source.trim() ? '\\n\\n' : '') + text + '\\n'; }
-      store(fs); window.__writes = (window.__writes || 0) + 1;
-    },
-    remove: function (kind, name) { var r = find(kind, name); if (!r.b) return; var L = r.fs[r.i].source.split('\\n'); L.splice(r.b.line, r.b.end - r.b.line + 1); r.fs[r.i].source = L.join('\\n'); store(r.fs); },
-    run: function () { return compileAndRun(); }
-  };
-  window.__ctx = ctx;
-  return window.__tools[id].open(ctx);
-};`;
+  _drawerEnsure();
+  var t = _drawerFind(id); if (!t) throw new Error('no tool ' + id);
+  _drawerTool(t);
+  window.__ctx = _drawer.ctx;
+  return true;
+};
+(function () {
+  var toast0 = _drawerToast; window._drawerToast = function (s) { window.__toasts.push(String(s)); return toast0.apply(this, arguments); };
+  var write0 = _drawerWrite; window._drawerWrite = function () { window.__writes++; return write0.apply(this, arguments); };
+  Object.defineProperty(window, '__dirty', { configurable: true, get: function () { return _drawer.dirty; } });
+})();`;
 
 const MAIN = 'export fn main() {\n  canvas(mapW(level1) * tileSize(level1), mapH(level1) * tileSize(level1))\n  drawMap(level1)\n  print(objCount(level1, "coin"))\n}\n';
 const LEVEL = [
@@ -90,19 +64,20 @@ const HAND = [
   '  weather rain',
 ].join('\n');
 const CTL = 'controls pad: stick left, buttons A "jump", size 1.0, opacity 0.5';
-const BUNDLE = MAIN + '//// file: stages.emit\n' + LEVEL + '\n\n' + HAND + '\n\n' + CTL + '\n';
+const SPRITES = 'sprite grass: 2x2\n  palette 00aa00\n  "11"\n  "11"\n\nsprite rock: 2x2\n  palette 999999\n  "11"\n  "11"\n';
+const BUNDLE = MAIN + '//// file: stages.emit\n' + LEVEL + '\n\n' + HAND + '\n\n' + CTL + '\n//// file: sprites.emit\n' + SPRITES;
 
 async function openIde(browser, fileUrl, mode) {
   const ctx = await browser.newContext(mode);
-  await ctx.addInitScript(STANDIN);
   const page = await ctx.newPage();
   page.errors = [];
   page.on('pageerror', e => page.errors.push(e.message.slice(0, 300)));
   page.on('dialog', d => d.accept());
   await page.route(/^https?:/, r => r.abort());
   await page.goto(fileUrl);
-  await page.waitForFunction(() => typeof compileAndRun === 'function' && typeof _projLoad === 'function' && window.__tools && window.__tools.stage);
+  await page.waitForFunction(() => typeof compileAndRun === 'function' && typeof _projLoad === 'function' && typeof _drawerFind === 'function' && _drawerFind('stage') && _drawerFind('controls'));
   await page.waitForTimeout(150);
+  await page.evaluate(h => { (0, eval)(h); }, HOOKS);
   await page.evaluate(b => { try { closeWelcome(); } catch (e) {} _projLoad(b); }, BUNDLE);
   return page;
 }
@@ -202,7 +177,7 @@ async function stageChecks(browser, fileUrl, phone) {
   m = await model(page);
   check(T + 'deleting a legend entry turns its tiles into the eraser tile', m.legend.length === 3 && m.rows[1] === '#####....#', rowsOf(m));
   const pix = await page.evaluate(() => { const c = document.querySelector('[data-stg="view"] canvas'), a = document.querySelector('[data-stage-tool]')._stageApi, r = c.getBoundingClientRect(), p = a.screen(8, 2), d = window.devicePixelRatio || 1; return Array.from(c.getContext('2d').getImageData(Math.round((p.x - r.left) * d), Math.round((p.y - r.top) * d), 1, 1).data).slice(0, 3).join(','); });
-  check(T + 'a sprite tile is drawn with _spriteDraw', pix === '0,170,0', pix);
+  check(T + 'a sprite tile is drawn from its sprite block', pix === '0,170,0', pix);
   // objects: place, move, long-press edit, delete
   await click(page, '[data-tool="objects"]');
   await page.fill('[data-stg="kind"]', 'slime');
@@ -302,7 +277,7 @@ async function stageChecks(browser, fileUrl, phone) {
   const arena = await page.evaluate(() => _proj.files.map(f => f.path + ':' + (_stFindBlocks(f.source).map(b => b.kind + ' ' + b.name).join(','))).join(' | '));
   check(T + 'a new map is written to stages.emit', /stages\.emit:map level1,map cave,controls pad,map arena/.test(arena), arena);
   // no horizontal overflow
-  const ov = await page.evaluate(() => { const s = document.getElementById('drw-sheet'); return { doc: document.documentElement.scrollWidth, sheet: s.scrollWidth, cw: s.clientWidth, wide: [...s.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > s.clientWidth + 1).map(e => e.tagName + '.' + e.className + '[' + (e.getAttribute('data-stg') || '') + ']').slice(0, 5) }; });
+  const ov = await page.evaluate(() => { const s = document.querySelector('#drawer .drw'), bd = document.getElementById('drawerBody'), R = s.getBoundingClientRect(); return { doc: document.documentElement.scrollWidth, sheet: bd.scrollWidth, cw: bd.clientWidth, wide: [...s.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > R.left + s.clientWidth + 1).map(e => e.tagName + '.' + e.className + '[' + (e.getAttribute('data-stg') || '') + ']').slice(0, 5) }; });
   check(T + 'no horizontal overflow in the tool', ov.sheet <= ov.cw && ov.wide.length === 0, JSON.stringify(ov));
   check(T + 'no page errors', !page.errors.length, page.errors.join(' | '));
   await page.context().close();
@@ -357,7 +332,7 @@ async function controlsChecks(browser, fileUrl, phone) {
   const after = await page.$eval('[data-ctl-f="read"]', e => [e.getAttribute('data-x'), e.getAttribute('data-pressed'), JSON.parse(e.getAttribute('data-just')).A]);
   check(T + 'controls test mode: released → 0, nothing pressed, still one press counted', after[0] === '0.000' && after[1] === '' && after[2] === 1, JSON.stringify(after));
   await click(page, '[data-ctl-f="test"]');
-  const ov = await page.evaluate(() => { const s = document.getElementById('drw-sheet'); return { sheet: s.scrollWidth, cw: s.clientWidth, wide: [...s.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > s.clientWidth + 1).map(e => e.tagName + '[' + (e.getAttribute('data-ctl-f') || e.getAttribute('data-ctl') || '') + ']').slice(0, 5) }; });
+  const ov = await page.evaluate(() => { const s = document.querySelector('#drawer .drw'), bd = document.getElementById('drawerBody'), R = s.getBoundingClientRect(); return { sheet: bd.scrollWidth, cw: bd.clientWidth, wide: [...s.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > R.left + s.clientWidth + 1).map(e => e.tagName + '[' + (e.getAttribute('data-ctl-f') || e.getAttribute('data-ctl') || '') + ']').slice(0, 5) }; });
   check(T + 'controls: no horizontal overflow', ov.sheet <= ov.cw && !ov.wide.length, JSON.stringify(ov));
   check(T + 'controls: no page errors', !page.errors.length, page.errors.join(' | '));
   await page.context().close();
