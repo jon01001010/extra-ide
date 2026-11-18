@@ -223,6 +223,16 @@ sprite hero: 4x3, fps 5
   check('phone: no page errors', page.errors.length === 0, page.errors.join(' | '));
   await page.context().close();
 
+  // ── the sprite under the editor's cursor opens; _sprFrameCanvas for other tools ──
+  page = await openIde(browser, fileUrl, DESK, 'sprite one: 1x1\n  "1"\n\nsprite two: 2x1\n  palette 00ff00\n  "1."\nexport fn run() {}\n');
+  await page.evaluate(() => { const ed = document.getElementById('editor'); ed.focus(); ed.selectionStart = ed.selectionEnd = ed.value.indexOf('"1."') + 1; });
+  await open(page);
+  s = await state(page);
+  check('desktop: the sprite block the editor cursor is in is the one that opens', s.name === 'two', s.name);
+  r = await page.evaluate(() => { const d = _sprParse(['sprite two: 2x1', '  palette 00ff00', '  "1."'], 1, true), c = _sprFrameCanvas(d, 0, 3), g = c.getContext('2d'); return [c.width, c.height, Array.from(g.getImageData(1, 1, 1, 1).data).join(), Array.from(g.getImageData(4, 1, 1, 1).data).join()].join(' '); });
+  check('desktop: _sprFrameCanvas draws a parsed frame at an integer scale', r === '6 3 0,255,0,255 0,0,0,0', r);
+  await page.context().close();
+
   // ═════════════════════════════ DESKTOP ═════════════════════════════
   page = await openIde(browser, fileUrl, DESK, 'export fn run() {\n}\n');
   await open(page);

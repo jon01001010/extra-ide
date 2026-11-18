@@ -460,7 +460,7 @@ public fn step(dt: num) num {
 <p><strong>Compact form.</strong> Rows wider than a phone screen can be written run-length encoded, one line per frame: <code>frame idle rle ".4 14 .8/.16 *15"</code>. Rows are separated by <code>/</code>; a row is runs separated by spaces, each run a pixel character followed by how many (<code>.4</code> = four transparent, <code>14</code> = four of colour 1, a lone <code>a</code> = one); <code>*N</code> at the end of a row repeats that row N times. A sprite without frames writes <code>rle "&hellip;"</code>. The SPRITE tool writes this form for sprites wider than 64 pixels and reads both.</p>
 <p><strong>Names.</strong> A sprite name is visible in every file of the project (put sprites in <code>sprites.emit</code> and use them from <code>main.emit</code>, no import needed). Used as a value it is an <code>int</code> (the sprite&rsquo;s number): <code>let s = hero</code> &nbsp; <code>draw(s, x, y)</code>. A local variable with the same name hides it.</p>
 <div class="sig">draw(spr, x, y) &nbsp; draw(spr, x, y, frame)</div>
-<div class="sig">drawEx(spr, x, y, frame, flipX: bool, scale: num)</div>
+<div class="sig">drawEx(spr, x, y, frame, flipX: bool, scale: num) &mdash; flipX and scale may be left out</div>
 <div class="sig">anim(spr, t: num) &rarr; int &mdash; the frame number at t seconds, at the sprite&rsquo;s fps (looping)</div>
 <div class="sig">spriteW(spr) &rarr; int &nbsp; spriteH(spr) &rarr; int</div>
 <div class="sig">blit(spr, frame, fb, x, y, w) &mdash; copy a frame into a u8 region shown with screen(fb, w, h)</div>
@@ -10309,13 +10309,26 @@ function _sprToolOpen(ctx){
     requestAnimationFrame(tick);
   })();
   try{new ResizeObserver(function(){if(S){if(!fitDone)fit();else render()}}).observe(stage)}catch(e){}
-  // first sprite of the project, or a new one
-  var first=blocks()[0];
-  load(first?first.name:null);
+  // the sprite block the editor's cursor is in, else the first sprite of the project, else a new one
+  var first=blocks()[0],atCur=null;
+  try{var cl=ed.value.slice(0,ed.selectionStart).split('\n').length-1;_sprFindBlocks(ed.value).forEach(function(b){if(cl>=b.start&&cl<=b.end)atCur=b.name})}catch(e){}
+  load(atCur&&blocks().some(function(b){return b.name===atCur})?atCur:first?first.name:null);
   // for tests and other tools: the open editor's state
   root._spt={state:function(){return S},save:save,load:load,undo:doUndo,redo:doRedo,setTool:setTool,view:function(){return{zoom:zoom,ox:ox,oy:oy,cw:cw,ch:ch,grid:zoom>=6}},drawNow:draw,
     importPixels:importPixels,setColor:function(c){color=c;drawPal()},setMirror:function(v){mirror=!!v;mirB.classList.toggle('on',mirror)},isDirty:function(){return dirty},text:function(){return _sprFormat(toDef())}};
   return root._spt;
+}
+// For other tools (tile pickers, previews) in the IDE: frame fi of a sprite as _sprParse returns it, drawn on a
+// new canvas at an integer scale (the runtime registry of the running program is not touched).
+function _sprFrameCanvas(d,fi,scale){
+  scale=Math.max(1,scale|0||1);
+  var f=d.frames[Math.max(0,Math.min(d.frames.length-1,fi|0))],c=document.createElement('canvas');c.width=d.w;c.height=d.h;
+  var g=c.getContext('2d'),id=g.createImageData(d.w,d.h);
+  for(var i=0;i<d.w*d.h;i++){var v=_SPR_CHARS.indexOf(f.data[i]);if(v>0){var h=parseInt(d.palette[v-1],16);id.data[i*4]=h>>16&255;id.data[i*4+1]=h>>8&255;id.data[i*4+2]=h&255;id.data[i*4+3]=255}}
+  g.putImageData(id,0,0);
+  if(scale===1)return c;
+  var o=document.createElement('canvas');o.width=d.w*scale;o.height=d.h*scale;var og=o.getContext('2d');og.imageSmoothingEnabled=false;og.drawImage(c,0,0,o.width,o.height);
+  return o;
 }
 // Median cut over weighted colours {rgb, n} → at most k colours (rgb ints), each the weighted mean of its box.
 function _sprMedianCut(cols,k){
