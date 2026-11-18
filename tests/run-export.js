@@ -334,6 +334,29 @@ const EXTRA = {
     expect: 'loaded data1',
     expect2: 'handler stops',
   },
+  // An await loop in a helper function (main → loop) in an exported page: the shadow stack lets the runtime
+  // collect while the loop waits, so what each iteration drops is released (the .html page is measured twice).
+  '+await-mem': {
+    src: [
+      'mut n = 0', 'mut bad = 0', '',
+      'fn loop(keep: js) {', '  while (true) {', '    n++', '    let o = emptyObj()', '    o.tag = n', '    let s = "i" + intToStr(n)',
+      '    let xs = [n, n + 1]', '    let junk = emptyObj()', '    await sleep(2)', '    let t: int = o.tag', '    if (t != n) { bad++ }',
+      '    if (!strEq(s, "i" + intToStr(n))) { bad++ }', '    if (xs[1] != n + 1) { bad++ }', '    let k: int = keep.tag', '    if (k != 7) { bad++ }',
+      '    if (n == 60) { printStr("checked 60 iterations, bad " + intToStr(bad)) }', '  }', '}', '',
+      'export fn main() {', '  let keep = emptyObj()', '  keep.tag = 7', '  loop(keep)', '}', ''].join('\n'),
+    expect: 'checked 60 iterations, bad 0',
+    htmlCheck: async page => {
+      const stats = () => page.evaluate(() => { const m = _memStats(); return { h: m.handles, s: m.strBlocks, a: m.arrays, parked: m.parked, n: Number(window._wi.exports.__g0.value), bad: Number(window._wi.exports.__g1.value) }; });
+      const a = await stats();
+      await page.waitForTimeout(1500);
+      const b = await stats(), p = [];
+      if (b.n - a.n < 50) p.push('the loop did not go on: ' + a.n + ' → ' + b.n + ' iterations');
+      if (b.bad) p.push(b.bad + ' values read back wrong');
+      if (b.parked !== 1) p.push('expected the suspended loop to be parked, parked = ' + b.parked);
+      if (b.h > 200 || b.s > 200 || b.a > 100) p.push('not bounded after ' + b.n + ' iterations: ' + JSON.stringify(b) + ' (at ' + a.n + ': ' + JSON.stringify(a) + ')');
+      return p;
+    },
+  },
   // ── memory regions and structs: the heap base and the region metadata travel on the import list ──
   '+regions': {
     offline: true,
