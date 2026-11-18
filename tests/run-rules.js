@@ -714,7 +714,22 @@ rules:
     _lgDraw = keep;
     return { all, sim, alive: T.alive('slime') };
   });
-  ctx.note = '500 chasers + 32 bullets, hit checks bullet×slime, hero×slime: ' + g.sim.toFixed(3) + ' ms/frame simulation, ' + g.all.toFixed(3) + ' ms/frame with drawing (headless Chromium, software canvas)';
+  if (g.alive !== 500) p.push('slimes alive: ' + g.alive);
+  // worst case: every slime against every other slime (124 750 pairs per frame, no spatial grid)
+  await ok(page, p, `
+thing hero: box 10 10, at 160 120
+thing slime: box 6 6, count 500, at (i * 37) % 320, (i * 53) % 240, chase hero 0.5
+rules:
+  on hit slime slime: add bumps 1
+`);
+  const w = await page.evaluate(() => {
+    T.step(5);
+    const keep = _lgDraw; _lgDraw = function () {};
+    const t0 = performance.now(); for (let i = 0; i < 60; i++) window._wi.exports.frame(); const sim = (performance.now() - t0) / 60;
+    _lgDraw = keep;
+    return sim;
+  });
+  ctx.note = '500 chasers + 32 bullets, hit checks bullet×slime, hero×slime: ' + g.sim.toFixed(3) + ' ms/frame simulation, ' + g.all.toFixed(3) + ' ms/frame with drawing (headless Chromium, software canvas); 500 slimes with on hit slime slime (124750 pairs): ' + w.toFixed(2) + ' ms/frame';
   if (g.all > 16) p.push('slower than 60 fps: ' + g.all.toFixed(2) + ' ms/frame');
   return p;
 });

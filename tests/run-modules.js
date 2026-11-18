@@ -1362,6 +1362,9 @@ const SPECIAL = [
         n++;
         // a multi-file example (added later by the IDE) has no "before": the old compiler cannot read it
         if (sources[k].split('\n').some(l => l.indexOf(MARK) === 0) || /^\s*(import\s+(?!fn\b)|public\s|package\s)/m.test(sources[k])) { n--; continue; }
+        // an example the old page does not have (EX there is a const, so it keeps its own list): e.g. 'game', which
+        // uses thing / rules blocks the old compiler cannot read — run-rules.js checks byte identity for the rest
+        if (!before[k]) { n--; continue; }
         if (JSON.stringify(now[k]) !== JSON.stringify(before[k])) problems.push('example "' + k + '" compiles differently than before the module system' + (now[k].thrown || before[k].thrown ? ': ' + JSON.stringify([before[k].thrown, now[k].thrown]) : ''));
         else if (now[k].thrown) problems.push('example "' + k + '" does not compile: ' + now[k].thrown);
       }
