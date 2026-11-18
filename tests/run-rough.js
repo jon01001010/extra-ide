@@ -2,11 +2,11 @@
 // Rough edges: (1) top-level values of any kind, (2) things and rules across files, (3) call arguments
 // (print(x) with x: num, and an audit of every builtin), (4) the help paragraphs. Headless Chromium, offline.
 //
-//   node tests/run-rough.js [path/to/emit-ide.html] [section ...]      sections: values export memory audit things help
+//   node tests/run-rough.js [path/to/emit-ide.html] [section ...]      sections: values export memory audit types things help
 //   VERBOSE=1 prints the Output tab of every IDE run.
 //
 // Exit code 0 only when every check passes. The builtin audit prints its table summary: every builtin is called
-// with each argument type (int, num, bool, str, js, arr as a local and as a literal; i32 and f32 locals) in every parameter position
+// with each argument type (int, num, bool, str, js, arr; as a local and as a literal) in every parameter position
 // (the other arguments of their declared type) and its result is used; every program must compile to VALID
 // WebAssembly (WebAssembly.validate) or fail with a readable compile error — never invalid WASM.
 const { chromium } = require('playwright');
@@ -165,8 +165,6 @@ async function sectionValues(browser) {
   const lit = await compileOnly(page, 'mut a = 1\nlet s = "x"\nmut n = -2.5 * 2\nexport fn run() {\n  print(a)\n}\n');
   check('a program with only literal initial values has no __emitInit export', same(lit.exports, ['run']), JSON.stringify(lit.exports));
 
-  r = await run(page, 'fn f() int {\n  return 3\n}\nlet g32: i32 = f()\nlet gf: f32 = sqrt(2.0)\nexport fn run() {\n  print(g32)\n  printNum(gf)\n  print(gf)\n}\n');
-  check('i32 / f32 top-level values from int / num initialisers (and print of them)', r.status === 'Done' && same(r.printed, ['> 3', '> 1.4142135381698608', '> 1.4142135381698608']), JSON.stringify(r.lines));
 
   r = await run(page, MODS);
   check('modules: a module\'s values are set after those of the modules it imports; an import cycle keeps file order', r.status === 'Done' && same(r.printed, ['> init util', '> init game.physics', '> init b', '> init a', '> init main', '> 33', '> u10']), JSON.stringify({ status: r.status, printed: r.printed, red: r.red }));
@@ -392,10 +390,10 @@ export fn run() {
   check('Emit functions: an argument that does not fit its parameter is a compile error naming the function and parameter', same(emitFnErrs, ['6:11: f(): parameter n is int, but this is num — round it first, e.g. floor(x)', '4:5: g(): parameter s is str, but this is bool — make it text first, e.g. "" + x', '4:9: print(): this argument is a call that returns nothing — there is no value to pass as x']), JSON.stringify(emitFnErrs));
 
   const audit = await page.evaluate(() => {
-    const LOC = { int: 'vi', num: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va', i32: 'v32', f32: 'vf32' };
-    const LIT = { int: '3', num: '2.5', bool: 'true', str: '"s"', js: 'emptyObj()', arr: '[1, 2]', i32: 'v32', f32: 'vf32' };
+    const LOC = { int: 'vi', num: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va' };
+    const LIT = { int: '3', num: '2.5', bool: 'true', str: '"s"', js: 'emptyObj()', arr: '[1, 2]' };
     const nat = t => ({ int: 'vi', i64: 'vi', i32: 'vi', num: 'vn', f64: 'vn', f32: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va', numarr: 'va' })[t] || 'vi';
-    const pre = '  let vi = 3\n  let vn = 2.5\n  let vb = true\n  let vs = "s"\n  let vj = emptyObj()\n  let va = [1, 2]\n  let v32: i32 = 7\n  let vf32: f32 = 1.5\n';
+    const pre = '  let vi = 3\n  let vn = 2.5\n  let vb = true\n  let vs = "s"\n  let vj = emptyObj()\n  let va = [1, 2]\n';
     const rows = [];
     function one(name, label, call, use) {
       const src = 'export fn run() {\n' + pre + (use ? '  let r = ' : '  ') + call + '\n' + (use ? '  let q = r\n' : '') + '}\n';
@@ -411,12 +409,12 @@ export fn run() {
     for (const name of Object.keys(BUILTINS).sort()) {
       const P = BUILTINS[name].params, rt = BUILTINS[name].returnType;
       one(name, 'natural' + (rt !== 'void' ? ' (result used)' : ''), name + '(' + P.map(q => nat(q.type)).join(', ') + ')', rt !== 'void');
-      for (let i = 0; i < P.length; i++) for (const T of Object.keys(LOC)) for (const [form, V] of (/^[if]32$/.test(T) ? [['local', LOC]] : [['local', LOC], ['literal', LIT]])) {
+      for (let i = 0; i < P.length; i++) for (const T of Object.keys(LOC)) for (const [form, V] of [['local', LOC], ['literal', LIT]]) {
         one(name, 'arg ' + i + ' (' + P[i].name + ': ' + P[i].type + ') ← ' + T + ' ' + form, name + '(' + P.map((q, j) => j === i ? V[T] : nat(q.type)).join(', ') + ')', false);
       }
     }
     // Emit functions with every parameter type, called with every argument type
-    for (const pt of ['int', 'num', 'bool', 'str', 'js', 'arr', 'i32', 'f32']) for (const T of Object.keys(LOC)) {
+    for (const pt of ['int', 'num', 'bool', 'str', 'js', 'arr']) for (const T of Object.keys(LOC)) {
       const src = 'fn f(p: ' + pt + ') {\n}\nexport fn run() {\n' + pre + '  f(' + LOC[T] + ')\n}\n';
       let k, msg = '';
       try { const r = compile(src, 'wasm32'); if (r.errors.length) { k = 'error'; msg = r.errors[0]; } else if (WebAssembly.validate(r.wasm)) k = 'valid'; else k = 'INVALID'; } catch (e) { k = 'error'; msg = e.message; }
@@ -435,6 +433,68 @@ export fn run() {
   check('builtin audit: every rejected program has a readable compile error with a position', !unreadable.length, unreadable.slice(0, 5).map(x => x.name + ' ' + x.label + ': ' + x.msg).join('\n      '));
   check('builtin audit: every builtin compiles with arguments of its declared types', !audit.rows.some(x => /^natural/.test(x.label) && x.k !== 'valid'), audit.rows.filter(x => /^natural/.test(x.label) && x.k !== 'valid').map(x => x.name + ': ' + x.msg).join(' | '));
   check('no page errors (audit)', !page.errors.length, page.errors.join(' | '));
+  await page.close();
+}
+
+// ═══ 3b. every declared type × global / local / parameter × read, assignment from every type, arithmetic,
+//     comparison, print / printNum / printStr, return — valid WebAssembly or a readable compile error ═══
+function typeAuditPrograms() {
+  const TYPES = ['i8', 'u8', 'i16', 'u16', 'i32', 'u32', 'int', 'f32', 'num', 'bool', 'str', 'js', 'arr', 'numarr'];
+  const INIT = { i8: '5', u8: '5', i16: '5', u16: '5', i32: '5', u32: '5', int: '5', f32: '1.5', num: '1.5', bool: 'true', str: '"s"', js: 'null', arr: '[1, 2]', numarr: '[1.5, 2.5]' };
+  const SRC = { int: ['si', '3'], num: ['sn', '2.5'], bool: ['sb', 'false'], str: ['ss', '"t"'], js: ['sj', 'emptyObj()'], arr: ['sa', '[3, 4]'], null: [null, 'null'] };
+  const PRE = '  let si = 3\n  let sn = 2.5\n  let sb = false\n  let ss = "t"\n  let sj = emptyObj()\n  let sa = [3, 4]\n';
+  const ops = [['init si', 'mut w: T = si'], ['init sn', 'mut w: T = sn'], ['init sb', 'mut w: T = sb'], ['init ss', 'mut w: T = ss'], ['init sj', 'mut w: T = sj'], ['init null', 'mut w: T = null'], ['read', 'let r = v\n  let q = r'], ['self', 'v = v'], ['print', 'print(v)'], ['printNum', 'printNum(v)'], ['printStr', 'printStr(v)'], ['ret', null], ['inc', 'v++'], ['neg', 'let r = -v'], ['not', 'let r = !v']];
+  for (const [s, [loc, lit]] of Object.entries(SRC)) for (const [form, x] of [['local', loc], ['literal', lit]]) {
+    if (!x) continue;
+    const tag = s + '.' + form;
+    ops.push(['assign ' + tag, 'v = ' + x], ['add ' + tag, 'let r = v + ' + x], ['sub ' + tag, 'let r = v - ' + x], ['mul ' + tag, 'let r = v * ' + x], ['div ' + tag, 'let r = v / ' + x],
+      ['mod ' + tag, 'let r = v % ' + x], ['eq ' + tag, 'let r = v == ' + x], ['lt ' + tag, 'let r = v < ' + x], ['compound ' + tag, 'v += ' + x], ['radd ' + tag, 'let r = ' + x + ' + v']);
+  }
+  const rows = [];
+  for (const T of TYPES) for (const ctx of ['global', 'local', 'param']) for (const [op, code] of ops) {
+    let src;
+    if (op === 'ret') {
+      src = (ctx === 'global' ? 'mut v: ' + T + ' = ' + INIT[T] + '\n' : '') + 'fn f(' + (ctx === 'param' ? 'v: ' + T : '') + ') -> ' + T + ' {\n' + (ctx === 'local' ? '  mut v: ' + T + ' = ' + INIT[T] + '\n' : '') + '  return v\n}\nexport fn run() {\n}\n';
+    } else {
+      const code2 = code.replace(/: T /g, ': ' + T + ' ');
+      const decl = ctx === 'local' ? '  mut v: ' + T + ' = ' + INIT[T] + '\n' : '';
+      src = (ctx === 'global' ? 'mut v: ' + T + ' = ' + INIT[T] + '\n' : '') + 'fn f(' + (ctx === 'param' ? 'v: ' + T : '') + ') {\n' + PRE + decl + '  ' + code2 + '\n}\nexport fn run() {\n}\n';
+    }
+    rows.push({ T, ctx, op, src });
+  }
+  return rows;
+}
+async function sectionTypes(browser) {
+  console.log('\n── 3b. declared types and operators ──');
+  const page = await newPage(browser);
+  const rows = typeAuditPrograms();
+  const res = await page.evaluate(rows => rows.map(r => {
+    let k, msg = '';
+    try { const c = compile(r.src, 'wasm32'); if (c.errors.length) { k = 'error'; msg = c.errors[0]; } else if (WebAssembly.validate(c.wasm)) k = 'valid'; else { k = 'INVALID'; try { new WebAssembly.Module(c.wasm); } catch (e) { msg = e.message; } } }
+    catch (e) { k = 'error'; msg = e.message; }
+    return { T: r.T, ctx: r.ctx, op: r.op, k, msg };
+  }), rows);
+  const tab = {};
+  res.forEach(r => { const t = tab[r.T] || (tab[r.T] = { valid: 0, error: 0, INVALID: 0 }); t[r.k]++; });
+  console.log('      type audit: ' + res.length + ' programs (14 types × global/local/param × ' + (res.length / 42) + ' uses)');
+  Object.entries(tab).forEach(([t, c]) => console.log('      ' + t.padEnd(7) + ' valid ' + String(c.valid).padStart(4) + '  compile error ' + String(c.error).padStart(4) + '  INVALID ' + c.INVALID));
+  const bad = res.filter(r => r.k === 'INVALID');
+  check('type audit: no program compiles to invalid WebAssembly', !bad.length, bad.slice(0, 12).map(r => r.T + ' ' + r.ctx + ' ' + r.op + ': ' + r.msg.slice(0, 80)).join('\n      '));
+  const unreadable = res.filter(r => r.k === 'error' && !/^\d+:\d+: \S/.test(r.msg));
+  check('type audit: every rejected program has a readable compile error with a position', !unreadable.length, unreadable.slice(0, 5).map(r => r.T + ' ' + r.ctx + ' ' + r.op + ': ' + r.msg).join('\n      '));
+  const must = (T, ctx, op) => (res.find(r => r.T === T && r.ctx === ctx && r.op === op) || {}).k;
+  const basics = [];
+  for (const T of ['int', 'num', 'bool', 'str', 'js', 'arr', 'numarr']) for (const ctx of ['global', 'local', 'param']) for (const op of ['read', 'self', 'printStr', 'ret', 'eq ' + (T === 'numarr' ? 'arr' : T === 'arr' ? 'arr' : T) + '.local']) if (must(T, ctx, op) !== 'valid') basics.push(T + ' ' + ctx + ' ' + op + ': ' + must(T, ctx, op));
+  for (const ctx of ['global', 'local', 'param']) for (const op of ['add int.local', 'add num.literal', 'mul int.literal', 'lt num.local', 'compound int.literal', 'assign int.local', 'print', 'printNum']) if (must('num', ctx, op) !== 'valid') basics.push('num ' + ctx + ' ' + op + ': ' + must('num', ctx, op));
+  for (const ctx of ['global', 'local', 'param']) for (const op of ['add int.local', 'mod int.literal', 'assign null.literal', 'compound int.literal', 'inc', 'print', 'printNum']) if (must('int', ctx, op) !== 'valid') basics.push('int ' + ctx + ' ' + op + ': ' + must('int', ctx, op));
+  check('type audit: ordinary uses of int / num / bool / str / js / arr / numarr compile (read, assign, +, %, <, ==, print, return…)', !basics.length, basics.join(' | '));
+  const store = res.filter(r => /^(i8|u8|i16|u16|i32|u32|f32)$/.test(r.T) && !(r.k === 'error' && / is declared as (i8|u8|i16|u16|i32|u32|f32) — /.test(r.msg) || r.k === 'error' && /Expected LBRACE/.test(r.msg)));
+  check('a variable / parameter / result declared i8 u8 i16 u16 i32 u32 or f32 is a compile error saying they are storage types', !store.length, store.slice(0, 5).map(r => r.T + ' ' + r.ctx + ' ' + r.op + ': ' + r.k + ' ' + r.msg).join(' | '));
+  const reported = await page.evaluate(() => [['mut g: i32 = 5\nexport fn run() {\n  g = g + 1\n}\n'], ['mut f: f32 = 1.5\nexport fn run() {\n  f = f + 1.0\n  let d = f * 2.0\n}\n']].map(([s]) => { try { compile(s, 'wasm32'); return 'compiled'; } catch (e) { return e.message; } }));
+  check('the two reported programs (an i32 global, arithmetic on an f32 global) are compile errors, not invalid WebAssembly', /^1:1: 'g' is declared as i32 — /.test(reported[0]) && /^1:1: 'f' is declared as f32 — /.test(reported[1]), JSON.stringify(reported));
+  const conv = await run(page, 'fn f(b: bool) num {\n  mut n = 1.5\n  n = 2\n  mut x: js = emptyObj()\n  x = null\n  mut k = 3\n  k = null\n  let m: num = b\n  return n + m\n}\nexport fn run() {\n  printNum(f(true))\n}\n');
+  check('assignments that used to be invalid WebAssembly now convert: num ← int, js / int ← null, num ← bool', conv.status === 'Done' && same(conv.printed, ['> 3']), JSON.stringify(conv.lines));
+  check('no page errors (types)', !page.errors.length, page.errors.join(' | '));
   await page.close();
 }
 
@@ -552,6 +612,7 @@ async function sectionHelp(browser) {
   if (want('export')) await sectionExport(browser);
   if (want('memory')) await sectionMemory(browser);
   if (want('audit')) await sectionAudit(browser);
+  if (want('types')) await sectionTypes(browser);
   if (want('things')) await sectionThings(browser);
   if (want('help')) await sectionHelp(browser);
   await browser.close();
