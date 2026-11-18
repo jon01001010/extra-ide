@@ -98,8 +98,8 @@ struct Mixed { a: u8, b: i32, c: u8, d: int, e: i16, f: bool, g: f32 }
 struct Ball { tag: u8, pos: Vec, hist: i16[3], f: f32, n: int, alive: bool }
 struct Small { a: u8, b: u8, c: u16 }
 region balls: Ball[4]
-region mixed: Mixed[2]
-region small: Small[3]
+region mixes: Mixed[2]
+region smalls: Small[3]
 region bytes: u8[5]
 region after: int[1]
 export fn run() { printStr("ok") }`, expect: ['> ok'],
@@ -119,7 +119,7 @@ export fn run() { printStr("ok") }`, expect: ['> ok'],
         if (JSON.stringify(f) !== JSON.stringify(want[s.name])) p.push(s.name + ' fields ' + JSON.stringify(f));
       }
       const r = got.regions;
-      const expectR = [['balls', 65536, 4, 56], ['mixed', 65760, 2, 32], ['small', 65824, 3, 4], ['bytes', 65840, 5, 1], ['after', 65848, 1, 8]];
+      const expectR = [['balls', 65536, 4, 56], ['mixes', 65760, 2, 32], ['smalls', 65824, 3, 4], ['bytes', 65840, 5, 1], ['after', 65848, 1, 8]];
       expectR.forEach(([n, base, len, sz], i) => {
         const x = r[i];
         if (!x || x.id !== i || x.name !== n || x.base !== base || x.length !== len || x.elemSize !== sz || x.frozen !== false || x.module !== 'main' || x.path !== 'main.emit') p.push('region ' + n + ': ' + JSON.stringify(x));

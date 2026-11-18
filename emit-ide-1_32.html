@@ -403,6 +403,8 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 <p><code>break</code> / <code>continue</code> &mdash; leave the loop / go to its next round (in a <code>for</code> the update still runs)</p>
 <p><code>let r = await promise</code> &mdash; wait for a promise. <code>try { } catch (e) { } finally { }</code>, <code>throw "message"</code> &mdash; errors. See <em>await</em> and <em>try / catch</em> below.</p>
 
+<h2>Names are case-insensitive</h2>
+<p><code>Hero</code>, <code>hero</code> and <code>HERO</code> are one name &mdash; for variables, functions, parameters, structs and fields, regions, modules (<code>import Game.Physics</code> finds <code>game/physics.emit</code>), keywords and types (<code>FN</code>, <code>Let</code>, <code>Int</code>, <code>TRUE</code>), builtins (<code>PrintStr</code>), and every block of the Drawer (<code>Sprite Hero:</code>, <code>On Hit Hero Coin</code>, <code>pressed("a")</code>). A name is shown as it is declared. Two names in one scope that differ only by case (<code>let hero</code> and <code>let Hero</code>) are an error. JavaScript names are looked up exactly first, then ignoring case (<code>three.scene()</code> finds <code>THREE.Scene</code>); when an object has two properties that differ only by case, write the exact one. Strings are never changed.</p>
 <h2>Top-level values</h2>
 <p>A top-level <code>let</code> / <code>mut</code> may start with any expression of any type: a call of your own function or a builtin (<code>let start = now()</code>), an array or object literal (<code>let prices = [0, 0, 0]</code>, <code>let cfg = {speed: 2, name: "x"}</code>), <code>new THREE.Scene()</code> or any other JS interop without <code>await</code>, a string built with <code>+</code>, a region read, a value of another module. Literals (<code>0</code>, <code>2.5</code>, <code>"text"</code>, <code>true</code>, <code>null</code>, <code>60 * 60</code>) are there from the start; every other value is set once, in order, before anything else of the program runs &mdash; before Run calls your functions, before Tap to call, buttons, timers and <code>frame()</code>, and in exported pages before <code>main()</code>. A module&rsquo;s values are set after those of the modules it imports (modules that import each other: in file order), and inside a file from top to bottom, so a value may use the ones above it (using one that is set further down is a compile error; a function that reads it too early sees 0). <code>await</code> cannot be used there (nothing can wait before the program has started) &mdash; wait inside a function. If setting a value fails (a JS error, an index out of range&hellip;), the Run stops with a red line naming the variable and its line. A top-level <code>let</code> cannot be assigned later; use <code>mut</code> for a value that changes.</p>
 
@@ -17696,8 +17698,15 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
 </script>
 <script>
 // ═══ CASE-INSENSITIVE NAMES ═══ every Emit name is case-insensitive (`Hero` and `hero` are one name)
-// Compiler half (the runtime half — JS property fallback, export names — is "CASE-INSENSITIVE NAMES (runtime
-// half)" in the runtime block; the Mote half is the caseInsensitive option of Mote.create).
+// Compiler half. Runtime half (the runtime block, next to _jsErr): _ncProp(obj, name) — every JS name a program
+// uses (member read / write / call, new A.B, globals, auto-bridged functions) is looked up exactly first (`name in
+// obj`, own or inherited); when the object has no such property, the one own-or-inherited property equal to it
+// ignoring case is used (three.scene → THREE.Scene), cached per object and name in a WeakMap (a miss rescans);
+// two or more such properties are an error naming them, catchable with try / catch. Strings passed to JS are never
+// changed. _ncExport(inst, name): _emitCallExport finds an export whatever its case. Both live between
+// //#emit-nocase-begin / end, which an export keeps only for programs that use JS interop (else a stub).
+// Sprite frames / sprites, sounds, maps, map object kinds and pressed("a") are looked up ignoring case at run time.
+// Mote: moteVM() and the Script tool make VMs with Mote's caseInsensitive option (MOTE.md).
 //
 // How. compile() first runs _ncCanon over the whole bundle: a light lexer (comments, strings, `use` lines and the
 // bodies of sprite / sound / music / map / controls / script blocks are skipped; thing and rules bodies are read)
@@ -17940,7 +17949,9 @@ function _ncCanon(text){
         continue;
       }
       if((key==='let'||key==='mut'||key==='const')&&isW(next)){
-        declare(f,scope,next,'var');
+        var vd=declare(f,scope,next,'var');
+        /* the initialiser does not see the name it declares: let notyf = new Notyf() — Notyf is the JS class */
+        for(var j4=i+2,dep=0;j4<T.length;j4++){var q4=T[j4];if(q4.k!=='p'&&q4.k!=='w'&&q4.k!=='n'&&q4.k!=='s')break;if(q4.line!==next.line&&dep<=0)break;if(isP(q4,'(')||isP(q4,'[')||isP(q4,'{'))dep++;else if(isP(q4,')')||isP(q4,']')||isP(q4,'}')){if(dep<=0)break;dep--}else if(isP(q4,';')&&dep<=0)break;q4.inInit=vd}
         next.done=true;next.scope=scope;i++;continue;
       }
       if(key==='catch'&&isP(next,'(')&&isW(T[i+2])){pending.push({tok:T[i+2],kind:'var'});T[i+2].done=true;T[i+2].scope=scope;continue}
@@ -18017,14 +18028,14 @@ function _ncCanon(text){
     }
   });
   // ── pass 2: uses ──
-  function lookupScope(s,k){for(;s;s=s.parent){var d=s.decls.get(k);if(d)return d}return null}
+  function lookupScope(s,k,skip){for(;s;s=s.parent){var d=s.decls.get(k);if(d&&d!==skip)return d}return null}
   function lookupProject(k,pref){
     var order=pref?[pref].concat(_NC_BLOCK_PREF):_NC_BLOCK_PREF;
     for(var i=0;i<order.length;i++){var m=project.get(order[i]);if(m&&m.has(k))return m.get(k)}
     return null;
   }
   function resolve(f,t,pref){
-    var k=_ncKey(t.v),d=lookupScope(t.scope||f.scope,k);
+    var k=_ncKey(t.v),d=lookupScope(t.scope||f.scope,k,t.inInit);
     if(d)return d;
     for(var i=0;i<f.stars.length;i++){var sd=f.stars[i].scope.decls.get(k);if(sd)return sd}
     if(pref){d=lookupProject(k,pref);if(d)return d}
