@@ -702,6 +702,51 @@ public fn step(dt: num) num {
 <p>The name is written bare (<code>play(coin)</code>); an unknown name is a compile error. A <code>str</code> variable works too (<code>play(which)</code>) and is looked up when it runs. They work in <code>frame()</code>, button handlers, callbacks and <code>await</code> functions, and in exported pages (no network needed: the sounds are synthesized).</p>
 <p><strong>Phones:</strong> a browser starts audio only after a tap or key press on the page. Sounds played before the first tap are dropped silently; a <code>music()</code> asked for before it starts with the first tap.</p>
 
+<h2>Mote scripts</h2>
+<p><strong>Mote</strong> is a tiny Lua-like scripting language that is <strong>built into Emit</strong>: <code>use mote</code> needs no network (the IDE page carries it, exported programs carry it too). Use it for things players or designers write and change while the game runs &mdash; dialogue, level logic, mods. A script can only reach what your program hands it (no <code>window</code>, no DOM), and every call has a step budget, so a runaway loop stops with an error instead of freezing the page.</p>
+<p><strong>Script blocks</strong> keep scripts in the program: <code>script NAME:</code> in column 1, then the Mote source on indented lines (every line indented, also inside a long string). The <strong>📜 Script</strong> tool of the drawer lists them, edits them with Mote colours, runs them in a sandbox (the functions your program provides are stand-ins that log their calls; <code>wait</code> is skipped, <code>choose</code> takes option 1) and saves them into <code>scripts.emit</code>. In Emit code the block's name is a <code>str</code> constant holding its source, checked when compiling (<code>moteRun(vm, intor)</code> &rarr; <em>Unknown script "intor" &mdash; did you mean "intro"?</em>); names are seen by every file. A Mote syntax error in a block is a compile error at its line.</p>
+<pre style="font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap">use mote
+mut vm: js = null
+mut th: js = null
+fn say(s: str) { printStr(s) }
+
+export fn game() {
+  vm = moteVM()
+  moteFn(vm, "say", fnRef(say))       // the script can call say()
+  th = moteThread(vm, talk)           // a coroutine, driven per frame
+  animate()
+}
+export fn frame() {
+  if (th != null) {
+    if (moteChoices(th) != null) { moteChoose(th, 1) }   // answer choose(…)
+    if (!moteResume(th)) { th = null }                   // false: finished
+  }
+}
+
+script talk:
+  say("Hello!")
+  wait(1)                   -- seconds; the frames go on meanwhile
+  local c = choose("Yes", "No")
+  say(c == 1 and "Great." or "Pity.")</pre>
+<p><strong>The language</strong> (Lua 5.4 syntax and semantics): <code>local x = 1</code>, globals, <code>if … then … elseif … else … end</code>, <code>while … do … end</code>, <code>repeat … until</code>, <code>for i = 1, 10, 2 do … end</code>, <code>for k, v in pairs(t) do … end</code>, <code>function f(a, ...) … end</code>, <code>obj:method()</code>, tables <code>{1, 2, x = 3}</code> (1-based), <code>#t</code>, <code>..</code> joins text, <code>~=</code> not equal, <code>and</code> / <code>or</code> / <code>not</code>, <code>--</code> comments, metatables, closures, <code>pcall</code> / <code>error</code>, coroutines. One number type (no integer overflow); no <code>goto</code>, no bitwise operators. Libraries: base (<code>print type tostring tonumber pairs ipairs select error assert pcall setmetatable load …</code>), <code>string</code> (Lua patterns, <code>format</code>), <code>table</code>, <code>math</code> (seeded <code>math.random</code>), <code>coroutine</code>. Full reference: <code>MOTE.md</code> next to this file.</p>
+<details style="margin:6px 0"><summary style="cursor:pointer;color:var(--cyan)">Short reference: values, conversions, limits</summary>
+<p>Values: <code>nil</code>, booleans (only <code>nil</code> and <code>false</code> are false), numbers (JS doubles; <code>10/2</code> prints <code>5</code>), strings, tables, functions, coroutines. Errors read like Lua's: <code>intro:3: attempt to index a nil value (local 't')</code>.</p>
+<p>Emit &rarr; Mote: <code>int</code>/<code>num</code> &rarr; number, <code>bool</code>, <code>str</code>, a JS array / plain object &rarr; a new table (a copy), <code>fnRef(f)</code> &rarr; a function. Mote &rarr; Emit (results are <code>js</code> values): <code>nil</code> &rarr; <code>null</code>, a sequence table &rarr; a JS array (<code>opts[0]</code> is Mote's <code>opts[1]</code>), another table &rarr; a JS object, a function &rarr; a JS function.</p>
+<p>Host functions of <code>moteVM()</code>: <code>print(…)</code> (a violet line in the Output tab), <code>wait(seconds)</code>, <code>waitFrames(n)</code>, <code>choose(a, b, …)</code> &rarr; the chosen number. The last three pause a thread made with <code>moteThread</code>; in <code>moteRun</code> they are an error (<em>attempt to yield from outside a coroutine</em>).</p>
+<p>Limits per call (run, call, one resume): 1,000,000 steps (<code>moteVM(n)</code> sets another budget), about 16 MB of new data, 20,000 nested calls. <code>pcall</code> cannot catch a budget error; the VM stays usable.</p>
+</details>
+
+<h2>Mote builtins</h2>
+<div class="sig">moteVM() &rarr; js, moteVM(steps: int) &mdash; a sandboxed VM (base string table math coroutine; print, wait, waitFrames, choose)</div>
+<div class="sig">moteRun(vm, src: str) &rarr; js &mdash; runs a script block (or Mote source text); its first return value, or null</div>
+<div class="sig">moteSet(vm, name: str, value) &mdash; a global for the scripts (int num bool str js arr); moteGet(vm, name: str) &rarr; js</div>
+<div class="sig">moteCall(vm, fn, args&hellip;) &rarr; js &mdash; calls a script function by name (or a function value) with any arguments</div>
+<div class="sig">moteFn(vm, name: str, fnRef(emitFn)) &mdash; the scripts can call an Emit function by that name</div>
+<div class="sig">moteThread(vm, fn, args&hellip;) &rarr; js &mdash; a coroutine of a script block, Mote source or a function name</div>
+<div class="sig">moteResume(th) &rarr; js (bool) &mdash; call once per frame; runs the thread to its next wait / waitFrames / choose / coroutine.yield; false when it has finished</div>
+<div class="sig">moteChoices(th) &rarr; js &mdash; the options while the thread waits in choose(&hellip;), else null; moteChoose(th, n: int) answers it (1 = first)</div>
+<p>They are checked when compiling (argument count and types, with positions) and run as JavaScript calls, so an error a script raises is an ordinary Emit error: a red line, or caught by <code>try { … } catch (e) { … }</code> &mdash; <code>e.message</code> names the script, its line and where that line is in your files: <code>intro:3: attempt to call a nil value (global 'gve') (scripts.emit:14)</code>. Calling a Mote builtin loads Mote even without a <code>use mote</code> line. Example: <em>Mote</em> in the Example menu.</p>
+
 <h2>Export</h2>
 <p>Use the File dropdown to download your program:</p>
 <p><code>.html</code> &mdash; one standalone page that runs your program the way Run does, without the editor. It contains the compiled WASM, the list of imports it needs and the Emit runtime itself (the same code this IDE runs programs on: print, canvas, buttons, inputs, sound, strings, JS interop, callbacks, <code>animate()</code>, keyboard and touch). On opening it loads the libraries from your <code>use</code> lines from their URLs (so those need a network connection; a library that fails to load is reported on the page), then calls every exported function that takes no parameters. Functions with parameters are not called automatically, and the IDE's call-trace lines are hidden and printed lines appear without the IDE's <code>&gt; </code> prefix (add <code>?trace</code> to the address to see the page exactly as the IDE's output, trace lines and prefix included). About 90&nbsp;KB plus your program.</p>

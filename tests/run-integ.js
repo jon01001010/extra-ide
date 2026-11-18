@@ -285,8 +285,8 @@ async function filesAndExamples(browser, fileUrl) {
     let errs; try { errs = compile(_projText()).errors.join(' | ') || 'OK'; } catch (e) { errs = e.message; }
     return { files, at, paths: _proj.files.map(f => f.path), errs };
   });
-  check('default files: sounds / music → sounds.emit, sprites → sprites.emit, maps / controls → stages.emit, things / rules → game.emit',
-    r.files === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit', thing: 'game.emit', rules: 'game.emit' }), r.files);
+  check('default files: sounds / music → sounds.emit, sprites → sprites.emit, maps / controls → stages.emit, things / rules → game.emit, scripts → scripts.emit',
+    r.files === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit', thing: 'game.emit', rules: 'game.emit', script: 'scripts.emit' }), r.files);
   check('new blocks are written to their default files, and the project compiles', JSON.stringify(r.at) === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit', thing: 'game.emit', rules: 'game.emit' }) && r.errs === 'OK', JSON.stringify(r));
   const opts = await page.$$eval('#example option', os => os.map(o => o.value));
   check('Example dropdown: the tool examples are listed, Memory and Modules are the last two', ['sfx', 'sprites', 'stage', 'game'].every(v => opts.includes(v)) && opts.slice(-2).join() === 'memory,modules', JSON.stringify(opts));
