@@ -3842,25 +3842,12 @@ _JS_CONV_IMPORTS.__sprBlit=[[['id','int'],['f','int'],['rg','i32'],['x','num'],[
 function _sprFindBlocks(src){
   src=String(src==null?'':src);
   if(src.indexOf('sprite')<0)return[];
-  var lines=src.split('\n'),out=[],st=0; /* 0 code, 1 block comment, 2 "string, 3 'string */
-  for(var i=0;i<lines.length;i++){
-    var L=lines[i];
-    if(st===0&&/^sprite[ \t]+[A-Za-z_]\w*[ \t]*:/.test(L)){
-      var j=i+1,end=i;
-      while(j<lines.length&&(/^[ \t]/.test(lines[j])||/^\s*$/.test(lines[j]))){if(/\S/.test(lines[j]))end=j;j++}
-      out.push({name:/^sprite[ \t]+([A-Za-z_]\w*)/.exec(L)[1],start:i,end:end,lines:lines.slice(i,end+1)});
-      i=end;continue;
-    }
-    for(var k=0;k<L.length;k++){
-      var c=L[k];
-      if(st===1){if(c==='*'&&L[k+1]==='/'){st=0;k++}continue}
-      if(st>=2){if(c==='\\'){k++;continue}if(c===(st===2?'"':"'"))st=0;continue}
-      if(c==='/'&&L[k+1]==='/')break;
-      if(c==='/'&&L[k+1]==='*'){st=1;k++;continue}
-      if(c==='"')st=2;else if(c==="'")st=3;
-    }
-  }
-  return out;
+  var lines=null;
+  /* the shared block scanner (BLOCKS): the same extent as the drawer's helpers and every other block kind */
+  return _emitScanBlocks(src,'sprite').filter(function(b){return b.kind==='sprite'}).map(function(b){
+    lines=lines||src.split('\n');
+    return{name:b.name,start:b.start,end:b.end,lines:lines.slice(b.start,b.end+1)};
+  });
 }
 // Where a line's comment starts (// outside a "…" string), or -1.
 function _sprCmtAt(s){var q=false;for(var i=0;i<s.length;i++){var c=s[i];if(c==='"')q=!q;else if(!q&&c==='/'&&s[i+1]==='/')return i}return -1}
@@ -4375,6 +4362,41 @@ function _emitBlockAt(s,p,raw){
     break;
   }
   return{kind:k,name:n,nameOff:p+m[0].indexOf(n,m[1].length),colon:p+m[0].length,end:end};
+}
+// The blocks of a source text, for every part that looks for them (the drawer's block helpers, the SPRITE and
+// STAGE lexers and tools, the highlighter): one scanner, so all agree on where a block starts and ends.
+// For each block header line → {kind, name, start, end} (0-based lines, inclusive). A header is `<kind> <name>:`
+// in column 1 (`rules:` has no name) of a contract kind (or kindWanted); the block goes on over every following
+// indented line (blank lines inside belong to it when an indented line follows; trailing blank lines do not).
+// Lines inside /* */ comments or strings are not looked at, and the lines of a block are not read as code.
+function _emitScanBlocks(src,kindWanted){
+  var lines=String(src).split('\n'),out=[],inC=false,inS=null;
+  var hdr=/^([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*:/;
+  for(var i=0;i<lines.length;i++){
+    var L=lines[i];
+    if(!inC&&!inS){
+      var m=hdr.exec(L);
+      if(m&&(_EMIT_BLOCK_KINDS[m[1]]||m[1]===kindWanted)&&(m[2]!==undefined||m[1]==='rules'||m[1]===kindWanted)){
+        var end=i,j=i+1;
+        while(j<lines.length){
+          if(/^[ \t]+\S/.test(lines[j])){end=j;j++;continue}
+          if(/^[ \t]*\r?$/.test(lines[j])){var k=j;while(k<lines.length&&/^[ \t]*\r?$/.test(lines[k]))k++;if(k<lines.length&&/^[ \t]+\S/.test(lines[k])){j=k;continue}}
+          break;
+        }
+        out.push({kind:m[1],name:m[2]||'',start:i,end:end});
+        i=end;continue;
+      }
+    }
+    for(var c=0;c<L.length;c++){
+      var ch=L[c];
+      if(inC){if(ch==='*'&&L[c+1]==='/'){inC=false;c++}continue}
+      if(inS){if(ch==='\\'){c++;continue}if(ch===inS)inS=null;continue}
+      if(ch==='/'&&L[c+1]==='/')break;
+      if(ch==='/'&&L[c+1]==='*'){inC=true;c++;continue}
+      if(ch==='"'||ch==="'")inS=ch;
+    }
+  }
+  return out;
 }
 (function(){
   var skip0=Lexer.prototype.skip;
@@ -10574,6 +10596,7 @@ _libACPick=(function(f){return function(idx){
 //     remove(kind, name), files(), run(), onClose(fn)}. open() may also return a function: it runs when the tool
 //     is left (back, close, another tool) — as onClose(fn) does — to stop timers / audio.
 //   Leaving a tool after setDirty(true) asks first.
+//   A tool may also have go(): its card then closes the drawer and calls go() instead of open() (the Memory card).
 // Blocks: a top-level line in column 1 `<kind> <name>:` (rules: has no name) plus every following indented line
 // (a blank line when an indented line follows). _drawerBlocks / _drawerRead / _drawerWrite / _drawerRemove work
 // on all files of the project; line numbers are 1-based and inclusive.
@@ -10677,6 +10700,11 @@ function _drawerToast(text){
   clearTimeout(_drawer.toastT);_drawer.toastT=setTimeout(function(){t.classList.remove('show')},2600);
 }
 function _drawerTool(t){
+  if(typeof t.go==='function'){   // a card that goes somewhere else (the Memory tab): close the drawer, then go
+    _drawerLeave();if(_drawer.el)_drawer.el.classList.remove('show');
+    try{t.go()}catch(e){}
+    return null;
+  }
   _drawerLeave();
   _drawer.el.classList.add('show');
   _drawer.tool=t;_drawer.back.style.visibility='visible';
@@ -10708,35 +10736,7 @@ function _drawerTool(t){
 // ── Blocks in the program text ──
 // For each line of `src`: the 0-based index of every block header line → {kind, name, end (0-based last line)}.
 // Lines inside /* */ comments or strings are not looked at; the lines of a block are not read as code.
-function _drawerScan(src,kindWanted){
-  var lines=String(src).split('\n'),out=[],inC=false,inS=null;
-  var hdr=/^([A-Za-z_][A-Za-z0-9_]*)(?:[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*:/;
-  for(var i=0;i<lines.length;i++){
-    var L=lines[i];
-    if(!inC&&!inS){
-      var m=hdr.exec(L);
-      if(m&&(_EMIT_BLOCK_KINDS[m[1]]||m[1]===kindWanted)&&(m[2]!==undefined||m[1]==='rules'||m[1]===kindWanted)){
-        var end=i,j=i+1;
-        while(j<lines.length){
-          if(/^[ \t]+\S/.test(lines[j])){end=j;j++;continue}
-          if(/^[ \t]*$/.test(lines[j])){var k=j;while(k<lines.length&&/^[ \t]*$/.test(lines[k]))k++;if(k<lines.length&&/^[ \t]+\S/.test(lines[k])){j=k;continue}}
-          break;
-        }
-        out.push({kind:m[1],name:m[2]||'',start:i,end:end});
-        i=end;continue;
-      }
-    }
-    for(var c=0;c<L.length;c++){
-      var ch=L[c];
-      if(inC){if(ch==='*'&&L[c+1]==='/'){inC=false;c++}continue}
-      if(inS){if(ch==='\\'){c++;continue}if(ch===inS)inS=null;continue}
-      if(ch==='/'&&L[c+1]==='/')break;
-      if(ch==='/'&&L[c+1]==='*'){inC=true;c++;continue}
-      if(ch==='"'||ch==="'")inS=ch;
-    }
-  }
-  return out;
-}
+function _drawerScan(src,kindWanted){return _emitScanBlocks(src,kindWanted)}   // (the scanner is in the compiler: BLOCKS)
 function _drawerBlocks(kind){
   kind=String(kind||'');_projSync();
   var out=[];
@@ -11365,6 +11365,7 @@ hlCode=(function(hl){return function(){
     var html=hlInner.innerHTML,out=html.split('\n'),lines=src.split('\n');
     if(out.length<lines.length)return r;
     blocks.forEach(function(b){
+      if(b.kind==='sprite'&&typeof _sprHlBlock==='function')return;   // SPRITE colours its blocks itself
       for(var i=b.start;i<=b.end;i++){var o=out[i];if((o.match(/<span/g)||[]).length!==(o.match(/<\/span>/g)||[]).length)return}
       var m=/^([A-Za-z_]\w*)((?:[ \t]+)([A-Za-z_]\w*))?([ \t]*:)/.exec(lines[b.start]);if(!m)return;
       var rest=lines[b.start].substring(m[0].length);
@@ -12132,28 +12133,13 @@ var _ST_HEAD=/^(map|controls)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/;
 // The blocks of a source text: [{kind, name, line (0-based first line), end (0-based last line), lines:[text]}].
 // Only lines that start outside a comment or string count.
 function _stFindBlocks(src){
-  var L=String(src==null?'':src).split('\n'),out=[],st=0,q='';   /* st 0 code, 1 block comment, 2 string */
-  for(var i=0;i<L.length;i++){
-    var line=L[i];
-    if(st===0){
-      var m=_ST_HEAD.exec(line);
-      if(m){
-        var e=i;
-        for(var j=i+1;j<L.length;j++){if(/^[ \t]*\r?$/.test(L[j]))continue;if(/^[ \t]/.test(L[j]))e=j;else break}
-        out.push({kind:m[1],name:m[2],line:i,end:e,lines:L.slice(i,e+1).map(function(s){return s.replace(/\r$/,'')})});
-        i=e;continue;
-      }
-    }
-    for(var k=0;k<line.length;k++){
-      var c=line[k];
-      if(st===1){if(c==='*'&&line[k+1]==='/'){st=0;k++}continue}
-      if(st===2){if(c==='\\'){k++;continue}if(c===q)st=0;continue}
-      if(c==='/'&&line[k+1]==='/')break;
-      if(c==='/'&&line[k+1]==='*'){st=1;k++;continue}
-      if(c==='"'||c==="'"){st=2;q=c}
-    }
-  }
-  return out;
+  src=String(src==null?'':src);
+  var L=null;
+  /* the shared block scanner (BLOCKS): the same extent as the drawer's helpers and every other block kind */
+  return _emitScanBlocks(src,null).filter(function(b){return b.kind==='map'||b.kind==='controls'}).map(function(b){
+    L=L||src.split('\n');
+    return{kind:b.kind,name:b.name,line:b.start,end:b.end,lines:L.slice(b.start,b.end+1).map(function(s){return s.replace(/\r$/,'')})};
+  });
 }
 // Comma-separated items / space-separated words of a piece of a line, with their (1-based) columns; quotes kept.
 function _stSplit(s,col,sep){
@@ -13117,6 +13103,47 @@ function _ctlToolOpen(ctx){
 }
 _drawerRegister({id:'stage',label:'STAGE',icon:'🗺',desc:'Paint tile maps — legend, rows and objects of a map block; try walking them',open:_stageOpen});
 _drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stick and buttons for phones — writes a controls block',open:_ctlToolOpen});
+</script>
+<script>
+// ═══ INTEGRATION of the drawer parts (CORE, SPRITE, STAGE, LOGIC) ═══
+// What no single part owns: the Memory card of the drawer, and the Memory tab's "open in tool" links.
+//   window._memtabToolLink(region) → {label, open()} | null   asked for every card of the Memory tab (when the
+//     function exists); a non-null answer adds a button to the card's head that calls open(). A part whose tool
+//     generates regions (LOGIC: one region per thing kind) fills this in; a region of plain user code → null.
+_drawerRegister({id:'memory',label:'Memory',icon:'🧠',desc:'The running program\'s memory regions, live: the Memory tab of the Output view',
+  go:function(){_memtabOpen()},
+  open:function(ctx){ctx.body.appendChild(_drwEl('div',{cls:'drw-empty'},[_drwEl('p',{text:'The memory regions of the running program are on the Memory tab of the Output view.'}),_drwBtn('Open the Memory tab',function(){if(ctx.close())_memtabOpen()},'drw-pri drw-btn-l')]))}});
+function _memtabOpen(){
+  try{if(window.innerWidth<768)showView('run')}catch(e){}
+  var t=document.querySelector('.otab[data-t="memory"]');if(t)showOTab(t);
+  return!!t;
+}
+if(typeof window._memtabToolLink!=='function')window._memtabToolLink=function(region){return null};
+_memCardHead=(function(f){return function(c){
+  var r=f.apply(this,arguments);
+  c.link=null;
+  try{
+    var L=typeof window._memtabToolLink==='function'?window._memtabToolLink(c.r):null;
+    if(L&&typeof L.open==='function'){
+      var hd=c.el.querySelector('.mhead'),lock=hd&&hd.querySelector('.mlock');
+      if(hd){
+        var b=document.createElement('button');b.className='mlock mtool';b.setAttribute('data-act','tool');
+        b.textContent=String(L.label||'Open in tool');b.title='Open '+String(c.r.name)+' in its tool';b.setAttribute('aria-label',b.title);
+        b.style.cssText='width:auto;padding:0 10px;font-size:12px;font-family:var(--mono);color:var(--cyan)';
+        hd.insertBefore(b,lock||null);c.link=L;
+      }
+    }
+  }catch(e){c.link=null}
+  return r;
+}})(_memCardHead);
+(function(){
+  var box=_memEl();if(!box)return;
+  box.addEventListener('click',function(e){
+    var b=e.target.closest&&e.target.closest('[data-act="tool"]');if(!b)return;
+    var cardEl=b.closest('.mcard'),c=cardEl&&_mem.cards[+cardEl.getAttribute('data-n')];
+    if(c&&c.link){e.stopPropagation();try{c.link.open()}catch(err){}}
+  },true);
+})();
 </script>
 <script>_libSnapshotGlobals()</script>
 </body>

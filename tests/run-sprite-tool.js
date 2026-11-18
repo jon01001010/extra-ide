@@ -10,14 +10,10 @@
 //   node tests/run-sprite-tool.js [path/to/emit-ide.html]
 //   SHOTS=dir  also saves screenshots there.
 //
-// TEST-ONLY STAND-INS (added with page.addInitScript, never in the product): the drawer framework and its ctx
-// helpers (blocks / read / write / remove …) are built by another branch (CORE). Until that is merged the page
-// gets the small stand-in DRAWER below: _drawerRegister collects tools, __drawerOpen(id) opens one in a
-// full-screen sheet with ctx.body and ctx.footer, and the block helpers work on the project text exactly as the
-// shared contract describes them (`<kind> <name>:` in column 0 plus the indented lines after it; a new block is
-// appended to sprites.emit). If the page already has a real drawer, the stand-in still replaces it, so these
-// checks stay deterministic; the "after merge" check at the end opens the tool through the real drawer when
-// one exists and prints SKIP otherwise.
+// The tool opens in the real drawer (CORE) with its real ctx. Test hooks (an init script, never in the product):
+// __drawerOpen(id) opens tool id afresh through the real drawer and returns what the tool's open() returned (the
+// SPRITE tool's test API); __drawerCtx() gives the drawer's block helpers (read / blocks / write / remove);
+// __drawerLog records toasts and titles; __drawerDirty is the drawer's dirty flag.
 //
 // Exit code 0 when every check passes.
 const { chromium } = require('playwright');
@@ -35,64 +31,24 @@ function skip(label, why) { skipped++; console.log('SKIP  ' + label + ' — ' + 
 const PHONE = { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true };
 const DESK = { viewport: { width: 1200, height: 800 } };
 
-// ── TEST-ONLY STAND-IN for the drawer framework and its block helpers ──
+// ── test hooks over the real drawer ──
 const DRAWER = () => {
-  window._drawerTools = window._drawerTools || [];
-  window.__realDrawerRegister = typeof window._drawerRegister === 'function' ? window._drawerRegister : null;
-  window._drawerRegister = function (t) { window._drawerTools.push(t); if (window.__realDrawerRegister) try { window.__realDrawerRegister(t); } catch (e) {} };
   window.__drawerLog = [];
-  function files() { _projSync(); return _proj.files.map(f => ({ path: f.path, source: f.source })); }
-  function find(kind, name) {
-    const out = [];
-    files().forEach(f => {
-      const L = f.source.split('\n'), re = new RegExp('^' + kind + '[ \\t]+([A-Za-z_]\\w*)[ \\t]*:');
-      for (let i = 0; i < L.length; i++) {
-        const m = re.exec(L[i]); if (!m) continue;
-        let end = i; for (let j = i + 1; j < L.length && (/^[ \t]/.test(L[j]) || !/\S/.test(L[j])); j++) if (/\S/.test(L[j])) end = j;
-        if (!name || m[1] === name) out.push({ kind, name: m[1], path: f.path, startLine: i + 1, endLine: end + 1, text: L.slice(i, end + 1).join('\n') });
-        i = end;
-      }
-    });
-    return out;
-  }
-  function store(fs2) { const act = _proj.active; _projLoad(_emitJoinBundle(fs2), act); _projSave(); }
-  window.__drawerCtx = function (body, footer) {
-    return {
-      body, footer,
-      title(t) { window.__drawerLog.push('title:' + t); document.getElementById('__drwTitle').textContent = t; },
-      close() { document.getElementById('__drw').remove(); },
-      setDirty(v) { window.__drawerDirty = !!v; },
-      toast(t) { window.__drawerLog.push('toast:' + t); },
-      blocks(kind) { return find(kind); },
-      read(kind, name) { const b = find(kind, name)[0]; return b ? b.text : null; },
-      write(kind, name, text, preferredFile) {
-        const fs2 = files(), b = find(kind, name)[0];
-        if (b) { const f = fs2.find(x => x.path === b.path), L = f.source.split('\n'); L.splice(b.startLine - 1, b.endLine - b.startLine + 1, ...text.split('\n')); f.source = L.join('\n'); }
-        else {
-          const p = preferredFile || (kind + 's.emit'); let f = fs2.find(x => x.path === p);
-          if (!f) { f = { path: p, source: '' }; fs2.push(f); }
-          f.source = f.source.replace(/\n*$/, '') + (f.source.trim() ? '\n\n' : '') + text + '\n';
-        }
-        store(fs2); window.__drawerLog.push('write:' + kind + ':' + name);
-      },
-      remove(kind, name) {
-        const fs2 = files(), b = find(kind, name)[0]; if (!b) return false;
-        const f = fs2.find(x => x.path === b.path), L = f.source.split('\n'); L.splice(b.startLine - 1, b.endLine - b.startLine + 1); f.source = L.join('\n');
-        store(fs2); return true;
-      },
-      files() { return files(); },
-      run() { return compileAndRun(); },
-    };
+  window.__drawerCtx = function () {
+    return { read: (k, n) => _drawerRead(k, n), blocks: k => _drawerBlocks(k), write: (k, n, t, f) => _drawerWrite(k, n, t, f), remove: (k, n) => _drawerRemove(k, n) };
   };
   window.__drawerOpen = function (id) {
-    const old = document.getElementById('__drw'); if (old) old.remove();
-    const t = window._drawerTools.filter(x => x.id === id).pop();
-    const sh = document.createElement('div'); sh.id = '__drw';
-    sh.style.cssText = 'position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;flex-direction:column';
-    sh.innerHTML = '<div style="padding:8px 12px;border-bottom:1px solid var(--border);color:var(--fg)" id="__drwTitle"></div><div id="__drwBody" style="flex:1;overflow:auto;padding:12px"></div><div id="__drwFoot" style="position:sticky;bottom:0;padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end"></div>';
-    document.body.appendChild(sh);
-    const ctx = window.__drawerCtx(document.getElementById('__drwBody'), document.getElementById('__drwFoot'));
-    return t.open(ctx);
+    if (!window.__hooked) {
+      window.__hooked = true;
+      const toast0 = _drawerToast; window._drawerToast = function (t) { window.__drawerLog.push('toast:' + t); return toast0.apply(this, arguments); };
+      Object.defineProperty(window, '__drawerDirty', { configurable: true, get: () => _drawer.dirty });
+    }
+    _drawerEnsure();
+    const t = _drawerFind(id); if (!t) return null;
+    const open0 = t.open; let ret = null;
+    t.open = function (ctx) { const title0 = ctx.title; ctx.title = function (x) { window.__drawerLog.push('title:' + x); return title0.apply(this, arguments); }; ret = open0.call(this, ctx); return ret; };
+    try { _drawerTool(t); } finally { t.open = open0; }
+    return ret;
   };
 };
 
@@ -171,11 +127,11 @@ sprite hero: 4x3, fps 5
   check('phone: …its pixels and palette (# and upper case accepted)', s.frames[0].px === '100102203333' && s.frames[1].px === '100103302222' && s.palette.join() === '1a1c2c,f4f4f4,ef7d57', JSON.stringify(s));
   r = await page.evaluate(() => document.querySelector('.spt-msg').textContent);
   check('phone: the unknown line is reported as kept', /Kept as it is/.test(r) && /hitbox|unknown line/.test(r), r);
-  r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth, bw: document.getElementById('__drwBody').scrollWidth, bc: document.getElementById('__drwBody').clientWidth }));
+  r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth, bw: document.getElementById('drawerBody').scrollWidth, bc: document.getElementById('drawerBody').clientWidth }));
   check('phone: no horizontal overflow at 360 px (page and drawer body)', r.sw <= r.iw && r.bw <= r.bc, JSON.stringify(r));
   if (shots) await page.screenshot({ path: path.join(shots, 'sprite-tool-phone.png') });
   // save without changes: the same text, unknown line and comments kept
-  r = await page.evaluate(() => { const before = __drawerCtx(null, null).read('sprite', 'hero'); __spt.save(); return { before, after: __drawerCtx(null, null).read('sprite', 'hero') }; });
+  r = await page.evaluate(() => { const before = __drawerCtx().read('sprite', 'hero'); __spt.save(); return { before, after: __drawerCtx().read('sprite', 'hero') }; });
   check('phone: Save of an unchanged hand-written block keeps its pixels, comments and the unknown line', /\/\/ eyes/.test(r.after) && /"\.22\."  \/\/ mouth/.test(r.after) && /^  hitbox 0 0 4 3$/m.test(r.after), r.after);
   // touch painting: tap with a touch pointer
   await page.evaluate(() => __spt.load('hero'));
@@ -368,7 +324,7 @@ sprite hero: 4x3, fps 5
   check('desktop: the preview animates through the frames at the fps', s.fps === 12 && r >= 2, 'fps ' + s.fps + ', distinct ' + r);
   // Save → block text → reopen → same pixels
   const painted = await state(page);
-  r = await page.evaluate(() => { __spt.save(); return { text: __drawerCtx(null, null).read('sprite', 'coin'), files: _proj.files.map(f => f.path) }; });
+  r = await page.evaluate(() => { __spt.save(); return { text: __drawerCtx().read('sprite', 'coin'), files: _proj.files.map(f => f.path) }; });
   const wantHead = 'sprite coin: 8x8, fps 12\n  palette ';
   check('desktop: Save writes the block into sprites.emit, rows as pictures', r.files.join() === 'main.emit,sprites.emit' && r.text.indexOf(wantHead) === 0 && /\n  frame shine\n    "/.test(r.text) && r.text.split('\n').filter(l => /^    "[.1-9a-z]{8}"$/.test(l)).length === 16, r.files.join() + '\n' + r.text);
   const expectRows = painted.frames.map(f => { const rows = []; for (let y = 0; y < 8; y++) rows.push('    "' + f.px.slice(y * 8, y * 8 + 8).split('').map(c => '.123456789abcdefghijklmnopqrstuvwxyz'[+c]).join('') + '"'); return '  frame ' + f.name + '\n' + rows.join('\n'); }).join('\n');
@@ -377,7 +333,7 @@ sprite hero: 4x3, fps 5
   await page.evaluate(() => __spt.load('coin'));
   s = await state(page);
   check('desktop: reopen → identical pixels, names, palette and fps', JSON.stringify(s) === JSON.stringify(Object.assign({}, painted, { cur: 0 })), JSON.stringify(s).slice(0, 300));
-  r = await page.evaluate(() => { const t1 = __drawerCtx(null, null).read('sprite', 'coin'); __spt.save(); return t1 === __drawerCtx(null, null).read('sprite', 'coin'); });
+  r = await page.evaluate(() => { const t1 = __drawerCtx().read('sprite', 'coin'); __spt.save(); return t1 === __drawerCtx().read('sprite', 'coin'); });
   check('desktop: saving again writes the same text (round trip)', r);
   r = await page.evaluate(() => { const r = compile(_projText()); return { errors: r.errors, sprites: r.sprites.map(x => x.name + ':' + x.frames.join('/')) }; });
   check('desktop: the saved project compiles; the compiler sees the sprite', r.errors.length === 0 && r.sprites.join() === 'coin:shine/frame0', JSON.stringify(r));
@@ -441,7 +397,7 @@ sprite hero: 4x3, fps 5
     return { ms: performance.now() - t0, worst, painted: Array.from(__spt.state().frames[0].px).filter(Boolean).length, zoom: v.zoom };
   });
   check('phone: a 64×64 touch stroke: 4 moves + a full redraw cost under 8 ms per frame (worst under 16), and it paints', r.ms / 50 < 8 && r.worst < 16 && r.painted > 150, JSON.stringify(r));
-  r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth, bw: document.getElementById('__drwBody').scrollWidth, bc: document.getElementById('__drwBody').clientWidth }));
+  r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth, bw: document.getElementById('drawerBody').scrollWidth, bc: document.getElementById('drawerBody').clientWidth }));
   check('phone: still no horizontal overflow with a 64×64 sprite', r.sw <= r.iw && r.bw <= r.bc, JSON.stringify(r));
   // a wide sprite is written in the compact form and read back
   await page.fill('input[aria-label="Width"]', '100'); await page.fill('input[aria-label="Height"]', '3');
@@ -449,7 +405,7 @@ sprite hero: 4x3, fps 5
   await page.evaluate(() => { __spt.setColor(2); __spt.setTool('line'); });
   await stroke(page, [[0, 1], [99, 1]], { type: 'touch' });
   const wide = await state(page);
-  r = await page.evaluate(() => { __spt.save(); return __drawerCtx(null, null).read('sprite', __spt.state().name); });
+  r = await page.evaluate(() => { __spt.save(); return __drawerCtx().read('sprite', __spt.state().name); });
   check('phone: a sprite wider than 64 is saved in the compact rle form', /^sprite \w+: 100x3\n  palette [^\n]+\n  palette [^\n]+\n  rle "[^"\n]+"$/.test(r) && r.split('\n').every(l => l.length < 200), r);
   await page.evaluate(() => __spt.load(__spt.state().name));
   s = await state(page);
@@ -462,8 +418,15 @@ sprite hero: 4x3, fps 5
   page = await (async () => { const ctx = await browser.newContext(DESK); const p = await ctx.newPage(); await p.route(/^https?:/, r => r.abort()); await p.goto(fileUrl); await p.waitForFunction(() => typeof compileAndRun === 'function'); return p; })();
   r = await page.evaluate(() => ({ real: typeof _drawerOpen === 'function' || !!document.querySelector('[title*="rawer"]'), listed: (window._drawerTools || []).some(t => t.id === 'sprite') }));
   check('merge: without the stand-in the tool is still registered (in _drawerTools or the real drawer)', r.listed || r.real, JSON.stringify(r));
-  if (!r.real) skip('merge: opening the tool through the real drawer (🧰)', 'the drawer framework (CORE) is not in this branch yet');
-  else skip('merge: opening the tool through the real drawer (🧰)', 'write this check against the merged drawer');
+  // the 🧰 button → the Sprite card → the tool on the project's sprite, Save → the block is back in the text
+  await page.evaluate(src => { try { closeWelcome(); } catch (e) {} _projLoad(src); }, '//// file: sprites.emit\nsprite dot: 2x1\n  palette ff0000\n  "1."\n');
+  await page.click('.hdr-btn[title="Drawer"]');
+  await page.click('#drawer .drw-card[data-tool="sprite"]');
+  await page.waitForSelector('#drawer .spt');
+  r = await page.evaluate(() => ({ title: document.getElementById('drawerTitle').textContent, name: (document.querySelector('#drawer .spt')._spt || {}).state ? document.querySelector('#drawer .spt')._spt.state().name : null }));
+  check('merge: the 🧰 button and the Sprite card open the tool in the real drawer on the project\'s sprite', /sprite/i.test(r.title) && r.name === 'dot', JSON.stringify(r));
+  r = await page.evaluate(() => { const a = document.querySelector('#drawer .spt')._spt; a.save(); return { text: _drawerRead('sprite', 'dot'), closed: _drawerClose(), open: _drawerIsOpen() }; });
+  check('merge: Save writes the block back through the real ctx; the drawer closes', r.text === 'sprite dot: 2x1\n  palette ff0000\n  "1."' && r.closed && !r.open, JSON.stringify(r));
   await page.context().close();
 
   await browser.close();

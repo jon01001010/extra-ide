@@ -528,7 +528,11 @@ const sinceN = (a, n) => a.nodes.slice(n);
   // ═════════════ the drawer code alone (no tool registered early) ═════════════
   page = await openIde(browser, fileUrl, PHONE, { early: false });
   r = await page.evaluate(() => ({ ids: _drawerToolList().map(t => t.id), live: window._drawerTools === window._drawerTools && Array.isArray(window._drawerTools) }));
-  check('without early tools the list holds the drawer\'s own tools', r.ids.join() === 'sound,music' && r.live, JSON.stringify(r));
+  // (changed by the merge of the SPRITE and STAGE parts: their tools register after the drawer section, the
+  // drawer's own come first and every contract tool is in the list once)
+  check('without early tools the list holds the drawer\'s own tools first, then the other parts\' tools', r.ids.slice(0, 2).join() === 'sound,music' && ['sprite', 'stage', 'controls'].every(id => r.ids.filter(x => x === id).length === 1) && r.live, JSON.stringify(r));
+  const cards = await page.evaluate(() => { _drawerOpen(); return [...document.querySelectorAll('#drawer .drw-card')].map(c => c.getAttribute('data-tool')); });
+  check('the drawer shows a card for every registered tool', ['sound', 'music', 'sprite', 'stage', 'controls'].every(id => cards.includes(id)), JSON.stringify(cards));
   await page.context().close();
 
   await browser.close();
