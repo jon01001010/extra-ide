@@ -25,7 +25,7 @@ const PHONE = { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile:
 const DESK = { viewport: { width: 1200, height: 800 } };
 const COST_BUDGET_MS = 1.0;   // average recording cost per frame for the bundled examples
 
-// A program with a global of every type the compiler handles (int, num, bool, str, f32, js) and
+// A program with a global of every type the compiler handles (int, num, bool, str, js) and
 // scalar and struct regions of several element types.
 const SYN = `struct P { x: num, y: f32, k: i16, ok: bool, id: int }
 region cells: i32[16]
@@ -35,7 +35,6 @@ mut gi = 0
 mut gn = 0.5
 mut gb = false
 mut gs = "a"
-mut gf: f32 = 1.5
 mut gd: js = null
 export fn go() {
   gd = document.body
@@ -47,7 +46,6 @@ export fn frame() {
   gn = gn * 1.01 + 0.25
   gb = !gb
   gs = "s" + intToStr(gi)
-  if (gb) { gf = 2.25 } else { gf = 1.5 }
   cells[gi % 16] = gi * 7
   ps[gi % 4].x = gn
   ps[gi % 4].y = 0.5
@@ -201,7 +199,7 @@ async function exactChecks(browser, fileUrl) {
     }
     if (name === 'every-type program') {
       const g = await page.evaluate(() => _tl.gl.map(x => x.name + ':' + x.t + (x.ref ? ':ref' : '')));
-      check(P + name + ': every global is recorded with its type (int, num, bool, str, f32, js)', ['gi:int', 'gn:num', 'gb:bool', 'gs:str:ref', 'gf:f32', 'gd:js:ref'].every(x => g.includes(x)), JSON.stringify(g));
+      check(P + name + ': every global is recorded with its type (int, num, bool, str, js; f32 is a region-only storage type)', ['gi:int', 'gn:num', 'gb:bool', 'gs:str:ref', 'gd:js:ref'].every(x => g.includes(x)), JSON.stringify(g));
       // a str global whose block was released: the text comes back in a new block
       const r = await page.evaluate(() => { const i = _tl.frames.length - 60; const want = __cap[_tl.frames[i].n]; for (let k = 0; k < 5; k++) _gcCollect && _gcCollect(null); _tlShow(i); const x = _tl.gl.find(x => x.name === 'gs'); return { got: _readStr(x.G.value), want: want ? want.g[_tl.gl.indexOf(x)] : null, n: _tl.frames[i].n }; }).catch(e => ({ err: e.message }));
       check(P + name + ': a str variable gets its text back even after a collection', r.want === null || 'str:' + r.got === r.want, JSON.stringify(r));
