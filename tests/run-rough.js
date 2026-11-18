@@ -6,7 +6,7 @@
 //   VERBOSE=1 prints the Output tab of every IDE run.
 //
 // Exit code 0 only when every check passes. The builtin audit prints its table summary: every builtin is called
-// with each argument type (int, num, bool, str, js, arr; as a local and as a literal) in every parameter position
+// with each argument type (int, num, bool, str, js, arr as a local and as a literal; i32 and f32 locals) in every parameter position
 // (the other arguments of their declared type) and its result is used; every program must compile to VALID
 // WebAssembly (WebAssembly.validate) or fail with a readable compile error — never invalid WASM.
 const { chromium } = require('playwright');
@@ -164,6 +164,9 @@ async function sectionValues(browser) {
   check('the Results / Tap to call lists do not show the __emitInit functions', !r.lines.some(l => /__emitInit/.test(l)), r.lines.filter(l => /__emitInit/.test(l)).join(' | '));
   const lit = await compileOnly(page, 'mut a = 1\nlet s = "x"\nmut n = -2.5 * 2\nexport fn run() {\n  print(a)\n}\n');
   check('a program with only literal initial values has no __emitInit export', same(lit.exports, ['run']), JSON.stringify(lit.exports));
+
+  r = await run(page, 'fn f() int {\n  return 3\n}\nlet g32: i32 = f()\nlet gf: f32 = sqrt(2.0)\nexport fn run() {\n  print(g32)\n  printNum(gf)\n  print(gf)\n}\n');
+  check('i32 / f32 top-level values from int / num initialisers (and print of them)', r.status === 'Done' && same(r.printed, ['> 3', '> 1.4142135381698608', '> 1.4142135381698608']), JSON.stringify(r.lines));
 
   r = await run(page, MODS);
   check('modules: a module\'s values are set after those of the modules it imports; an import cycle keeps file order', r.status === 'Done' && same(r.printed, ['> init util', '> init game.physics', '> init b', '> init a', '> init main', '> 33', '> u10']), JSON.stringify({ status: r.status, printed: r.printed, red: r.red }));
@@ -389,10 +392,10 @@ export fn run() {
   check('Emit functions: an argument that does not fit its parameter is a compile error naming the function and parameter', same(emitFnErrs, ['6:11: f(): parameter n is int, but this is num — round it first, e.g. floor(x)', '4:5: g(): parameter s is str, but this is bool — make it text first, e.g. "" + x', '4:9: print(): this argument is a call that returns nothing — there is no value to pass as x']), JSON.stringify(emitFnErrs));
 
   const audit = await page.evaluate(() => {
-    const LOC = { int: 'vi', num: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va' };
-    const LIT = { int: '3', num: '2.5', bool: 'true', str: '"s"', js: 'emptyObj()', arr: '[1, 2]' };
+    const LOC = { int: 'vi', num: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va', i32: 'v32', f32: 'vf32' };
+    const LIT = { int: '3', num: '2.5', bool: 'true', str: '"s"', js: 'emptyObj()', arr: '[1, 2]', i32: 'v32', f32: 'vf32' };
     const nat = t => ({ int: 'vi', i64: 'vi', i32: 'vi', num: 'vn', f64: 'vn', f32: 'vn', bool: 'vb', str: 'vs', js: 'vj', arr: 'va', numarr: 'va' })[t] || 'vi';
-    const pre = '  let vi = 3\n  let vn = 2.5\n  let vb = true\n  let vs = "s"\n  let vj = emptyObj()\n  let va = [1, 2]\n';
+    const pre = '  let vi = 3\n  let vn = 2.5\n  let vb = true\n  let vs = "s"\n  let vj = emptyObj()\n  let va = [1, 2]\n  let v32: i32 = 7\n  let vf32: f32 = 1.5\n';
     const rows = [];
     function one(name, label, call, use) {
       const src = 'export fn run() {\n' + pre + (use ? '  let r = ' : '  ') + call + '\n' + (use ? '  let q = r\n' : '') + '}\n';
@@ -408,12 +411,12 @@ export fn run() {
     for (const name of Object.keys(BUILTINS).sort()) {
       const P = BUILTINS[name].params, rt = BUILTINS[name].returnType;
       one(name, 'natural' + (rt !== 'void' ? ' (result used)' : ''), name + '(' + P.map(q => nat(q.type)).join(', ') + ')', rt !== 'void');
-      for (let i = 0; i < P.length; i++) for (const T of Object.keys(LOC)) for (const [form, V] of [['local', LOC], ['literal', LIT]]) {
+      for (let i = 0; i < P.length; i++) for (const T of Object.keys(LOC)) for (const [form, V] of (/^[if]32$/.test(T) ? [['local', LOC]] : [['local', LOC], ['literal', LIT]])) {
         one(name, 'arg ' + i + ' (' + P[i].name + ': ' + P[i].type + ') ← ' + T + ' ' + form, name + '(' + P.map((q, j) => j === i ? V[T] : nat(q.type)).join(', ') + ')', false);
       }
     }
     // Emit functions with every parameter type, called with every argument type
-    for (const pt of ['int', 'num', 'bool', 'str', 'js', 'arr']) for (const T of Object.keys(LOC)) {
+    for (const pt of ['int', 'num', 'bool', 'str', 'js', 'arr', 'i32', 'f32']) for (const T of Object.keys(LOC)) {
       const src = 'fn f(p: ' + pt + ') {\n}\nexport fn run() {\n' + pre + '  f(' + LOC[T] + ')\n}\n';
       let k, msg = '';
       try { const r = compile(src, 'wasm32'); if (r.errors.length) { k = 'error'; msg = r.errors[0]; } else if (WebAssembly.validate(r.wasm)) k = 'valid'; else k = 'INVALID'; } catch (e) { k = 'error'; msg = e.message; }
