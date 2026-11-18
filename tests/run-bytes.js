@@ -30,13 +30,13 @@ const { execFileSync } = require('child_process');
   TESTS.forEach(t => progs.push(['interop.' + t.name, t.src]));
   const comp = (p, list) => p.evaluate(list => list.map(([n, s]) => { try { const r = compile(s, 'wasm32'); const props = {}; Object.keys(r.imports).forEach(k => { if (!/^\d+$/.test(k)) props[k] = r.imports[k]; }); return { n, w: Array.from(r.wasm).join(','), i: JSON.stringify(r.imports.map(x => x.module + '.' + x.name)), p: JSON.stringify(props), e: JSON.stringify(r.errors) }; } catch (e) { return { n, t: e.message }; } }), list);
   const A = await comp(base, progs), B = await comp(cur, progs);
-  let same = 0;
-  // Programs that use `await` get the await shadow stack (see _emitAwaitRoots in the IDE): listed, not counted
-  // as a failure (tests/run-memory.js covers them).
-  let awaitDiff = 0;
-  A.forEach((x, i) => { if (JSON.stringify(x) === JSON.stringify(B[i])) same++; else if (/\bawait\b/.test(progs[i][1])) { awaitDiff++; console.log('AWAIT ' + x.n + ' (shadow stack)'); } else console.log('DIFF  ' + x.n); });
+  // Programs that use `await` get the await shadow stack (see _emitAwaitRoots in the IDE), and a program that
+  // did not compile with the base build (it threw, e.g. a non-literal top-level initialiser before rough-edges)
+  // cannot be byte-identical: both are listed, not counted as differences.
+  let same = 0, awaitDiff = 0, fresh = 0;
+  A.forEach((x, i) => { if (JSON.stringify(x) === JSON.stringify(B[i])) same++; else if (x.t !== undefined && B[i].t === undefined) { fresh++; console.log('NEW   ' + x.n + ' (the base build did not compile it)'); } else if (/\bawait\b/.test(progs[i][1])) { awaitDiff++; console.log('AWAIT ' + x.n + ' (shadow stack)'); } else console.log('DIFF  ' + x.n); });
   await browser.close();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
-  console.log('\n' + same + '/' + (A.length - awaitDiff) + ' programs compile byte-identically to ' + ref + ' (wasm, imports, import props, errors)' + (awaitDiff ? '; ' + awaitDiff + ' with await differ by the shadow stack' : ''));
-  process.exit(same + awaitDiff === A.length ? 0 : 1);
+  console.log('\n' + same + '/' + (A.length - awaitDiff - fresh) + ' programs compile byte-identically to ' + ref + ' (wasm, imports, import props, errors)' + (awaitDiff ? '; ' + awaitDiff + ' with await differ by the shadow stack' : '') + (fresh ? '; ' + fresh + ' did not compile with ' + ref : ''));
+  process.exit(same + awaitDiff + fresh === A.length ? 0 : 1);
 })();

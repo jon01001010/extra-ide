@@ -411,10 +411,11 @@ sprite coin: 2x2, fps 4
     const p = [];
     const common = Object.keys(before).filter(k => k in now);
     if (common.length < 100 || common.length !== Object.keys(before).length) p.push('programs compared ' + common.length + ' of ' + Object.keys(before).length + ' in ' + BASE_COMMIT);
+    // (rough-edges: a program that did not compile before — e.g. a non-literal top-level initialiser — may compile now)
     // Programs that use `await` get the await shadow stack (see _emitAwaitRoots): not compared (tests/run-memory.js covers them).
     const srcOf = k => (k.indexOf('interop:') === 0 ? progs[Number(k.slice(8))] : EXsrc[k]) || '';
     const awaits = common.filter(k => now[k] !== before[k] && /\bawait\b/.test(srcOf(k)));
-    common.forEach(k => { if (now[k] !== before[k] && awaits.indexOf(k) < 0) p.push(k + ' differs'); });
+    common.forEach(k => { if (now[k] !== before[k] && awaits.indexOf(k) < 0 && !/^THROW /.test(before[k])) p.push(k + ' differs'); });
     const added = Object.keys(now).filter(k => !(k in before));
     ctx.note = (common.length - awaits.length) + ' programs (examples + interop) byte-identical to ' + BASE_COMMIT + (awaits.length ? '; ' + awaits.length + ' with await not compared (shadow stack)' : '') + (added.length ? '; not in ' + BASE_COMMIT + ': ' + added.join(', ') : '');
     return p;
