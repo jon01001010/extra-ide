@@ -379,7 +379,7 @@ export fn run() {
   const CE = {
     unknown: '5:15: Unknown script "intor" — did you mean "intro"?',
     none: '3:15: Unknown script "nothere" — there is no script block yet: write one (script nothere:, then Mote source on indented lines) or make one with the Drawer (🧰 → Script)',
-    syntax: "7:3: Mote syntax error in script intro: ')' expected (to close '(' at line 3) near 'end'",
+    syntax: "7:3: Mote syntax error in script intro: ')' expected (to close '(' at line 6) near 'end'",
     syntaxOther: "scripts.emit:2:14: Mote syntax error in script s1: unexpected symbol near ')'",
     dup: 'b.emit:1:8: script a is already declared in main.emit (line 1) — every script of the project needs its own name',
     clash: '1:8: The name "a" is a script and also a function (line 3) — script names are seen by every file, so rename one of them',

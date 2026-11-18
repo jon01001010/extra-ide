@@ -4717,7 +4717,7 @@ function _moteParseBlock(lines,line0){
       try{M.create({stdlib:['base']}).compile(d.source,d.name)}
       catch(e){
         if(e&&e.kind==='syntax'){
-          var ml=+e.line||1,mc=+e.column||1,msg=String(e.message||e).replace(/^[^\n]*?:\d+:(?:\d+:)?\s*/,'');
+          var ml=+e.line||1,mc=+e.column||1,msg=String(e.message||e).replace(/^[^\n]*?:\d+:(?:\d+:)?\s*/,'').replace(/\bat line (\d+)/g,function(m,n){return'at line '+(line0+Number(n))});   /* "(to close '(' at line 3)": a line of the file too */
           errors.push({line:line0+ml,col:mc+ind,msg:'Mote syntax error in script '+d.name+': '+msg});
         }
       }
