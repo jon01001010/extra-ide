@@ -852,14 +852,15 @@ export fn run() {
 }`, expect: ['> ran', '✗ unhandled promise rejection: plain reason', '✗ unhandled promise rejection: server said no'] },
 
   // ── 13. Top-level initialisers ──
-  { name: 'global-non-literal-initialiser-is-a-compile-error', status: 'Error', errors: true, src: `
+  // (until rough-edges a non-literal initialiser was a compile error "must start with a literal"; see run-rough.js)
+  { name: 'global-non-literal-initialiser', src: `
 fn f() int {
   return 5
 }
 mut x = f()
 export fn run() {
   print(x)
-}`, expect: [/^✗ 4:9: Top-level 'x' must start with a literal/] },
+}`, expect: ['> 5'] },
 
   { name: 'global-constant-arithmetic-initialiser', src: `
 mut secs = 60 * 60

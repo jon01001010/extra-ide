@@ -901,7 +901,7 @@ class TypeAnnotator {
     for(const n of prog.body){
       if(n.type==='VarDecl'){
         let t=n.varType;
-        if(n.init&&!this.constInit(n.init)) this.fail("Top-level '"+n.name+"' must start with a literal (a number, string, true/false or null) — write e.g. `mut "+n.name+(t?': '+t:'')+" = "+(t==='str'?'""':t==='js'?'null':'0')+"` here and assign the real value inside a function",n.init.loc||n.loc);
+        if(n.init&&(!this.constInit(n.init)||(t==='js'&&n.init.type!=='NullLiteral'&&n.init.type!=='IntLiteral'))){(this.lateVars||(this.lateVars=[])).push(n);continue;} /* set at start-up: see TOP-LEVEL VALUES */
         const git=n.init?this.a(n.init):null;
         if(!t) t=(git==='null')?'js':git;
         if(!t) t='int';
@@ -911,6 +911,7 @@ class TypeAnnotator {
         n.declType=t;
       }
     }
+    if(this.lateVars&&this.lateVars.length) this.lateInit(prog);
     // Pass 2: walk function bodies and annotate every expression
     for(const n of prog.body) this.walk(n);
     // Auto-bridged JS functions: a parameter that only ever receives `js` values is a `js` parameter
@@ -1731,6 +1732,11 @@ function injectBuiltins(ast){
       // Also top-level globals
       for(const g of ast.body)if(g.type==='VarDecl')bound.add(g.name);
       scan(fn.body,bound);
+    }else if(fn.type==='VarDecl'&&fn.init){
+      /* a top-level initial value that is not a literal (see TOP-LEVEL VALUES) may use JS interop too */
+      var tb=new Set();
+      for(const g of ast.body)if(g.type==='VarDecl')tb.add(g.name);
+      scan(fn.init,tb);
     }
   }
   if(hasJsInterop){
@@ -7060,7 +7066,7 @@ function buildImportObject(imports,outputLog){
           return _handleFor(v);
         };
       }else if(imp.name==='__jsCall'){
-        function _jsCallErr(name,msg){if(_tryMode&&_tryRecord(msg,'.'+name+'():'))return;
+        function _jsCallErr(name,msg){if(_tryMode&&_tryRecord(msg,'.'+name+'():'))return;if(_initCur)_jsErr('jsCall .'+name+'()',msg);
           try{
             var w=document.createElement('div');
             w.style.cssText='color:#ef4444;padding:2px 12px;font-family:var(--mono);font-size:11px;';
@@ -8596,7 +8602,192 @@ buildImportObject=(function(build){return function(imports,outputLog){
   _lgSetup(imports);
   return build.apply(this,arguments);
 }})(buildImportObject);
+// ═══ TOP-LEVEL VALUES (runtime half) ═══
+// The compiler turns every top-level `let` / `mut` whose initial value is not a literal into an exported
+// function "__emitInit.<k> <name> <file:line:col>" (see TOP-LEVEL VALUES in the compiler). _emitInitRun(inst)
+// calls them once per instance, in the order k, before any other export of that instance runs: Run and the
+// export boot call it right after instantiating, and _emitCallExport calls it first if nobody has (so every
+// path into the program — Results, Tap to call, buttons, timers, frame() — sees the values set). A failure —
+// a JS exception, an interop error that elsewhere only prints a red line, a region bounds error, a trap —
+// stops the initialisation: the message names the variable and its position (path:line:col: …), and every
+// later call of an export of that instance throws it again. Returns that message, or null.
+var _initState=(typeof WeakMap==='function')?new WeakMap():null,_initCur=null,_initCall=null;
+function _emitInitSteps(inst){
+  var out=[];
+  for(var k in inst.exports){var m=/^__emitInit\.(\d+) (\S+) (\S+)$/.exec(k);if(m&&typeof inst.exports[k]==='function')out.push({k:Number(m[1]),fn:k,name:m[2],at:m[3]})}
+  return out.sort(function(a,b){return a.k-b.k});
+}
+function _emitInitRun(inst){
+  if(!inst||!inst.exports||!_initState)return null;
+  var st=_initState.get(inst);
+  if(st)return st.err;
+  st={err:null};_initState.set(inst,st);
+  var steps=_emitInitSteps(inst);
+  for(var i=0;i<steps.length;i++){
+    var s=steps[i],was=_initCur;_initCur=s;
+    try{_initCall(inst,s.fn,[])}
+    catch(e){st.err=s.at+": Top-level '"+s.name+"' could not be set — "+_errMsg(_emitWaitErr(e));break}
+    finally{_initCur=was}
+  }
+  return st.err;
+}
+// While an initialiser runs, an interop error ends it (instead of printing a red line and going on with null).
+_jsErr=(function(report){return function(what,e){
+  if(_initCur&&!_tryMode){var x=new Error(what+': '+_errMsg(e));x.emitInit=true;throw x}
+  return report.apply(this,arguments);
+}})(_jsErr);
+_emitCallExport=(function(call){_initCall=call;return function(inst,name,args,top){
+  if(!_initCur&&_initState&&inst&&inst.exports){var err=_emitInitRun(inst);if(err)throw new Error(err)}
+  return call.apply(this,arguments);
+}})(_emitCallExport);
+if(typeof window!=='undefined'){window._emitCallExport=_emitCallExport;window._emitInitRun=_emitInitRun}
 //#emit-runtime-end
+// ═══ TOP-LEVEL VALUES ═══
+// A top-level `let` / `mut` may start with any expression: a call, an array or object literal, `new …`,
+// JS interop, a string built with +, a region read, a value of another module. A literal (number, string,
+// true/false, null, constant arithmetic) stays the WASM global's initial value, exactly as before. Any other
+// initialiser is moved into a generated exported function "__emitInit.<k> <name> <position>" (one per
+// variable, body: one GlobalInitStmt) and its global starts at zero; the runtime runs these once per
+// instance, in the order k, before any other export (_emitInitRun, runtime half above).
+// Order: a module's values are set after those of the modules it imports (modules that import each other in
+// a cycle: in file order), inside a module in source order. An initialiser may use every literal top-level
+// value and the non-literal ones set before it; using one that is set later is a compile error (a function
+// called by an initialiser sees such a value still at zero). `await` in an initialiser, or a call of a
+// function that waits, is a compile error: nothing can wait before the program has started.
+// A top-level `let` cannot be assigned anywhere (the checker reports it; the WASM global of a `let` with a
+// non-literal initialiser is mutable so that its initialiser can set it).
+TypeAnnotator.prototype.lateInit=function(prog){
+  var self=this,rank=prog.initRank||null,idx=new Map(),pending=new Map(),steps=[];
+  prog.body.forEach(function(n,i){idx.set(n,i)});
+  function rk(n){var f=n.loc&&n.loc.file;return rank&&f&&rank.has(f)?rank.get(f):0}
+  function at(n){var l=n.loc||{};return(l.file?l.file+':':'')+(l.line||1)+':'+(l.col||1)}
+  function disp(n){return n.modName||n.name}
+  var late=this.lateVars.slice().sort(function(a,b){return rk(a)-rk(b)||idx.get(a)-idx.get(b)});
+  this.lateVars=null;
+  late.forEach(function(n){pending.set(n.name,n)});
+  late.forEach(function(n,k){
+    (function scan(x){
+      if(!x||typeof x!=='object')return;
+      if(Array.isArray(x)){x.forEach(scan);return}
+      if(x.type==='AwaitExpr')self.fail("await cannot be used in the top-level value '"+disp(n)+"' — top-level values are set before the program starts, where nothing can wait: use it inside a function",x.loc||n.loc);
+      if(x.type==='IdentifierExpr'&&pending.has(x.name)){
+        var o=pending.get(x.name);
+        self.fail(o===n?"Top-level '"+disp(n)+"' uses itself in its own initial value":"Top-level '"+disp(n)+"' uses '"+disp(o)+"', which is set later (at "+at(o)+") — top-level values are set in order: move '"+disp(o)+"' above '"+disp(n)+"'",x.loc||n.loc);
+      }
+      for(var key in x){if(key==='loc')continue;var v=x[key];if(v&&typeof v==='object')scan(v)}
+    })(n.init);
+    var it=self.a(n.init),t=n.varType;
+    if(it==='void')self.fail("Top-level '"+disp(n)+"' — this call returns nothing, so there is no value to start with",n.init.loc||n.loc);
+    if(!t)t=(it==='null')?'js':(it||'int');
+    else self.want(n.init,t);
+    pending.delete(n.name);
+    self.globals.set(n.name,t);self.def(n.name,t);
+    n.declType=t;n.varType=t;n.lateInit=n.init;n.init=null;
+    var fn=new FunctionDecl('__emitInit.'+k+' '+disp(n)+' '+at(n),[],'void',new BlockStmt([{type:'GlobalInitStmt',name:n.name,value:n.lateInit,decl:n,loc:n.loc}],n.loc),true,n.loc);
+    fn.emitInit=n;steps.push(fn);
+  });
+  steps.forEach(function(f){prog.body.push(f)});
+  prog.initFns=steps;
+};
+(function(){
+  // an initialiser that calls a function that waits (await)
+  var P=TypeAnnotator.prototype,ann0=P.annotate;
+  P.annotate=function(prog){
+    var r=ann0.apply(this,arguments);
+    if(prog.initFns&&prog.asyncFns&&prog.asyncFns.length){
+      var as=new Set(prog.asyncFns),self=this;
+      prog.initFns.forEach(function(f){
+        if(!as.has(f.name))return;
+        var n=f.emitInit,bad=null;
+        (function scan(x){
+          if(bad||!x||typeof x!=='object')return;
+          if(Array.isArray(x)){x.forEach(scan);return}
+          if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr'&&as.has(x.callee.name)){bad=x;return}
+          for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')scan(v)}
+        })(n.lateInit);
+        self.fail("Top-level '"+(n.modName||n.name)+"' calls "+(bad?bad.callee.name+'()':'a function')+", which waits (await) — top-level values are set before the program starts, where nothing can wait: call it inside a function",(bad&&bad.loc)||n.loc);
+      });
+    }
+    return r;
+  };
+  var C=TypeChecker.prototype,check0=C.check,cn0=C.cn,inf0=C.inf;
+  C.check=function(prog){
+    var lets=this.letGlobals=new Map();
+    prog.body.forEach(function(n){if(n&&n.type==='VarDecl'&&!n.mutable)lets.set(n.name,n)});
+    this.letSeen=new Set();
+    return check0.apply(this,arguments);
+  };
+  C.cn=function(n){
+    if(n&&n.type==='GlobalInitStmt'){
+      var t=n.decl.declType,it=this.inf(n.value);
+      if(t&&it&&t!==it&&!this.compat(t,it))this.err('Cannot assign '+it+' to '+t,n.value.loc||n.loc);
+      return;
+    }
+    return cn0.apply(this,arguments);
+  };
+  C.inf=function(e){
+    if(e&&e.type==='AssignExpr'&&e.target&&e.target.type==='IdentifierExpr'&&this.letGlobals&&this.letGlobals.has(e.target.name)&&!this.letSeen.has(e)){
+      var local=false;
+      for(var i=this.scopes.length-1;i>0;i--)if(this.scopes[i].has(e.target.name)){local=true;break}
+      if(!local){
+        var d=this.letGlobals.get(e.target.name);this.letSeen.add(e);
+        this.err("'"+(d.modName||d.name)+"' is declared with let, so it cannot be changed — declare it with mut to assign it",e.target.loc||e.loc);
+      }
+    }
+    return inf0.apply(this,arguments);
+  };
+  var G=WasmCodegen.prototype,gen0=G.generate,stmt0=G.genStmt;
+  G.generate=function(){
+    var late=((this.ast&&this.ast.body)||[]).filter(function(n){return n&&n.type==='VarDecl'&&n.lateInit&&!n.mutable});
+    late.forEach(function(n){n.mutable=true});
+    try{return gen0.apply(this,arguments)}
+    finally{late.forEach(function(n){n.mutable=false})}
+  };
+  G.genStmt=function(s){
+    if(s&&s.type==='GlobalInitStmt'){
+      var g=this.globalMap.get(s.name);
+      this.genExpr(s.value,g.type);
+      this.emit(0x24,...eu32(g.idx));
+      return;
+    }
+    return stmt0.apply(this,arguments);
+  };
+})();
+// Init order of the modules: the modules a module imports come first; modules in an import cycle keep file
+// order. Tarjan's algorithm emits every strongly connected component after the ones it reaches.
+_emitModLink=(function(link){return function(fr){
+  var r=link.apply(this,arguments);
+  try{
+    if(r&&r.ast&&fr&&fr.multi&&fr.mods){
+      var mods=fr.mods.filter(function(m){return!m.bad&&m.ast}),num=new Map(),low=new Map(),on=new Set(),st=[],n=0,order=[];
+      function deps(m){var o=[];(m.imps||[]).forEach(function(i){if(i.target&&i.target!==m&&o.indexOf(i.target)<0&&mods.indexOf(i.target)>=0)o.push(i.target)});return o}
+      function visit(m){
+        num.set(m,n);low.set(m,n);n++;st.push(m);on.add(m);
+        deps(m).forEach(function(d){
+          if(!num.has(d)){visit(d);low.set(m,Math.min(low.get(m),low.get(d)))}
+          else if(on.has(d))low.set(m,Math.min(low.get(m),num.get(d)));
+        });
+        if(low.get(m)===num.get(m)){
+          var comp=[],x;
+          do{x=st.pop();on.delete(x);comp.push(x)}while(x!==m);
+          comp.sort(function(a,b){return a.index-b.index}).forEach(function(c){order.push(c)});
+        }
+      }
+      mods.forEach(function(m){if(!num.has(m))visit(m)});
+      var rank=new Map();order.forEach(function(m,i){rank.set(m.path,i)});
+      r.ast.initRank=rank;
+    }
+  }catch(e){}
+  return r;
+}})(_emitModLink);
+// The Run output: the red line of a top-level value that could not be set (clickable, like a compile error).
+function _emitInitErrHtml(msg){
+  try{_projMarkErrors([msg])}catch(e){}
+  var pr=null;try{pr=_projErrRef(msg)}catch(e){}
+  if(pr)return _projErrSpan(pr,'✗ '+msg)+'\n';
+  var m=/^(\d+):\d+: /.exec(msg);
+  return m?'<span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h('✗ '+msg)+'</span>\n':sp('err','✗ '+msg)+'\n';
+}
 // ── Library loader: use <registry name | npm spec | URL> [as Name] ──
 // The lexer must never see the rest of a `use` line: npm specs contain '@' and unquoted URLs contain '//'.
 (function(){var _id=Lexer.prototype.id;Lexer.prototype.id=function(){var prev=this.tokens[this.tokens.length-1],sl=this.line;var t=_id.call(this);if(t.type===TT.KEYWORD&&t.value==='use'&&!(prev&&prev.line===sl)){while(this.p<this.s.length&&this.peek()!=='\n')this.adv()}return t}})();
@@ -8966,7 +9157,7 @@ try{
   }
 }catch(e){_showLibError(e,out);return}
 setStatus('idle','Compiling\u2026');
-try{const r=compile(source,target);lastFuncs=r.functions;lastImports=r.imports;_projMarkErrors(r.errors);let o=_projWarnHtml();o+=sp('info','Done in '+r.elapsed.toFixed(1)+'ms')+'\n';let statsLine=_projStats(r)+r.stats.tokens+' tok \u2192 '+r.stats.funcs+' fn';if(r.stats.imports)statsLine+=', '+r.stats.imports+' imports';statsLine+=' \u2192 '+r.stats.bytes+'B';o+=sp('dim',statsLine)+'\n';if(r.injected&&r.injected.length){o+=sp('imp','\u2728 Auto: '+r.injected.join(', '))+'\n'}if(r.autoJs&&r.autoJs.length){o+=sp('info','\u26a1 JS: '+r.autoJs.join(', '))+'\n'}o+='\n';if(r.imports.length&&!(r.injected&&r.injected.length===r.imports.length)){o+=sp('imp','Imports: '+_importsSummary(r.imports))+'\n\n'}if(r.warnings&&r.warnings.length){r.warnings.forEach(function(w){o+='  <span style="color:var(--yellow)">\u26a0 '+h(w)+'</span>\n'});o+='\n'}if(r.errors.length){o+=sp('err','\u2717 '+r.errors.length+' type error'+(r.errors.length>1?'s':'')+' \u2014 fix before running')+'\n';r.errors.forEach(function(e){var pr=_projErrRef(e);if(pr){o+='  '+_projErrSpan(pr,e)+'\n';return}var m=e.match(/^(\d+):/);if(m){o+='  <span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h(e)+'</span>\n'}else{o+='  '+sp('err',e)+'\n'}});o+='\n'}else{o+=sp('ok','\u2713 Types OK')+'\n\n';var cdnsNeeded=new Set();r.imports.forEach(function(imp){var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;/* If any explicitly-used lib provides this function (either listed in fns or matching the lib name itself), skip — the explicit use wins. */ var providedByExplicit=Array.from(_explicitCdns).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;/* Also match by lib name (canvas-confetti's lib.name is 'confetti' and exposes window.confetti) */ var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});if(!providedByExplicit)cdnsNeeded.add(fnCdn)});for(var cdn of cdnsNeeded){await _loadLib(cdn)}try{const impLog=[];const importObj=buildImportObject(r.imports,impLog);const mod=await WebAssembly.compile(r.wasm);const inst=await WebAssembly.instantiate(mod,importObj);_wasmMem=inst.exports.memory;o+=sp('ok','\u2713 WASM OK')+'\n\n';const exports=Object.entries(inst.exports).filter(([k,v])=>typeof v==='function'&&k!=='frame'&&!k.startsWith('onclick_')&&!k.startsWith('ontimer_')&&!k.startsWith('onhttp_')&&k!=='memory'&&k.indexOf('.')<0 /* exports of non-entry modules (game.physics.step) are for the host, not auto-run */);if(exports.length){o+=sp('info','\u2500\u2500 Results \u2500\u2500')+'\n';for(const[name,fn]of exports){const fd=r.functions.find(f=>f.name===name);const params=fd?.node?.params||[];const tests=genArgs(params);for(const args of tests){impLog.length=0;try{const rv=_emitCallExport(inst,name,args);let line=sp('ok','\u2713')+' '+name+'('+args.join(',')+') = '+rv;if(impLog.length){line+='\n';for(const call of impLog)line+='    '+sp('imp','\u2192 '+call.fn+'('+call.args.join(', ')+')')+'\n'}o+=line+'\n'}catch(e){o+=sp('err','\u2717')+' '+name+' \u2192 '+e.message+'\n'}}}o+='\n'+sp('dim','Tap to call:')+'\n';for(const[name]of exports){const fd=r.functions.find(f=>f.name===name);const ps=fd?.node?.params?.map(p=>p.name+':'+p.type).join(',')||'';o+='<span class="run-fn" onclick="callFn(\''+name+'\')">'+h(name)+'</span>('+h(ps)+')\n'}}window._wi=inst;window._impLog=impLog;setStatus('ok','Done',r.stats.bytes+'B');try{var _ac=window._doneAc||(window._doneAc=new (window.AudioContext||window.webkitAudioContext)());if(_ac.state==='suspended')_ac.resume();var _o=_ac.createOscillator();_o.frequency.value=880;_o.type='sine';var _g=_ac.createGain();_g.gain.value=0.1;_o.connect(_g);_g.connect(_ac.destination);_o.start();_o.stop(_ac.currentTime+0.05)}catch(e){};}catch(e){o+=sp('err','\u2717 '+e.message)+'\n';if(_wasmBlockedMsg(e))o+=sp('info',_wasmBlockedMsg(e))+'\n';setStatus('err','WASM error');}}if(r.errors.length)setStatus('err',r.errors.length+' type error'+(r.errors.length>1?'s':''));var _outPre=document.createElement('div');_outPre.className='output';_outPre.innerHTML=o;out.insertBefore(_outPre,out.firstChild);document.getElementById('tab-wasm').innerHTML=hexDump(r.wasm);document.getElementById('tab-ast').textContent=JSON.stringify(r.ast,null,2);document.getElementById('tab-tokens').textContent=r.tokens.map(t=>t.toString()).join('\n');document.getElementById('runDot').classList.add('show');if(window.innerWidth<768)showView('run')}catch(e){var em=e.message;_projMarkErrors([em]);var pr=_projErrRef(em),lm=pr?null:em.match(/(\d+):(\d+)/);if(pr){out.innerHTML=_projErrSpan(pr,'\u2717 '+em)}else if(lm){out.innerHTML='<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">\u2717 '+h(em)+'</span>'}else{out.innerHTML=sp('err','\u2717 '+em)};if(_projNotes.length)out.innerHTML+='\n'+_projWarnHtml();setStatus('err','Error');if(window.innerWidth<768)showView('run')}}
+try{const r=compile(source,target);lastFuncs=r.functions;lastImports=r.imports;_projMarkErrors(r.errors);let o=_projWarnHtml();o+=sp('info','Done in '+r.elapsed.toFixed(1)+'ms')+'\n';let statsLine=_projStats(r)+r.stats.tokens+' tok \u2192 '+r.stats.funcs+' fn';if(r.stats.imports)statsLine+=', '+r.stats.imports+' imports';statsLine+=' \u2192 '+r.stats.bytes+'B';o+=sp('dim',statsLine)+'\n';if(r.injected&&r.injected.length){o+=sp('imp','\u2728 Auto: '+r.injected.join(', '))+'\n'}if(r.autoJs&&r.autoJs.length){o+=sp('info','\u26a1 JS: '+r.autoJs.join(', '))+'\n'}o+='\n';if(r.imports.length&&!(r.injected&&r.injected.length===r.imports.length)){o+=sp('imp','Imports: '+_importsSummary(r.imports))+'\n\n'}if(r.warnings&&r.warnings.length){r.warnings.forEach(function(w){o+='  <span style="color:var(--yellow)">\u26a0 '+h(w)+'</span>\n'});o+='\n'}if(r.errors.length){o+=sp('err','\u2717 '+r.errors.length+' type error'+(r.errors.length>1?'s':'')+' \u2014 fix before running')+'\n';r.errors.forEach(function(e){var pr=_projErrRef(e);if(pr){o+='  '+_projErrSpan(pr,e)+'\n';return}var m=e.match(/^(\d+):/);if(m){o+='  <span class="err clickable-err" onclick="jumpToLine('+m[1]+')">'+h(e)+'</span>\n'}else{o+='  '+sp('err',e)+'\n'}});o+='\n'}else{o+=sp('ok','\u2713 Types OK')+'\n\n';var cdnsNeeded=new Set();r.imports.forEach(function(imp){var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;/* If any explicitly-used lib provides this function (either listed in fns or matching the lib name itself), skip — the explicit use wins. */ var providedByExplicit=Array.from(_explicitCdns).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;/* Also match by lib name (canvas-confetti's lib.name is 'confetti' and exposes window.confetti) */ var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});if(!providedByExplicit)cdnsNeeded.add(fnCdn)});for(var cdn of cdnsNeeded){await _loadLib(cdn)}try{const impLog=[];const importObj=buildImportObject(r.imports,impLog);const mod=await WebAssembly.compile(r.wasm);const inst=await WebAssembly.instantiate(mod,importObj);_wasmMem=inst.exports.memory;o+=sp('ok','\u2713 WASM OK')+'\n\n';var _ie=_emitInitRun(inst);if(_ie){var _iex=new Error(_ie);_iex.emitInitFail=true;throw _iex}const exports=Object.entries(inst.exports).filter(([k,v])=>typeof v==='function'&&k!=='frame'&&!k.startsWith('onclick_')&&!k.startsWith('ontimer_')&&!k.startsWith('onhttp_')&&k!=='memory'&&k.indexOf('.')<0 /* exports of non-entry modules (game.physics.step) are for the host, not auto-run */);if(exports.length){o+=sp('info','\u2500\u2500 Results \u2500\u2500')+'\n';for(const[name,fn]of exports){const fd=r.functions.find(f=>f.name===name);const params=fd?.node?.params||[];const tests=genArgs(params);for(const args of tests){impLog.length=0;try{const rv=_emitCallExport(inst,name,args);let line=sp('ok','\u2713')+' '+name+'('+args.join(',')+') = '+rv;if(impLog.length){line+='\n';for(const call of impLog)line+='    '+sp('imp','\u2192 '+call.fn+'('+call.args.join(', ')+')')+'\n'}o+=line+'\n'}catch(e){o+=sp('err','\u2717')+' '+name+' \u2192 '+e.message+'\n'}}}o+='\n'+sp('dim','Tap to call:')+'\n';for(const[name]of exports){const fd=r.functions.find(f=>f.name===name);const ps=fd?.node?.params?.map(p=>p.name+':'+p.type).join(',')||'';o+='<span class="run-fn" onclick="callFn(\''+name+'\')">'+h(name)+'</span>('+h(ps)+')\n'}}window._wi=inst;window._impLog=impLog;setStatus('ok','Done',r.stats.bytes+'B');try{var _ac=window._doneAc||(window._doneAc=new (window.AudioContext||window.webkitAudioContext)());if(_ac.state==='suspended')_ac.resume();var _o=_ac.createOscillator();_o.frequency.value=880;_o.type='sine';var _g=_ac.createGain();_g.gain.value=0.1;_o.connect(_g);_g.connect(_ac.destination);_o.start();_o.stop(_ac.currentTime+0.05)}catch(e){};}catch(e){if(e&&e.emitInitFail){o+=_emitInitErrHtml(e.message);setStatus('err','Error');window._wi=null;_animRunning=false}else{o+=sp('err','\u2717 '+e.message)+'\n';if(_wasmBlockedMsg(e))o+=sp('info',_wasmBlockedMsg(e))+'\n';setStatus('err','WASM error');}}}if(r.errors.length)setStatus('err',r.errors.length+' type error'+(r.errors.length>1?'s':''));var _outPre=document.createElement('div');_outPre.className='output';_outPre.innerHTML=o;out.insertBefore(_outPre,out.firstChild);document.getElementById('tab-wasm').innerHTML=hexDump(r.wasm);document.getElementById('tab-ast').textContent=JSON.stringify(r.ast,null,2);document.getElementById('tab-tokens').textContent=r.tokens.map(t=>t.toString()).join('\n');document.getElementById('runDot').classList.add('show');if(window.innerWidth<768)showView('run')}catch(e){var em=e.message;_projMarkErrors([em]);var pr=_projErrRef(em),lm=pr?null:em.match(/(\d+):(\d+)/);if(pr){out.innerHTML=_projErrSpan(pr,'\u2717 '+em)}else if(lm){out.innerHTML='<span class="err clickable-err" onclick="jumpToLine('+lm[1]+')">\u2717 '+h(em)+'</span>'}else{out.innerHTML=sp('err','\u2717 '+em)};if(_projNotes.length)out.innerHTML+='\n'+_projWarnHtml();setStatus('err','Error');if(window.innerWidth<768)showView('run')}}
 const isInt=t=>t==='int'||t==='i64'||t==='js'||t==='arr'||t==='numarr';const isNum=t=>t==='num'||t==='f64'||t==='f32';
 function genArgs(params){if(!params.length)return[[]];if(params.length===1){const t=params[0].type;if(isInt(t))return[[1n],[5n],[10n]];if(isNum(t))return[[1.0],[5.0]];return[[1],[5],[10]]}if(params.length===2){const v=params.map(p=>{if(isInt(p.type))return[2n,10n];if(isNum(p.type))return[1.0,5.0];return[3,7]});return[[v[0][0],v[1][0]],[v[0][1],v[1][1]]]}return[params.map(p=>{if(isInt(p.type))return 2n;if(isNum(p.type))return 1.0;return 3})]}
 function callFn(name){const fn=window._wi?.exports[name];if(!fn)return;const fd=lastFuncs?.find(f=>f.name===name);const ps=fd?.node?.params||[];const a=prompt(name+'('+ps.map(p=>p.name+':'+p.type).join(', ')+')\nArgs:');if(a===null)return;const args=a.split(',').map((x,i)=>{x=x.trim();const t=ps[i]?.type||'int';if(isInt(t))return BigInt(x);if(isNum(t))return parseFloat(x);return parseInt(x)});window._impLog.length=0;try{const r=_emitCallExport(window._wi,name,args);let html='\n<div class="run-result">'+sp('ok','▶')+' '+name+'('+args.join(',')+') = <strong>'+r+'</strong>';if(window._impLog.length){html+='\n';for(const c of window._impLog)html+='  '+sp('imp','→ '+c.mod+'.'+c.fn+'('+c.args.join(', ')+')')+'\n'}html+='</div>';document.getElementById('tab-output').innerHTML+=html}catch(e){document.getElementById('tab-output').innerHTML+='\n<div class="run-result">'+sp('err','✗')+' '+e.message+'</div>'}}
@@ -10139,6 +10330,9 @@ async function _emitExportBoot(P,RT,opts){
   }catch(e){show((e&&e.message)||String(e));throw e}
   RT.setMemory(inst.exports.memory);
   window._wi=inst; // the runtime finds frame(), onclick_N() … here
+  // top-level values that are not literals are set now, once, before anything else runs (see TOP-LEVEL VALUES)
+  var initErr=window._emitInitRun?window._emitInitRun(inst):null;
+  if(initErr){show(initErr);RT.stop();window._wi=null;throw new Error(initErr)}
   var entries=Object.keys(inst.exports).filter(function(n){var f=inst.exports[n];return typeof f==='function'&&f.length===0&&n!=='frame'&&n.indexOf('onclick_')!==0&&n.indexOf('ontimer_')!==0&&n.indexOf('onhttp_')!==0&&n.indexOf('.')<0});
   function run(){entries.forEach(function(n){try{window._emitCallExport?window._emitCallExport(inst,n,[]):inst.exports[n]()}catch(e){show(n+' → '+((e&&e.message)||e))}})}
   if(opts.run!==false)run();
