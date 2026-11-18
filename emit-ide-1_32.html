@@ -17209,10 +17209,13 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
         var ok=!!(window._wi&&window._wi.exports&&window._wi.exports.frame&&k.indexOf('hero')>=0&&k.indexOf('coin')>=0&&m.shows&&m.shows.indexOf('score')>=0&&tick>=5);
         return ok?{ok:true,msg:'✓ It runs: frame() has run '+tick+' times; the score shows in the corner.'}:{ok:false,msg:'Not yet: run the game with ▶.'};
       },
-      keep:function(){return[q('#tab-output [data-emit-controls]')]},
+      keep:function(){return[q('#tab-output [data-emit-controls]'),q('#tab-output canvas')]},
       target:function(){
         if(drawerOpen())return{el:q('#drawer .drw-x'),say:'Close the drawer (✕).'};
         if(!this.check().ok)return{el:q('.header .hdr-btn.run'),say:'Tap ▶ (Run).'};
+        if(narrow()&&!runVisible())return{el:q('.vtab[data-v="run"]'),say:'Tap Output to see the game.'};
+        // once: the game itself into view (on a phone it is below the compile report)
+        var cv=q('#tab-output canvas');if(cv&&T.shown!==cv){T.shown=cv;try{cv.scrollIntoView({block:'nearest'})}catch(e){}}
         return{el:null,say:'Play! Walk into a coin.'};
       },
       doIt:function(){return run()}},
@@ -17224,7 +17227,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
         var t=Date.now()-T.stepAt>WAIT_TL;
         return{ok:false,later:t,msg:T.tl.scrubbed?'Now tap ⟲ resume from here (or ▶).':'Not yet: drag the Timeline slider back.'+(t?' (You can also just go on.)':'')};
       },
-      keep:function(){return[q('#tlBar')]},
+      keep:function(){return[q('#tlBar'),q('#tab-output canvas')]},
       target:function(){
         if(drawerOpen())return{el:q('#drawer .drw-x'),say:'Close the drawer (✕).'};
         if(narrow()&&!runVisible())return{el:q('.vtab[data-v="run"]'),say:'Tap Output.'};
@@ -17236,11 +17239,11 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       doIt:function(){
         var go=function(){
           try{
-            var n=_tl.frames.length;if(n<2)return false;
+            var n=_tl.frames.length;if(n<10)return false;
             _tlPause();_tlShow(Math.max(0,n-1-Math.min(30,n-1)));_tlResume();return true;
           }catch(e){return false}
         };
-        try{if(_tl.on&&_tl.frames.length>=2&&_animRunning){toRun();go();return}}catch(e){}
+        try{if(_tl.on&&_tl.frames.length>=10&&_animRunning){toRun();go();return}}catch(e){}
         var p=run();
         return Promise.resolve(p).then(function(){return new Promise(function(res){var t0=Date.now();(function w(){if(go()||Date.now()-t0>4000)res();else setTimeout(w,60)})()})});
       }},
@@ -17296,7 +17299,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
   }
   // ── the panel ──
   var CSS='.tut{position:fixed;z-index:260;left:0;top:0;box-sizing:border-box;display:flex;flex-direction:column;background:var(--bg2);color:var(--fg);border:1px solid var(--cyan);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.6);font-family:var(--sans);font-size:14px;line-height:1.45;max-width:100vw}'
-    +'.tut.tut-ph{border-left:none;border-right:none}.tut.tut-ph.tut-bot{border-radius:14px 14px 0 0;border-bottom:none;padding-bottom:var(--safe-b)}.tut.tut-ph.tut-top{border-radius:0 0 14px 14px;border-top:none}'
+    +'.tut.tut-ph{border-left:none;border-right:none}.tut.tut-ph.tut-bot{border-radius:14px 14px 0 0;border-bottom-color:transparent}.tut.tut-ph.tut-top{border-radius:0 0 14px 14px;border-top-color:transparent}.tut.tut-ph .tut-skip{margin-bottom:var(--safe-b)}'
     +'.tut-hd{display:flex;align-items:center;gap:8px;padding:4px 4px 2px 12px}.tut-n{font-family:var(--mono);font-size:11px;color:var(--cyan);white-space:nowrap}'
     +'.tut-t{flex:1;min-width:0;margin:0;font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
     +'.tut-ib{min-width:44px;min-height:44px;background:none;border:none;color:var(--fg2);font-size:18px;border-radius:8px;cursor:pointer;font-family:var(--mono);flex-shrink:0}'
@@ -17335,11 +17338,11 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     bb.append(btn('tut-btn tut-back','‹ Back',function(){go(T.i-1)},'Back: the previous step'),btn('tut-btn tut-do','Do it for me',function(){doIt()}),btn('tut-btn pri tut-next','Next ›',function(){next()},'Next step'));
     var skip=btn('tut-skip','Skip tutorial',function(){skipTut()});
     var mini=mk('div','tut-mini'),mt=mk('span','tut-mt');
-    mini.append(mt,btn('tut-btn pri tut-mnext','Next ›',function(){next()},'Next step'),btn('tut-ib tut-exp','▴',function(){T.userExpanded=true;T.collapsed=false;save();render()},'Show the whole step'),btn('tut-ib','▾',function(){collapse(true)},'Fold the tutorial into a small button'));
+    mini.append(mt,btn('tut-btn tut-mdo','Do it',function(){doIt()},'Do it for me'),btn('tut-btn pri tut-mnext','Next ›',function(){next()},'Next step'),btn('tut-ib tut-exp','▴',function(){T.userExpanded=true;T.collapsed=false;save();render()},'Show the whole step'),btn('tut-ib','▾',function(){collapse(true)},'Fold the tutorial into a small button'));
     var pill=btn('tut-pill','',function(){collapse(false)},'Open the tutorial');
     el.append(hd,body,bb,skip,mini,pill);
     document.body.appendChild(el);
-    T.el=el;T.ui={n:n,t:t,txt:txt,x:x,tap:tap,st:st,mt:mt,pill:pill,back:bb.children[0],doB:bb.children[1],next:bb.children[2],mnext:mini.children[1],body:body};
+    T.el=el;T.ui={n:n,t:t,txt:txt,x:x,tap:tap,st:st,mt:mt,pill:pill,back:bb.children[0],doB:bb.children[1],next:bb.children[2],mdo:mini.children[1],mnext:mini.children[2],body:body};
     var hi=document.getElementById('tutHi');if(!hi){hi=mk('div');hi.id='tutHi';hi.setAttribute('aria-hidden','true');document.body.appendChild(hi)}T.hi=hi;
     return el;
   }
@@ -17374,6 +17377,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     u.mt.textContent=(T.i+1)+'/'+STEPS.length+' · '+(r.ok&&!s.ro?'✓ ':'')+(tap||s.title);
     u.pill.textContent='Step '+(T.i+1)+'/'+STEPS.length+(r.ok&&!s.ro?' ✓':'');
     u.mnext.style.display=can?'':'none';
+    u.mdo.style.display=!can&&s.doIt?'':'none';u.mdo.disabled=T.busy;
     T.ver++;
   }
   // ── the highlight and the panel's place ──
@@ -17396,7 +17400,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     var el=t&&t.el||null;T.tgtSay=t&&t.say||'';
     if(el!==T.tgt){
       T.tgt=el;T.tgtClip=null;T.tgtSeen=null;
-      if(el){T.tgtClip=clipsOf(el);T.tgtSeen=el;if(!visible(el)&&!(T.el&&T.el.contains(el))){try{el.scrollIntoView({block:'nearest',inline:'nearest'})}catch(e){}}}
+      if(el){T.tgtClip=clipsOf(el);T.tgtSeen=el;var vr=visible(el),fr=rectOf(el);if((!vr||area(vr)<area(fr)*0.9)&&!(T.el&&T.el.contains(el))){try{el.scrollIntoView({block:'nearest',inline:'nearest'})}catch(e){}}}
     }
   }
   function placeHi(){
@@ -17442,23 +17446,31 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     function measure(mode,w){
       var k=mode+':'+w;if(sizes[k])return sizes[k];
       el.setAttribute('data-mode',mode);el.style.width=w?w+'px':'auto';el.style.maxHeight=mode==='full'?Math.round((C.bot-C.top)*(phone()?0.55:0.8))+'px':'';
-      return sizes[k]={w:el.offsetWidth,h:el.offsetHeight};
+      var b=el.getBoundingClientRect();return sizes[k]={w:b.width,h:b.height};
     }
+    // soft: better not covered (the IDE's header buttons), decides between places of the same mode
+    var soft=[];if(!drawerOpen()){var hr=rectOf(q('.header'));if(hr)soft.push(hr)}
+    var pick=null;
     for(var i=0;i<C.list.length;i++){
       var c=C.list[i],sz=measure(c.mode,c.w),x,y;
+      if(pick&&pick.c.mode!==c.mode)break;
       if(c.mode==='pill'){x=c.x==='r'?C.v.r-sz.w-m:C.v.l+m;y=c.y==='b'?C.bot-sz.h-m:c.y==='t'?C.top+m:C.top+((C.bot-C.top)-sz.h)/2}
       else{x=c.x;y=c.y(sz.h)}
       y=Math.max(C.top,Math.min(y,C.bot-sz.h));
-      var r={l:x,t:y,r:x+sz.w,b:y+sz.h},cover=0;
+      var r={l:x,t:y,r:x+sz.w,b:y+sz.h},cover=0,sc=0;
       must.forEach(function(a){cover+=area(inter(a,r))});
-      if(!best||cover<best.cover)best={c:c,x:x,y:y,cover:cover,w:c.w};
-      if(!cover)break;
+      soft.forEach(function(a){sc+=area(inter(a,r))});
+      var cand={c:c,x:x,y:y,cover:cover,soft:sc,w:c.w};
+      if(!best||cover<best.cover)best=cand;
+      if(!cover&&(!pick||sc<pick.soft))pick=cand;
+      if(pick&&!pick.soft)break;
     }
+    if(pick)best=pick;
     if(!best)return;
     el.setAttribute('data-mode',best.c.mode);
     el.style.width=best.w?best.w+'px':'auto';
     el.style.maxHeight=best.c.mode==='full'?Math.round((C.bot-C.top)*(phone()?0.55:0.8))+'px':'';
-    el.style.left=Math.round(best.x)+'px';el.style.top=Math.round(best.y)+'px';
+    el.style.left=best.x+'px';el.style.top=best.y+'px';
     el.classList.toggle('tut-ph',phone()&&best.c.mode!=='pill');
     el.classList.toggle('tut-bot',best.c.pos==='bot');el.classList.toggle('tut-top',best.c.pos==='top');
     el.setAttribute('data-pos',best.c.pos);
@@ -17485,7 +17497,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
   // ── moving through the steps ──
   function go(i){
     i=Math.max(0,Math.min(STEPS.length-1,i|0));
-    T.i=i;T.ask=false;T.userExpanded=false;T.stepAt=Date.now();T.res=null;
+    T.i=i;T.ask=false;T.userExpanded=false;T.stepAt=Date.now();T.res=null;T.shown=null;
     if(STEPS[i].id==='rewind')T.tl={scrubbed:false,resumed:false};
     if(STEPS[i].id==='inside'){var h=things().hero;if(T.speed0===null||T.speed0===undefined)T.speed0=h?h.speed:null}
     else if(i<stepIx('things'))T.speed0=null;
@@ -17569,6 +17581,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     var h=document.getElementById('tutHelpGo');if(h)h.textContent=p?'Resume (step '+(p.i+1)+'/'+STEPS.length+')':'Start the tutorial';
   }
   try{
+    css();
     var box=q('#welcomeOverlay .welcome-box'),goB=q('#welcomeOverlay .wl-go');
     if(box&&!document.getElementById('tutWelcome')){
       var wb=btn('tut-wl','',function(){window._tutStart()});wb.id='tutWelcome';
