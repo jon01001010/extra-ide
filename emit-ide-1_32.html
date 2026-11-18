@@ -732,6 +732,7 @@ script talk:
 <details style="margin:6px 0"><summary style="cursor:pointer;color:var(--cyan)">Short reference: values, conversions, limits</summary>
 <p>Values: <code>nil</code>, booleans (only <code>nil</code> and <code>false</code> are false), numbers (JS doubles; <code>10/2</code> prints <code>5</code>), strings, tables, functions, coroutines. Errors read like Lua's: <code>intro:3: attempt to index a nil value (local 't')</code>.</p>
 <p>Emit &rarr; Mote: <code>int</code>/<code>num</code> &rarr; number, <code>bool</code>, <code>str</code>, a JS array / plain object &rarr; a new table (a copy), <code>fnRef(f)</code> &rarr; a function. Mote &rarr; Emit (results are <code>js</code> values): <code>nil</code> &rarr; <code>null</code>, a sequence table &rarr; a JS array (<code>opts[0]</code> is Mote's <code>opts[1]</code>), another table &rarr; a JS object, a function &rarr; a JS function.</p>
+<p><strong>Names are case-insensitive</strong> in scripts too, as in Emit: <code>moteVM()</code> and the Script tool make VMs with <code>caseInsensitive: true</code> (<code>Hero</code>, <code>hero</code> and <code>HERO</code> are one variable; <code>IF … THEN … END</code>, <code>Math.Floor</code> work; <code>t.name</code> finds a key <code>Name</code>; <code>t["Key"]</code> stays exact). See MOTE.md.</p>
 <p>Host functions of <code>moteVM()</code>: <code>print(…)</code> (a violet line in the Output tab), <code>wait(seconds)</code>, <code>waitFrames(n)</code>, <code>choose(a, b, …)</code> &rarr; the chosen number. The last three pause a thread made with <code>moteThread</code>; in <code>moteRun</code> they are an error (<em>attempt to yield from outside a coroutine</em>).</p>
 <p>Limits per call (run, call, one resume): 1,000,000 steps (<code>moteVM(n)</code> sets another budget), about 16 MB of new data, 20,000 nested calls. <code>pcall</code> cannot catch a budget error; the VM stays usable.</p>
 </details>
@@ -4604,7 +4605,7 @@ _emitModLink=(function(link){return function(fr){
         if(tab[a.name])e.args[0]=new StringLiteral(a.name,a.loc);
         else{unknown(a.name,a.loc);return}
       }else if(a.type==='StringLiteral'&&!tab[a.value]){
-        var ck=Object.keys(tab).filter(function(k){return k.toLowerCase()===String(a.value).toLowerCase()})[0];   /* names are case-insensitive */
+        var ck=Object.keys(tab).filter(function(k){return k.toLowerCase()===String(a.value).toLowerCase()})[0];
         if(ck)e.args[0]=new StringLiteral(ck,a.loc);else{unknown(a.value,a.loc);return}
       }
       if(fn==='play'){
@@ -4719,7 +4720,7 @@ function _moteParseBlock(lines,line0){
   if(!errors.length){
     var M=_moteCompiler();
     if(M){
-      try{M.create({stdlib:['base']}).compile(d.source,d.name)}
+      try{M.create({stdlib:['base'],caseInsensitive:true}).compile(d.source,d.name)}
       catch(e){
         if(e&&e.kind==='syntax'){
           var ml=+e.line||1,mc=+e.column||1,msg=String(e.message||e).replace(/^[^\n]*?:\d+:(?:\d+:)?\s*/,'').replace(/\bat line (\d+)/g,function(m,n){return'at line '+(line0+Number(n))});   /* "(to close '(' at line 3)": a line of the file too */
@@ -7118,14 +7119,11 @@ function _jsErr(what,e){
   }catch(e2){}
   try{console.warn('Emit JS interop: '+what+': '+msg)}catch(e3){}
 }
-// ── CASE-INSENSITIVE NAMES (runtime half) ── Emit names are case-insensitive, so a JS name written in Emit is
-// looked up the same way: the exact name first (own or inherited property, `name in obj`); if the object has no
-// property of that name, the one own-or-inherited property whose name equals it ignoring case (three.scene →
-// THREE.Scene). Two or more such properties are an error naming them (catchable with try / catch). A found
-// spelling is cached per object and name (a WeakMap), so the full scan of the object and its prototypes runs
-// once per name; a name that is found nowhere is returned as written (a new property is created as written).
-var _ncPropCache=typeof WeakMap==='function'?new WeakMap():null;
-function _ncProp(o,name){
+// Case-insensitive JS names: see CASE-INSENSITIVE NAMES in the compiler
+var _ncPropCache=null,_ncProp=function(o,n){return n},_ncExport=function(i,n){return n};
+//#emit-nocase-begin — up to the matching end marker: only in exported programs that use JS interop (see _exportRuntime)
+_ncPropCache=typeof WeakMap==='function'?new WeakMap():null;
+_ncProp=function(o,name){
   if(o===null||o===undefined||typeof name!=='string'||name==='')return name;
   var O=(typeof o==='object'||typeof o==='function')?o:Object(o);
   try{if(name in O)return name}catch(e){return name}
@@ -7145,7 +7143,15 @@ function _ncProp(o,name){
     err._ncAmb=true;throw err;
   }
   return name;
-}
+};
+_ncExport=function(inst,name){
+  var E=inst&&inst.exports;
+  if(!E||typeof name!=='string'||typeof E[name]==='function')return name;
+  var k=name.toLowerCase(),ks=Object.keys(E);
+  for(var i=0;i<ks.length;i++)if(ks[i].toLowerCase()===k&&typeof E[ks[i]]==='function')return ks[i];
+  return name;
+};
+//#emit-nocase-end
 // ── Callbacks: fnRef(fn) → a JS function that calls back into Emit ──
 // The compiler turns fnRef(name) into fnRef("@cb:<table index>:<param types>:<return type>:<name>").
 // JS arguments are marshalled by the DECLARED parameter types of the Emit function:
@@ -8026,15 +8032,6 @@ function _emitEnter(f,args,isAsync){
 // reported as a red line in the output. Any other function is called directly and returns its result.
 // Every call is one lifetime scope (see "LIFETIME"): what it creates is released when it has completed —
 // for an async function when its promise settles. top: the caller is certainly not nested in Emit code.
-// The export of `name`, whatever its case (Emit names are case-insensitive; the compiler declares the exports the
-// host calls — frame, onclick_N, ontimer_N, onhttp_N, onrecv_N — in lower case, so this only matters for others).
-function _ncExport(inst,name){
-  var E=inst&&inst.exports;
-  if(!E||typeof name!=='string'||typeof E[name]==='function')return name;
-  var k=name.toLowerCase(),ks=Object.keys(E);
-  for(var i=0;i<ks.length;i++)if(ks[i].toLowerCase()===k&&typeof E[ks[i]]==='function')return ks[i];
-  return name;
-}
 function _emitCallExport(inst,name,args,top){
   name=_ncExport(inst,name);
   var f=inst&&inst.exports?inst.exports[name]:null;
@@ -8638,7 +8635,7 @@ function _sndFind(kind,name){
   name=String(name);
   var d=kind==='sound'?_sndDefs:_musDefs;
   if(Object.prototype.hasOwnProperty.call(d,name))return d[name];
-  var lk=name.toLowerCase();for(var dn in d)if(Object.prototype.hasOwnProperty.call(d,dn)&&dn.toLowerCase()===lk)return d[dn];   /* names are case-insensitive */
+  var lk=name.toLowerCase();for(var dn in d)if(Object.prototype.hasOwnProperty.call(d,dn)&&dn.toLowerCase()===lk)return d[dn];
   if(typeof _sndResolve==='function'){try{return _sndResolve(kind,name)}catch(e){}}
   return null;
 }
@@ -8857,7 +8854,7 @@ function _sprMake(d){
   });
   var S={name:String(d.name),w:Math.max(1,d.w|0),h:Math.max(1,d.h|0),fps:Number(d.fps)>0?Number(d.fps):8,lut:pal,frames:[],byFrame:Object.create(null)};
   (d.frames||[]).forEach(function(f,i){S.frames.push({name:String(f.name||''),data:String(f.data||''),u32:null,cv:null});if(f.name&&!(f.name in S.byFrame))S.byFrame[f.name]=i});
-  S.byFrameCI=Object.create(null);S.frames.forEach(function(f,i){var k=f.name.toLowerCase();if(f.name&&!(k in S.byFrameCI))S.byFrameCI[k]=i});   /* names are case-insensitive */
+  S.byFrameCI=Object.create(null);S.frames.forEach(function(f,i){var k=f.name.toLowerCase();if(f.name&&!(k in S.byFrameCI))S.byFrameCI[k]=i});
   if(!S.frames.length)S.frames.push({name:'',data:'',u32:null,cv:null});
   return S;
 }
@@ -8877,7 +8874,7 @@ function _sprGet(s){
   if(typeof s==='number'||typeof s==='bigint')return _sprList[Number(s)]||null;
   if(s==null)return null;
   var S=_sprByName[String(s)];if(S)return S;
-  var k=String(s).toLowerCase();for(var n in _sprByName)if(n.toLowerCase()===k)return _sprByName[n];   /* names are case-insensitive */
+  var k=String(s).toLowerCase();for(var n in _sprByName)if(n.toLowerCase()===k)return _sprByName[n];
   return null;
 }
 // frame (name or index) → index, or -1
@@ -9014,7 +9011,7 @@ function _stSetup(imports){
   _stIn.tx=0;_stIn.ty=0;_stIn.tp=null;_stIn.down={A:0,B:0,C:0};_stIn.edge={A:false,B:false,C:false};_stIn.kb={};_stIn.kbBtn={A:false,B:false,C:false};
   _stIn.tapX=0;_stIn.tapY=0;_stIn.tapping=false;_stIn.tapP=null;
 }
-function _stMapBy(name){for(var i=0;i<_stMaps.length;i++)if(_stMaps[i].name===name)return _stMaps[i];var k=String(name).toLowerCase();for(i=0;i<_stMaps.length;i++)if(String(_stMaps[i].name).toLowerCase()===k)return _stMaps[i];return null}   /* names are case-insensitive */
+function _stMapBy(name){for(var i=0;i<_stMaps.length;i++)if(_stMaps[i].name===name)return _stMaps[i];var k=String(name).toLowerCase();for(i=0;i<_stMaps.length;i++)if(String(_stMaps[i].name).toLowerCase()===k)return _stMaps[i];return null}
 function _stMapN(id,what){var m=_stMaps[Number(id)];if(!m)_stErr(what,'there is no map number '+String(id)+' in this program');return m||null}
 function _stTileOf(m,tx,ty){tx=Math.floor(tx);ty=Math.floor(ty);if(!m||!(tx>=0&&ty>=0&&tx<m.w&&ty<m.h))return'';return m.rows[ty][tx]}
 function _stSolidOf(m,px,py){
@@ -9185,7 +9182,7 @@ function _stImport(name){
     case'useControls':return function(id){var c=_stCtls[Number(id)];if(!c)return void _stErr('useControls','there are no controls number '+String(id)+' in this program');_stCtlShow(c)};
     case'stickX':return function(){return _stAxis().x};
     case'stickY':return function(){return _stAxis().y};
-    case'pressed':return function(p){var b=_readStr(Number(p));if(/^[abc]$/.test(b))b=b.toUpperCase();return _stBtnOn(b)?1:0};   /* "a" = "A" */
+    case'pressed':return function(p){var b=_readStr(Number(p));if(/^[abc]$/.test(b))b=b.toUpperCase();return _stBtnOn(b)?1:0};
     case'justPressed':return function(p){var b=_readStr(Number(p));if(/^[abc]$/.test(b))b=b.toUpperCase();var v=!!_stIn.edge[b];if(!_animRunning)_stIn.edge[b]=false;return v?1:0};
   }
   return null;
@@ -10047,7 +10044,7 @@ function _motePrint(s){
 }
 window.moteVM=function(steps){
   var M=_moteLib(),n=Number(steps);
-  var vm=M.create({print:_motePrint,stdlib:['base','string','table','math','coroutine'],maxSteps:(n>0&&isFinite(n))?Math.floor(n):_MOTE_STEPS,maxMemory:16e6,seed:1});
+  var vm=M.create({print:_motePrint,stdlib:['base','string','table','math','coroutine'],maxSteps:(n>0&&isFinite(n))?Math.floor(n):_MOTE_STEPS,maxMemory:16e6,seed:1,caseInsensitive:true});   /* Emit names are case-insensitive: so are the scripts' */
   var st={chunks:{}};_moteVMs.set(vm,st);
   vm.set('wait',function(sec){return vm.yield('wait',Math.max(0,Number(sec)||0))});
   vm.set('waitFrames',function(f){return vm.yield('frames',Math.max(1,Math.floor(Number(f)||1)))});
@@ -11373,6 +11370,9 @@ function _exportRuntime(P){
   if(!parts.length)throw new Error('runtime section not found in the IDE source');
   var mote=!!(P&&P.libs&&P.libs.some(function(l){return l&&l.url===_MOTE_URL}));
   if(!mote)parts=parts.map(function(t){return t.replace(/\n\/\/#emit-mote-begin[^\n]*\n[\s\S]*?\n\/\/#emit-mote-end[^\n]*/g,'')});
+  /* the case-insensitive JS lookup (CASE-INSENSITIVE NAMES): only for a program that uses JS interop (or Mote) */
+  var jsi=!P||!P.imports||mote||P.imports.some(function(i){return i&&(i.module==='__js__'||i.module==='js')});
+  if(!jsi)parts=parts.map(function(t){return t.replace(/\n\/\/#emit-nocase-begin[^\n]*\n[\s\S]*?\n\/\/#emit-nocase-end[^\n]*/g,'')});
   // The names _emitExportBoot reaches the runtime through. If one is renamed, fail here, not in the exported page.
   ['buildImportObject','_resetJsInterop','_loadUse','_loadLib'].forEach(function(n){if(typeof window[n]!=='function'||parts.join('\n').indexOf('function '+n+'(')<0)throw new Error('runtime function '+n+' is missing from the runtime section')});
   // IDE names the runtime may mention: the library catalogue is not exported, status/navigation calls do nothing.
@@ -14641,7 +14641,7 @@ function _stParseMap(b){
       if(!ws[1]||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ws[1].text))P(ln,ws[1]?ws[1].col:ws[0].col+1,'Expected a name after "'+e.ch+'" in the legend — '+e.ch+' wall solid #3a3a5c');
       else{
         e.name=ws[1].text;
-        var cl=M.legend.filter(function(x){return x.name&&x.name!==e.name&&x.name.toLowerCase()===e.name.toLowerCase()})[0];   /* names are case-insensitive */
+        var cl=M.legend.filter(function(x){return x.name&&x.name!==e.name&&x.name.toLowerCase()===e.name.toLowerCase()})[0];
         if(cl)P(ln,ws[1].col,'Legend names "'+e.name+'" and "'+cl.name+'" (line '+cl.line+') differ only by case — names are case-insensitive: rename one of them');
       }
       for(var k=2;k<ws.length;k++){
@@ -16851,7 +16851,7 @@ function _moteToolRun(src,name,budget,opts){
   function add(k,t){if(res.lines.length<400)res.lines.push({k:k,t:String(t)});else if(res.lines.length===400)res.lines.push({k:'log',t:'… more output not shown'})}
   function show(v){return typeof v==='string'?JSON.stringify(v):v===undefined||v===null?'nil':typeof v==='object'?JSON.stringify(v):String(v)}
   if(!M){res.error={line:0,msg:'Mote is not available in this page',kind:'error'};return res}
-  var vm=M.create({print:function(s){add('pr',s)},stdlib:['base','string','table','math','coroutine'],maxSteps:budget,maxMemory:16e6,seed:1});
+  var vm=M.create({print:function(s){add('pr',s)},stdlib:['base','string','table','math','coroutine'],maxSteps:budget,maxMemory:16e6,seed:1,caseInsensitive:true});
   vm.set('wait',function(s){return vm.yield('wait',s)});
   vm.set('waitFrames',function(f){return vm.yield('frames',f)});
   vm.set('choose',function(){return vm.yield.apply(vm,['choose'].concat([].slice.call(arguments)))});
@@ -18101,7 +18101,7 @@ const rt = msg => new Throw(msg, true);
 /** Tables: an array part arr (arr[i-1] is t[i]; arr never ends in nil, so #t = arr.length is a
  *  border) and a Map for every other key. */
 class LTable {
-  constructor() { this.arr = []; this.hash = null; this.mt = null; this.keys = null; this.ki = 0; this.id = 0; }
+  constructor() { this.arr = []; this.hash = null; this.mt = null; this.keys = null; this.ki = 0; this.id = 0; this.lc = null; }
   get(k) {
     if (typeof k === 'number') {
       const a = this.arr;
@@ -18128,10 +18128,32 @@ class LTable {
     if (v === undefined) { h.delete(k); return false; }
     const size = h.size;
     h.set(k, v);
-    if (h.size !== size) { this.keys = null; return true; }
+    if (h.size !== size) { this.keys = null; this.lc = null; return true; }
     return false;
   }
   trim() { const a = this.arr; while (a.length && a[a.length - 1] === undefined) a.pop(); }
+  /** caseInsensitive VMs: the string key of this table that equals k ignoring case (k given in lower case), or undefined.
+   *  Two keys that differ only by case make the field ambiguous: an error naming them. */
+  ciKey(k) {
+    const h = this.hash;
+    if (h === null) return undefined;
+    let lc = this.lc;
+    if (lc === null) {
+      lc = this.lc = new Map();
+      for (const [key, v] of h) {
+        if (typeof key !== 'string' || v === undefined) continue;
+        const l = key.toLowerCase(), o = lc.get(l);
+        if (o === undefined) lc.set(l, key); else if (o !== key) lc.set(l, Array.isArray(o) ? o.concat([key]) : [o, key]);
+      }
+    }
+    const r = lc.get(k);
+    if (Array.isArray(r)) {
+      const live = r.filter(x => h.get(x) !== undefined);
+      if (live.length > 1) throw rt(`field '${k}' is ambiguous: this table has ${live.join(', ')} (names are case-insensitive)`);
+      return live[0];
+    }
+    return r !== undefined && h.get(r) !== undefined ? r : undefined;
+  }
   migrate() {   // keys n+1, n+2, … that sit in the hash move to the array part
     const a = this.arr, h = this.hash;
     let v;
@@ -18262,7 +18284,7 @@ function syntaxError(chunk, line, col, msg) {
   return new MoteError(`${chunk}:${line}:${col}: ${msg}`, { kind: 'syntax', chunk, line, column: col });
 }
 
-function lex(src, chunk) {
+function lex(src, chunk, ci) {
   const toks = [], n = src.length;
   let i = 0, line = 1, ls = 0;
   const fail = (msg, l, c) => { throw syntaxError(chunk, l, c, msg); };
@@ -18328,7 +18350,8 @@ function lex(src, chunk) {
     if (isAlpha(c)) {
       let j = i + 1; while (j < n && isAlnum(src[j])) j++;
       const w = src.slice(i, j); i = j;
-      tok = KEYWORDS.has(w) ? { t: w } : { t: 'name', v: w };
+      const kw = ci ? w.toLowerCase() : w;   // caseInsensitive: keywords in any case (names keep their spelling)
+      tok = KEYWORDS.has(kw) ? { t: kw } : { t: 'name', v: w };
     } else if (isDigit(c) || (c === '.' && isDigit(src[i + 1]))) {
       NUM.lastIndex = i; const m = NUM.exec(src);
       i += m[0].length;
@@ -18367,7 +18390,7 @@ const BITOPS = new Set(['|', '~', '&', '<<', '>>']);
 const MAX_LEVELS = 200;
 
 class Parser {
-  constructor(src, chunk) { this.toks = lex(src, chunk); this.i = 0; this.chunk = chunk; this.depth = 0; this.va = [true]; }
+  constructor(src, chunk, ci) { this.toks = lex(src, chunk, ci); this.i = 0; this.chunk = chunk; this.depth = 0; this.va = [true]; this.ci = !!ci; }
   get tok() { return this.toks[this.i]; }
   check(t) { return this.toks[this.i].t === t; }
   accept(t) { if (this.toks[this.i].t === t) { this.i++; return true; } return false; }
@@ -18565,7 +18588,7 @@ class Parser {
     for (;;) {
       const t = this.tok, line = t.line;
       switch (t.t) {
-        case '.': this.i++; e = { k: 'Index', obj: e, key: { k: 'Str', v: this.name(), line }, line }; break;
+        case '.': this.i++; e = { k: 'Index', obj: e, key: { k: 'Str', v: this.name(), line, ci: this.ci }, line }; break;
         case '[': { this.i++; const key = this.expr(); this.expect(']'); e = { k: 'Index', obj: e, key, line }; break; }
         case ':': { this.i++; const name = this.name(); e = { k: 'Method', obj: e, name, args: this.callargs(), line }; break; }
         case '(': case 'str': case '{': e = { k: 'Call', fn: e, args: this.callargs(), line }; break;
@@ -18638,7 +18661,7 @@ class FuncState {
 const isMulti = e => e.k === 'Call' || e.k === 'Method' || e.k === 'Vararg';
 
 class Compiler {
-  constructor(chunk) { this.chunk = chunk; this.fs = null; this.line = 1; }
+  constructor(chunk, ci) { this.chunk = chunk; this.fs = null; this.line = 1; this.ci = !!ci; }
   err(msg, line) { throw new MoteError(`${this.chunk}:${line}: ${msg}`, { kind: 'syntax', chunk: this.chunk, line }); }
   emit(op, a = 0, b = 0, c = 0) {
     const p = this.fs.p, at = p.code.length;
@@ -18651,6 +18674,16 @@ class Compiler {
     const p = this.fs.p;
     let i = p.kmap.get(v);
     if (i === undefined) { i = p.k.length; p.k.push(v); p.kmap.set(v, i); }
+    return i;
+  }
+  /** The constant of a field name written with . or : — in a caseInsensitive VM a separate constant flagged in
+   *  k.ci, so the VM falls back to a case-insensitive lookup when the table has no such key (t["Key"] stays exact). */
+  kf(v) {
+    if (!this.ci) return this.k(v);
+    const p = this.fs.p;
+    if (!p.kcimap) p.kcimap = new Map();
+    let i = p.kcimap.get(v);
+    if (i === undefined) { i = p.k.length; p.k.push(v); p.kcimap.set(v, i); if (!p.k.ci) p.k.ci = []; p.k.ci[i] = 1; }
     return i;
   }
   declare(name, isConst) {
@@ -18681,12 +18714,14 @@ class Compiler {
   block(stmts) { for (const s of stmts) this.stmt(s); }
   scoped(stmts) { this.enterBlock(false); this.block(stmts); this.leaveBlock(); }
 
+  /** Same name? (caseInsensitive: ignoring case) */
+  eqn(a, b) { return a === b || (this.ci && a.toLowerCase() === b.toLowerCase()); }
   resolveIn(fs, name) {
     for (let i = fs.actives.length - 1; i >= 0; i--) {
       const v = fs.actives[i];
-      if (v.name === name) return { k: 'local', slot: v.slot, v };
+      if (this.eqn(v.name, name)) return { k: 'local', slot: v.slot, v };
     }
-    const idx = fs.upnames.indexOf(name);
+    const idx = this.ci ? fs.upnames.findIndex(u => this.eqn(u, name)) : fs.upnames.indexOf(name);
     if (idx >= 0) return { k: 'up', idx, v: fs.upvars[idx] };
     if (!fs.parent) return null;
     const r = this.resolveIn(fs.parent, name);
@@ -18698,8 +18733,8 @@ class Compiler {
   describe(e) {
     if (!e) return null;
     if (e.k === 'Name') {
-      if (this.fs.actives.some(v => v.name === e.name)) return `local '${e.name}'`;
-      if (this.fs.upnames.includes(e.name)) return `upvalue '${e.name}'`;
+      if (this.fs.actives.some(v => this.eqn(v.name, e.name))) return `local '${e.name}'`;
+      if (this.fs.upnames.some(u => this.eqn(u, e.name))) return `upvalue '${e.name}'`;
       return `global '${e.name}'`;
     }
     if (e.k === 'Index' && e.key.k === 'Str') return `field '${e.key.v}'`;
@@ -18805,10 +18840,10 @@ class Compiler {
         if (path.length === 1 && !method) { this.funcExp(s.func); this.store({ k: 'Name', name: path[0], line: s.line }); break; }
         const objPath = method ? path : path.slice(0, -1), key = method || path[path.length - 1];
         this.exp({ k: 'Name', name: objPath[0], line: s.line });
-        for (let i = 1; i < objPath.length; i++) this.emit(GETF, this.k(objPath[i]));
+        for (let i = 1; i < objPath.length; i++) this.emit(GETF, this.kf(objPath[i]));
         this.funcExp(s.func);
         this.line = s.line;
-        this.emit(SETF, this.k(key));
+        this.emit(SETF, this.kf(key));
         break;
       }
       case 'Return': {
@@ -18835,7 +18870,7 @@ class Compiler {
   store(target) {   // pops the top value into a Name target
     const r = this.resolveIn(this.fs, target.name);
     if (r && r.v && r.v.isConst) this.err(`attempt to assign to const variable '${target.name}'`, target.line);
-    if (!r) this.emit(SETG, this.k(target.name));
+    if (!r) this.emit(SETG, this.kf(target.name));
     else if (r.k === 'local') this.emit(SETL, r.slot);
     else this.emit(SETU, r.idx);
   }
@@ -18845,7 +18880,7 @@ class Compiler {
       const t = targets[0];
       if (t.k === 'Name') { this.exp(exprs[0]); this.line = s.line; this.store(t); return; }
       this.exp(t.obj);
-      if (t.key.k === 'Str') { this.exp(exprs[0]); this.line = s.line; this.emit(SETF, this.k(t.key.v)); }
+      if (t.key.k === 'Str') { this.exp(exprs[0]); this.line = s.line; this.emit(SETF, t.key.ci ? this.kf(t.key.v) : this.k(t.key.v)); }
       else { this.exp(t.key); this.exp(exprs[0]); this.line = s.line; this.emit(SETI); }
       this.setDbg(this.describe(t.obj));
       return;
@@ -18897,7 +18932,7 @@ class Compiler {
     if (e.k === 'Method') {
       this.exp(e.obj);
       this.line = e.line;
-      this.emit(SELF, this.k(e.name)); this.setDbg(this.describe(e.obj));
+      this.emit(SELF, this.kf(e.name)); this.setDbg(this.describe(e.obj));
       fixed = 1;
     } else this.exp(e.fn);
     e.args.forEach((a, i) => {
@@ -18932,14 +18967,14 @@ class Compiler {
       case 'Func': this.funcExp(e); break;
       case 'Name': {
         const r = this.resolveIn(this.fs, e.name);
-        if (!r) this.emit(GETG, this.k(e.name));
+        if (!r) this.emit(GETG, this.kf(e.name));
         else if (r.k === 'local') this.emit(GETL, r.slot);
         else this.emit(GETU, r.idx);
         break;
       }
       case 'Index':
         this.exp(e.obj);
-        if (e.key.k === 'Str') { this.line = e.line; this.emit(GETF, this.k(e.key.v)); }
+        if (e.key.k === 'Str') { this.line = e.line; this.emit(GETF, e.key.ci ? this.kf(e.key.v) : this.k(e.key.v)); }
         else { this.exp(e.key); this.line = e.line; this.emit(GETI); }
         this.setDbg(this.describe(e.obj));
         break;
@@ -19025,6 +19060,7 @@ class VM {
     this.maxMemory = opts.maxMemory === undefined ? 16e6 : opts.maxMemory;
     this.maxDepth = opts.maxDepth === undefined ? 20000 : opts.maxDepth;
     this.printFn = opts.print || (s => console.log(s));
+    this.ci = !!opts.caseInsensitive; this.ciNext = false;   // see MOTE.md, "Case-insensitive names"
     this.reset();
   }
   /** Fresh globals and standard library; host-set globals are dropped. */
@@ -19230,11 +19266,12 @@ class VM {
 
   // ── metamethod-aware operations used by the VM loop (results go to the top frame) ──
   /** Resolves t[k] through __index tables; returns the value, or NEEDCALL with this.ih/this.it set. */
-  lookup(t, k, inLoop) {
+  lookup(t, k, inLoop, ci) {
     for (let n = 0; n < 100; n++) {
       let h;
       if (t instanceof LTable) {
-        const v = t.get(k);
+        let v = t.get(k);
+        if (v === undefined && ci && typeof k === 'string') { const ak = t.ciKey(k.toLowerCase()); if (ak !== undefined) v = t.get(ak); }   // caseInsensitive: this table's key of another case before __index
         if (v !== undefined || t.mt === null) return v;
         h = t.mt.get('__index');
         if (h === undefined) return undefined;
@@ -19249,11 +19286,38 @@ class VM {
     throw rt("'__index' chain too long; possible loop");
   }
   index(t, k, post, aux) {
-    const v = this.lookup(t, k, true);
+    const ci = this.ciNext;
+    this.ciNext = false;
+    const v = this.lookup(t, k, true, ci);
     if (v === NEEDCALL) return this.callValue(this.ih, [this.it, k], 1, post || P_NONE, aux);
     const fr = top(this.cur);
     fr.R[fr.sp++] = v;
     if (post === P_SELF) fr.R[fr.sp++] = aux;
+  }
+  /** caseInsensitive: t.name found nowhere under its exact (lower-case) key — the key of t, or of its __index
+   *  tables, that equals it ignoring case; a host object's property likewise (exact name first). */
+  ciLookup(t, k) {
+    if (typeof k !== 'string') return undefined;
+    k = k.toLowerCase();
+    for (let n = 0; n < 100 && t !== undefined && t !== null; n++) {
+      if (t instanceof LTable) {
+        const ak = t.ciKey(k);
+        if (ak !== undefined) return t.get(ak);
+        if (t.mt === null) return undefined;
+        const h = t.mt.get('__index');
+        if (!(h instanceof LTable) && !(h instanceof Ref)) return undefined;
+        t = h;
+      } else if (t instanceof Ref) return this.refGet(t, k);
+      else if (typeof t === 'string' && this.strmt !== null) t = this.strmt.get('__index');   // ("x"):UPPER()
+      else return undefined;
+    }
+    return undefined;
+  }
+  /** caseInsensitive: the key t.name = v writes — the table's own key that equals it ignoring case, if any. */
+  ciSetKey(t, k) {
+    if (!(t instanceof LTable) || typeof k !== 'string' || t.get(k) !== undefined) return k;
+    const ak = t.ciKey(k.toLowerCase());
+    return ak === undefined ? k : ak;
   }
   indexSync(t, k) {
     const v = this.lookup(t, k, false);
@@ -19347,14 +19411,17 @@ class VM {
             case 6 /* GETU */: { const u = fr.cl.up[a]; R[sp++] = u.R[u.i]; break; }
             case 7 /* SETU */: { const u = fr.cl.up[a]; u.R[u.i] = R[--sp]; break; }
             case 8 /* GETG */: {
-              const G = vm.G, v = G.get(K[a]);
-              if (v !== undefined || G.mt === null) { R[sp++] = v; break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.index(G, K[a])) !== undefined) return ex; continue outer;
+              const G = vm.G, ci = K.ci !== undefined && K.ci[a] === 1;
+              let v = G.get(K[a]);
+              if (v !== undefined || (G.mt === null && !ci)) { R[sp++] = v; break; }
+              if (G.mt === null) { fr.pc = pc; R[sp++] = vm.ciLookup(G, K[a]); break; }
+              fr.pc = pc; fr.sp = sp; vm.ciNext = ci; if ((ex = vm.index(G, K[a])) !== undefined) return ex; continue outer;
             }
             case 9 /* SETG */: {
               const G = vm.G, v = R[--sp];
-              if (G.mt === null) { vm.rawset(G, K[a], v); break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(G, K[a], v)) !== undefined) return ex; continue outer;
+              fr.pc = pc; const key = K.ci !== undefined && K.ci[a] === 1 ? vm.ciSetKey(G, K[a]) : K[a];
+              if (G.mt === null) { vm.rawset(G, key, v); break; }
+              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(G, key, v)) !== undefined) return ex; continue outer;
             }
             case 10 /* GETI */: {
               const k = R[--sp], t = R[sp - 1];
@@ -19362,14 +19429,16 @@ class VM {
               fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, k)) !== undefined) return ex; continue outer;
             }
             case 11 /* GETF */: {
-              const t = R[sp - 1];
+              const t = R[sp - 1], ci = K.ci !== undefined && K.ci[a] === 1;
               if (t instanceof LTable) {
                 let v = t.get(K[a]);
-                if (v !== undefined || t.mt === null) { R[sp - 1] = v; break; }
-                const h = t.mt.get('__index');   // one level of class-style __index tables inline
-                if (h instanceof LTable && ((v = h.get(K[a])) !== undefined || h.mt === null)) { R[sp - 1] = v; break; }
+                if (v !== undefined || (t.mt === null && !ci)) { R[sp - 1] = v; break; }
+                if (t.mt !== null) {
+                  const h = t.mt.get('__index');   // one level of class-style __index tables inline
+                  if (h instanceof LTable && ((v = h.get(K[a])) !== undefined || (h.mt === null && !ci))) { R[sp - 1] = v; break; }
+                }
               }
-              fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, K[a])) !== undefined) return ex; continue outer;
+              fr.pc = pc; fr.sp = sp - 1; vm.ciNext = ci; if ((ex = vm.index(t, K[a])) !== undefined) return ex; continue outer;
             }
             case 12 /* SETI */: {
               const v = R[--sp], k = R[--sp], t = R[--sp];
@@ -19378,8 +19447,10 @@ class VM {
             }
             case 13 /* SETF */: {
               const v = R[--sp], t = R[--sp];
-              if (t instanceof LTable && t.mt === null) { vm.rawset(t, K[a], v); break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, K[a], v)) !== undefined) return ex; continue outer;
+              let key = K[a];
+              if (K.ci !== undefined && K.ci[a] === 1) { fr.pc = pc; key = vm.ciSetKey(t, key); }
+              if (t instanceof LTable && t.mt === null) { vm.rawset(t, key, v); break; }
+              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, key, v)) !== undefined) return ex; continue outer;
             }
             case 14 /* SETIL */: {
               const v = R[--sp], t = R[a], k = R[code[pc - 2]];
@@ -19387,19 +19458,21 @@ class VM {
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, k, v)) !== undefined) return ex; continue outer;
             }
             case 15 /* SELF */: {
-              const o = R[sp - 1], key = K[a];
+              const o = R[sp - 1], key = K[a], ci = K.ci !== undefined && K.ci[a] === 1;
               let f;
               if (o instanceof LTable) {
                 f = o.get(key);
-                if (f !== undefined || o.mt === null) { R[sp - 1] = f; R[sp++] = o; break; }
-                const h = o.mt.get('__index');
-                if (h instanceof LTable && ((f = h.get(key)) !== undefined || h.mt === null)) { R[sp - 1] = f; R[sp++] = o; break; }
+                if (f !== undefined || (o.mt === null && !ci)) { R[sp - 1] = f; R[sp++] = o; break; }
+                if (o.mt !== null) {
+                  const h = o.mt.get('__index');
+                  if (h instanceof LTable && ((f = h.get(key)) !== undefined || (h.mt === null && !ci))) { R[sp - 1] = f; R[sp++] = o; break; }
+                }
               }
               else if (typeof o === 'string' && vm.strmt !== null) {
                 const s = vm.strmt.get('__index');
                 if (s instanceof LTable && (f = s.get(key)) !== undefined) { R[sp - 1] = f; R[sp++] = o; break; }
               }
-              fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(o, key, P_SELF, o)) !== undefined) return ex; continue outer;
+              fr.pc = pc; fr.sp = sp - 1; vm.ciNext = ci; if ((ex = vm.index(o, key, P_SELF, o)) !== undefined) return ex; continue outer;
             }
             case 16 /* NEWT */: R[sp++] = vm.newTable(); break;
             case 17 /* TSETI */: { const v = R[--sp]; vm.rawset(R[sp - 1], a, v); break; }
@@ -19639,8 +19712,8 @@ class VM {
   _load(src, chunk) {
     if (typeof src !== 'string') throw new TypeError('Mote: source must be a string');
     try {
-      const body = new Parser(src, chunk).parseChunk();
-      return new LClosure(new Compiler(chunk).compileChunk(body), []);
+      const body = new Parser(src, chunk, this.ci).parseChunk();
+      return new LClosure(new Compiler(chunk, this.ci).compileChunk(body), []);
     } catch (e) {
       if (e instanceof RangeError) throw new MoteError(`${chunk}: chunk is too complex`, { kind: 'syntax', chunk });
       throw e;
@@ -19812,7 +19885,9 @@ class VM {
   refGet(r, k) {
     const o = r.obj;
     if (typeof k === 'number') return Array.isArray(o) && Number.isInteger(k) && k >= 1 ? this.refValue(r, o[k - 1]) : undefined;
-    if (typeof k !== 'string' || !this.refKeyOk(r, k)) return undefined;
+    if (typeof k !== 'string') return undefined;
+    if (this.ci) k = this.ciProp(r, k);
+    if (!this.refKeyOk(r, k)) return undefined;
     const v = o[k];
     if (typeof v !== 'function') return this.refValue(r, v);
     let m = r.methods.get(k);
@@ -19825,10 +19900,23 @@ class VM {
     }
     return m;
   }
+  /** caseInsensitive: the property of a host object that key k names — k itself when the object has it, else the
+   *  one own-or-inherited property equal to it ignoring case (two or more: an error naming them). */
+  ciProp(r, k) {
+    const o = r.obj;
+    if (o === null || o === undefined || k in Object(o)) return k;
+    const l = k.toLowerCase(), found = [], seen = new Set();
+    for (let p = Object(o), d = 0; p && d < 64; p = Object.getPrototypeOf(p), d++) {
+      for (const n of Object.getOwnPropertyNames(p)) if (!seen.has(n) && n.length === k.length && n.toLowerCase() === l) { seen.add(n); found.push(n); }
+    }
+    if (found.length > 1) throw rt(`field '${k}' is ambiguous: the host object has ${found.join(', ')} (names are case-insensitive)`);
+    return found.length ? found[0] : k;
+  }
   refSet(r, k, v) {
     const o = r.obj;
     if (r.readonly) throw rt('attempt to modify a read-only host object');
     if (typeof k === 'number' && Array.isArray(o) && Number.isInteger(k) && k >= 1) { o[k - 1] = this.toJS(v); return; }
+    if (this.ci && typeof k === 'string') k = this.ciProp(r, k);
     if (typeof k !== 'string' || BLOCKED.has(k) || (r.allow && !r.allow.has(k))) throw rt(`cannot set field '${this.tostr(k)}' on a host object`);
     r.methods.delete(k);
     o[k] = this.toJS(v);
@@ -19848,22 +19936,27 @@ class VM {
 
   // ══════════════════════════════════ public embedding API ══════════════════════════════════
   /** Sets a global (JS value converted with toMote). */
-  set(name, value) { this.G.set(name, this.toMote(value)); return this; }
+  set(name, value) { this.G.set(this.ci ? this.ciSetKey(this.G, name) : name, this.toMote(value)); return this; }
+  /** caseInsensitive: the global a host name means — the name itself, else the global equal to it ignoring case. */
+  ciGlobal(name) {
+    if (!this.ci || typeof name !== 'string' || this.G.get(name) !== undefined) return this.G.get(name);
+    return this.ciLookup(this.G, name);
+  }
   /** Reads a global, converted to JS (opts.proxy: live view of tables). */
-  get(name, opts) { return this.toJS(this.G.get(name), opts); }
+  get(name, opts) { return this.toJS(this.ciGlobal(name), opts); }
   /** Compiles and runs source; returns the chunk's results as JS values. Throws MoteError. */
   run(source, chunkName) { return this._invoke(this._load(source, chunkName || 'main'), []).map(v => this.toJS(v)); }
   /** Compiles source to a JS function that runs the chunk (returning its first result). */
   compile(source, chunkName) { return this.toJS(this._load(source, chunkName || 'main')); }
   /** Calls a Mote function (a global name, or a function value) with JS args; returns all results. */
   call(fn, ...args) {
-    const f = typeof fn === 'string' ? this.G.get(fn) : this.toMote(fn);
+    const f = typeof fn === 'string' ? this.ciGlobal(fn) : this.toMote(fn);
     if (f === undefined) throw new MoteError(`attempt to call a nil value${typeof fn === 'string' ? ` (global '${fn}')` : ''}`);
     return this._invoke(f, args.map(a => this.toMote(a))).map(v => this.toJS(v));
   }
   /** A coroutine driven from JS: thread.resume(...vals) → {done, values}. */
   thread(fn, ...args) {
-    const f = typeof fn === 'string' ? this.G.get(fn) : this.toMote(fn);
+    const f = typeof fn === 'string' ? this.ciGlobal(fn) : this.toMote(fn);
     if (!(f instanceof LClosure || f instanceof HostFn)) throw new TypeError('Mote: vm.thread needs a function');
     const co = new Coroutine(f), h = new Thread(this, co, args);
     this.toJSMap.set(co, h);

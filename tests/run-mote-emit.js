@@ -427,7 +427,7 @@ export fn run() {
       const eb = await exp(bp), en = await exp(page);
       const grow = { html: en.html.length - eb.html.length, js: en.js.length - eb.js.length };
       check('exports of a program without Mote carry no Mote (no moteVM helpers, no Mote source)', !/moteVM|Mote\.create|class MoteError/.test(en.html) && !/moteVM|Mote\.create|class MoteError/.test(en.js));
-      check('exports of a program without Mote stay the size they were (+' + grow.html + ' / +' + grow.js + ' bytes of loader hooks)', grow.html >= 0 && grow.html < 600 && grow.js < 700, JSON.stringify(grow));
+      check('exports of a program without Mote stay the size they were (+' + grow.html + ' / +' + grow.js + ' bytes of loader hooks)', grow.html >= 0 && grow.html < 600 + 1900 && grow.js < 700 + 1900, JSON.stringify(grow));   // + ~1.8 KB: case-insensitive names in the runtime (sprite / sound / map / controls lookups, the JS-interop stubs)
       await bp.context().close();
     }
   }

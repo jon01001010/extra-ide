@@ -174,11 +174,40 @@ const vm = Mote.create({
   maxMemory: 16e6,               // allocation estimate per host entry (default 16e6)
   maxDepth: 20000,               // Mote call depth (default 20000)
   seed: 1,                       // math.random seed (default 0)
+  caseInsensitive: false,        // true: names are case-insensitive (below); default false, as in Lua
 });
 ```
 
 VMs are fully independent: separate globals, string metatable, random generator, limits.
 Do not pass values from one VM into another.
+
+### Case-insensitive names (`caseInsensitive: true`)
+
+Plain Mote is case-sensitive, like Lua (`Hero` and `hero` are two variables). With
+`Mote.create({ caseInsensitive: true })` — what the Emit IDE uses for `moteVM()` and the Script tool — names
+are case-insensitive, and every name keeps the spelling it is written with (errors and `__index` functions see
+it as written). Exactly what changes:
+
+* **Keywords** in any case: `IF … THEN`, `Local`, `End`, `FUNCTION`, `TRUE`, `NIL`.
+* **Local variables, parameters and upvalues** are resolved ignoring case at compile time: `local Hero = 1`
+  then `hero` and `HERO` are that local (as in Lua, a second `local hero` declares a new one that shadows it).
+* **Globals** (`x`, `x = v`): the exact name first; if the globals table has no such key, the one key that equals
+  it ignoring case (`Print`, `MATH.Floor`, `_g` all work). Assigning `Score = 1` when a global `score` exists
+  updates `score`; when none exists, it creates `Score`.
+* **`t.name`, `t.name = v` and `t:name()`** (also `function t.A:b()`): the same rule on the table — exact key
+  first, else the table's one string key that equals it ignoring case, checked at every table of an `__index`
+  chain before going on to its `__index`. So `p.maxhp` finds a key `maxHp` that came from the host, `s:UPPER()`
+  finds `string.upper`, and `p.MaxHp = 3` updates `maxHp` instead of adding a key. Two keys that differ only by
+  case make the name ambiguous: an error naming them. `__index` / `__newindex` *functions* get the name as written.
+* **Not changed**: string keys — `t["Key"]` is always exact (as are `rawget`, `rawset`, `next` / `pairs`, which list
+  keys as stored); the identifier keys of table constructors are stored as written (`{Name = 1}` has the key
+  `Name`, which `t.name` finds); string contents.
+* **Host objects** (`vm.ref`): any string key is the exact property name first, else the one own-or-inherited
+  property equal to it ignoring case (two or more: an error).
+* **Host API**: `vm.get`, `vm.call` and `vm.thread` find a global ignoring case (exact first); `vm.set` updates
+  an existing global of another case instead of adding a second one.
+* Cost: nothing on a hit; a miss of a name written with `.` / `:` or of a global looks the key up in a lower-case
+  index of the table, built once per table and rebuilt after a new key is added.
 
 ### API
 

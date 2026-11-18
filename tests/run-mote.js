@@ -773,6 +773,78 @@ api('stats', () => {
 });
 api('vm.call errors on missing global', () => throws(() => Mote.create().call('nope'), /attempt to call a nil value \(global 'nope'\)/));
 
+// ── caseInsensitive: names folded to lower case at compile time; .name / :name fall back to a case-insensitive key ──
+api('case: default stays case-sensitive (Lua)', () => {
+  const vm = Mote.create();
+  return vm.run('local Hero = 1 local hero = 2 return Hero, hero, type(Print)').join() === '1,2,nil' || 'got ' + vm.run('local Hero = 1 local hero = 2 return Hero, hero, type(Print)').join();
+});
+api('case: keywords, locals, globals, stdlib in any case', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  const r = vm.run(`
+    LOCAL Hero = 3
+    Score = 10
+    FUNCTION Add(N) Return SCORE + n End
+    IF hero == 3 THEN score = ADD(HERO) end
+    local T = {}
+    FOR i = 1, 3 DO Table.Insert(t, I) END
+    return SCORE, Math.Floor(2.7), #T, String.Upper("ab"), ("xy"):UPPER(), TRUE, Nil == NIL`);
+  return r.join() === '13,2,3,AB,XY,true,true' || r.join();
+});
+api('case: same name in two cases is one variable (local and global)', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  return vm.run('local hero = 1 local Hero = 2 Gold = 1 gold = GOLD + 1 return hero, HERO, gold, _G.Gold, _G["gold"]').join() === '2,2,2,2,';
+});
+api('case: names keep their spelling (stand-in style __index sees the name as written)', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  return vm.run('setmetatable(_G, {__index = function(t, k) return k end}) return setSpeed, SETSPEED, type(PRINT), type(String.Upper)').join() === 'setSpeed,SETSPEED,function,function';
+});
+api('case: .name and :name fall back to a key of another case; t["Key"] stays exact', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  vm.set('Player', { maxHp: 5, Name: 'Ann', greet() { return 'hi'; } });
+  const r = vm.run(`
+    local p = player
+    local a = p.MAXHP
+    p.maxhp = 7
+    local mt = { __index = { Speak = function(self) return "woof" end } }
+    local dog = setmetatable({}, mt)
+    return a, p.maxHp, p["maxhp"], p["maxHp"], p.name, dog:speak(), dog.SPEAK ~= nil`);
+  return r.join() === '5,7,,7,Ann,woof,true' || r.join();
+});
+api('case: two keys that differ only by case are ambiguous for .name', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  vm.set('t', { Ab: 1, aB: 2 });
+  return throws(() => vm.run('return t.ab'), /field 'ab' is ambiguous: this table has Ab, aB/);
+});
+api('case: _G and _VERSION in any case', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  return vm.run('X = 5 return _G.x, _g.X, _G["x"], type(_version)').join() === '5,5,,string';
+});
+api('case: host vm.set / vm.get / vm.call names fold', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  vm.set('GiveGold', (n) => n * 2);
+  vm.run('function OnTick(x) return GIVEGOLD(x) + 1 end');
+  return vm.call('ontick', 4).join() === '9' && vm.call('ONTICK', 1).join() === '3' && typeof vm.get('OnTick') === 'function';
+});
+api('case: host objects (vm.ref) — exact property first, then any case', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  const o = { Width: 4, width2: 1, both: 1, Both: 2 };
+  vm.set('box', vm.ref(o));
+  const r = vm.run('box.WIDTH = box.width + 1 return box.Width, box.both');
+  return (r.join() === '5,1' && o.Width === 5) || r.join();
+});
+api('case: method definitions and calls', () => {
+  const vm = Mote.create({ caseInsensitive: true });
+  const r = vm.run(`
+    local Acc = {}
+    function ACC.Bump(self, n) self.Total = (self.total or 0) + n return self end
+    function acc:TWICE(n) return self:bump(n):BUMP(n) end
+    acc:Twice(3)
+    local i = 0
+    REPEAT i = i + 1 UNTIL I >= 3
+    return acc.TOTAL, i`);
+  return r.join() === '6,3' || r.join();
+});
+
 for (const [name, fn] of A) {
   if (filter && !name.includes(filter)) continue;
   let r;

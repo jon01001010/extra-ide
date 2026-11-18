@@ -38,7 +38,7 @@ const rt = msg => new Throw(msg, true);
 /** Tables: an array part arr (arr[i-1] is t[i]; arr never ends in nil, so #t = arr.length is a
  *  border) and a Map for every other key. */
 class LTable {
-  constructor() { this.arr = []; this.hash = null; this.mt = null; this.keys = null; this.ki = 0; this.id = 0; }
+  constructor() { this.arr = []; this.hash = null; this.mt = null; this.keys = null; this.ki = 0; this.id = 0; this.lc = null; }
   get(k) {
     if (typeof k === 'number') {
       const a = this.arr;
@@ -65,10 +65,32 @@ class LTable {
     if (v === undefined) { h.delete(k); return false; }
     const size = h.size;
     h.set(k, v);
-    if (h.size !== size) { this.keys = null; return true; }
+    if (h.size !== size) { this.keys = null; this.lc = null; return true; }
     return false;
   }
   trim() { const a = this.arr; while (a.length && a[a.length - 1] === undefined) a.pop(); }
+  /** caseInsensitive VMs: the string key of this table that equals k ignoring case (k given in lower case), or undefined.
+   *  Two keys that differ only by case make the field ambiguous: an error naming them. */
+  ciKey(k) {
+    const h = this.hash;
+    if (h === null) return undefined;
+    let lc = this.lc;
+    if (lc === null) {
+      lc = this.lc = new Map();
+      for (const [key, v] of h) {
+        if (typeof key !== 'string' || v === undefined) continue;
+        const l = key.toLowerCase(), o = lc.get(l);
+        if (o === undefined) lc.set(l, key); else if (o !== key) lc.set(l, Array.isArray(o) ? o.concat([key]) : [o, key]);
+      }
+    }
+    const r = lc.get(k);
+    if (Array.isArray(r)) {
+      const live = r.filter(x => h.get(x) !== undefined);
+      if (live.length > 1) throw rt(`field '${k}' is ambiguous: this table has ${live.join(', ')} (names are case-insensitive)`);
+      return live[0];
+    }
+    return r !== undefined && h.get(r) !== undefined ? r : undefined;
+  }
   migrate() {   // keys n+1, n+2, … that sit in the hash move to the array part
     const a = this.arr, h = this.hash;
     let v;
@@ -199,7 +221,7 @@ function syntaxError(chunk, line, col, msg) {
   return new MoteError(`${chunk}:${line}:${col}: ${msg}`, { kind: 'syntax', chunk, line, column: col });
 }
 
-function lex(src, chunk) {
+function lex(src, chunk, ci) {
   const toks = [], n = src.length;
   let i = 0, line = 1, ls = 0;
   const fail = (msg, l, c) => { throw syntaxError(chunk, l, c, msg); };
@@ -265,7 +287,8 @@ function lex(src, chunk) {
     if (isAlpha(c)) {
       let j = i + 1; while (j < n && isAlnum(src[j])) j++;
       const w = src.slice(i, j); i = j;
-      tok = KEYWORDS.has(w) ? { t: w } : { t: 'name', v: w };
+      const kw = ci ? w.toLowerCase() : w;   // caseInsensitive: keywords in any case (names keep their spelling)
+      tok = KEYWORDS.has(kw) ? { t: kw } : { t: 'name', v: w };
     } else if (isDigit(c) || (c === '.' && isDigit(src[i + 1]))) {
       NUM.lastIndex = i; const m = NUM.exec(src);
       i += m[0].length;
@@ -304,7 +327,7 @@ const BITOPS = new Set(['|', '~', '&', '<<', '>>']);
 const MAX_LEVELS = 200;
 
 class Parser {
-  constructor(src, chunk) { this.toks = lex(src, chunk); this.i = 0; this.chunk = chunk; this.depth = 0; this.va = [true]; }
+  constructor(src, chunk, ci) { this.toks = lex(src, chunk, ci); this.i = 0; this.chunk = chunk; this.depth = 0; this.va = [true]; this.ci = !!ci; }
   get tok() { return this.toks[this.i]; }
   check(t) { return this.toks[this.i].t === t; }
   accept(t) { if (this.toks[this.i].t === t) { this.i++; return true; } return false; }
@@ -502,7 +525,7 @@ class Parser {
     for (;;) {
       const t = this.tok, line = t.line;
       switch (t.t) {
-        case '.': this.i++; e = { k: 'Index', obj: e, key: { k: 'Str', v: this.name(), line }, line }; break;
+        case '.': this.i++; e = { k: 'Index', obj: e, key: { k: 'Str', v: this.name(), line, ci: this.ci }, line }; break;
         case '[': { this.i++; const key = this.expr(); this.expect(']'); e = { k: 'Index', obj: e, key, line }; break; }
         case ':': { this.i++; const name = this.name(); e = { k: 'Method', obj: e, name, args: this.callargs(), line }; break; }
         case '(': case 'str': case '{': e = { k: 'Call', fn: e, args: this.callargs(), line }; break;
@@ -575,7 +598,7 @@ class FuncState {
 const isMulti = e => e.k === 'Call' || e.k === 'Method' || e.k === 'Vararg';
 
 class Compiler {
-  constructor(chunk) { this.chunk = chunk; this.fs = null; this.line = 1; }
+  constructor(chunk, ci) { this.chunk = chunk; this.fs = null; this.line = 1; this.ci = !!ci; }
   err(msg, line) { throw new MoteError(`${this.chunk}:${line}: ${msg}`, { kind: 'syntax', chunk: this.chunk, line }); }
   emit(op, a = 0, b = 0, c = 0) {
     const p = this.fs.p, at = p.code.length;
@@ -588,6 +611,16 @@ class Compiler {
     const p = this.fs.p;
     let i = p.kmap.get(v);
     if (i === undefined) { i = p.k.length; p.k.push(v); p.kmap.set(v, i); }
+    return i;
+  }
+  /** The constant of a field name written with . or : — in a caseInsensitive VM a separate constant flagged in
+   *  k.ci, so the VM falls back to a case-insensitive lookup when the table has no such key (t["Key"] stays exact). */
+  kf(v) {
+    if (!this.ci) return this.k(v);
+    const p = this.fs.p;
+    if (!p.kcimap) p.kcimap = new Map();
+    let i = p.kcimap.get(v);
+    if (i === undefined) { i = p.k.length; p.k.push(v); p.kcimap.set(v, i); if (!p.k.ci) p.k.ci = []; p.k.ci[i] = 1; }
     return i;
   }
   declare(name, isConst) {
@@ -618,12 +651,14 @@ class Compiler {
   block(stmts) { for (const s of stmts) this.stmt(s); }
   scoped(stmts) { this.enterBlock(false); this.block(stmts); this.leaveBlock(); }
 
+  /** Same name? (caseInsensitive: ignoring case) */
+  eqn(a, b) { return a === b || (this.ci && a.toLowerCase() === b.toLowerCase()); }
   resolveIn(fs, name) {
     for (let i = fs.actives.length - 1; i >= 0; i--) {
       const v = fs.actives[i];
-      if (v.name === name) return { k: 'local', slot: v.slot, v };
+      if (this.eqn(v.name, name)) return { k: 'local', slot: v.slot, v };
     }
-    const idx = fs.upnames.indexOf(name);
+    const idx = this.ci ? fs.upnames.findIndex(u => this.eqn(u, name)) : fs.upnames.indexOf(name);
     if (idx >= 0) return { k: 'up', idx, v: fs.upvars[idx] };
     if (!fs.parent) return null;
     const r = this.resolveIn(fs.parent, name);
@@ -635,8 +670,8 @@ class Compiler {
   describe(e) {
     if (!e) return null;
     if (e.k === 'Name') {
-      if (this.fs.actives.some(v => v.name === e.name)) return `local '${e.name}'`;
-      if (this.fs.upnames.includes(e.name)) return `upvalue '${e.name}'`;
+      if (this.fs.actives.some(v => this.eqn(v.name, e.name))) return `local '${e.name}'`;
+      if (this.fs.upnames.some(u => this.eqn(u, e.name))) return `upvalue '${e.name}'`;
       return `global '${e.name}'`;
     }
     if (e.k === 'Index' && e.key.k === 'Str') return `field '${e.key.v}'`;
@@ -742,10 +777,10 @@ class Compiler {
         if (path.length === 1 && !method) { this.funcExp(s.func); this.store({ k: 'Name', name: path[0], line: s.line }); break; }
         const objPath = method ? path : path.slice(0, -1), key = method || path[path.length - 1];
         this.exp({ k: 'Name', name: objPath[0], line: s.line });
-        for (let i = 1; i < objPath.length; i++) this.emit(GETF, this.k(objPath[i]));
+        for (let i = 1; i < objPath.length; i++) this.emit(GETF, this.kf(objPath[i]));
         this.funcExp(s.func);
         this.line = s.line;
-        this.emit(SETF, this.k(key));
+        this.emit(SETF, this.kf(key));
         break;
       }
       case 'Return': {
@@ -772,7 +807,7 @@ class Compiler {
   store(target) {   // pops the top value into a Name target
     const r = this.resolveIn(this.fs, target.name);
     if (r && r.v && r.v.isConst) this.err(`attempt to assign to const variable '${target.name}'`, target.line);
-    if (!r) this.emit(SETG, this.k(target.name));
+    if (!r) this.emit(SETG, this.kf(target.name));
     else if (r.k === 'local') this.emit(SETL, r.slot);
     else this.emit(SETU, r.idx);
   }
@@ -782,7 +817,7 @@ class Compiler {
       const t = targets[0];
       if (t.k === 'Name') { this.exp(exprs[0]); this.line = s.line; this.store(t); return; }
       this.exp(t.obj);
-      if (t.key.k === 'Str') { this.exp(exprs[0]); this.line = s.line; this.emit(SETF, this.k(t.key.v)); }
+      if (t.key.k === 'Str') { this.exp(exprs[0]); this.line = s.line; this.emit(SETF, t.key.ci ? this.kf(t.key.v) : this.k(t.key.v)); }
       else { this.exp(t.key); this.exp(exprs[0]); this.line = s.line; this.emit(SETI); }
       this.setDbg(this.describe(t.obj));
       return;
@@ -834,7 +869,7 @@ class Compiler {
     if (e.k === 'Method') {
       this.exp(e.obj);
       this.line = e.line;
-      this.emit(SELF, this.k(e.name)); this.setDbg(this.describe(e.obj));
+      this.emit(SELF, this.kf(e.name)); this.setDbg(this.describe(e.obj));
       fixed = 1;
     } else this.exp(e.fn);
     e.args.forEach((a, i) => {
@@ -869,14 +904,14 @@ class Compiler {
       case 'Func': this.funcExp(e); break;
       case 'Name': {
         const r = this.resolveIn(this.fs, e.name);
-        if (!r) this.emit(GETG, this.k(e.name));
+        if (!r) this.emit(GETG, this.kf(e.name));
         else if (r.k === 'local') this.emit(GETL, r.slot);
         else this.emit(GETU, r.idx);
         break;
       }
       case 'Index':
         this.exp(e.obj);
-        if (e.key.k === 'Str') { this.line = e.line; this.emit(GETF, this.k(e.key.v)); }
+        if (e.key.k === 'Str') { this.line = e.line; this.emit(GETF, e.key.ci ? this.kf(e.key.v) : this.k(e.key.v)); }
         else { this.exp(e.key); this.line = e.line; this.emit(GETI); }
         this.setDbg(this.describe(e.obj));
         break;
@@ -962,6 +997,7 @@ class VM {
     this.maxMemory = opts.maxMemory === undefined ? 16e6 : opts.maxMemory;
     this.maxDepth = opts.maxDepth === undefined ? 20000 : opts.maxDepth;
     this.printFn = opts.print || (s => console.log(s));
+    this.ci = !!opts.caseInsensitive; this.ciNext = false;   // see MOTE.md, "Case-insensitive names"
     this.reset();
   }
   /** Fresh globals and standard library; host-set globals are dropped. */
@@ -1167,11 +1203,12 @@ class VM {
 
   // ── metamethod-aware operations used by the VM loop (results go to the top frame) ──
   /** Resolves t[k] through __index tables; returns the value, or NEEDCALL with this.ih/this.it set. */
-  lookup(t, k, inLoop) {
+  lookup(t, k, inLoop, ci) {
     for (let n = 0; n < 100; n++) {
       let h;
       if (t instanceof LTable) {
-        const v = t.get(k);
+        let v = t.get(k);
+        if (v === undefined && ci && typeof k === 'string') { const ak = t.ciKey(k.toLowerCase()); if (ak !== undefined) v = t.get(ak); }   // caseInsensitive: this table's key of another case before __index
         if (v !== undefined || t.mt === null) return v;
         h = t.mt.get('__index');
         if (h === undefined) return undefined;
@@ -1186,11 +1223,38 @@ class VM {
     throw rt("'__index' chain too long; possible loop");
   }
   index(t, k, post, aux) {
-    const v = this.lookup(t, k, true);
+    const ci = this.ciNext;
+    this.ciNext = false;
+    const v = this.lookup(t, k, true, ci);
     if (v === NEEDCALL) return this.callValue(this.ih, [this.it, k], 1, post || P_NONE, aux);
     const fr = top(this.cur);
     fr.R[fr.sp++] = v;
     if (post === P_SELF) fr.R[fr.sp++] = aux;
+  }
+  /** caseInsensitive: t.name found nowhere under its exact (lower-case) key — the key of t, or of its __index
+   *  tables, that equals it ignoring case; a host object's property likewise (exact name first). */
+  ciLookup(t, k) {
+    if (typeof k !== 'string') return undefined;
+    k = k.toLowerCase();
+    for (let n = 0; n < 100 && t !== undefined && t !== null; n++) {
+      if (t instanceof LTable) {
+        const ak = t.ciKey(k);
+        if (ak !== undefined) return t.get(ak);
+        if (t.mt === null) return undefined;
+        const h = t.mt.get('__index');
+        if (!(h instanceof LTable) && !(h instanceof Ref)) return undefined;
+        t = h;
+      } else if (t instanceof Ref) return this.refGet(t, k);
+      else if (typeof t === 'string' && this.strmt !== null) t = this.strmt.get('__index');   // ("x"):UPPER()
+      else return undefined;
+    }
+    return undefined;
+  }
+  /** caseInsensitive: the key t.name = v writes — the table's own key that equals it ignoring case, if any. */
+  ciSetKey(t, k) {
+    if (!(t instanceof LTable) || typeof k !== 'string' || t.get(k) !== undefined) return k;
+    const ak = t.ciKey(k.toLowerCase());
+    return ak === undefined ? k : ak;
   }
   indexSync(t, k) {
     const v = this.lookup(t, k, false);
@@ -1284,14 +1348,17 @@ class VM {
             case 6 /* GETU */: { const u = fr.cl.up[a]; R[sp++] = u.R[u.i]; break; }
             case 7 /* SETU */: { const u = fr.cl.up[a]; u.R[u.i] = R[--sp]; break; }
             case 8 /* GETG */: {
-              const G = vm.G, v = G.get(K[a]);
-              if (v !== undefined || G.mt === null) { R[sp++] = v; break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.index(G, K[a])) !== undefined) return ex; continue outer;
+              const G = vm.G, ci = K.ci !== undefined && K.ci[a] === 1;
+              let v = G.get(K[a]);
+              if (v !== undefined || (G.mt === null && !ci)) { R[sp++] = v; break; }
+              if (G.mt === null) { fr.pc = pc; R[sp++] = vm.ciLookup(G, K[a]); break; }
+              fr.pc = pc; fr.sp = sp; vm.ciNext = ci; if ((ex = vm.index(G, K[a])) !== undefined) return ex; continue outer;
             }
             case 9 /* SETG */: {
               const G = vm.G, v = R[--sp];
-              if (G.mt === null) { vm.rawset(G, K[a], v); break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(G, K[a], v)) !== undefined) return ex; continue outer;
+              fr.pc = pc; const key = K.ci !== undefined && K.ci[a] === 1 ? vm.ciSetKey(G, K[a]) : K[a];
+              if (G.mt === null) { vm.rawset(G, key, v); break; }
+              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(G, key, v)) !== undefined) return ex; continue outer;
             }
             case 10 /* GETI */: {
               const k = R[--sp], t = R[sp - 1];
@@ -1299,14 +1366,16 @@ class VM {
               fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, k)) !== undefined) return ex; continue outer;
             }
             case 11 /* GETF */: {
-              const t = R[sp - 1];
+              const t = R[sp - 1], ci = K.ci !== undefined && K.ci[a] === 1;
               if (t instanceof LTable) {
                 let v = t.get(K[a]);
-                if (v !== undefined || t.mt === null) { R[sp - 1] = v; break; }
-                const h = t.mt.get('__index');   // one level of class-style __index tables inline
-                if (h instanceof LTable && ((v = h.get(K[a])) !== undefined || h.mt === null)) { R[sp - 1] = v; break; }
+                if (v !== undefined || (t.mt === null && !ci)) { R[sp - 1] = v; break; }
+                if (t.mt !== null) {
+                  const h = t.mt.get('__index');   // one level of class-style __index tables inline
+                  if (h instanceof LTable && ((v = h.get(K[a])) !== undefined || (h.mt === null && !ci))) { R[sp - 1] = v; break; }
+                }
               }
-              fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, K[a])) !== undefined) return ex; continue outer;
+              fr.pc = pc; fr.sp = sp - 1; vm.ciNext = ci; if ((ex = vm.index(t, K[a])) !== undefined) return ex; continue outer;
             }
             case 12 /* SETI */: {
               const v = R[--sp], k = R[--sp], t = R[--sp];
@@ -1315,8 +1384,10 @@ class VM {
             }
             case 13 /* SETF */: {
               const v = R[--sp], t = R[--sp];
-              if (t instanceof LTable && t.mt === null) { vm.rawset(t, K[a], v); break; }
-              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, K[a], v)) !== undefined) return ex; continue outer;
+              let key = K[a];
+              if (K.ci !== undefined && K.ci[a] === 1) { fr.pc = pc; key = vm.ciSetKey(t, key); }
+              if (t instanceof LTable && t.mt === null) { vm.rawset(t, key, v); break; }
+              fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, key, v)) !== undefined) return ex; continue outer;
             }
             case 14 /* SETIL */: {
               const v = R[--sp], t = R[a], k = R[code[pc - 2]];
@@ -1324,19 +1395,21 @@ class VM {
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, k, v)) !== undefined) return ex; continue outer;
             }
             case 15 /* SELF */: {
-              const o = R[sp - 1], key = K[a];
+              const o = R[sp - 1], key = K[a], ci = K.ci !== undefined && K.ci[a] === 1;
               let f;
               if (o instanceof LTable) {
                 f = o.get(key);
-                if (f !== undefined || o.mt === null) { R[sp - 1] = f; R[sp++] = o; break; }
-                const h = o.mt.get('__index');
-                if (h instanceof LTable && ((f = h.get(key)) !== undefined || h.mt === null)) { R[sp - 1] = f; R[sp++] = o; break; }
+                if (f !== undefined || (o.mt === null && !ci)) { R[sp - 1] = f; R[sp++] = o; break; }
+                if (o.mt !== null) {
+                  const h = o.mt.get('__index');
+                  if (h instanceof LTable && ((f = h.get(key)) !== undefined || (h.mt === null && !ci))) { R[sp - 1] = f; R[sp++] = o; break; }
+                }
               }
               else if (typeof o === 'string' && vm.strmt !== null) {
                 const s = vm.strmt.get('__index');
                 if (s instanceof LTable && (f = s.get(key)) !== undefined) { R[sp - 1] = f; R[sp++] = o; break; }
               }
-              fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(o, key, P_SELF, o)) !== undefined) return ex; continue outer;
+              fr.pc = pc; fr.sp = sp - 1; vm.ciNext = ci; if ((ex = vm.index(o, key, P_SELF, o)) !== undefined) return ex; continue outer;
             }
             case 16 /* NEWT */: R[sp++] = vm.newTable(); break;
             case 17 /* TSETI */: { const v = R[--sp]; vm.rawset(R[sp - 1], a, v); break; }
@@ -1576,8 +1649,8 @@ class VM {
   _load(src, chunk) {
     if (typeof src !== 'string') throw new TypeError('Mote: source must be a string');
     try {
-      const body = new Parser(src, chunk).parseChunk();
-      return new LClosure(new Compiler(chunk).compileChunk(body), []);
+      const body = new Parser(src, chunk, this.ci).parseChunk();
+      return new LClosure(new Compiler(chunk, this.ci).compileChunk(body), []);
     } catch (e) {
       if (e instanceof RangeError) throw new MoteError(`${chunk}: chunk is too complex`, { kind: 'syntax', chunk });
       throw e;
@@ -1749,7 +1822,9 @@ class VM {
   refGet(r, k) {
     const o = r.obj;
     if (typeof k === 'number') return Array.isArray(o) && Number.isInteger(k) && k >= 1 ? this.refValue(r, o[k - 1]) : undefined;
-    if (typeof k !== 'string' || !this.refKeyOk(r, k)) return undefined;
+    if (typeof k !== 'string') return undefined;
+    if (this.ci) k = this.ciProp(r, k);
+    if (!this.refKeyOk(r, k)) return undefined;
     const v = o[k];
     if (typeof v !== 'function') return this.refValue(r, v);
     let m = r.methods.get(k);
@@ -1762,10 +1837,23 @@ class VM {
     }
     return m;
   }
+  /** caseInsensitive: the property of a host object that key k names — k itself when the object has it, else the
+   *  one own-or-inherited property equal to it ignoring case (two or more: an error naming them). */
+  ciProp(r, k) {
+    const o = r.obj;
+    if (o === null || o === undefined || k in Object(o)) return k;
+    const l = k.toLowerCase(), found = [], seen = new Set();
+    for (let p = Object(o), d = 0; p && d < 64; p = Object.getPrototypeOf(p), d++) {
+      for (const n of Object.getOwnPropertyNames(p)) if (!seen.has(n) && n.length === k.length && n.toLowerCase() === l) { seen.add(n); found.push(n); }
+    }
+    if (found.length > 1) throw rt(`field '${k}' is ambiguous: the host object has ${found.join(', ')} (names are case-insensitive)`);
+    return found.length ? found[0] : k;
+  }
   refSet(r, k, v) {
     const o = r.obj;
     if (r.readonly) throw rt('attempt to modify a read-only host object');
     if (typeof k === 'number' && Array.isArray(o) && Number.isInteger(k) && k >= 1) { o[k - 1] = this.toJS(v); return; }
+    if (this.ci && typeof k === 'string') k = this.ciProp(r, k);
     if (typeof k !== 'string' || BLOCKED.has(k) || (r.allow && !r.allow.has(k))) throw rt(`cannot set field '${this.tostr(k)}' on a host object`);
     r.methods.delete(k);
     o[k] = this.toJS(v);
@@ -1785,22 +1873,27 @@ class VM {
 
   // ══════════════════════════════════ public embedding API ══════════════════════════════════
   /** Sets a global (JS value converted with toMote). */
-  set(name, value) { this.G.set(name, this.toMote(value)); return this; }
+  set(name, value) { this.G.set(this.ci ? this.ciSetKey(this.G, name) : name, this.toMote(value)); return this; }
+  /** caseInsensitive: the global a host name means — the name itself, else the global equal to it ignoring case. */
+  ciGlobal(name) {
+    if (!this.ci || typeof name !== 'string' || this.G.get(name) !== undefined) return this.G.get(name);
+    return this.ciLookup(this.G, name);
+  }
   /** Reads a global, converted to JS (opts.proxy: live view of tables). */
-  get(name, opts) { return this.toJS(this.G.get(name), opts); }
+  get(name, opts) { return this.toJS(this.ciGlobal(name), opts); }
   /** Compiles and runs source; returns the chunk's results as JS values. Throws MoteError. */
   run(source, chunkName) { return this._invoke(this._load(source, chunkName || 'main'), []).map(v => this.toJS(v)); }
   /** Compiles source to a JS function that runs the chunk (returning its first result). */
   compile(source, chunkName) { return this.toJS(this._load(source, chunkName || 'main')); }
   /** Calls a Mote function (a global name, or a function value) with JS args; returns all results. */
   call(fn, ...args) {
-    const f = typeof fn === 'string' ? this.G.get(fn) : this.toMote(fn);
+    const f = typeof fn === 'string' ? this.ciGlobal(fn) : this.toMote(fn);
     if (f === undefined) throw new MoteError(`attempt to call a nil value${typeof fn === 'string' ? ` (global '${fn}')` : ''}`);
     return this._invoke(f, args.map(a => this.toMote(a))).map(v => this.toJS(v));
   }
   /** A coroutine driven from JS: thread.resume(...vals) → {done, values}. */
   thread(fn, ...args) {
-    const f = typeof fn === 'string' ? this.G.get(fn) : this.toMote(fn);
+    const f = typeof fn === 'string' ? this.ciGlobal(fn) : this.toMote(fn);
     if (!(f instanceof LClosure || f instanceof HostFn)) throw new TypeError('Mote: vm.thread needs a function');
     const co = new Coroutine(f), h = new Thread(this, co, args);
     this.toJSMap.set(co, h);
