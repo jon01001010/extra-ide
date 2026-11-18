@@ -6937,9 +6937,6 @@ function _jsArgTrace(label,args){
     _traceAdd(dbg);
   }catch(e){}
 }
-// Global functions whose calls are not traced or listed under Results (their arguments can be long texts, e.g. the
-// Mote helpers: a whole script). name → 1
-var _jsQuiet=Object.create(null);
 // Imports for calls that are not member calls, JS literals and string `+` (see _JS_CONV_IMPORTS).
 function _jsCallImport(name,outputLog){
   function readArgs(nArgs){var n=Number(nArgs),args=[];for(var i=0;i<n;i++)args.push(_readArg(i));return args}
@@ -6948,7 +6945,7 @@ function _jsCallImport(name,outputLog){
     case'__jsCallG':return function(namePtr,nArgs,flags){
       /* name(args) → window.name(args) */
       var fname=_readStr(namePtr),args=readArgs(nArgs);
-      if(!_jsQuiet[fname]){logCall(fname,args);_jsArgTrace(fname,args)}
+      if(!(typeof _jsQuiet==='object'&&_jsQuiet[fname])){logCall(fname,args);_jsArgTrace(fname,args)}   /* _jsQuiet: see MOTE (runtime half) */
       var jsFn;
       try{jsFn=window[fname]}catch(e){}
       if(typeof jsFn!=='function'){
@@ -9751,6 +9748,7 @@ var _libResolved={};         // "<url> as <Name>" → {as:'module'|'classic',url
 var _libWarnNodes=[];        // warning lines written so far (the IDE puts them back when an error replaces the output)
 var _LIB_OFFLINE_TIMEOUT=4000;   // navigator.onLine === false: give the network this long before the cached copy is used
 function _libKey(u){return u.url+' as '+u.alias}
+//#emit-mote-begin — up to the matching end marker: only in exported programs that use Mote (see _exportRuntime)
 // Libraries BUILT INTO the page (URL emit:<name>, e.g. emit:mote for `use mote`): their source text is in hand, so they
 // load with no network at all. The IDE keeps the text in a non-executing <script type="text/plain"
 // data-emit-builtin="emit:mote"> element; an exported program carries it in its library entry (P.libs[i].text, which
@@ -9762,6 +9760,7 @@ function _libBuiltinText(url){
   try{var els=document.querySelectorAll('script[type="text/plain"][data-emit-builtin]');for(var i=0;i<els.length;i++)if(els[i].getAttribute('data-emit-builtin')===url)return els[i].textContent}catch(e){}
   return null;
 }
+//#emit-mote-end
 function _libTimeout(ms){try{if(_libCache&&_libCache.usable&&navigator.onLine===false)return Math.min(ms,_LIB_OFFLINE_TIMEOUT)}catch(e){}return ms}
 function _libShowErr(msg){
   try{console.error(msg)}catch(e){}
@@ -9853,7 +9852,7 @@ function _loadLib(url,label){
   return new Promise(function(ok,fail){
     if(_libsLoaded.has(url)){ok();return}
     if(_libEmbedded&&_libEmbedded.js&&typeof _libEmbedded.js[url]==='string'){var _txt=_libEmbedded.js[url];_libEmbedded.js[url]=true;_loadLibText(url,label,_txt,'Embedded').then(ok);return}   // offline export
-    if(_libIsBuiltin(url)){var _bt=_libBuiltinText(url);if(typeof _bt!=='string'){fail(_libErr('The built-in library "'+label+'" ('+url+') is not in this page'));return}_loadLibText(url,label,_bt,'Built-in').then(ok);return}   // built into the page: no network, nothing to cache
+    if(/^emit:/.test(url)){var _bt=_libBuiltinText(url);if(typeof _bt!=='string'){fail(_libErr('The built-in library "'+label+'" ('+url+') is not in this page'));return}_loadLibText(url,label,_bt,'Built-in').then(ok);return}   // built into the page: no network, nothing to cache
     // A tag left over from a failed or abandoned attempt must not count as "loaded"
     Array.prototype.slice.call(document.scripts).forEach(function(t){if(t.getAttribute('src')===url)t.remove()});
     var s=document.createElement('script'),done=false,timer;
@@ -9909,7 +9908,7 @@ function _parseUses(source){
   return uses;
 }
 async function _loadUse(u){
-  if(u&&typeof u.text==='string'&&_libIsBuiltin(u.url))_libBuiltin[u.url]=u.text;   // an exported program brings the text of a built-in library
+  if(u&&typeof u.text==='string'&&/^emit:/.test(u.url))_libBuiltin[u.url]=u.text;   // an exported program brings the text of a built-in library
   if(u.css){_libWarn(await _loadCss(u.url,u.label));return}   // use "….css"
   if(u.lib&&u.lib.css)for(var _css of u.lib.css)_libWarn(await _loadCss(_css,u.label));   // stylesheets a registry entry ships (e.g. leaflet.css)
   if(u.lib&&u.lib.needs)for(var _need of u.lib.needs)await _loadLib(_need,u.label);   // scripts a registry entry depends on (e.g. Popper for tippy)
@@ -9941,6 +9940,7 @@ async function _loadUse(u){
   if(window[u.alias]===undefined)throw _libErr(noGlobal+(importErr?' ('+importErr.message+')':''));
   _libResolved[_libKey(u)]={as:'classic',url:u.classicUrl};
 }
+//#emit-mote-begin — up to the matching end marker: only in exported programs that use Mote (see _exportRuntime)
 // ═══ MOTE (runtime half; the compiler half is "MOTE SCRIPTS" in the compiler) ═══
 // The Mote builtins of Emit are these global functions, reached through the JS interop (__jsCallG): any number and
 // type of arguments, results come back as js values, and an error they throw is an ordinary interop error — a red
@@ -9958,6 +9958,8 @@ async function _loadUse(u){
 //   moteChoices(th) → js / moteChoose(th, n)   the options while the script waits in choose(…) / the answer (1-based)
 // Errors name the script and its line, mapped back to the file: "intro:3: attempt to … (scripts.emit:14)".
 var _MOTE_STEPS=1e6;
+// Global functions whose calls are not traced or listed under Results (their arguments can be whole scripts). name → 1
+var _jsQuiet=Object.create(null);
 var _moteVMs=new WeakMap(),_moteThs=new WeakMap();
 var _MOTE_HDR=/^--\[\[script ([A-Za-z_]\w*) @(?:(.*?):)?(\d+)\]\]/;
 function _moteLib(){
@@ -10061,6 +10063,7 @@ window.moteChoose=function(th,n){
   T.ask=null;T.pend=[k];
 };
 ['moteVM','moteRun','moteSet','moteGet','moteCall','moteFn','moteThread','moteResume','moteChoices','moteChoose'].forEach(function(n){_jsQuiet[n]=1});
+//#emit-mote-end
 //#emit-runtime-end
 // ── Offline cache of library files (IDE only — not part of the exported runtime) ──
 // Policy: network first. Every Run loads a library from its URL as before; after a classic script or a
@@ -11302,7 +11305,10 @@ function importFile(){
 // An exported file contains: the WASM bytes (base64), the import list the runtime needs
 // (module, name, declaration node, callback count), the libraries resolved from the `use` lines,
 // the runtime source and _emitExportBoot() — not the editor, compiler, examples or library catalogue.
-function _exportRuntime(){
+// P (optional): the program's _exportProgram data. The parts between "//#emit-mote-begin" and "//#emit-mote-end" lines
+// (the Mote helpers and the built-in library loader) are copied only for a program that loads Mote (P.libs has
+// emit:mote), so the export of any other program is what it was before Mote existed in Emit.
+function _exportRuntime(P){
   var B='//#emit-'+'runtime-begin',E='//#emit-'+'runtime-end',parts=[];
   Array.prototype.slice.call(document.scripts).forEach(function(sc){
     var t=sc.textContent||'',p=0;
@@ -11314,6 +11320,8 @@ function _exportRuntime(){
     }
   });
   if(!parts.length)throw new Error('runtime section not found in the IDE source');
+  var mote=!!(P&&P.libs&&P.libs.some(function(l){return l&&l.url===_MOTE_URL}));
+  if(!mote)parts=parts.map(function(t){return t.replace(/\n\/\/#emit-mote-begin[^\n]*\n[\s\S]*?\n\/\/#emit-mote-end[^\n]*/g,'')});
   // The names _emitExportBoot reaches the runtime through. If one is renamed, fail here, not in the exported page.
   ['buildImportObject','_resetJsInterop','_loadUse','_loadLib'].forEach(function(n){if(typeof window[n]!=='function'||parts.join('\n').indexOf('function '+n+'(')<0)throw new Error('runtime function '+n+' is missing from the runtime section')});
   // IDE names the runtime may mention: the library catalogue is not exported, status/navigation calls do nothing.
@@ -11344,7 +11352,7 @@ function _exportLibs(source,imports){
   imports.forEach(function(imp){
     var fnCdn=_fnToCdn[imp.name];if(!fnCdn)return;
     var provided=Array.from(explicit).some(function(cdn){var lib=LIBS.find(function(l){return l.cdn===cdn});if(!lib)return false;if(lib.fns.split(' ').indexOf(imp.name)!==-1)return true;var bare=lib.name.replace('.js','').replace('-','');return bare===imp.name||lib.name===imp.name});
-    if(!provided)needed.add(fnCdn);
+    if(!provided&&!(_libIsBuiltin(fnCdn)&&explicit.has(fnCdn)))needed.add(fnCdn);   /* use mote + moteRun(…): Mote once */
   });
   needed.forEach(function(cdn){var reg=LIBS.find(function(l){return l.cdn===cdn});libs.push({label:_libLabel(cdn),alias:null,url:cdn,classicUrl:cdn,module:false,css:false,lib:reg?{name:reg.name,global:reg.global||null,needs:reg.needs||null,css:reg.css||null}:null})});
   // A library built into the IDE page (use mote) has no URL to fetch from: the exported file carries its text.
@@ -11405,7 +11413,7 @@ function _exportRootCss(){
   return css||":root{--mono:'JetBrains Mono',monospace}";
 }
 function _exportHtml(P,E){   // E: embedded libraries (offline export) or undefined
-  var rt=_exportRuntime().replace(/<\/(script)/gi,'<\\/$1').replace(/<!--/g,'<\\!--');
+  var rt=_exportRuntime(P).replace(/<\/(script)/gi,'<\\/$1').replace(/<!--/g,'<\\!--');
   return '<!DOCTYPE html>\n<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Emit Program</title>\n'
     +'<!-- Exported from the Emit IDE. One self-contained page: the compiled WebAssembly (base64), the list of\n     imports it needs, the Emit runtime (the same code the IDE runs programs on) and a few lines that start it.\n     '+(E?'Offline export: the libraries named by `use` lines are embedded in this file; it needs no network.':'Libraries named by `use` lines are fetched from their URLs when the page opens.')+'\n     Add ?trace to the address to see the runtime\'s call-trace lines. -->\n'
     +'<style>'+_exportRootCss()+'\nhtml,body{margin:0;min-height:100%;background:var(--bg,#08090d);color:var(--fg,#d4d8e3)}\n#tab-output{font-family:var(--mono);font-size:12px;line-height:1.8;padding:12px;white-space:pre-wrap;word-break:break-word}\n</style></head><body>\n'
@@ -11434,7 +11442,7 @@ function _exportJs(P,E){   // E: embedded libraries (offline export) or undefine
     +'export const program = '+_exportJson(P)+';\n\n'
     +(E?'// Libraries embedded by the offline export: source text by URL (scripts, stylesheets, ES modules with the\n// positions of their import specifiers). The runtime runs them from Blob URLs.\nexport const embedded = '+_offlineEmbedJs(E)+';\n\n':'')
     +'// Emit runtime — copied from the IDE. Kept as text so it runs as an ordinary (non-strict) script, as in the IDE.\n'
-    +'const runtimeSource = '+_exportJson(_exportRuntime())+';\n\n'
+    +'const runtimeSource = '+_exportJson(_exportRuntime(P))+';\n\n'
     +'const boot = '+_emitExportBoot.toString()+';\n\n'
     +'let runtime = null, started = false;\n\n'
     +'export async function init(options = {}) {\n'
@@ -16919,7 +16927,7 @@ function _moteTool(ctx){
 _drawerRegister({id:'script',label:'Script',icon:'📜',desc:'Mote scripts: dialogue, level logic and mods — edit, run in a sandbox, save as script blocks',open:_moteTool});
 
 // ── the example ──
-EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit program.\n// The scripts live in scripts.emit (the second tab) as `script NAME:` blocks.\n// Open 🧰 → Script to edit and test them. No network: Mote is built into Emit.\nuse mote\n\nmut vm: js = null\nmut talk: js = null\nmut line = \"\"\nmut opts: js = null\nmut gold = 10\nmut speed = 2\nmut x = 20\nmut t = 0\n\n// Emit functions the scripts call\nfn say(s: str) {\n  line = s\n  printStr(\"says: \" + s)\n}\nfn give(n: int) int {\n  gold = gold + n\n  return gold\n}\nfn setSpeed(v: int) {\n  speed = v\n}\n\nexport fn game() {\n  canvas(320, 200)\n  vm = moteVM()\n  moteFn(vm, \"say\", fnRef(say))\n  moteFn(vm, \"give\", fnRef(give))\n  moteFn(vm, \"setSpeed\", fnRef(setSpeed))\n  moteSet(vm, \"player\", \"Ada\")\n  // a mod, loaded at run time: it changes a game value through setSpeed\n  try {\n    moteRun(vm, mod)\n  } catch (e) {\n    printStr(\"mod failed: \" + e.message)\n  }\n  // the dialogue runs as a coroutine, one step per frame\n  talk = moteThread(vm, dialogue)\n  animate()\n}\n\nexport fn frame() {\n  t++\n  x = x + speed\n  if (x > 300) { x = 20 }\n  if (talk != null) {\n    opts = moteChoices(talk)\n    // the player picks with key 1 / 2 or a tap (left / right half); after 3 s the first option is taken\n    if (opts != null) {\n      if (keyDown(49) == 1) { moteChoose(talk, 1) }\n      else if (keyDown(50) == 1) { moteChoose(talk, 2) }\n      else if (touching() == 1) { if (touchX() < 160) { moteChoose(talk, 1) } else { moteChoose(talk, 2) } }\n      else if (t % 180 == 0) { moteChoose(talk, 1) }\n    }\n    if (!moteResume(talk)) {\n      talk = null\n      printStr(\"dialogue over, gold \" + gold)\n    }\n  }\n  color(20, 24, 40)\n  rect(0, 0, 320, 200)\n  color(255, 205, 117)\n  circle(x, 150, 10)\n  color(230, 230, 240)\n  text(line, 12, 30, 14)\n  text(\"gold \" + gold + \"  speed \" + speed, 12, 190, 12)\n  if (talk != null) {\n    opts = moteChoices(talk)\n  }\n  if (talk != null && opts != null) {\n    color(196, 181, 253)\n    text(\"1: \" + toStr(opts[0]) + \"    2: \" + toStr(opts[1]), 12, 60, 13)\n  }\n}\n//// file: scripts.emit\n// Mote scripts (Lua-like). Each block is visible from every file by its name.\nscript dialogue:\n  say(\"Hello, \" .. player .. \"!\")\n  wait(1)\n  say(\"Care for a potion? 5 gold.\")\n  local c = choose(\"Yes\", \"No thanks\")\n  if c == 1 then\n    local left = give(-5)\n    say(\"Here you go. \" .. left .. \" gold left.\")\n  else\n    say(\"Suit yourself.\")\n  end\n  waitFrames(60)\n  say(\"Safe travels!\")\n\nscript mod:\n  -- a player-made mod: runs once when the game starts\n  print(\"mod loaded: double speed\")\n  setSpeed(4)\n";
+EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit program.\n// The scripts live in scripts.emit (the second tab) as `script NAME:` blocks.\n// Open 🧰 → Script to edit and test them. No network: Mote is built into Emit.\nuse mote\n\nmut vm: js = null\nmut talk: js = null\nmut line = \"\"\nmut opts: js = null\nmut gold = 10\nmut speed = 2\nmut x = 20\nmut t = 0\nmut asked = 0\n\n// Emit functions the scripts call\nfn say(s: str) {\n  line = s\n  printStr(\"says: \" + s)\n}\nfn give(n: int) int {\n  gold = gold + n\n  return gold\n}\nfn setSpeed(v: int) {\n  speed = v\n}\n\nexport fn game() {\n  canvas(320, 200)\n  vm = moteVM()\n  moteFn(vm, \"say\", fnRef(say))\n  moteFn(vm, \"give\", fnRef(give))\n  moteFn(vm, \"setSpeed\", fnRef(setSpeed))\n  moteSet(vm, \"player\", \"Ada\")\n  // a mod, loaded at run time: it changes a game value through setSpeed\n  try {\n    moteRun(vm, mod)\n  } catch (e) {\n    printStr(\"mod failed: \" + e.message)\n  }\n  // the dialogue runs as a coroutine, one step per frame\n  talk = moteThread(vm, dialogue)\n  animate()\n}\n\nexport fn frame() {\n  t++\n  x = x + speed\n  if (x > 300) { x = 20 }\n  if (talk != null) {\n    opts = moteChoices(talk)\n    // the player picks with key 1 / 2 or a tap (left / right half); after 1 s the first option is taken\n    if (opts != null) {\n      asked++\n      if (keyDown(49) == 1) { moteChoose(talk, 1) }\n      else if (keyDown(50) == 1) { moteChoose(talk, 2) }\n      else if (touching() == 1) { if (touchX() < 160) { moteChoose(talk, 1) } else { moteChoose(talk, 2) } }\n      else if (asked > 60) { moteChoose(talk, 1) }\n    }\n    if (!moteResume(talk)) {\n      talk = null\n      printStr(\"dialogue over, gold \" + gold)\n    }\n  }\n  color(20, 24, 40)\n  rect(0, 0, 320, 200)\n  color(255, 205, 117)\n  circle(x, 150, 10)\n  color(230, 230, 240)\n  text(line, 12, 30, 14)\n  text(\"gold \" + gold + \"  speed \" + speed, 12, 190, 12)\n  if (talk != null) {\n    opts = moteChoices(talk)\n  }\n  if (talk != null && opts != null) {\n    color(196, 181, 253)\n    text(\"1: \" + toStr(opts[0]) + \"    2: \" + toStr(opts[1]), 12, 60, 13)\n  }\n}\n//// file: scripts.emit\n// Mote scripts (Lua-like). Each block is visible from every file by its name.\nscript dialogue:\n  say(\"Hello, \" .. player .. \"!\")\n  wait(0.5)\n  say(\"Care for a potion? 5 gold.\")\n  local c = choose(\"Yes\", \"No thanks\")\n  if c == 1 then\n    local left = give(-5)\n    say(\"Here you go. \" .. left .. \" gold left.\")\n  else\n    say(\"Suit yourself.\")\n  end\n  waitFrames(30)\n  say(\"Safe travels!\")\n\nscript mod:\n  -- a player-made mod: runs once when the game starts\n  print(\"mod loaded: double speed\")\n  setSpeed(4)\n";
 (function(){try{
   var sel=document.getElementById('example');if(!sel||sel.querySelector('option[value="mote"]'))return;
   var o=document.createElement('option');o.value='mote';o.textContent='Mote';
