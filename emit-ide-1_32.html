@@ -655,10 +655,10 @@ public fn step(dt: num) num {
 <p><strong>Lock.</strong> &#x1F513; / &#x1F512; freezes or thaws a region, like <code>freeze(r)</code> / <code>thaw(r)</code>: a write by the program to a frozen region stops it with a red error. A poke is a <em>front panel write</em>: it overrides the lock. A red runtime error that ends in <code>at path:line:col</code> is a link: tap it to see the place in the editor.</p>
 
 <h2>Timeline</h2>
-<p>An animated program (one that calls <code>animate()</code>) gets a <strong>Timeline</strong> bar in the Output view, under its output; on a phone it sticks to the bottom of the screen. It records every frame: the bytes of every memory region (things included), every top-level variable, the tiles of the maps (<code>setTile</code>) and the input of the frame. It starts on by itself for a program with regions or things; for any other program tap <em>&#x25CB; Timeline off</em> to record. 🧰 &rarr; <strong>Timeline</strong> shows the bar.</p>
+<p>An animated program (one that calls <code>animate()</code>) gets a <strong>Timeline</strong> bar in the Output view, under its output; on a phone it sticks to the bottom of the screen. It records every frame: the bytes of every memory region (things included), every top-level variable, the tiles of the maps (<code>setTile</code>) and the input of the frame. It starts on by itself for a program with regions or things; for any other program tap <em>&#x25CB; Timeline off</em> to record (once you switch it on or off, later runs keep your choice). 🧰 &rarr; <strong>Timeline</strong> shows the bar.</p>
 <p><strong>Scrub.</strong> &#x23F8; pauses the frames, &#x25B6; continues. &#x23EE; goes back one frame, &#x23ED; forward one (at the newest frame it runs one more). Drag the slider to any recorded frame: the program&rsquo;s memory and variables become that frame&rsquo;s and the picture is drawn again &mdash; a <code>screen</code> from its region, things by their stage, any other canvas by replaying that one frame quietly (no print, no sound). The Memory tab shows the values of the frame you are on. A tick under the slider marks a frame with input (key, touch, stick, button); the line under the bar names it.</p>
 <p><strong>Fork.</strong> &#x27F2; <em>resume from here</em> (or &#x25B6;) on an older frame throws the frames after it away and goes on from there. Poke a cell on the Memory tab while paused and that frame changes: the frames after it are gone, and resuming continues from the poked state &mdash; history forks (a yellow tick). The old future is not re-run: random numbers, the clock, timers and sounds are not recorded, so it could not be re-run faithfully.</p>
-<p><strong>Limits.</strong> The last 600 frames or 32 MB, whichever comes first (a full copy every 30 frames, only the changed bytes in between). Library objects (three.js scenes, physics worlds &mdash; anything behind a <code>js</code> value) are not rewound: the bar says so. A <code>str</code> / <code>js</code> / array variable goes back only if what it held still exists. A <code>frame()</code> that uses <code>await</code> is not recorded. Exported programs have no Timeline.</p>
+<p><strong>Limits.</strong> Pausing holds <code>frame()</code> only: timers, music and buttons still run. The last 600 frames or 32 MB, whichever comes first (a full copy every 30 frames, only the changed bytes in between). Library objects (three.js scenes, physics worlds &mdash; anything behind a <code>js</code> value) are not rewound: the bar says so. A <code>str</code> / <code>js</code> / array variable goes back only if what it held still exists. A <code>frame()</code> that uses <code>await</code> is not recorded. Exported programs have no Timeline.</p>
 
 <h2>Custom Imports</h2>
 <p>For full control, declare imports explicitly:</p>
@@ -15177,7 +15177,7 @@ function _tlShow(k){
   var f=F[k],how='';
   if(f.lg&&typeof _lgDraw==='function'){_tlApply(k);try{_lgDraw(f.lg.t,f.lg.on)}catch(e){}how='drawn'}
   else if(_tlOwnCanvas()&&k>0&&!_tl.async&&window._wi&&window._wi.exports.frame){_tlReplay(k);how='replayed'}
-  else _tlApply(k);
+  else{_tlApply(k);if(_tlOwnCanvas())how='kept'}
   try{_rgBlitAll()}catch(e){}
   _tl.pos=k;_tl.how=how;
   try{_mem.dirty=true;_memKick()}catch(e){}
@@ -15334,7 +15334,7 @@ function _tlUi(now){
   var t=performance.now();
   if(!now&&t-_tl.uiAt<_TL_CFG.uiMs)return;
   _tl.uiAt=t;
-  var F=_tl.frames,on=_tl.on,n=F.length,k=Math.max(0,Math.min(n-1,_tl.pos)),past=on&&_tl.paused&&k<n-1,run=_animRunning&&!_tl.paused;
+  var F=_tl.frames,on=_tl.on&&_tl.ready,n=F.length,k=Math.max(0,Math.min(n-1,_tl.pos)),past=on&&_tl.paused&&k<n-1,run=_animRunning&&!_tl.paused;
   var q=function(s){return b.querySelector(s)};
   q('.tl-r1').style.display=on?'':'none';
   q('[data-tl="resume"]').style.display=on?'':'none';
@@ -15367,6 +15367,7 @@ function _tlUi(now){
     w=(past?'⏸ frame '+f.n+' of '+F[n-1].n+' — ▶ or ⟲ continues from here and discards the frames after it':_tl.paused?'⏸ paused at the newest frame — ⏭ runs one frame':'● recording')+(f.lab?' · input: '+f.lab:'');
     if(_tl.paused&&f.fork)w+=' · history forked here';
     if(_tl.paused&&_tl.how==='replayed')w+=' · picture: frame() replayed';
+    else if(_tl.paused&&_tl.how==='kept')w+=' · picture not redrawn (no frame before this one to replay)';
   }
   var wh=q('.tl-what');if(wh.textContent!==w)wh.textContent=w;
   var nt=q('.tl-note'),note=_tl.libs&&on?'Timeline restores memory and globals only — library objects (three.js, …) are not rewound':'';
