@@ -12411,6 +12411,8 @@ function _stLower(ast){
     if(n.type==='FunctionDecl'||n.type==='VarDecl'||n.type==='ImportDecl'||n.type==='StructDecl'||n.type==='RegionDecl'){
       tops.set(n.modName||n.name,n);if(n.type==='FunctionDecl'||n.type==='ImportDecl')fns.add(n.name);
     }
+    /* sprite names are project-wide bare names too (SPRITE): one name may not be a sprite and a map / controls */
+    if(n.type==='SpriteDecl'&&!tops.has(n.name))tops.set(n.name,n);
   });
   function where(l){return(l&&l.file?l.file+':':'line ')+((l&&l.line)||1)}
   body.forEach(function(n){
@@ -12420,7 +12422,7 @@ function _stLower(ast){
     var prev=blocks.get(n.name);
     if(prev)fail('"'+n.name+'" is already the name of '+prev.kw+' '+n.name+' at '+where(prev.node.nameLoc)+' — every map and controls block needs its own name',n.nameLoc);
     var top=tops.get(n.name);
-    if(top)fail(kw+' '+n.name+' has the same name as '+(top.type==='FunctionDecl'?'the function':top.type==='VarDecl'?'the variable':top.type==='ImportDecl'?'the import':top.type==='StructDecl'?'the struct':'the region')+' '+n.name+(top.loc&&top.loc.line?' at '+where(top.loc):'')+' — rename one of them',n.nameLoc);
+    if(top)fail(kw+' '+n.name+' has the same name as '+(top.type==='FunctionDecl'?'the function':top.type==='VarDecl'?'the variable':top.type==='ImportDecl'?'the import':top.type==='StructDecl'?'the struct':top.type==='SpriteDecl'?'the sprite':'the region')+' '+n.name+(top.loc&&top.loc.line?' at '+where(top.loc):'')+' — rename one of them'+(top.type==='SpriteDecl'?' (sprite, map and controls names are seen by every file)':''),n.nameLoc);
     var e={kw:kw,node:n,id:kw==='map'?maps.length:ctls.length};
     blocks.set(n.name,e);
     (kw==='map'?maps:ctls).push(n);

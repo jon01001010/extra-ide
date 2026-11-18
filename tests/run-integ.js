@@ -13,6 +13,8 @@
 //   node tests/run-integ.js [path/to/emit-ide.html]
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const FAKE_AUDIO = require('./fake-audio.js');
 
 let failed = 0, passed = 0;
@@ -116,6 +118,45 @@ async function allKinds(page, T, bundle) {
   check(T + 'Stop stops the music', await page.evaluate(() => _musicPlaying()) === false, '');
 }
 
+// The all-kinds program exported (.html and offline .html): it runs on its own, draws the sprite tile, its
+// on-screen button A reaches justPressed / play (touch), the music plays.
+async function exportChecks(browser, fileUrl) {
+  const page = await openIde(browser, fileUrl, DESK);
+  await page.evaluate(b => _projLoad(b), MULTI);
+  const files = await page.evaluate(async () => {
+    const got = {}; window._download = (name, content) => { got[name] = typeof content === 'string' ? content : '[binary]'; };
+    doExport('html'); await doExport('htmloff');
+    return got;
+  });
+  await page.context().close();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'emit-integ-'));
+  const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 800, height: 700 } });
+  await ctx.addInitScript(FAKE_AUDIO);
+  for (const n of ['program.html', 'program-offline.html']) {
+    if (!files[n]) { check('export ' + n, false, 'not exported: ' + Object.keys(files).join(', ')); continue; }
+    fs.writeFileSync(path.join(dir, n), files[n]);
+    const pg = await ctx.newPage(), errs = [], reqs = [];
+    pg.on('pageerror', e => errs.push(e.message.slice(0, 200)));
+    await pg.route(/^https?:/, r => { reqs.push(r.request().url()); r.abort(); });
+    await pg.goto('file://' + path.join(dir, n));
+    await pg.waitForFunction(() => document.querySelector('canvas') && document.querySelector('[data-ctl="A"]'), null, { timeout: 5000 }).catch(() => errs.push('no canvas / controls'));
+    await pg.waitForTimeout(300);
+    const px = await pg.evaluate(() => { const g = document.querySelector('canvas').getContext('2d'); return [[16, 0], [20, 0], [8, 8], [0, 0]].map(([x, y]) => Array.from(g.getImageData(x, y, 1, 1).data).slice(0, 3).join(',')).join(' '); });
+    const a = await pg.evaluate(() => { const r = document.querySelector('[data-ctl="A"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    const cdp = await pg.context().newCDPSession(pg);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a.x, y: a.y, id: 1 }] });
+    await pg.waitForTimeout(150);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await pg.waitForTimeout(150);
+    const st = await pg.evaluate(() => ({ text: document.body.innerText, music: typeof _musicPlaying === 'function' && _musicPlaying(), coin: typeof _sndAC !== 'undefined' && _sndAC ? _sndAC.nodes.filter(x => x.kind === 'osc' && x.frequency.events.length && Math.abs(x.frequency.events[0][1] - 988) < 0.01).length : -1 }));
+    check('exported ' + n + ': runs, draws the sprite tile, the first tap on button A unlocks audio and plays the sound, the music plays',
+      px === '255,0,255 0,255,255 255,0,255 255,0,0' && /\b1\b/.test(st.text) && st.music === true && st.coin === 1 && !errs.length && (!/offline/.test(n) || !reqs.length),
+      JSON.stringify({ px, st: { music: st.music, coin: st.coin, text: st.text.slice(-120) }, errs, reqs }));
+    await pg.close();
+  }
+  await ctx.close();
+}
+
 async function compileChecks(page) {
   const r = await page.evaluate(([ONE_FILE, MULTI]) => {
     const out = {};
@@ -146,8 +187,15 @@ async function compileChecks(page) {
       '//// file: stages.emit\nsprite ok: 1x1\n  "1"\nmap room: 2x1, tile 8\n  legend # wall solid #ff0000\n  rows\n    "#?"\n',
       '//// file: stages.emit\nsound ok: sine 440\ncontrols pad: stick middle, buttons A\n',
     ].map(s => errs(main + s).join(' | ').replace(/:\s.*$/, m => m.split(' ')[0]));
+    out.clash = [
+      errs('sprite room: 1x1\n  "1"\nmap room: 1x1\n  legend # w #ffffff\n  rows\n    "#"\nexport fn main() {\n  drawMap(room)\n}\n'),
+      errs('//// file: main.emit\nexport fn main() {\n  draw(pad, 1, 1)\n}\n//// file: sprites.emit\nsprite pad: 1x1\n  "1"\n//// file: stages.emit\ncontrols pad: stick left\n'),
+      errs('sound coin: sine 440\nsprite coin: 1x1\n  "1"\nexport fn main() {\n  play(coin)\n  draw(coin, 1, 1)\n}\n')];
     return out;
   }, [ONE_FILE, MULTI]);
+  check('a sprite and a map / controls of the same name is an error at the second one (in one file and across files)',
+    /^throws 3:5: map room has the same name as the sprite room at line 1/.test(r.clash[0][0]) && /^throws stages\.emit:1:10: controls pad has the same name as the sprite pad at sprites\.emit:1/.test(r.clash[1][0]), JSON.stringify(r.clash));
+  check('a sound and a sprite may share a name (play() and draw() tell them apart)', JSON.stringify(r.clash[2]) === '[]', JSON.stringify(r.clash[2]));
   check('all kinds in one file compile without errors', JSON.stringify(r.one) === '[]', JSON.stringify(r.one));
   check('all kinds over four files compile without errors', JSON.stringify(r.multi) === '[]', JSON.stringify(r.multi));
   for (const k in r.after) {
@@ -297,6 +345,7 @@ async function highlightChecks(browser, fileUrl) {
     check(T + 'no page errors', !page.errors.length, page.errors.join(' | '));
     await page.context().close();
   }
+  await exportChecks(browser, fileUrl);
   await filesAndExamples(browser, fileUrl);
   await memoryChecks(browser, fileUrl, DESK, '[desk] ');
   await memoryChecks(browser, fileUrl, PHONE, '[phone] ');
