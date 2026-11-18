@@ -3932,7 +3932,7 @@ _JS_CONV_IMPORTS.__sprBlit=[[['id','int'],['f','int'],['rg','i32'],['x','num'],[
 // inside belong to it when an indented line follows).
 function _sprFindBlocks(src){
   src=String(src==null?'':src);
-  if(src.indexOf('sprite')<0)return[];
+  if(!/sprite/i.test(src))return[];
   var lines=null;
   /* the shared block scanner (BLOCKS): the same extent as the drawer's helpers and every other block kind */
   return _emitScanBlocks(src,'sprite').filter(function(b){return b.kind==='sprite'}).map(function(b){
@@ -3988,7 +3988,7 @@ function _sprRleDecode(s){
 function _sprParse(lines,line0,tolerant){
   var errors=[],head=String(lines[0]||'').replace(/\r$/,'');
   function E(ln,col,msg){errors.push({line:ln,col:col,msg:msg})}
-  var hm=/^sprite([ \t]+)([A-Za-z_]\w*)([ \t]*):(.*)$/.exec(head)||[head,' ','sprite','',''];
+  var hm=/^sprite([ \t]+)([A-Za-z_]\w*)([ \t]*):(.*)$/i.exec(head)||[head,' ','sprite','',''];
   var d={name:hm[2],w:0,h:0,fps:_SPR_DEFAULT_FPS,fpsGiven:false,palette:[],palGiven:false,frames:[],extra:[],headExtra:[],errors:errors,
     loc:{line:line0,col:1},nameLoc:{line:line0,col:7+hm[1].length}};
   // header: size and options after the colon
@@ -4004,11 +4004,11 @@ function _sprParse(lines,line0,tolerant){
     if(d.h<1||d.h>_SPR_MAX){E(line0,hcol,'A sprite is 1 to '+_SPR_MAX+' pixels high, not '+d.h);d.h=Math.max(1,Math.min(_SPR_MAX,d.h))}
   }
   for(var pi=1;pi<parts.length;pi++){
-    var o=parts[pi].s.trim(),fm=/^fps\s+(\d+(?:\.\d+)?)$/.exec(o);
+    var o=parts[pi].s.trim(),fm=/^fps\s+(\d+(?:\.\d+)?)$/i.exec(o);
     if(fm&&+fm[1]>0&&+fm[1]<=240){d.fps=+fm[1];d.fpsGiven=true;continue}
-    if(fm||/^fps\b/.test(o))E(line0,parts[pi].col,'fps is the number of frames per second, more than 0 and at most 240 — e.g. fps 8');
+    if(fm||/^fps\b/i.test(o))E(line0,parts[pi].col,'fps is the number of frames per second, more than 0 and at most 240 — e.g. fps 8');
     else E(line0,parts[pi].col,o?'Unknown sprite option "'+o+'" — after the size only fps N can follow (sprite '+d.name+': 16x16, fps 8)':'Expected an option after the comma — fps 8');
-    if(o&&!/^fps\b/.test(o))d.headExtra.push(o);
+    if(o&&!/^fps\b/i.test(o))d.headExtra.push(o);
   }
   // body
   var cur=null,implicit=null,firstFrameLine=null,rleRows=null,palEntries=[];
@@ -4020,7 +4020,7 @@ function _sprParse(lines,line0,tolerant){
     var ind=code.length-code.replace(/^\s+/,'').length,col=ind+1;code=code.trim();
     if(!code){(cur||implicit?(cur||implicit).extra:d.extra).push(raw);continue}
     var m;
-    if((m=/^palette\b(.*)$/.exec(code))){
+    if((m=/^palette\b(.*)$/i.exec(code))){
       d.palGiven=true;
       var re=/\S+/g,pm;
       while((pm=re.exec(m[1]))){
@@ -4031,12 +4031,13 @@ function _sprParse(lines,line0,tolerant){
       }
       continue;
     }
-    if((m=/^frame\b(\s+([A-Za-z_]\w*))?(\s+rle\b)?\s*(.*)$/.exec(code))||(m=/^(rle)\b\s*(.*)$/.exec(code))){
-      var isBareRle=m[1]==='rle'&&m.length===3,fname=isBareRle?'':(m[2]||''),rle=isBareRle||!!m[3],tail=isBareRle?m[2]:m[4];
+    if((m=/^frame\b(\s+([A-Za-z_]\w*))?(\s+rle\b)?\s*(.*)$/i.exec(code))||(m=/^(rle)\b\s*(.*)$/i.exec(code))){
+      var isBareRle=String(m[1]).toLowerCase()==='rle'&&m.length===3,fname=isBareRle?'':(m[2]||''),rle=isBareRle||!!m[3],tail=isBareRle?m[2]:m[4];
       if(!isBareRle){
         if(firstFrameLine===null)firstFrameLine=ln;
         if(!m[1]){E(ln,col+5,'Expected a frame name after frame — frame idle');fname='frame'+(d.frames.length+1)}
         else if(d.frames.some(function(f){return f.name===fname})){E(ln,col+code.indexOf(fname,5),'Frame "'+fname+'" is already declared in sprite '+d.name);fname=fname+'_'+(d.frames.length+1)}
+        else if(d.frames.some(function(f){return f.name&&f.name.toLowerCase()===fname.toLowerCase()})){var fo=d.frames.filter(function(f){return f.name&&f.name.toLowerCase()===fname.toLowerCase()})[0];E(ln,col+code.indexOf(fname,5),'Frame "'+fname+'" and frame "'+fo.name+'" (line '+fo.line+') differ only by case — names are case-insensitive: rename one of them');fname=fname+'_'+(d.frames.length+1)}
         cur=newFrame(fname,ln,rle,col);
       }else{
         if(!implicit)implicit=newFrame('',ln,true,col);
@@ -4215,7 +4216,7 @@ function _sprLower(ast,S){
   function frameArg(f,d,fn,L){
     if(!f)return null;
     if(d&&f.type==='StringLiteral'){
-      var i=-1;d.frames.forEach(function(x,k){if(x.name===f.value)i=k});
+      var i=-1;d.frames.forEach(function(x,k){if(i<0&&x.name&&x.name.toLowerCase()===String(f.value).toLowerCase())i=k});
       if(i<0){var c=_emitModClosest(f.value,d.frames.map(function(x){return x.name}).filter(Boolean));fail('Sprite '+d.name+' has no frame "'+f.value+'"'+(c?' — did you mean "'+c+'"?':' — its frames: '+frameList(d)),f.loc||L)}
       return asInt(f,i);
     }
@@ -4439,7 +4440,7 @@ class BlockDecl extends Z{constructor(kind,name,text,l){super(kind==='sound'?'So
 function _emitBlockAt(s,p,raw){
   var re=/([A-Za-z_][A-Za-z0-9_]*)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/y;re.lastIndex=p;
   var m=re.exec(s);if(!m)return null;
-  var k=m[1],n=m[2];
+  var k=m[1].toLowerCase(),n=m[2];   /* block kinds are case-insensitive */
   if(!_EMIT_RAW_KINDS[k]){
     if(!raw||_EMIT_BLOCK_KINDS[k]||_EMIT_NOT_BLOCK[k]||KW.has(k)||TY.has(k)||KW.has(n)||TY.has(n))return null;
   }
@@ -4602,7 +4603,10 @@ _emitModLink=(function(link){return function(fr){
       if(a.type==='IdentifierExpr'&&!locals[a.name]&&!globals[a.name]){
         if(tab[a.name])e.args[0]=new StringLiteral(a.name,a.loc);
         else{unknown(a.name,a.loc);return}
-      }else if(a.type==='StringLiteral'&&!tab[a.value]){unknown(a.value,a.loc);return}
+      }else if(a.type==='StringLiteral'&&!tab[a.value]){
+        var ck=Object.keys(tab).filter(function(k){return k.toLowerCase()===String(a.value).toLowerCase()})[0];   /* names are case-insensitive */
+        if(ck)e.args[0]=new StringLiteral(ck,a.loc);else{unknown(a.value,a.loc);return}
+      }
       if(fn==='play'){
         for(var i=1;i<3;i++){
           var x=e.args[i];
@@ -4703,7 +4707,7 @@ function _moteFindBlocks(src){
 // errors:[{line,col,msg}], nameCol}. The Mote syntax is checked when the embedded Mote is available.
 function _moteParseBlock(lines,line0){
   var errors=[],head=String(lines[0]||'').replace(/\r$/,'');
-  var hm=/^script([ \t]+)([A-Za-z_]\w*)([ \t]*):(.*)$/.exec(head)||[head,' ','script','',''];
+  var hm=/^script([ \t]+)([A-Za-z_]\w*)([ \t]*):(.*)$/i.exec(head)||[head,' ','script','',''];
   var d={name:hm[2],nameCol:7+hm[1].length,errors:errors,source:'',indent:0,line:line0};
   var rest=hm[4],restCol=7+hm[1].length+hm[2].length+hm[3].length+1;
   if(/\S/.test(rest)&&!/^\s*--/.test(rest))errors.push({line:line0,col:restCol+rest.length-rest.replace(/^\s+/,'').length,msg:'The Mote source of script '+d.name+' goes on the indented lines below the header — script '+d.name+': (nothing after the colon but a -- comment)'});
@@ -4906,7 +4910,7 @@ class ThingDecl extends Z{constructor(n,items,l){super('ThingDecl',l);this.name=
 class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=rules}}
 // ── lexer: #hex colours inside thing / rules blocks ──
 (function(){
-  var tk0=Lexer.prototype.tokenize,HEAD=/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/;
+  var tk0=Lexer.prototype.tokenize,HEAD=/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/i;
   /* tokens on lines outside every block (the shared scanner, _emitScanBlocks) get lgOut: a thing / rules block
      ends there even when the line does not start in column 1 (e.g. indented lines after a column-1 comment) */
   function outMark(src,ts){
@@ -4916,7 +4920,7 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
     return ts;
   }
   Lexer.prototype.tokenize=function(){
-    if(typeof this.s!=='string'||!/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/m.test(this.s))return tk0.call(this);
+    if(typeof this.s!=='string'||!/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/mi.test(this.s))return tk0.call(this);
     var src0=this.s;
     var lines=this.s.split('\n'),inB=false,marks=Object.create(null),any=false;
     for(var li=0;li<lines.length;li++){
@@ -4953,7 +4957,8 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
   Cur.prototype.next=function(){return this.t[this.k++]};
   Cur.prototype.eofTok=function(){var l=this.t[this.t.length-1]||this.owner;return new Token(TT.EOF,'',l.line,l.col+tokLen(l))};
   Cur.prototype.here=function(){return this.end()?this.eofTok():this.peek()};
-  Cur.prototype.isWord=function(v,o){var t=this.peek(o);return!!t&&(t.type===TT.IDENTIFIER||t.type===TT.KEYWORD||t.type===TT.TYPE)&&(v===undefined||t.value===v)};
+  Cur.prototype.isWord=function(v,o){var t=this.peek(o);return!!t&&(t.type===TT.IDENTIFIER||t.type===TT.KEYWORD||t.type===TT.TYPE)&&(v===undefined||String(t.value).toLowerCase()===v)};   /* words of thing / rules lines are case-insensitive */
+  function lv(t){return t?String(t.value).toLowerCase():''}
   Cur.prototype.isType=function(ty,o){var t=this.peek(o);return!!t&&t.type===ty};
   Cur.prototype.expr=function(what){
     if(this.end()||this.isType(TT.COLON)||this.isType(TT.COMMA))throw E(this.here(),'Expected '+what);
@@ -4968,7 +4973,7 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
   Cur.prototype.pairSep=function(){
     if(!this.isType(TT.COMMA))return;
     var n=this.peek(1);
-    if(n&&(n.type===TT.INTEGER||n.type===TT.FLOAT||n.type===TT.MINUS||n.type===TT.LPAREN||(n.type===TT.IDENTIFIER&&_LG_THING_WORDS.indexOf(n.value)<0&&!this.owner.lgThing)))this.next();
+    if(n&&(n.type===TT.INTEGER||n.type===TT.FLOAT||n.type===TT.MINUS||n.type===TT.LPAREN||(n.type===TT.IDENTIFIER&&_LG_THING_WORDS.indexOf(lv(n))<0&&!this.owner.lgThing)))this.next();
   };
   P.lgBlock=function(){
     var first=this.cur(),lines=[],cur=null,last=-1;
@@ -4983,12 +4988,12 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
   P.parseTop=function(){
     var t=this.cur(),n=this.t[this.p+1],n2=this.t[this.p+2];
     if(t.type===TT.IDENTIFIER&&t.col===1&&n&&n.line===t.line){
-      if(t.value==='thing'&&(n.type===TT.IDENTIFIER||n.type===TT.TYPE||n.type===TT.KEYWORD)){
+      if(lv(t)==='thing'&&(n.type===TT.IDENTIFIER||n.type===TT.TYPE||n.type===TT.KEYWORD)){
         if(n.type!==TT.IDENTIFIER)throw E(n,'"'+n.value+'" cannot name a thing — it is a reserved word');
         if(!(n2&&n2.type===TT.COLON&&n2.line===t.line))throw E(n2&&n2.line===t.line?n2:n,'Expected : after thing '+n.value+' — thing '+n.value+': box 16 16 #ffffff');
         return this.parseThing();
       }
-      if(t.value==='rules'&&n.type===TT.COLON)return this.parseRules();
+      if(lv(t)==='rules'&&n.type===TT.COLON)return this.parseRules();
     }
     return top0.call(this);
   };
@@ -5017,7 +5022,7 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
       if(!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(t.value))throw E(t,'"'+t.value+'" is not a colour — write #rgb or #rrggbb, e.g. #ffcd75');
       C.next();return{value:t.value,tok:t};
     }
-    if(t&&t.type===TT.IDENTIFIER&&Object.prototype.hasOwnProperty.call(_LG_COLORS,t.value)){C.next();return{value:t.value,tok:t}}
+    if(t&&t.type===TT.IDENTIFIER&&Object.prototype.hasOwnProperty.call(_LG_COLORS,lv(t))){C.next();return{value:lv(t),tok:t}}
     return null;
   }
   function optExpr(C){return(C.end()||C.isType(TT.COMMA))?null:C.expr('a number')}
@@ -5025,8 +5030,8 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
     var w=C.peek();
     if(w&&w.type===TT.IDENTIFIER&&w.lgHex)throw E(w,'A colour belongs right after the shape — box 16 16 '+w.value);
     w=C.word('a part of thing '+kname+' — box W H #color, circ R #color, oval W H #color, sprite NAME, at X Y, count N, …');
-    var it={kind:w.value,tok:w};
-    switch(w.value){
+    var it={kind:lv(w),tok:w};
+    switch(it.kind){
       case'box':case'oval':it.w=C.expr('the width — '+w.value+' 16 16 #ffffff');it.h=C.expr('the height — '+w.value+' 16 16 #ffffff');it.color=color(C);break;
       case'circ':it.r=C.expr('the radius — circ 8 #ffffff');it.color=color(C);break;
       case'sprite':it.sprite=C.word('a sprite name — sprite hero');break;
@@ -5037,8 +5042,8 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
         if(!C.isWord('map'))throw E(C.here(),'Expected map after from — from map level1');
         C.next();it.map=C.word('a map name — from map level1');break;
       case'chase':case'flee':case'track':
-        it.target=C.word('the thing to '+w.value+' — '+w.value+' hero'+(w.value==='track'?'':' 1.5'));
-        if(w.value!=='track')it.speed=optExpr(C);
+        it.target=C.word('the thing to '+w.value+' — '+w.value+' hero'+(lv(w)==='track'?'':' 1.5'));
+        if(lv(w)!=='track')it.speed=optExpr(C);
         break;
       case'follow':it.target=C.word('the thing to follow — follow hero');it.gap=optExpr(C);break;
       case'wander':case'patrol':it.speed=optExpr(C);break;
@@ -5082,14 +5087,14 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
   }
   function lgRule(C){
     var w=C.peek(),r={tok:w,actions:[]};
-    if(w.type===TT.IDENTIFIER&&(w.value==='stage'||w.value==='seed'||w.value==='show'))return lgDirective(C);
+    if(w.type===TT.IDENTIFIER&&(lv(w)==='stage'||lv(w)==='seed'||lv(w)==='show'))return lgDirective(C);
     if(!(w.type===TT.IDENTIFIER||w.type===TT.KEYWORD))throw E(w,'Expected an event — '+_LG_EVENT_HELP);
     C.next();
-    switch(w.value){
+    switch(lv(w)){
       case'on':{
         var e=C.word('what to react to after on — on start, on key left, on press A, on tap, on hit hero coin');
-        r.ev=e.value;r.evTok=e;
-        switch(e.value){
+        r.ev=lv(e);r.evTok=e;
+        switch(r.ev){
           case'start':case'tap':case'touch':break;
           case'key':case'keydown':case'keyup':r.key=keyTok(C,'on '+e.value);break;
           case'press':case'hold':r.btn=btnTok(C,'on '+e.value);break;
@@ -5104,9 +5109,9 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
         if(!n||(n.type!==TT.INTEGER&&n.type!==TT.FLOAT))throw E(C.here(),'Expected frame or a time after every — every frame, every 2s, every 500ms');
         C.next();
         var u=C.peek();
-        if(!u||u.type!==TT.IDENTIFIER||(u.value!=='s'&&u.value!=='ms')||u.line!==n.line)throw E(u&&u.line===n.line?u:C.here(),'Expected s or ms after the number — every '+n.value+'s, every 500ms');
+        if(!u||u.type!==TT.IDENTIFIER||(lv(u)!=='s'&&lv(u)!=='ms')||u.line!==n.line)throw E(u&&u.line===n.line?u:C.here(),'Expected s or ms after the number — every '+n.value+'s, every 500ms');
         C.next();
-        r.ev='every';r.frames=Math.max(1,Math.round(Number(n.value)*(u.value==='s'?60:0.06)));r.evTok=n;
+        r.ev='every';r.frames=Math.max(1,Math.round(Number(n.value)*(lv(u)==='s'?60:0.06)));r.evTok=n;
         break;
       }
       case'when':r.ev='when';r.cond=C.expr('a condition after when — when score >= 10');break;
@@ -5127,15 +5132,15 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
     return r;
   }
   function lgDirective(C){
-    var w=C.next(),r={tok:w,dir:w.value};
-    if(w.value==='seed'){r.n=C.expr('a number after seed — seed 42')}
-    else if(w.value==='show'){r.items=[C.expr('what to show — show score')];while(C.isType(TT.COMMA)){C.next();r.items.push(C.expr('what to show — show score, hero.hp'))}}
+    var w=C.next(),r={tok:w,dir:lv(w)};
+    if(r.dir==='seed'){r.n=C.expr('a number after seed — seed 42')}
+    else if(r.dir==='show'){r.items=[C.expr('what to show — show score')];while(C.isType(TT.COMMA)){C.next();r.items.push(C.expr('what to show — show score, hero.hp'))}}
     else{
-      var s=C.word('size, color or map after stage — stage size 320 240');r.what=s.value;r.whatTok=s;
-      if(s.value==='size'){r.w=C.expr('the width — stage size 320 240');C.pairSep();r.h=C.expr('the height — stage size 320 240')}
-      else if(s.value==='color'){r.color=color(C);if(!r.color)throw E(C.here(),'Expected a colour — stage color #1a1c2c')}
-      else if(s.value==='map'){r.map=C.word('a map name — stage map level1')}
-      else if(s.value==='controls'){r.ctl=C.word('the name of a controls block — stage controls pad')}
+      var s=C.word('size, color or map after stage — stage size 320 240');r.what=lv(s);r.whatTok=s;
+      if(r.what==='size'){r.w=C.expr('the width — stage size 320 240');C.pairSep();r.h=C.expr('the height — stage size 320 240')}
+      else if(r.what==='color'){r.color=color(C);if(!r.color)throw E(C.here(),'Expected a colour — stage color #1a1c2c')}
+      else if(r.what==='map'){r.map=C.word('a map name — stage map level1')}
+      else if(r.what==='controls'){r.ctl=C.word('the name of a controls block — stage controls pad')}
       else throw E(s,'Unknown stage setting "'+s.value+'" — stage size W H, stage color #rrggbb, stage map NAME, stage controls NAME');
     }
     if(!C.end())throw E(C.peek(),'Unexpected "'+C.peek().value+'" after '+(r.dir==='stage'?'stage '+r.what:r.dir));
@@ -5145,11 +5150,11 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
     var w=C.peek(),a={tok:w};
     if(!w||!(w.type===TT.IDENTIFIER||w.type===TT.KEYWORD))throw E(C.here(),'Expected an action — '+_LG_VERBS.join(', '));
     var n=C.peek(1);
-    if(w.type===TT.IDENTIFIER&&_LG_VERBS.indexOf(w.value)<0&&n&&n.type===TT.IDENTIFIER&&_LG_SUBJ_VERBS[n.value]){a.subj=C.next();w=C.peek();a.tok=w}
+    if(w.type===TT.IDENTIFIER&&_LG_VERBS.indexOf(lv(w))<0&&n&&n.type===TT.IDENTIFIER&&_LG_SUBJ_VERBS[lv(n)]){a.subj=C.next();w=C.peek();a.tok=w}
     C.next();
-    a.verb=w.value;
+    a.verb=lv(w);
     var end=function(){return C.end()||C.isType(TT.COLON)};
-    switch(w.value){
+    switch(a.verb){
       case'mv':case'vel':case'to':a.x=C.expr('two numbers — '+w.value+' 2, 0');C.pairSep();a.y=C.expr('a second number — '+w.value+' 2, 0');break;
       case'spawn':
         a.kind=C.word('a thing after spawn — spawn bullet at hero.x hero.y vel 6 0');
@@ -6948,7 +6953,7 @@ function _jsCallImport(name,outputLog){
       var fname=_readStr(namePtr),args=readArgs(nArgs);
       if(!(typeof _jsQuiet==='object'&&_jsQuiet[fname])){logCall(fname,args);_jsArgTrace(fname,args)}   /* _jsQuiet: see MOTE (runtime half) */
       var jsFn;
-      try{jsFn=window[fname]}catch(e){}
+      try{jsFn=window[_ncProp(window,fname)]}catch(e){if(e&&e._ncAmb){_jsErr(fname+'()',e);return 0n}}
       if(typeof jsFn!=='function'){
         if(_tryMode&&_tryRecord(new TypeError(fname+' is not a function'+(jsFn===undefined?' (window.'+fname+' is not defined)':''))))return 0n;
         /* JS function not available — show a visible warning so silent failures stop happening */
@@ -7113,6 +7118,34 @@ function _jsErr(what,e){
   }catch(e2){}
   try{console.warn('Emit JS interop: '+what+': '+msg)}catch(e3){}
 }
+// ── CASE-INSENSITIVE NAMES (runtime half) ── Emit names are case-insensitive, so a JS name written in Emit is
+// looked up the same way: the exact name first (own or inherited property, `name in obj`); if the object has no
+// property of that name, the one own-or-inherited property whose name equals it ignoring case (three.scene →
+// THREE.Scene). Two or more such properties are an error naming them (catchable with try / catch). A found
+// spelling is cached per object and name (a WeakMap), so the full scan of the object and its prototypes runs
+// once per name; a name that is found nowhere is returned as written (a new property is created as written).
+var _ncPropCache=typeof WeakMap==='function'?new WeakMap():null;
+function _ncProp(o,name){
+  if(o===null||o===undefined||typeof name!=='string'||name==='')return name;
+  var O=(typeof o==='object'||typeof o==='function')?o:Object(o);
+  try{if(name in O)return name}catch(e){return name}
+  var c=_ncPropCache&&O===o?_ncPropCache.get(O):null,hit=c?c[name]:undefined;
+  if(hit!==undefined){try{if(hit in O)return hit}catch(e){}}
+  var k=name.toLowerCase(),found=[],seen=Object.create(null);
+  for(var p=O,depth=0;p&&depth<64;p=Object.getPrototypeOf(p),depth++){
+    var ns;try{ns=Object.getOwnPropertyNames(p)}catch(e){break}
+    for(var i=0;i<ns.length;i++){var n=ns[i];if(!seen[n]&&n.length===name.length&&n.toLowerCase()===k){seen[n]=1;found.push(n)}}
+  }
+  if(found.length===1){
+    if(_ncPropCache&&O===o){if(!c){c=Object.create(null);try{_ncPropCache.set(O,c)}catch(e){}}c[name]=found[0]}
+    return found[0];
+  }
+  if(found.length>1){
+    var err=new Error('"'+name+'" is ambiguous: this JavaScript object has '+found.length+' properties that differ only by case ('+found.join(', ')+') — Emit names are case-insensitive, so write one of them exactly');
+    err._ncAmb=true;throw err;
+  }
+  return name;
+}
 // ── Callbacks: fnRef(fn) → a JS function that calls back into Emit ──
 // The compiler turns fnRef(name) into fnRef("@cb:<table index>:<param types>:<return type>:<name>").
 // JS arguments are marshalled by the DECLARED parameter types of the Emit function:
@@ -7159,9 +7192,9 @@ function _makeCallback(spec){
     if(idx>=0&&tbl){
       try{fn=tbl.get(idx)}catch(e){}
       for(var i=0;i<ptypes.length;i++)args.push(_cbArg(arguments[i],ptypes[i]));
-    }else if(window._wi&&typeof window._wi.exports[name]==='function'){
+    }else if(window._wi&&typeof window._wi.exports[_ncExport(window._wi,name)]==='function'){
       /* Dynamic name (not known at compile time): must be an exported fn; args are marshalled by JS type */
-      fn=window._wi.exports[name];
+      fn=window._wi.exports[_ncExport(window._wi,name)];
       for(var k=0;k<Math.min(arguments.length,fn.length);k++){
         var a=arguments[k];
         if(typeof a==='number')args.push(Number.isInteger(a)?BigInt(a):a);
@@ -7760,7 +7793,7 @@ function buildImportObject(imports,outputLog){
         obj[imp.module][imp.name]=function(namePtr){
           var name=_readStr(namePtr);
           var v;
-          try{v=window[name]}catch(e){v=null}
+          try{v=window[_ncProp(window,name)]}catch(e){if(e&&e._ncAmb){_jsErr(name,e);return 0n}v=null}
           if(v===undefined||v===null){_log(outputLog,'__jsGlobal['+name+']',['undefined']);return 0n}
           _log(outputLog,'__jsGlobal',[name]);
           return _handleFor(v);
@@ -7794,6 +7827,7 @@ function buildImportObject(imports,outputLog){
             _traceAdd(dbg);
           }catch(e){}
           _log(outputLog,'__jsCall',[name,'('+args.map(function(a){return typeof a==='object'?'[obj]':JSON.stringify(a)}).join(', ')+')']);
+          try{name=_ncProp(recv,name)}catch(e){_jsCallErr(name,_errMsg(e));return 0n}
           var fn=recv[name];
           if(typeof fn==='function'){
             /* plain call or construction: see _jsIsCtor / _jsInvoke */
@@ -7823,7 +7857,7 @@ function buildImportObject(imports,outputLog){
           var name=_readStr(namePtr);
           var recv=_handleGet(recvH);
           if(recv===null||recv===undefined){_jsErr('.'+name,'cannot read a property of null');return 0n}
-          try{return _js_returnWrap(recv[name])}catch(e){_jsErr('.'+name,e);return 0n}
+          try{return _js_returnWrap(recv[_ncProp(recv,name)])}catch(e){_jsErr('.'+name,e);return 0n}
         };
       }else if(imp.name==='__jsSet'){
         obj[imp.module][imp.name]=function(recvH,namePtr){
@@ -7833,7 +7867,7 @@ function buildImportObject(imports,outputLog){
           // Value was written into slot 0 of the arg buffer by the codegen
           var value=_readArg(0);
           _log(outputLog,'__jsSet',[name,'= '+(typeof value==='object'?'[obj]':JSON.stringify(value))]);
-          try{recv[name]=value}catch(e){_log(outputLog,'__jsSet ERROR',[name+': '+e.message]);_jsErr('.'+name+' = …',e)}
+          try{recv[_ncProp(recv,name)]=value}catch(e){_log(outputLog,'__jsSet ERROR',[name+': '+e.message]);_jsErr('.'+name+' = …',e)}
         };
       }else if(imp.name==='__jsNew'){
         obj[imp.module][imp.name]=function(recvH,namePtr,nArgs){
@@ -7842,7 +7876,7 @@ function buildImportObject(imports,outputLog){
           /* name "" means: the receiver itself is the constructor (new X(...)) */
           var label='new '+(name||(recv&&recv.name)||'?')+'()';
           if(recv===null||recv===undefined){_jsErr(label,'constructor is null/undefined');return 0n}
-          var Ctor=name===''?recv:recv[name];
+          var Ctor;try{Ctor=name===''?recv:recv[_ncProp(recv,name)]}catch(e){_jsErr(label,e);return 0n}
           if(typeof Ctor!=='function'){_jsErr(label,'is not a constructor');return 0n}
           var n=Number(nArgs);
           var args=[];
@@ -7888,7 +7922,7 @@ function buildImportObject(imports,outputLog){
             _traceAdd(dbg);
           }catch(e){}
           // Try to call the real JS function
-          var jsFn=window[impName];
+          var jsFn;try{jsFn=window[_ncProp(window,impName)]}catch(e){_jsErr(impName+'()',e);return(impNode?.returnType==='int'||impNode?.returnType==='js')?0n:0}
           if(typeof jsFn==='function'){
             var ret;
             try{
@@ -7992,7 +8026,17 @@ function _emitEnter(f,args,isAsync){
 // reported as a red line in the output. Any other function is called directly and returns its result.
 // Every call is one lifetime scope (see "LIFETIME"): what it creates is released when it has completed —
 // for an async function when its promise settles. top: the caller is certainly not nested in Emit code.
+// The export of `name`, whatever its case (Emit names are case-insensitive; the compiler declares the exports the
+// host calls — frame, onclick_N, ontimer_N, onhttp_N, onrecv_N — in lower case, so this only matters for others).
+function _ncExport(inst,name){
+  var E=inst&&inst.exports;
+  if(!E||typeof name!=='string'||typeof E[name]==='function')return name;
+  var k=name.toLowerCase(),ks=Object.keys(E);
+  for(var i=0;i<ks.length;i++)if(ks[i].toLowerCase()===k&&typeof E[ks[i]]==='function')return ks[i];
+  return name;
+}
 function _emitCallExport(inst,name,args,top){
+  name=_ncExport(inst,name);
   var f=inst&&inst.exports?inst.exports[name]:null;
   if(typeof f!=='function')throw new Error('there is no exported Emit function "'+name+'"');
   var sc=_scopeEnter(top),cur=_scCur;
@@ -8435,7 +8479,7 @@ var _SND_ORDER=['wave','len','atk','dec','sus','rel','vol','vib','lowpass','high
 function _sndDefaults(){return{wave:'square',f:440,f2:null,len:200,atk:5,dec:0,sus:1,rel:50,vol:0.5,vibD:0,vibR:0,lp:0,hp:0,arpM:0,arpT:0,curve:'lin'}}
 function _sndNum(s){return/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)?parseFloat(s):null}
 // "90ms" "90" "0.09s" → ms (null if not a time)
-function _sndTime(s){var m=/^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)?$/.exec(s);if(!m)return null;var v=parseFloat(m[1]);return m[2]==='s'?v*1000:v}
+function _sndTime(s){var m=/^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)?$/i.exec(s);if(!m)return null;var v=parseFloat(m[1]);return m[2]&&m[2].toLowerCase()==='s'?v*1000:v}
 function _sndHz(s){var m=/^((?:\d+\.?\d*|\.\d+))(hz)?$/i.exec(s);return m?parseFloat(m[1]):null}
 function _sndFmt(v,d){var s=(+(+v).toFixed(d)).toString();return s==='-0'?'0':s}
 // Split text into parts at commas / line breaks; `//` starts a comment to the end of the line.
@@ -8594,6 +8638,7 @@ function _sndFind(kind,name){
   name=String(name);
   var d=kind==='sound'?_sndDefs:_musDefs;
   if(Object.prototype.hasOwnProperty.call(d,name))return d[name];
+  var lk=name.toLowerCase();for(var dn in d)if(Object.prototype.hasOwnProperty.call(d,dn)&&dn.toLowerCase()===lk)return d[dn];   /* names are case-insensitive */
   if(typeof _sndResolve==='function'){try{return _sndResolve(kind,name)}catch(e){}}
   return null;
 }
@@ -8660,8 +8705,9 @@ function _musParse(body){
         else if(o==='mute')tr.mute=true;
         else{bad='Unknown "'+opts[i].w+'" in track '+tr.name+' — name, waveform (sine square saw triangle noise or drums), vol 0.6, mute';at=opts[i].off}
       }
-      if(!bad&&!tr.wave&&!tr.drums){if(tr.name==='drums')tr.drums=true;else{bad='Track '+tr.name+' needs a waveform (sine square saw triangle noise) or drums — '+tr.name+' square: C5 . E5 .';at=L.off}}
+      if(!bad&&!tr.wave&&!tr.drums){if(tr.name.toLowerCase()==='drums')tr.drums=true;else{bad='Track '+tr.name+' needs a waveform (sine square saw triangle noise) or drums — '+tr.name+' square: C5 . E5 .';at=L.off}}
       if(!bad&&names[tr.name]){bad='There are two tracks named '+tr.name+' in this music';at=L.off}
+      if(!bad&&names[' '+tr.name.toLowerCase()]){bad='Tracks '+names[' '+tr.name.toLowerCase()]+' and '+tr.name+' differ only by case — names are case-insensitive: rename one of them';at=L.off}
       var st=_sndWords({text:text.substring(c+1),off:L.off+c+1});
       for(var j=0;j<st.length&&!bad;j++){
         var t=st[j].w;
@@ -8680,7 +8726,7 @@ function _musParse(body){
         }
       }
       if(bad){errors.push({off:at,msg:bad});L.msg=bad;return}
-      names[tr.name]=true;L.ok=true;L.track=spec.tracks.length;L.stepsOff=st.length?st[st.length-1].off:L.off;
+      names[tr.name]=true;names[' '+tr.name.toLowerCase()]=tr.name;L.ok=true;L.track=spec.tracks.length;L.stepsOff=st.length?st[st.length-1].off:L.off;
       spec.tracks.push(tr);pending.push({tr:tr,steps:st});
     });
   }
@@ -8811,6 +8857,7 @@ function _sprMake(d){
   });
   var S={name:String(d.name),w:Math.max(1,d.w|0),h:Math.max(1,d.h|0),fps:Number(d.fps)>0?Number(d.fps):8,lut:pal,frames:[],byFrame:Object.create(null)};
   (d.frames||[]).forEach(function(f,i){S.frames.push({name:String(f.name||''),data:String(f.data||''),u32:null,cv:null});if(f.name&&!(f.name in S.byFrame))S.byFrame[f.name]=i});
+  S.byFrameCI=Object.create(null);S.frames.forEach(function(f,i){var k=f.name.toLowerCase();if(f.name&&!(k in S.byFrameCI))S.byFrameCI[k]=i});   /* names are case-insensitive */
   if(!S.frames.length)S.frames.push({name:'',data:'',u32:null,cv:null});
   return S;
 }
@@ -8828,11 +8875,14 @@ function _sprSetup(imports){
 }
 function _sprGet(s){
   if(typeof s==='number'||typeof s==='bigint')return _sprList[Number(s)]||null;
-  return(s!=null&&_sprByName[String(s)])||null;
+  if(s==null)return null;
+  var S=_sprByName[String(s)];if(S)return S;
+  var k=String(s).toLowerCase();for(var n in _sprByName)if(n.toLowerCase()===k)return _sprByName[n];   /* names are case-insensitive */
+  return null;
 }
 // frame (name or index) → index, or -1
 function _sprIx(S,f){
-  if(typeof f==='string'){var i=S.byFrame[f];return i===undefined?-1:i}
+  if(typeof f==='string'){var i=S.byFrame[f];if(i===undefined&&S.byFrameCI)i=S.byFrameCI[f.toLowerCase()];return i===undefined?-1:i}
   var n=Number(f);
   if(!(n>=0)||!isFinite(n))return -1;
   return Math.floor(n)%S.frames.length;
@@ -8921,7 +8971,7 @@ _emitExtraImport=(function(extra){return function(name){
     case'__sprFrame':return function(id,p){
       var S=_sprList[Number(id)],nm=_readStr(p);
       if(!S)return -1n;
-      var i=S.byFrame[nm];
+      var i=S.byFrame[nm];if(i===undefined&&S.byFrameCI)i=S.byFrameCI[String(nm).toLowerCase()];
       if(i===undefined){_sprWarn('sprite '+S.name+' has no frame "'+nm+'"');return -1n}
       return BigInt(i);
     };
@@ -8964,7 +9014,7 @@ function _stSetup(imports){
   _stIn.tx=0;_stIn.ty=0;_stIn.tp=null;_stIn.down={A:0,B:0,C:0};_stIn.edge={A:false,B:false,C:false};_stIn.kb={};_stIn.kbBtn={A:false,B:false,C:false};
   _stIn.tapX=0;_stIn.tapY=0;_stIn.tapping=false;_stIn.tapP=null;
 }
-function _stMapBy(name){for(var i=0;i<_stMaps.length;i++)if(_stMaps[i].name===name)return _stMaps[i];return null}
+function _stMapBy(name){for(var i=0;i<_stMaps.length;i++)if(_stMaps[i].name===name)return _stMaps[i];var k=String(name).toLowerCase();for(i=0;i<_stMaps.length;i++)if(String(_stMaps[i].name).toLowerCase()===k)return _stMaps[i];return null}   /* names are case-insensitive */
 function _stMapN(id,what){var m=_stMaps[Number(id)];if(!m)_stErr(what,'there is no map number '+String(id)+' in this program');return m||null}
 function _stTileOf(m,tx,ty){tx=Math.floor(tx);ty=Math.floor(ty);if(!m||!(tx>=0&&ty>=0&&tx<m.w&&ty<m.h))return'';return m.rows[ty][tx]}
 function _stSolidOf(m,px,py){
@@ -9125,18 +9175,18 @@ function _stImport(name){
       if(ch.length!==1||(ch[0]!==' '&&!m.legend[ch[0]]))return void _stErr('setTile','"'+ch.join('')+'" is not a tile of map '+m.name+' — use one of its legend characters: '+Object.keys(m.legend).join(' '));
       m.rows[y][x]=ch[0];
     };
-    case'objCount':return function(id,k){var m=_stMapN(id,'objCount'),kind=_readStr(Number(k)),n=0;if(m)m.objects.forEach(function(o){if(o.kind===kind)n++});return BigInt(n)};
+    case'objCount':return function(id,k){var m=_stMapN(id,'objCount'),kind=_readStr(Number(k)).toLowerCase(),n=0;if(m)m.objects.forEach(function(o){if(String(o.kind).toLowerCase()===kind)n++});return BigInt(n)};
     case'objX':case'objY':var ax=name==='objX'?'x':'y';return function(id,k,i){
       var m=_stMapN(id,'obj'+ax.toUpperCase());if(!m)return 0;
-      var kind=_readStr(Number(k)),list=m.objects.filter(function(o){return o.kind===kind}),o=list[Number(i)];
+      var kind=_readStr(Number(k)),list=m.objects.filter(function(o){return String(o.kind).toLowerCase()===kind.toLowerCase()}),o=list[Number(i)];
       if(!o){_stErr('obj'+ax.toUpperCase(),'map '+m.name+' has '+list.length+' "'+kind+'" object'+(list.length===1?'':'s')+' — there is no number '+String(i));return 0}
       return o[ax]*m.tile;
     };
     case'useControls':return function(id){var c=_stCtls[Number(id)];if(!c)return void _stErr('useControls','there are no controls number '+String(id)+' in this program');_stCtlShow(c)};
     case'stickX':return function(){return _stAxis().x};
     case'stickY':return function(){return _stAxis().y};
-    case'pressed':return function(p){var b=_readStr(Number(p));return _stBtnOn(b)?1:0};
-    case'justPressed':return function(p){var b=_readStr(Number(p)),v=!!_stIn.edge[b];if(!_animRunning)_stIn.edge[b]=false;return v?1:0};
+    case'pressed':return function(p){var b=_readStr(Number(p));if(/^[abc]$/.test(b))b=b.toUpperCase();return _stBtnOn(b)?1:0};   /* "a" = "A" */
+    case'justPressed':return function(p){var b=_readStr(Number(p));if(/^[abc]$/.test(b))b=b.toUpperCase();var v=!!_stIn.edge[b];if(!_animRunning)_stIn.edge[b]=false;return v?1:0};
   }
   return null;
 }
@@ -9305,7 +9355,7 @@ _emitExtraImport=(function(extra){return function(name){
     };
     case'__lgMapQ':return function(k){
       var K=_lgMeta&&_lgMeta.kinds[Number(k)];_lgMapList=[];
-      try{if(K&&K.map&&typeof _mapObjects==='function')_lgMapList=(_mapObjects(K.map)||[]).filter(function(o){return o&&o.kind===K.name})}catch(e){_lgMapList=[]}
+      try{if(K&&K.map&&typeof _mapObjects==='function')_lgMapList=(_mapObjects(K.map)||[]).filter(function(o){return o&&String(o.kind).toLowerCase()===String(K.name).toLowerCase()})}catch(e){_lgMapList=[]}
       if(K&&K.map&&typeof _mapInfo==='function'&&!_mapInfo(K.map))_lgNote('map:'+K.map,'thing '+K.name+': from map '+K.map+' — there is no map block '+K.map+' yet, so none are placed (make one with the Drawer\'s STAGE tool)');
       if(K&&K.map&&typeof _mapObjects!=='function')_lgNote('map:'+K.map,'thing '+K.name+': from map '+K.map+' — no map helper in this page, so none are placed (make maps with the Drawer\'s MAP tool)');
       return BigInt(_lgMapList.length);
@@ -14510,7 +14560,7 @@ _drawerRegister({id:'sprite',label:'Sprite',icon:'🎨',desc:'Paint pixel sprite
 //       slime 12,8 speed 0.5
 //   controls pad: stick left, buttons A "jump" B, size 1.0, opacity 0.5
 var _ST_KINDS={map:1,controls:1};
-var _ST_HEAD=/^(map|controls)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/;
+var _ST_HEAD=/^(map|controls)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/i;
 // The blocks of a source text: [{kind, name, line (0-based first line), end (0-based last line), lines:[text]}].
 // Only lines that start outside a comment or string count.
 function _stFindBlocks(src){
@@ -14544,11 +14594,11 @@ function _stParseMap(b){
   var M={kind:'map',name:b.name,w:0,h:0,tile:16,tileSet:false,legend:[],inline:false,rows:[],objects:[],keep:[],problems:[],headExtra:[],locs:{}};
   var base=b.line+1,L=b.lines;
   function P(line,col,msg){M.problems.push({line:line,col:col,msg:msg})}
-  var hm=/^map[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(L[0]);
+  var hm=/^map[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/i.exec(L[0]);
   M.locs.name={line:base,col:L[0].indexOf(b.name,3)+1};
   var items=_stSplit(L[0].slice(hm[0].length),hm[0].length+1,',');
   items.forEach(function(it,k){
-    var sm=/^(\d+)\s*x\s*(\d+)$/i.exec(it.text),tm=/^tile\s+(\S+)$/.exec(it.text);
+    var sm=/^(\d+)\s*x\s*(\d+)$/i.exec(it.text),tm=/^tile\s+(\S+)$/i.exec(it.text);
     if(k===0&&!sm){P(base,it.col,'Expected the size of map '+b.name+' first — map '+b.name+': 20x15, tile 16');if(!tm){M.headExtra.push(it.text);return}}
     if(sm&&k===0){M.w=+sm[1];M.h=+sm[2];M.locs.size={line:base,col:it.col};
       if(M.w<1||M.h<1||M.w>256||M.h>256)P(base,it.col,'The size of map '+b.name+' must be 1x1 to 256x256, not '+it.text)}
@@ -14571,9 +14621,9 @@ function _stParseMap(b){
       }else if(sec==='objects')object(txt,ln,ind+1,raw);
       continue;
     }
-    var wm=/^(legend|rows|objects)\b(.*)$/.exec(txt);
+    var wm=/^(legend|rows|objects)\b(.*)$/i.exec(txt);
     if(!wm){sec=null;P(ln,ind+1,'Unknown line in map '+b.name+' — expected legend, rows or objects');M.keep.push(raw);continue}
-    sec=wm[1];secInd=ind;
+    sec=wm[1].toLowerCase();secInd=ind;
     if(sec==='legend'){M.locs.legend={line:ln,col:ind+1};if(wm[2].trim()){M.inline=true;legend(wm[2],ln,ind+1+6)}}
     else if(sec==='rows'){M.locs.rows={line:ln,col:ind+1};if(wm[2].trim())P(ln,ind+6,'The rows of map '+b.name+' go on the lines below "rows", one quoted row per line')}
     else{M.locs.objects={line:ln,col:ind+1};if(wm[2].trim())P(ln,ind+9,'The objects of map '+b.name+' go on the lines below "objects", one per line — hero 2,3')}
@@ -14589,12 +14639,16 @@ function _stParseMap(b){
       if(dup)P(ln,ws[0].col,'"'+e.ch+'" is already in the legend of map '+b.name+' (as '+dup.name+') — every character stands for one tile');
       if(e.ch===' ')P(ln,ws[0].col,'A space is always an empty tile — it cannot be in the legend');
       if(!ws[1]||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ws[1].text))P(ln,ws[1]?ws[1].col:ws[0].col+1,'Expected a name after "'+e.ch+'" in the legend — '+e.ch+' wall solid #3a3a5c');
-      else e.name=ws[1].text;
+      else{
+        e.name=ws[1].text;
+        var cl=M.legend.filter(function(x){return x.name&&x.name!==e.name&&x.name.toLowerCase()===e.name.toLowerCase()})[0];   /* names are case-insensitive */
+        if(cl)P(ln,ws[1].col,'Legend names "'+e.name+'" and "'+cl.name+'" (line '+cl.line+') differ only by case — names are case-insensitive: rename one of them');
+      }
       for(var k=2;k<ws.length;k++){
         var w=ws[k].text;
-        if(w==='solid'){if(e.solid)P(ln,ws[k].col,'solid is written twice for "'+e.ch+'"');e.solid=true}
+        if(w.toLowerCase()==='solid'){if(e.solid)P(ln,ws[k].col,'solid is written twice for "'+e.ch+'"');e.solid=true}
         else if(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(w)){if(e.color)P(ln,ws[k].col,'"'+e.ch+'" has two colours');e.color=w}
-        else if(w==='sprite'){
+        else if(w.toLowerCase()==='sprite'){
           var sn=ws[k+1];
           if(!sn||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(sn.text))P(ln,sn?sn.col:ws[k].col+6,'Expected a sprite name after sprite — g grass sprite grass');
           else{e.sprite=sn.text;k++}
@@ -14643,13 +14697,13 @@ function _stParseControls(b){
   var C={kind:'controls',name:b.name,stick:'left',dpad:false,buttons:[],side:null,size:1,opacity:0.5,keys:true,deadzone:0.15,items:[],keep:[],problems:[],locs:{}};
   var base=b.line+1,L=b.lines,set={};
   function P(line,col,msg){C.problems.push({line:line,col:col,msg:msg})}
-  var hm=/^controls[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(L[0]);
+  var hm=/^controls[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/i.exec(L[0]);
   C.locs.name={line:base,col:L[0].indexOf(b.name,8)+1};
   var parts=[{s:L[0].slice(hm[0].length),line:base,col:hm[0].length+1}];
   for(var i=1;i<L.length;i++){if(!L[i].trim())continue;var ind=L[i].length-L[i].replace(/^[ \t]+/,'').length;if(/^\/\//.test(L[i].trim())){C.keep.push(L[i]);continue}parts.push({s:L[i].slice(ind),line:base+i,col:ind+1})}
   parts.forEach(function(p){
     _stSplit(p.s,p.col,',').forEach(function(it){
-      var ws=_stSplit(it.text,it.col,' '),k=ws[0].text,v=ws[1]?ws[1].text:null,ln=p.line;
+      var ws=_stSplit(it.text,it.col,' '),k=ws[0].text.toLowerCase(),v=ws[1]?(/^"/.test(ws[1].text)?ws[1].text:ws[1].text.toLowerCase()):null,ln=p.line;   /* settings and their words are case-insensitive */
       function once(){if(set[k])P(ln,it.col,k+' is set twice in controls '+b.name);set[k]=true}
       function num(lo,hi){var n=v===null?null:_stNum(v);if(n===null||n<lo||n>hi||ws.length>2){P(ln,ws[1]?ws[1].col:it.col+k.length+1,k+' must be a number from '+lo+' to '+hi+' — '+k+' '+(k==='size'?'1.0':k==='opacity'?'0.5':'0.15'));return null}return n}
       C.items.push({k:k,raw:it.text});
@@ -14660,9 +14714,9 @@ function _stParseControls(b){
       }else if(k==='buttons'){
         once();
         var j=1;
-        if(ws[1]&&(ws[1].text==='left'||ws[1].text==='right')){C.side=ws[1].text;j=2}
+        if(ws[1]&&(v==='left'||v==='right')){C.side=v;j=2}
         for(;j<ws.length;j++){
-          var id=ws[j].text;
+          var id=/^[abc]$/.test(ws[j].text)?ws[j].text.toUpperCase():ws[j].text;
           if(!/^[ABC]$/.test(id)){P(ln,ws[j].col,'Buttons are named A, B and C — buttons A "jump" B');return}
           if(C.buttons.some(function(x){return x.id===id})){P(ln,ws[j].col,'Button '+id+' is listed twice');return}
           var lab=null;
@@ -14732,7 +14786,7 @@ function _stFix(n){n=Math.round(Number(n)*100)/100;var s=String(n);return s.inde
   var tk0=Lexer.prototype.tokenize;
   Lexer.prototype.tokenize=function(){
     var src=this.s;
-    if(typeof src!=='string'||!/(^|\n)(map|controls)[ \t]/.test(src))return tk0.call(this);
+    if(typeof src!=='string'||!/(^|\n)(map|controls)[ \t]/i.test(src))return tk0.call(this);
     var bl=_stFindBlocks(src);
     if(!bl.length)return tk0.call(this);
     var L=src.split('\n');
@@ -14834,7 +14888,7 @@ function _stLower(ast){
         }
       }
     }
-    if(f.btn&&e.args[0]&&e.args[0].type==='StringLiteral'&&!/^[ABC]$/.test(e.args[0].value))fail(nm+'("'+e.args[0].value+'") — the buttons are "A", "B" and "C"',e.args[0].loc);
+    if(f.btn&&e.args[0]&&e.args[0].type==='StringLiteral'&&!/^[ABC]$/i.test(e.args[0].value))fail(nm+'("'+e.args[0].value+'") — the buttons are "A", "B" and "C"',e.args[0].loc);
     need.add(nm);
     if(nm==='drawMap'&&e.args.length===1)e.args.push(new FloatLiteral('0.0',e.loc),new FloatLiteral('0.0',e.loc));
   }
