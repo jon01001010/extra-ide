@@ -245,6 +245,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .drw-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:12px}
 .drw-ft{display:flex;flex-shrink:0;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:8px 12px;padding-bottom:calc(8px + var(--safe-b));border-top:1px solid var(--border);background:var(--bg2)}
 .drw-ft:empty{display:none}
+.drw:focus{outline:none}
 .drw-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .drw-card{display:flex;align-items:center;gap:12px;min-height:76px;width:100%;padding:12px 14px;text-align:left;color:var(--fg);background:var(--bg3);border:1px solid var(--border);border-radius:12px;cursor:pointer;font-family:var(--sans)}
 .drw-card:active{background:var(--bg4)}
@@ -288,7 +289,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .drw-sl{display:grid;grid-template-columns:minmax(64px,108px) minmax(0,1fr) 64px auto;align-items:center;gap:8px;min-height:44px}
 .drw-sl label{font-size:12px;color:var(--fg);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drw-sl input[type=range]{width:100%;min-width:0;height:40px;accent-color:var(--cyan);margin:0}
-.drw-num{width:64px;height:36px;padding:0 6px;font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;text-align:right}
+.drw-num{width:64px;height:40px;padding:0 6px;font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;text-align:right}
 .drw-unit{font-family:var(--mono);font-size:11px;color:var(--fg3);min-width:18px}
 .drw-code{font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-all;margin:0 0 6px}
 .drw-kept{margin:6px 0}
@@ -6208,7 +6209,7 @@ function _sndPitchAt(s,t,pm){
   if(s.arpM>0&&s.arpT>0&&s.arpT<len&&t>=s.arpT)v*=s.arpM;
   return v;
 }
-var _sndAC=null,_sndMaster=null,_sndUnlocked=false,_sndDefs={},_musDefs={},_sndResolve=null,_sndVoices=0;
+var _sndAC=null,_sndMaster=null,_sndUnlocked=false,_sndDefs={},_musDefs={},_sndResolve=null,_sndLive=[];
 function _sndCtx(){
   if(!_sndAC){
     var C=typeof window!=='undefined'&&(window.AudioContext||window.webkitAudioContext);
@@ -6255,7 +6256,6 @@ function _sndVoice(ac,dest,s,when,pitchMul,volMul){
   node.connect(g);g.connect(dest);
   src.start(t);src.stop(end+0.02);
   if(lfo){lfo.start(t);lfo.stop(end+0.02)}
-  _sndVoices++;src.onended=function(){_sndVoices--};
   return{src:src,gain:g,lfo:lfo,end:end+0.02};
 }
 // The first gesture: create / resume the AudioContext, start a music() that was asked for earlier.
@@ -6289,8 +6289,10 @@ function _sndFind(kind,name){
 function _sndPlay(name,pitchMul,volMul){
   var s=_sndFind('sound',name);if(!s)return false;
   var ac=_sndReady();if(!ac)return false;
-  if(_sndVoices>48)return false;   // a burst of sounds in one frame: drop the rest instead of distorting
-  try{_sndVoice(ac,_sndMaster,s,ac.currentTime+0.005,pitchMul,volMul);return true}catch(e){return false}
+  var now=ac.currentTime;
+  if(_sndLive.length>32)_sndLive=_sndLive.filter(function(e){return e>now});
+  if(_sndLive.length>32)return false;   // a burst of sounds (play() in a loop): drop the rest instead of distorting
+  try{_sndLive.push(_sndVoice(ac,_sndMaster,s,now+0.005,pitchMul,volMul).end);return true}catch(e){return false}
 }
 // ── music ──
 var _MUS_NOTE={C:0,D:2,E:4,F:5,G:7,A:9,B:11},_MUS_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -9671,10 +9673,10 @@ function _drawerEnsure(){
   var close=_drwEl('button',{cls:'drw-hb drw-x',title:'Close','aria-label':'Close the drawer',text:'✕',on:{click:function(){_drawerClose()}}});
   var body=_drwEl('div',{cls:'drw-body',id:'drawerBody'}),foot=_drwEl('div',{cls:'drw-ft',id:'drawerFoot'});
   var toast=_drwEl('div',{cls:'drw-toast',role:'status','aria-live':'polite'});
-  var panel=_drwEl('div',{cls:'drw',role:'dialog','aria-modal':'true','aria-labelledby':'drawerTitle'},[_drwEl('div',{cls:'drw-hd'},[back,title,close]),body,foot,toast]);
+  var panel=_drwEl('div',{cls:'drw',role:'dialog','aria-modal':'true','aria-labelledby':'drawerTitle',tabindex:'-1'},[_drwEl('div',{cls:'drw-hd'},[back,title,close]),body,foot,toast]);
   bg.appendChild(panel);
   bg.addEventListener('click',function(e){if(e.target===bg)_drawerClose()});
-  bg.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();_drawerClose()}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&_drawerIsOpen()){e.preventDefault();e.stopPropagation();_drawerClose()}},true);
   document.body.appendChild(bg);
   _drawer.el=bg;_drawer.body=body;_drawer.foot=foot;_drawer.title=title;_drawer.back=back;_drawer.toastEl=toast;_drawer.panel=panel;
   return bg;
@@ -9689,6 +9691,7 @@ function _drawerOpen(id){
   _drawer.el.classList.add('show');
   var t=id?_drawerFind(id):null;
   if(t)_drawerTool(t);else _drawerList();
+  try{if(!_drawer.panel.contains(document.activeElement))_drawer.panel.focus({preventScroll:true})}catch(e){}
   return true;
 }
 function _drawerList(){
@@ -9962,15 +9965,20 @@ function _sndWrite(name,spec,orig){
   function isDef(k){return k!=='wave'&&(_sndPartText(k,spec)===_sndPartText(k,d)||_sndPartText(k,spec)==='')}
   (orig?orig.parts:[]).forEach(function(p){
     if(p.key==='comment'){if(p.keep!==false)comments.push(p.text);return}
-    if(!p.ok){if(p.keep!==false)out.push(p.text);return}
+    if(!p.ok){if(p.keep!==false)out.push({k:null,t:p.text});return}
     done[p.key]=true;
     var now=_sndPartText(p.key,spec);
-    if(now===_sndPartText(p.key,orig.spec))out.push(p.text);
-    else if(!isDef(p.key))out.push(now);
+    if(now===_sndPartText(p.key,orig.spec))out.push({k:p.key,t:p.text});
+    else if(!isDef(p.key))out.push({k:p.key,t:now});
   });
-  if(!done.wave)out.unshift(_sndPartText('wave',spec));
-  _SND_ORDER.forEach(function(k){if(!done[k]&&k!=='wave'&&!isDef(k))out.push(_sndPartText(k,spec))});
-  return'sound '+name+': '+out.join(', ')+(comments.length?' '+comments.join(' '):'');
+  if(!done.wave)out.unshift({k:'wave',t:_sndPartText('wave',spec)});
+  // a part that is new goes after the last part that comes before it in the usual order
+  _SND_ORDER.forEach(function(k,ki){
+    if(done[k]||k==='wave'||isDef(k))return;
+    var at=0;for(var i=0;i<out.length;i++)if(out[i].k&&_SND_ORDER.indexOf(out[i].k)<ki)at=i+1;
+    out.splice(at,0,{k:k,t:_sndPartText(k,spec)});
+  });
+  return'sound '+name+': '+out.map(function(x){return x.t}).join(', ')+(comments.length?' '+comments.join(' '):'');
 }
 function _musCellText(tr,c){
   if(tr.drums)return c?c:'.';
@@ -9989,7 +9997,7 @@ function _musWrite(name,spec,orig){
   (orig?orig.head:[]).forEach(function(p){
     if(!p.ok||p.key==='comment'){if(p.keep!==false&&p.key!=='comment')head.push(p.text);return}
     done[p.key]=true;var now=_musHeadText(p.key,spec);
-    if(now===_musHeadText(p.key,orig.spec))head.push(p.text);else if(now)head.push(now);
+    if(now===_musHeadText(p.key,orig.was||orig.spec))head.push(p.text);else if(now)head.push(now);
   });
   ['bpm','steps','swing'].forEach(function(k){if(!done[k]){var t=_musHeadText(k,spec);if(t)head.push(t)}});
   var hc=(orig?orig.head:[]).filter(function(p){return p.key==='comment'&&p.keep!==false}).map(function(p){return p.text});
@@ -10005,10 +10013,11 @@ function _musWrite(name,spec,orig){
   return'music '+name+': '+head.join(', ')+(hc.length?' '+hc.join(' '):'')+lines.map(function(l){return'\n  '+l}).join('');
 }
 // Reads a block for a tool: {name, spec, orig, text}
-function _sndRead(b){var r=_sndParse(_drawerBody(b.text,'sound'));return{name:b.name,origName:b.name,spec:_sndQ(r.spec),orig:r,text:b.text,path:b.path,dirty:false}}
+function _sndRead(b){var r=_sndParse(_drawerBody(b.text,'sound'));return{name:b.name,origName:b.name,spec:_sndQ(JSON.parse(JSON.stringify(r.spec))),orig:r,text:b.text,path:b.path,dirty:false}}
 function _musRead(b){
   var r=_musParse(_drawerBody(b.text,'music'));
   r.canon=r.spec.tracks.map(_musTrackText);
+  r.was={bpm:r.spec.bpm,steps:r.spec.steps,swing:r.spec.swing};   // the tool edits r.spec itself (its tracks keep their identity)
   return{name:b.name,origName:b.name,spec:r.spec,orig:r,text:b.text,path:b.path,dirty:false};
 }
 // ── Sound tool ──
