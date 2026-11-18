@@ -24,10 +24,11 @@
 //   guard programs   every value stored in globals / Emit arrays / JS objects reads back correctly
 //   string-exhaustion  a single call that keeps more than 32 MB of strings in use gets one red error line
 //                    and "" — no string a global points to is overwritten — and the program carries on
-//   await programs   values held across an await in locals, globals, arr variables and JS objects read back
-//                    correctly although collections ran while the call was suspended; an await loop that is
-//                    a statement in an entry function stays bounded; one inside a helper function is NOT
-//                    bounded (kind 'grows': measured and printed, only correctness is asserted)
+//   await programs   values held across an await in locals, on the operand stack (awaits inside expressions),
+//                    globals, arr variables and JS objects read back correctly although collections ran while
+//                    the call was suspended; await loops at any call depth (helpers 1–3 calls deep, recursion,
+//                    try/catch/finally, two suspended calls at once, async callbacks called from a frame) stay
+//                    bounded, and the runtime reports the suspended calls as parked
 //   Output tab       the number of nodes stays bounded (trace lines are capped), program output is kept
 //   scope API        _scopeEnter/_scopeExit/_scopeRun: nested and suspended invocations keep their handles,
 //                    a released handle id reads as null with one warning line (never as another object)
@@ -489,9 +490,9 @@ fn doCheck() {
   printStr(label)
 }`, guard: f => { const h = Math.floor(f / 500) * 500 + 1; return ['> ' + (f + 1), '> 0', '> ' + h, '> held ' + h]; } },
 
-  // (l) the same loop inside a helper function: the suspended stack is run() + loop(), which the runtime
-  //     cannot see, so nothing the call creates is released until it ends. Measured, not bounded.
-  { name: 'await-loop-in-helper', kind: 'grows', drive: 'gate', parked: 0, src: `
+  // (l) the same loop inside a helper function: the suspended stack is run() + loop(); both frames are on the
+  //     shadow stack, so the call is parked and what each iteration drops is released
+  { name: 'await-loop-in-helper', kind: 'steady', drive: 'gate', parked: 1, src: `
 mut n = 0
 mut bad = 0
 fn loop() {
@@ -524,6 +525,391 @@ fn doCheck() {
   print(n)
   print(bad)
 }`, guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // ── await at any depth (the shadow stack): every shape below is driven like (k) — iterations granted through
+  //    memLib.gate(), and between batches churn() replaces the globals and makes garbage, so full collections run
+  //    while the loop is suspended. Values held only in locals and on the operand stack must read back intact,
+  //    and live handles / strings / arrays must stay bounded. ──
+  // (p) the loop two calls deep: run() → outer() → loop(); every frame holds handles, strings and arrays (and
+  //     js objects inside an array) that only it holds; loop() returns every 50 iterations and outer() checks its own
+  { name: 'await-loop-depth-2', kind: 'steady', drive: 'gate', parked: 1, src: `
+mut n = 0
+mut bad = 0
+mut box: js = null
+fn loop(tagBase: int, keepO: js, keepS: str) int {
+  let mine = memLib.tagged(tagBase)
+  let mineS = "loop " + intToStr(tagBase)
+  let ring = [0, 0, 0]
+  let k = 0
+  while (k < 50) {
+    k++
+    n++
+    let o = memLib.tagged(n)
+    let s = "i" + intToStr(n)
+    let xs = [n, n + 1]
+    let objs = newArray(2)
+    objs[0] = o
+    objs[1] = memLib.tagged(n + 1)
+    let junk = memLib.fresh()
+    let junkStr: str = memLib.big(100)
+    box = memLib.tagged(n + 7)
+    ring[n % 3] = n
+    let g: int = await memLib.gate()
+    let t: int = o.tag
+    if (t != n) { bad++ }
+    if (!strEq(s, "i" + intToStr(n))) { bad++ }
+    if (xs[1] != n + 1) { bad++ }
+    if (ring[n % 3] != n) { bad++ }
+    if (g != n) { bad++ }
+    let o0: js = objs[0]
+    let t0: int = o0.tag
+    if (t0 != n) { bad++ }
+    let o1: js = objs[1]
+    let t1: int = o1.tag
+    if (t1 != n + 1) { bad++ }
+    let mt: int = mine.tag
+    if (mt != tagBase) { bad++ }
+    if (!strEq(mineS, "loop 41")) { bad++ }
+    let kt: int = keepO.tag
+    if (kt != 40) { bad++ }
+    if (!strEq(keepS, "outer 40")) { bad++ }
+  }
+  return k
+}
+fn outer() {
+  let o = memLib.tagged(40)
+  let s = "outer " + intToStr(40)
+  let mineO = memLib.tagged(42)
+  let mineS = "only outer " + intToStr(42)
+  let xs = [40, 41]
+  let objs = newArray(1)
+  objs[0] = memLib.tagged(43)
+  while (true) {
+    let r = loop(41, o, s)
+    if (r != 50) { bad++ }
+    let t: int = mineO.tag
+    if (t != 42) { bad++ }
+    if (!strEq(mineS, "only outer 42")) { bad++ }
+    if (xs[1] != 41) { bad++ }
+    let a0: js = objs[0]
+    let t0: int = a0.tag
+    if (t0 != 43) { bad++ }
+  }
+}
+export fn run() {
+  let top = memLib.tagged(1)
+  outer()
+  let t: int = top.tag
+  print(t)
+}
+export fn churn() {
+  box = memLib.tagged(-1)
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    let s = "churn " + intToStr(i)
+    let a = [i, i]
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+}`, guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // (q) three calls deep, and awaits inside expressions: the values evaluated before an await (a global read,
+  //     a function result) are on the operand stack while the call is suspended; churn() replaces the globals
+  { name: 'await-loop-depth-3-expr', kind: 'steady', drive: 'gate', parked: 1, src: `
+mut n = 0
+mut bad = 0
+mut box: js = null
+mut lab: str = ""
+mut arrG: arr = 0
+fn tagOf(o: js) int {
+  let t: int = o.tag
+  return t
+}
+fn triple(a: js, s: str, xs: arr, b: js) int {
+  let x: int = a.tag
+  let y: int = b
+  if (!strEq(s, "L" + intToStr(x))) { return -1 }
+  if (xs[0] != x * 3) { return -2 }
+  return x * 1000 + y
+}
+fn cat(a: str, b: js) str {
+  let t: int = b
+  return a + "/" + intToStr(t)
+}
+fn first(xs: arr, b: js) int {
+  let t: int = b
+  return xs[0] + t
+}
+fn f(a: int, b: js) int {
+  let t: int = b
+  return a + t
+}
+fn g(o: js) int {
+  let t: int = o.tag
+  return t
+}
+fn step() {
+  n++
+  box = memLib.tagged(n)
+  lab = "L" + intToStr(n)
+  arrG = [n * 3, 0]
+  // the global values are only on the operand stack while the call waits; churn() replaces them meanwhile
+  let p = triple(box, lab, arrG, await memLib.gate())
+  if (p != n * 1000 + n) { bad++ }
+  let c = cat("pre" + intToStr(n), await memLib.tick(n))
+  if (!strEq(c, "pre" + intToStr(n) + "/" + intToStr(n))) { bad++ }
+  let fx = first([n * 3, 0], await memLib.tick(1))
+  if (fx != n * 3 + 1) { bad++ }
+  // let x = f(g(await p), await q)
+  let x = f(g(await memLib.tick(memLib.tagged(n))), await memLib.tick(5))
+  if (x != n + 5) { bad++ }
+  // a string concatenation whose left side waits on the stack, and an async call inside an expression
+  let s = "s" + intToStr(n) + ":" + intToStr(tagOf(await memLib.tick(memLib.tagged(n + 2))))
+  if (!strEq(s, "s" + intToStr(n) + ":" + intToStr(n + 2))) { bad++ }
+  let y = tagOf(memLib.tagged(n)) + depthTwo(memLib.tagged(n))
+  if (y != n + n + 1) { bad++ }
+}
+fn depthTwo(o: js) int {
+  let t: int = await memLib.tick(o.tag)
+  return t + 1
+}
+fn middle() {
+  let keep = memLib.tagged(-5)
+  while (true) {
+    step()
+    let k: int = keep.tag
+    if (k != -5) { bad++ }
+  }
+}
+export fn run() {
+  middle()
+}
+export fn churn() {
+  box = memLib.tagged(-1)
+  lab = "churned"
+  arrG = [-1, -1]
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    let s = "churn " + intToStr(i)
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+}`, guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // (r) try / catch / finally around awaits; an error thrown in a called function after its await and caught
+  //     by the caller; a rejected await caught; values held across all of them
+  { name: 'await-try-finally', kind: 'steady', drive: 'gate', parked: 1, src: `
+mut n = 0
+mut bad = 0
+mut caught = 0
+mut fin = 0
+fn thrower(k: int) int {
+  let mine = memLib.tagged(k)
+  await memLib.gate()
+  let t: int = mine.tag
+  if (t != k) { bad++ }
+  throw "boom " + intToStr(k)
+  return 0
+}
+fn loop() {
+  while (true) {
+    n++
+    let o = memLib.tagged(n)
+    let s = "t" + intToStr(n)
+    let xs = [n, n]
+    try {
+      let r = thrower(n)
+      bad++
+    } catch (e) {
+      let m: str = e.message
+      if (strEq(m, "boom " + intToStr(n))) { caught++ } else { bad++ }
+    }
+    try {
+      await memLib.fail(n)
+      bad++
+    } catch (e) {
+      let m: str = e.message
+      if (!strEq(m, "fail " + intToStr(n))) { bad++ }
+    } finally {
+      fin++
+    }
+    let t: int = o.tag
+    if (t != n) { bad++ }
+    if (!strEq(s, "t" + intToStr(n))) { bad++ }
+    if (xs[1] != n) { bad++ }
+  }
+}
+export fn run() {
+  loop()
+}
+export fn churn() {
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+  print(caught)
+  print(fin)
+}`, guard: f => ['> ' + (f + 1), '> 0', '> ' + f, '> ' + f] },
+
+  // (s) recursion with awaits: ten frames of the same function, each holding its own values
+  { name: 'await-recursion', kind: 'steady', drive: 'gate', parked: 1, src: `
+mut n = 0
+mut bad = 0
+fn rec(d: int, o: js, s: str) int {
+  let mine = memLib.tagged(d)
+  let mineS = "d" + intToStr(d)
+  let xs = [d, d]
+  let r = 0
+  if (d == 0) {
+    n++
+    let junk = memLib.fresh()
+    r = await memLib.gate()
+  } else {
+    r = rec(d - 1, memLib.tagged(d * 100), "s" + intToStr(d))
+  }
+  let t: int = mine.tag
+  if (t != d) { bad++ }
+  if (!strEq(mineS, "d" + intToStr(d))) { bad++ }
+  if (xs[1] != d) { bad++ }
+  let ot: int = o.tag
+  if (ot != (d + 1) * 100) { bad++ }
+  if (!strEq(s, "s" + intToStr(d + 1))) { bad++ }
+  return r
+}
+export fn run() {
+  while (true) {
+    let r = rec(9, memLib.tagged(1000), "s10")
+    if (r != n) { bad++ }
+  }
+}
+export fn churn() {
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+}`, guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // (t) two suspended invocations at once, each holding different values: second() waits in a long sleep
+  //     (ended by the test at the end) while run()'s helper loop goes on
+  { name: 'await-two-invocations', kind: 'steady', drive: 'gate', parked: 2, src: `
+mut n = 0
+mut bad = 0
+fn loop(o: js) {
+  while (true) {
+    n++
+    let mine = memLib.tagged(n)
+    let s = "r" + intToStr(n)
+    await memLib.gate()
+    let t: int = mine.tag
+    if (t != n) { bad++ }
+    if (!strEq(s, "r" + intToStr(n))) { bad++ }
+    let ot: int = o.tag
+    if (ot != 11) { bad++ }
+  }
+}
+export fn run() {
+  loop(memLib.tagged(11))
+}
+fn waitLong(o: js, s: str, xs: arr) {
+  let mine = memLib.tagged(22)
+  await sleep(1000000)
+  let t: int = o.tag
+  print(t)
+  printStr(s)
+  print(xs[1])
+  let mt: int = mine.tag
+  print(mt)
+}
+export fn second() {
+  let objs = newArray(1)
+  objs[0] = memLib.tagged(33)
+  waitLong(memLib.tagged(21), "second " + intToStr(2), [5, 6])
+  let o: js = objs[0]
+  let t: int = o.tag
+  print(t)
+}
+export fn churn() {
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+}`, finish: ['> 21', '> second 2', '> 6', '> 22', '> 33'], guard: f => ['> ' + (f + 1), '> 0'] },
+
+  // (u) an async callback called from a frame: frame() hands memLib.each two callbacks that await; they are
+  //     suspended while frame() ends and later frames collect
+  { name: 'await-callback-from-frame', kind: 'steady', src: `
+mut n = 0
+mut bad = 0
+mut done = 0
+fn onItem(o: js) {
+  let mine = memLib.tagged(n)
+  let my = n
+  let s = "cb" + intToStr(n)
+  let xs = [n, n]
+  let k: int = o.n
+  let back = await memLib.tick(o)
+  let t: int = mine.tag
+  if (t != my) { bad++ }
+  if (!strEq(s, "cb" + intToStr(my))) { bad++ }
+  if (xs[1] != my) { bad++ }
+  let k2: int = back.n
+  if (k2 != k) { bad++ }
+  done++
+}
+export fn run() {
+  animate()
+}
+export fn frame() {
+  n++
+  let junk = memLib.fresh()
+  memLib.each(fnRef(onItem))
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+  print(done)
+}`, guard: f => ['> ' + f, '> 0', '> ' + 2 * f] },
 
   // (m) a button handler that awaits, clicked many times while run() is suspended in a long `await sleep`
   { name: 'await-button-during-sleep', kind: 'steady', drive: 'clicks', parked: 1, src: `
