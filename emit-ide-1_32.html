@@ -13741,7 +13741,7 @@ function _stageOpen(ctx){
   var S={M:null,name:null,tool:'pencil',brush:null,kind:'coin',zoom:1,panX:0,panY:0,undo:[],redo:[],dirty:false,stroke:null,gest:null,preview:null,objSel:-1};
   var root=_stEl('div','stg');root.setAttribute('data-stage-tool','');
   ctx.body.innerHTML='';ctx.body.appendChild(root);
-  try{ctx.title('STAGE — maps')}catch(e){}
+  try{ctx.title('Stage — maps')}catch(e){}
   // ── header: which map, its name, size, tile ──
   var r1=_stEl('div','stg-row'),pick=_stEl('select'),nameIn=_stEl('input'),wIn=_stEl('input'),hIn=_stEl('input'),tIn=_stEl('input');
   pick.setAttribute('data-stg','pick');nameIn.setAttribute('data-stg','name');nameIn.style.width='110px';nameIn.spellcheck=false;
@@ -13775,7 +13775,7 @@ function _stageOpen(ctx){
   var tryPanel=_stEl('div','stg-panel');tryPanel.style.display='none';tryPanel.setAttribute('data-stg','trypanel');
   root.append(r1,r2,r3,lgPanel,r4,view,propPanel,tryPanel,msg);
   var save=_stBtn('Save',function(){doSave()},'write the map block into the program');save.setAttribute('data-stg','save');
-  if(ctx.footer){ctx.footer.innerHTML='';ctx.footer.appendChild(save)}else root.appendChild(save);
+  if(ctx.footer){ctx.footer.innerHTML='';save.style.background='linear-gradient(135deg,var(--cyan),var(--blue))';save.style.color='var(--bg)';save.style.border='none';save.style.fontWeight='700';ctx.footer.appendChild(save)}else root.appendChild(save);
   // ── model helpers ──
   function M(){return S.M}
   function eraser(){var e=M().legend.filter(function(x){return x.ch&&!x.solid})[0];return e?e.ch:' '}
@@ -14169,7 +14169,7 @@ function _ctlToolOpen(ctx){
   var st={tx:0,ty:0,tp:null,down:{A:0,B:0,C:0},edge:{A:false,B:false,C:false}};
   var root=_stEl('div','stg');root.setAttribute('data-controls-tool','');
   ctx.body.innerHTML='';ctx.body.appendChild(root);
-  try{ctx.title('CONTROLS — on-screen stick and buttons')}catch(e){}
+  try{ctx.title('Controls — on-screen stick and buttons')}catch(e){}
   var r1=_stEl('div','stg-row'),pick=_stEl('select'),nameIn=_stEl('input');pick.setAttribute('data-ctl-f','pick');nameIn.setAttribute('data-ctl-f','name');nameIn.style.width='110px';
   r1.append(pick,nameIn);
   var r2=_stEl('div','stg-row'),kindB={};
@@ -14193,7 +14193,7 @@ function _ctlToolOpen(ctx){
   var msg=_stEl('div','stg-msg');
   root.append(r1,r2,r3,labels,r4,phone,r5,read,msg);
   var save=_stBtn('Save',function(){doSave()});save.setAttribute('data-ctl-f','save');
-  if(ctx.footer){ctx.footer.innerHTML='';ctx.footer.appendChild(save)}else root.appendChild(save);
+  if(ctx.footer){ctx.footer.innerHTML='';save.style.background='linear-gradient(135deg,var(--cyan),var(--blue))';save.style.color='var(--bg)';save.style.border='none';save.style.fontWeight='700';ctx.footer.appendChild(save)}else root.appendChild(save);
   function toast(t){try{ctx.toast(t)}catch(e){}}
   function names(){try{return(ctx.blocks('controls')||[]).map(function(b){return b.name})}catch(e){return[]}}
   function change(){S.dirty=true;try{ctx.setDirty(true)}catch(e){}}
@@ -14265,8 +14265,8 @@ function _ctlToolOpen(ctx){
   root._ctl=S;root._ctlApi={open:open,save:doSave,text:function(){return _stWriteControls(S.C)},state:st};
   return root;
 }
-_drawerRegister({id:'stage',label:'STAGE',icon:'🗺',desc:'Paint tile maps — legend, rows and objects of a map block; try walking them',open:_stageOpen});
-_drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stick and buttons for phones — writes a controls block',open:_ctlToolOpen});
+_drawerRegister({id:'stage',label:'Stage',icon:'🗺',desc:'Paint tile maps — legend, rows and objects of a map block; try walking them',open:_stageOpen});
+_drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stick and buttons for phones — writes a controls block',open:_ctlToolOpen});
 </script>
 <script>
 // ═══ LOGIC tool (Drawer) ═══ builds `thing` and `rules:` blocks with forms and menus. Two tabs: THINGS (one
@@ -14441,7 +14441,7 @@ _drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stic
   function open(ctx){
     var S={tab:'things',things:[],removed:[],rules:[],rulesDirty:false,rulesExisted:false,sel:0,errs:{},msg:''};
     var body=ctx.body,timer=null;
-    ctx.title('LOGIC — things & rules');
+    ctx.title('Logic — things & rules');
     function blocksOf(kind){try{return names(ctx.blocks(kind))}catch(e){return[]}}
     function blockFile(kind){try{var b=(ctx.blocks(kind)||[])[0];return b&&typeof b==='object'&&(b.path||b.file)?(b.path||b.file):null}catch(e){return null}}   /* CORE's blocks carry `path` */
     // load
@@ -14843,7 +14843,7 @@ _drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stic
     '.lg-status.bad{color:var(--red,#fb7185)}',
     '.lg-spr{width:32px;height:32px;border:1px solid var(--bg5,#282d3e);border-radius:4px;image-rendering:pixelated}'
   ].join('\n');
-  _drawerRegister({id:'logic',label:'LOGIC',icon:'🧩',desc:'Things (game objects) and rules: what happens when',open:open});
+  _drawerRegister({id:'logic',label:'Logic',icon:'🧩',desc:'Things (game objects) and rules: what happens when',open:open});
 })();
 </script>
 <script>

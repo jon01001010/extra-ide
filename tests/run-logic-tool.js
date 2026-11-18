@@ -71,7 +71,7 @@ const FILE = path.resolve(process.argv[2] && /\.html$/.test(process.argv[2]) ? p
     const page = await open(browser, DESK);
     // (changed by the merge: the real drawer lists every part's tools; LOGIC's icon is 🧩, 🎮 is CONTROLS')
     const reg = await page.evaluate(() => _drawerToolList().filter(t => t.id === 'logic').map(t => [t.id, t.label, t.icon, typeof t.open]));
-    check('registers with the drawer (id, label, icon, open)', JSON.stringify(reg) === JSON.stringify([['logic', 'LOGIC', '🧩', 'function']]), JSON.stringify(reg));
+    check('registers with the drawer (id, label, icon, open)', JSON.stringify(reg) === JSON.stringify([['logic', 'Logic', '🧩', 'function']]), JSON.stringify(reg));
     await tool(page);
     check('opens on THINGS with a hint when there are no things', await page.isVisible('.lg-tab.on[data-tab="things"]') && /No things yet/.test(await page.textContent('#drawerBody')));
     // hero
