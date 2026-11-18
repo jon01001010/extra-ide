@@ -9,7 +9,8 @@
 //     the element to tap or the drawer's Save bar; buttons ≥ 40 px; no horizontal overflow.
 //   DESKTOP: started from Help; every step done with "Do it for me" (check fails before, passes after);
 //     a floating card that avoids the target and the drawer's header and footer; the drawer card; Escape.
-//   SKIPPING: "Do it for me" on the Rules step of an empty project does every step it needs.
+//   SKIPPING: "Do it for me" on the Rules step of an empty project does every step it needs; with a simulated
+//     on-screen keyboard (a stubbed 400 px visualViewport) the panel shrinks into the visible part.
 //   NO STORAGE: localStorage throws (as on content://): no errors, the tutorial just restarts.
 //   THE GAME: the final project compiles, runs, the keys move the hero, a coin pickup adds to the score.
 // Offline: every network request is aborted. AudioContext is replaced by tests/fake-audio.js (a recorder).
@@ -483,7 +484,16 @@ async function gameChecks(page, T) {
   {
     const T = '[skip] ';
     page = await openIde(browser, fileUrl, PHONE);
-    await page.evaluate(() => { closeWelcome(); _tutStart(); _projLoad(_tut.START); _tut.go(8); });
+    await page.evaluate(() => { closeWelcome(); _tutStart(); _projLoad(_tut.START); _tut.go(2); _drawerOpen('sprite'); });
+    // the on-screen keyboard (simulated: the visual viewport shrinks to 400 px while the name box has the focus)
+    await page.focus('#drawer .spt input[aria-label="Sprite name"]');
+    await page.evaluate(() => Object.defineProperty(window, 'visualViewport', { configurable: true, value: { offsetLeft: 0, offsetTop: 0, width: 360, height: 400, addEventListener() {} } }));
+    await page.waitForTimeout(200);
+    await settle(page);
+    g = await geo(page);
+    r = await page.evaluate(() => { const b = document.querySelector('#drawer .spt input[aria-label="Sprite name"]').getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; });
+    check(T + 'keyboard up (simulated): the panel is a strip or pill inside the visible 400 px, clear of the focused field and the drawer header', (g.mode === 'mini' || g.mode === 'pill') && g.coach.b <= 400.5 && !over(g.coach, r) && !over(g.coach, g.head), JSON.stringify([g.mode, g.coach, r]));
+    await page.evaluate(() => { delete window.visualViewport; document.activeElement.blur(); _drawerClose(); _tut.go(8); });
     await settle(page);
     s = await S(page);
     check(T + 'step 9 on a new project fails', s.i === 8 && !s.ok, JSON.stringify(s));
