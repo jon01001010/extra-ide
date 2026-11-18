@@ -450,7 +450,7 @@ const SNAPSHOT = ([rootSel, ideChrome]) => {
     for (const c of el.children) {
       const tag = c.tagName;
       if (/^(SCRIPT|STYLE|CANVAS|BUTTON|INPUT)$/.test(tag) || !shown(c)) continue;
-      if (ideChrome && (c.classList.contains('output') || c.classList.contains('run-result'))) continue;
+      if (ideChrome && (c.classList.contains('output') || c.classList.contains('run-result') || c.classList.contains('tl-bar'))) continue;   // tl-bar: the IDE's Timeline
       if (c.querySelector('canvas,button,input')) { walk(c); continue; }
       for (let t of c.innerText.split('\n')) {
         // Printed lines carry a "> " prefix in the IDE only; an export must show the bare text. So the prefix is
@@ -469,8 +469,8 @@ const SNAPSHOT = ([rootSel, ideChrome]) => {
   walk(root);
   return {
     lines,
-    buttons: [...root.querySelectorAll('button')].filter(shown).map(b => b.textContent.trim()),
-    inputs: [...root.querySelectorAll('input')].filter(shown).length,
+    buttons: [...root.querySelectorAll('button')].filter(b => shown(b) && !b.closest('.tl-bar')).map(b => b.textContent.trim()),
+    inputs: [...root.querySelectorAll('input')].filter(i => shown(i) && !i.closest('.tl-bar')).length,
     canvases: [...root.querySelectorAll('canvas')].filter(shown).map(c => c.width + 'x' + c.height),
     text: (root.innerText || '').slice(0, 4000),
   };
@@ -543,8 +543,8 @@ async function observe(t, rootSel, ideChrome, c) {
   const before = await settle(t.page, rootSel, ideChrome);
   await t.page.evaluate(sel => {
     const root = document.querySelector(sel) || document.body;
-    root.querySelectorAll('input').forEach(i => { i.value = 'hello'; i.dispatchEvent(new Event('input', { bubbles: true })); });
-    root.querySelectorAll('button').forEach(b => b.click());
+    root.querySelectorAll('input').forEach(i => { if (i.closest('.tl-bar')) return; i.value = 'hello'; i.dispatchEvent(new Event('input', { bubbles: true })); });   // not the IDE's Timeline bar
+    root.querySelectorAll('button').forEach(b => { if (!b.closest('.tl-bar')) b.click(); });
   }, rootSel);
   if (c.drive) await c.drive(t.page);
   const after = await settle(t.page, rootSel, ideChrome);
