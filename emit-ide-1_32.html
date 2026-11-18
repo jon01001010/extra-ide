@@ -7540,10 +7540,11 @@ if(typeof window!=='undefined')window._emitCallExport=_emitCallExport; /* the ex
 // the SP of the moment; when its synchronous part returns — suspended, finished or failed — SP is put back.
 // A synchronous call has no invocation (an await reached in it cannot suspend, and must not park the caller).
 _emitEnter=(function(enter){return function(f,args,isAsync){
-  if(!_ssOn())return enter.apply(this,arguments);
+  var m=_wasmMem;
+  if(!(m&&m._emitSS===true)&&!_ssOn())return enter(f,args,isAsync);
   var prev=_ssInv,s0=_ssSP();
   _ssInv=isAsync?{ss0:s0,sc:_scCur,bytes:null,len:0,bad:false}:null;
-  try{return enter.apply(this,arguments)}
+  try{return enter(f,args,isAsync)}
   finally{_ssInv=prev;_ssSP(s0)}
 }})(_emitEnter);
 // The IDE and the export boot publish the instance in window._wi only after the entry functions have been

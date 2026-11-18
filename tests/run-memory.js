@@ -1329,6 +1329,62 @@ async function bench(browser, fileUrl) {
   return res;
 }
 
+// Micro-benchmark of the shadow stack: calls of an async function that does not wait (the spill before each
+// call and the pop after it), and awaits that do wait (spill + the runtime's copy-out / put-back and
+// collections), each with the shadow stack and with the module left as the compiler made it (no "__emitSS").
+const AWAIT_BENCH_SRC = `
+fn inc(x: int, o: js, s: str) int {
+  if (x < 0) { await sleep(1) }
+  return x + 1
+}
+export fn calls(n: int) int {
+  let o = emptyObj()
+  let s = "x" + intToStr(n)
+  let acc = 0
+  for (let i = 0; i < n; i++) { acc = inc(acc, o, s) }
+  return acc
+}
+export fn awaits(n: int) int {
+  let o = emptyObj()
+  let acc = 0
+  for (let i = 0; i < n; i++) {
+    let junk = memLib.fresh()
+    let v: int = await memLib.tick(i)
+    acc += 1
+  }
+  return acc
+}`;
+async function benchAwait(browser, fileUrl) {
+  const res = {};
+  for (const mode of ['shadow stack', 'none']) {
+    const page = await browser.newPage();
+    await page.addInitScript(MEM_LIB);
+    await page.route(/^https?:/, r => r.abort());
+    await page.goto(fileUrl);
+    await page.waitForFunction(() => typeof compileAndRun === 'function');
+    await page.evaluate(([src, mode]) => {
+      try { closeWelcome(); } catch (e) {}
+      if (mode === 'none') window._emitAwaitRoots = b => b;
+      const ed = document.getElementById('editor'); ed.value = src; ed.dispatchEvent(new Event('input'));
+    }, [AWAIT_BENCH_SRC, mode]);
+    await page.evaluate(() => compileAndRun());
+    await page.waitForTimeout(300);
+    res[mode] = await page.evaluate(async () => {
+      const out = document.getElementById('tab-output'), add = out.appendChild; out.appendChild = function (n) { return n; };
+      const r = { ss: !!window._wi.exports.__emitSS };
+      for (const [name, N] of [['calls', 1000000], ['awaits', 20000]]) {
+        let best = 1e9;
+        for (let k = 0; k < 3; k++) { const t = performance.now(); await window._emitCallExport(window._wi, name, [BigInt(N)]); best = Math.min(best, performance.now() - t); if (window._impLog) window._impLog.length = 0; }
+        r[name] = Math.round(best * 1e6 / N);
+      }
+      out.appendChild = add;
+      return r;
+    });
+    await page.close();
+  }
+  return res;
+}
+
 // Direct tests of the scope API the invocation paths use (and that a JSPI wrapper has to call).
 async function scopeApi(browser, fileUrl) {
   const page = await browser.newPage();
@@ -1462,6 +1518,8 @@ async function scopeApi(browser, fileUrl) {
   if (process.env.BENCH) {
     const b = await bench(browser, fileUrl);
     console.log('\nmicro-benchmark, ns per iteration (best of 5 runs of 100000): ' + JSON.stringify(b));
+    const ab = await benchAwait(browser, fileUrl);
+    console.log('await micro-benchmark, ns per call of an async function that does not wait (1e6) / per await (2e4), best of 3: ' + JSON.stringify(ab));
   }
   await browser.close();
   if (BASELINE) { console.log('\nbaseline measured (no assertions)'); process.exit(0); }
