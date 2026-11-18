@@ -9663,7 +9663,7 @@ _SPR_BLT.forEach(function(b){
   _emitBlt.add(b[0]);
   if(!_allBuiltins.some(function(x){return x.name===b[0]}))_allBuiltins.push({name:b[0],sig:b[1],desc:b[2]});
 });
-(function(){try{var st=document.createElement('style');st.textContent='.hl-layer .spr{color:#f5a3c7}'+
+(function(){try{var st=document.createElement('style');st.textContent='.hl-layer .spr{color:#f5a3c7}.hl-layer .spx{border-radius:2px}.hl-layer .spd{color:var(--fg3)}'+
   '.spt{font-family:var(--mono);font-size:12px;color:var(--fg);display:flex;flex-direction:column;gap:8px;max-width:100%;min-width:0;box-sizing:border-box}'+
   '.spt *{box-sizing:border-box}'+
   '.spt-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}'+
@@ -9702,8 +9702,38 @@ function _sprProjectBlocks(){
   return out;
 }
 // Highlighting: sprite names in plain code (not in strings / comments / keywords) get class "spr".
+// Inside a sprite block of the open file: palette entries are underlined in their colour and every pixel of a
+// row is painted in its palette colour, so the rows read as the picture (text width unchanged).
+function _sprHlBlock(lines){
+  var pal=[],m;
+  lines.forEach(function(l){if((m=/^\s+palette\b(.*)$/.exec(l)))(m[1].replace(/\/\/.*$/,'').match(/\S+/g)||[]).forEach(function(h){if(/^#?[0-9a-fA-F]{6}$/.test(h))pal.push(h.replace('#','').toLowerCase())})});
+  if(!pal.length)pal=_SPR_DEFAULT_PAL;
+  function ink(hx){var v=parseInt(hx,16);return(((v>>16)&255)*299+((v>>8)&255)*587+(v&255)*114)/1000>140?'#000':'#fff'}
+  function cmt(c){return c?'<span class="cmt">'+escH(c)+'</span>':''}
+  return lines.map(function(raw,i){
+    var ca=_sprCmtAt(raw),code=ca>=0?raw.slice(0,ca):raw,c=ca>=0?raw.slice(ca):'',hm;
+    if(i===0&&(hm=/^(sprite)(\s+)(\w+)(.*)$/.exec(code)))return'<span class="kw">sprite</span>'+hm[2]+'<span class="spr">'+escH(hm[3])+'</span>'+escH(hm[4])+cmt(c);
+    if((hm=/^(\s+)palette\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">palette</span>'+hm[2].replace(/[^\s]+/g,function(h){return/^#?[0-9a-fA-F]{6}$/.test(h)?'<span class="spc" style="box-shadow:inset 0 -3px #'+h.replace('#','')+'">'+escH(h)+'</span>':escH(h)})+cmt(c);
+    if((hm=/^(\s+)(frame|rle)\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">'+hm[2]+'</span>'+escH(hm[3]).replace(/\brle\b/,'<span class="kw">rle</span>').replace(/"[^"]*"/,function(q){return'<span class="str">'+q+'</span>'})+cmt(c);
+    if((hm=/^(\s+)"([^"]*)"(\s*)$/.exec(code))){
+      var out='',t=hm[2];
+      for(var k=0;k<t.length;){var ch=t[k],n=1;while(t[k+n]===ch)n++;var v=_SPR_CHARS.indexOf(ch),hx=v>0?pal[v-1]:null;
+        out+=hx?'<span class="spx" style="background:#'+hx+';color:'+ink(hx)+'">'+escH(t.substr(k,n))+'</span>':'<span class="spd">'+escH(t.substr(k,n))+'</span>';k+=n}
+      return hm[1]+'<span class="str">"</span>'+out+'<span class="str">"</span>'+hm[3]+cmt(c);
+    }
+    return escH(code)+cmt(c);
+  });
+}
 hlCode=(function(hl){return function(){
   var r=hl.apply(this,arguments);
+  try{
+    var bl=_sprFindBlocks(ed.value);
+    if(bl.length){
+      var segs=hlInner.innerHTML.split('\n');
+      bl.forEach(function(b){var h=_sprHlBlock(b.lines);for(var i=0;i<h.length;i++)if(b.start+i<segs.length)segs[b.start+i]=h[i]});
+      hlInner.innerHTML=segs.join('\n');
+    }
+  }catch(e){}
   try{
     if(ed.value.indexOf('sprite')<0&&!(_proj.files.length>1&&_proj.files.some(function(f){return f.source.indexOf('sprite')>=0})))return r;
     var names=_sprProjectBlocks().map(function(b){return b.name});
@@ -9769,8 +9799,8 @@ checkAC=(function(f){return function(){
 EX.sprites='// Sprites — a little walker, painted right here in the program text\n'+
 '// Each quoted row is a row of pixels: . is transparent, 1-9 / a-z are palette colours.\n'+
 '// Open 🧰 → Sprite to paint it with the mouse or a finger.\n'+
-'// Top: the frame blitted into a memory region that screen() shows (3x).\n'+
-'// Below: the same frame with drawEx on a canvas — flipped when it turns, scaled 3x.\n'+
+'// Left: blit copies the frame into a memory region that screen() shows (3x).\n'+
+'// Right: the same frame with drawEx on a canvas — flipped when it turns, 3x.\n'+
 '\n'+
 'sprite walker: 8x8, fps 6\n'+
 '  palette 1a1c2c ffcd75 b13e53 3b5dc9 f4f4f4\n'+
@@ -9793,35 +9823,39 @@ EX.sprites='// Sprites — a little walker, painted right here in the program te
 '    "...44..."\n'+
 '    "...44..."\n'+
 '\n'+
-'region fb: u8[64 * 16 * 4]\n'+
+'region fb: u8[48 * 16 * 4]\n'+
 '\n'+
 'mut x = 0.0\n'+
 'mut dir = 1.0\n'+
 'mut t = 0.0\n'+
 '\n'+
 'export fn walk() {\n'+
-'  screen(fb, 64, 16, 3)\n'+
-'  canvas(192, 48)\n'+
+'  screen(fb, 48, 16, 3)\n'+
+'  let left = getCanvas()\n'+
+'  left.style.display = "inline-block"\n'+
+'  canvas(144, 48)\n'+
+'  let right = getCanvas()\n'+
+'  right.style.display = "inline-block"\n'+
 '  animate()\n'+
 '}\n'+
 '\n'+
 'export fn frame() {\n'+
 '  t += 1.0 / 60.0\n'+
 '  x += dir * 0.4\n'+
-'  if (x > 64.0 - spriteW(walker)) { dir = -1.0 }\n'+
+'  if (x > 48.0 - spriteW(walker)) { dir = -1.0 }\n'+
 '  if (x < 0.0) { dir = 1.0 }\n'+
 '  let f = anim(walker, t)\n'+
 '\n'+
 '  // the canvas: drawEx flips the sprite when it walks left\n'+
 '  clear()\n'+
 '  color(37, 113, 121)\n'+
-'  rect(0, 42, 192, 6)\n'+
+'  rect(0, 42, 144, 6)\n'+
 '  drawEx(walker, x * 3.0, 18, f, dir < 0.0, 3.0)\n'+
 '  draw(walker, 2, 2, "walk1")\n'+
 '\n'+
 '  // the region: wipe it, then copy the same frame in (transparent pixels skipped)\n'+
 '  wipe(fb)\n'+
-'  blit(walker, f, fb, floor(x), 6, 64)\n'+
+'  blit(walker, f, fb, floor(x), 6, 48)\n'+
 '}\n';
 (function(){try{
   var sel=document.getElementById('example');if(!sel||sel.querySelector('option[value="sprites"]'))return;
@@ -10279,7 +10313,7 @@ function _sprToolOpen(ctx){
   var first=blocks()[0];
   load(first?first.name:null);
   // for tests and other tools: the open editor's state
-  root._spt={state:function(){return S},save:save,load:load,undo:doUndo,redo:doRedo,setTool:setTool,view:function(){return{zoom:zoom,ox:ox,oy:oy,cw:cw,ch:ch}},
+  root._spt={state:function(){return S},save:save,load:load,undo:doUndo,redo:doRedo,setTool:setTool,view:function(){return{zoom:zoom,ox:ox,oy:oy,cw:cw,ch:ch,grid:zoom>=6}},drawNow:draw,
     importPixels:importPixels,setColor:function(c){color=c;drawPal()},setMirror:function(v){mirror=!!v;mirB.classList.toggle('on',mirror)},isDirty:function(){return dirty},text:function(){return _sprFormat(toDef())}};
   return root._spt;
 }

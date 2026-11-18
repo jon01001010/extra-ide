@@ -309,7 +309,9 @@ sprite hero: 4x3, fps 5
       requestAnimationFrame(() => requestAnimationFrame(() => { res({ zin, a, zout: __spt.view().zoom }); }));
     }));
   }));
-  check('desktop: zoomed out far (< 6 px per pixel) the zoom stops at its minimum', r.zout <= 1, JSON.stringify(r));
+  check('desktop: zoomed out far the zoom stops at its minimum', r.zout <= 1, JSON.stringify(r));
+  r = await page.evaluate(() => { const g1 = __spt.view().grid; document.querySelector('.spt-zoom button[title="Fit"]').click(); return { out: g1, fit: __spt.view().grid, z: __spt.view().zoom }; });
+  check('desktop: the grid hides when zoomed out (under 6 screen px per pixel) and shows at fit', r.out === false && r.fit === true, JSON.stringify(r));
   await page.click('.spt-zoom button[title="Fit"]');
   // frames: copy, rename, reorder, delete
   await page.click('button[title="Duplicate this frame"]');
@@ -399,19 +401,17 @@ sprite hero: 4x3, fps 5
   await page.evaluate(() => __spt.load(null));
   await page.fill('input[aria-label="Width"]', '64'); await page.fill('input[aria-label="Height"]', '64');
   await page.click('button:has-text("Resize")');
-  r = await page.evaluate(() => new Promise(res => {
+  r = await page.evaluate(() => {
     const cv = document.querySelector('.spt-stage canvas'), b = cv.getBoundingClientRect(), v = __spt.view();
     const ev = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1, clientX: b.left + v.ox + (x + 0.5) * v.zoom, clientY: b.top + v.oy + (y + 0.5) * v.zoom }));
-    const t0 = performance.now(); let frames = 0, i = 0;
+    // 50 display frames of 4 pointer moves each, every frame redrawn at once: the work one frame costs
+    let i = 0, worst = 0; const t0 = performance.now();
     ev('pointerdown', 0, 0);
-    (function step() {
-      for (let k = 0; k < 4 && i < 200; k++, i++) ev('pointermove', (i * 7) % 64, Math.floor(i / 3) % 64);
-      frames++;
-      if (i < 200) requestAnimationFrame(step); else { ev('pointerup', 1, 1); requestAnimationFrame(() => res({ ms: performance.now() - t0, frames })); }
-    })();
-  }));
-  const perMove = r.ms / 200;
-  check('desktop: a 64×64 painting stroke of 200 moves keeps up (under 8 ms per move incl. redraws)', perMove < 8, JSON.stringify(r));
+    for (let f = 0; f < 50; f++) { const t1 = performance.now(); for (let k = 0; k < 4; k++, i++) ev('pointermove', (i * 7) % 64, Math.floor(i / 3) % 64); __spt.drawNow(); worst = Math.max(worst, performance.now() - t1); }
+    ev('pointerup', 1, 1);
+    return { ms: performance.now() - t0, worst, painted: Array.from(__spt.state().frames[0].px).filter(Boolean).length };
+  });
+  check('desktop: a 64×64 painting stroke: 4 moves + a full redraw cost under 8 ms per frame (worst under 16)', r.ms / 50 < 8 && r.worst < 16 && r.painted > 150, JSON.stringify(r));
   check('desktop: no page errors', page.errors.length === 0, page.errors.join(' | '));
   if (shots) await page.screenshot({ path: path.join(shots, 'sprite-tool-desk.png') });
   await page.context().close();
@@ -421,17 +421,16 @@ sprite hero: 4x3, fps 5
   await open(page);
   await page.fill('input[aria-label="Width"]', '64'); await page.fill('input[aria-label="Height"]', '64');
   await page.tap('button:has-text("Resize")');
-  r = await page.evaluate(() => new Promise(res => {
+  r = await page.evaluate(() => {
     const cv = document.querySelector('.spt-stage canvas'), b = cv.getBoundingClientRect(), v = __spt.view();
     const ev = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 5, pointerType: 'touch', button: 0, buttons: 1, clientX: b.left + v.ox + (x + 0.5) * v.zoom, clientY: b.top + v.oy + (y + 0.5) * v.zoom }));
-    const t0 = performance.now(); let i = 0;
+    let i = 0, worst = 0; const t0 = performance.now();
     ev('pointerdown', 0, 0);
-    (function step() {
-      for (let k = 0; k < 4 && i < 200; k++, i++) ev('pointermove', (i * 5) % 64, Math.floor(i / 4) % 64);
-      if (i < 200) requestAnimationFrame(step); else { ev('pointerup', 1, 1); requestAnimationFrame(() => res({ ms: performance.now() - t0, painted: Array.from(__spt.state().frames[0].px).filter(Boolean).length, zoom: v.zoom })); }
-    })();
-  }));
-  check('phone: a 64×64 touch stroke of 200 moves keeps up (under 8 ms per move) and paints', r.ms / 200 < 8 && r.painted > 150, JSON.stringify(r));
+    for (let f = 0; f < 50; f++) { const t1 = performance.now(); for (let k = 0; k < 4; k++, i++) ev('pointermove', (i * 5) % 64, Math.floor(i / 4) % 64); __spt.drawNow(); worst = Math.max(worst, performance.now() - t1); }
+    ev('pointerup', 1, 1);
+    return { ms: performance.now() - t0, worst, painted: Array.from(__spt.state().frames[0].px).filter(Boolean).length, zoom: v.zoom };
+  });
+  check('phone: a 64×64 touch stroke: 4 moves + a full redraw cost under 8 ms per frame (worst under 16), and it paints', r.ms / 50 < 8 && r.worst < 16 && r.painted > 150, JSON.stringify(r));
   r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth, bw: document.getElementById('__drwBody').scrollWidth, bc: document.getElementById('__drwBody').clientWidth }));
   check('phone: still no horizontal overflow with a 64×64 sprite', r.sw <= r.iw && r.bw <= r.bc, JSON.stringify(r));
   // a wide sprite is written in the compact form and read back

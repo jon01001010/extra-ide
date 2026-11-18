@@ -291,10 +291,11 @@ sprite coin: 2x2, fps 4
     const r = await page.evaluate(() => {
       const cs = document.querySelectorAll('#tab-output canvas'), out = document.getElementById('tab-output').innerText;
       const painted = c => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; };
-      return { n: cs.length, sizes: Array.from(cs).map(c => c.width + 'x' + c.height), painted: Array.from(cs).map(painted), err: /✗/.test(out), status: document.getElementById('sTxt').innerText, opt: Array.from(document.querySelectorAll('#example option')).map(o => o.value) };
+      const a = cs[0] && cs[0].getBoundingClientRect(), b = cs[1] && cs[1].getBoundingClientRect();
+      return { side: !!(a && b && Math.abs(a.top - b.top) < 4 && b.left >= a.right), n: cs.length, sizes: Array.from(cs).map(c => c.width + 'x' + c.height), painted: Array.from(cs).map(painted), err: /✗/.test(out), status: document.getElementById('sTxt').innerText, opt: Array.from(document.querySelectorAll('#example option')).map(o => o.value) };
     });
     if (r.status !== 'Done' || r.err) p.push('status ' + r.status + (r.err ? ' with an error line' : ''));
-    if (r.sizes.join() !== '64x16,192x48') p.push('canvases: ' + r.sizes.join());
+    if (r.sizes.join() !== '48x16,144x48' || !r.side) p.push('canvases: ' + r.sizes.join());
     if (!(r.painted[0] > 10 && r.painted[1] > 100)) p.push('painted pixels: ' + r.painted.join());
     if (r.opt[r.opt.length - 1] !== 'modules' || r.opt.indexOf('sprites') < 0) p.push('dropdown: ' + r.opt.join());
     // it walks: the blitted frame moves
@@ -312,6 +313,8 @@ sprite coin: 2x2, fps 4
     await page.evaluate(src => { const ed = document.getElementById('editor'); ed.value = src; ed.dispatchEvent(new Event('input')); ed.focus(); ed.selectionStart = ed.selectionEnd = ed.value.length; }, src);
     const hl = await page.evaluate(() => Array.from(document.querySelectorAll('#hlInner .spr')).map(s => s.textContent).join() + '|' + Array.from(document.querySelectorAll('#hlInner .kw')).map(s => s.textContent).filter(t => t === 'sprite').length + '|' + Array.from(document.querySelectorAll('#hlInner .blt')).map(s => s.textContent).filter(t => t === 'draw').length);
     if (hl !== 'ab,ab|1|1') p.push('highlight (sprite names | sprite keyword | draw builtin): ' + hl);
+    const px = await page.evaluate(() => Array.from(document.querySelectorAll('#hlInner .spx')).slice(0, 3).map(s => s.textContent + ':' + getComputedStyle(s).backgroundColor).join() + '|' + Array.from(document.querySelectorAll('#hlInner .spc')).map(s => s.textContent).join());
+    if (px !== '1:rgb(255, 0, 0),2:rgb(0, 255, 0),2:rgb(0, 255, 0)|ff0000,00ff00,0000ff') p.push('pixels of the rows painted in their colours, palette entries marked: ' + px);
     await page.evaluate(() => checkAC());
     let ac = await page.evaluate(() => Array.from(document.querySelectorAll('.ac-item .ac-name')).map(e => e.textContent));
     if (ac.join() !== 'a,b') p.push('frame names after draw(ab, 1, 2, ": ' + ac.join());
