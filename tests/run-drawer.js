@@ -17,6 +17,9 @@
 //
 // Exit code 0 when every check passes.
 const { chromium } = require('playwright');
+// The tool tests edit sound blocks in a one-file program: a fixed copy of the Sound example as it was
+// when these tests were written (the bundled example now keeps its blocks in sounds.emit).
+const SFX_SINGLE = "// Sound — sound effects and music as blocks of the program\n// Open 🧰 (Drawer) → Sound or Music to edit them with sliders and a piano roll,\n// or edit the lines below by hand: the tools read them back.\n\nsound coin: square 988, 80ms, atk 1, rel 180, vol 0.4, arp 1.335 60ms\nsound jump: square 300 > 720, 150ms, atk 2, dec 80, sus 0.5, rel 70, vol 0.4, curve exp\nsound laser: saw 1500 > 220, 170ms, atk 1, vol 0.35, lowpass 7000, curve exp\nsound boom: noise 900 > 80, 420ms, atk 2, dec 300, sus 0.3, rel 320, vol 0.7, lowpass 3200, curve exp\n\nmusic theme: 132 bpm, 16 steps\n  lead square vol 0.7: E5 . G5 . C6 - - . G5 . E5 . D5 - - .\n  bass triangle: C3 - - - C3 - - - A2 - - - G2 - - -\n  drums: K . H . S . H . K K H . S . H H\n\nmut coins = 0\n\nexport fn start() {\n  div(\"Sounds start after your first tap (phones allow audio only then).\")\n  button(\"Coin\", 1)\n  button(\"Jump\", 2)\n  button(\"Laser\", 3)\n  button(\"Boom\", 4)\n  button(\"Music\", 5)\n  button(\"Stop music\", 6)\n}\n\nexport fn onclick_1() {\n  coins++\n  // every fifth coin a little higher\n  if (coins % 5 == 0) {\n    play(coin, 1.5)\n  } else {\n    play(coin)\n  }\n  print(coins)\n}\n\nexport fn onclick_2() {\n  play(jump)\n}\n\nexport fn onclick_3() {\n  // a slightly different pitch each time\n  play(laser, 0.8 + random() * 0.4, 0.8)\n}\n\nexport fn onclick_4() {\n  play(boom)\n}\n\nexport fn onclick_5() {\n  music(theme)\n  if (musicPlaying()) {\n    div(\"music: playing (loops until Stop music)\")\n  }\n}\n\nexport fn onclick_6() {\n  stopMusic()\n  div(\"music: stopped\")\n}\n";
 const path = require('path');
 const FAKE_AUDIO = require('./fake-audio.js');
 
@@ -232,7 +235,7 @@ const sinceN = (a, n) => a.nodes.slice(n);
   check('write: the new file\'s block compiles as part of the program', r.e.length === 0 && JSON.stringify(r.s) === '["beep"]', JSON.stringify(r));
 
   // ── Sound tool (phone) ──
-  await load(page, await page.evaluate(() => EX.sfx));
+  await load(page, SFX_SINGLE);
   await page.tap('.header .hdr-btn[title="Drawer"]');
   await page.tap('#drawer .drw-card[data-tool="sound"]');
   s = await D(page);
@@ -332,7 +335,7 @@ const sinceN = (a, n) => a.nodes.slice(n);
   page.dialogs.length = 0;
 
   // ── Music tool (phone) ──
-  await load(page, await page.evaluate(() => EX.sfx));
+  await load(page, SFX_SINGLE);
   await page.evaluate(() => _drawerOpen('music'));
   await page.waitForTimeout(100);
   s = await D(page);
