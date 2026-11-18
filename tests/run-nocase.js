@@ -168,6 +168,13 @@ export fn run() {
   print(o.NEWPROP)
   printStr(o.name)
 }`, out: ['> scene', '> 3', '> made x', '> 5', '> 7', '> big G', '> deep', '> 3', '> x'] },
+  { name: 'JS interop: let scene = new FakeLib.Scene() / let gizmo = Gizmo() — an initialiser does not see the name it declares', src: `
+export fn run() {
+  let gizmo = Gizmo()
+  printStr(GIZMO)
+  let fakelib = FakeLib.MakeIt("y")
+  printStr(fakeLib)
+}`, out: ['> big G', '> made y'] },
   { name: 'JS interop: the exact name wins (dupe / Dupe are two globals)', src: `
 export fn run() {
   printStr(dupe())

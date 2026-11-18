@@ -26,10 +26,12 @@ const { execFileSync } = require('child_process');
   async function load(f) { const p = await browser.newPage(); await p.route(/^https?:/, r => r.abort()); await p.goto('file://' + f); await p.waitForFunction(() => typeof compileAndRun === 'function'); return p; }
   const base = await load(baseFile), cur = await load(file);
   const progs = [];
-  for (const n of await base.evaluate(() => Object.keys(EX))) progs.push(['EX.' + n, await base.evaluate(n => EX[n], n)]);
+  // Each build compiles its own copy of an example: EX.art and EX.memory were renamed for case-insensitive names
+  // (they declared r / R and spark / Spark), which must keep the bytes of the base build's version.
+  for (const n of await base.evaluate(() => Object.keys(EX))) progs.push(['EX.' + n, await base.evaluate(n => EX[n], n), await cur.evaluate(n => typeof EX[n] === 'string' ? EX[n] : undefined, n)]);
   TESTS.forEach(t => progs.push(['interop.' + t.name, t.src]));
   const comp = (p, list) => p.evaluate(list => list.map(([n, s]) => { try { const r = compile(s, 'wasm32'); const props = {}; Object.keys(r.imports).forEach(k => { if (!/^\d+$/.test(k)) props[k] = r.imports[k]; }); return { n, w: Array.from(r.wasm).join(','), i: JSON.stringify(r.imports.map(x => x.module + '.' + x.name)), p: JSON.stringify(props), e: JSON.stringify(r.errors) }; } catch (e) { return { n, t: e.message }; } }), list);
-  const A = await comp(base, progs), B = await comp(cur, progs);
+  const A = await comp(base, progs.map(p => [p[0], p[1]])), B = await comp(cur, progs.map(p => [p[0], p[2] === undefined ? p[1] : p[2]]));
   // Programs that use `await` get the await shadow stack (see _emitAwaitRoots in the IDE), and a program that
   // did not compile with the base build (it threw, e.g. a non-literal top-level initialiser before rough-edges)
   // cannot be byte-identical: both are listed, not counted as differences.
