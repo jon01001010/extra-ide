@@ -531,6 +531,56 @@ public fn step(dt: num) num {
 <p><strong>A memory-mapped screen.</strong> <code>screen(fb, 320, 200)</code> or <code>screen(fb, 160, 100, 3)</code> (each pixel 3&times;3, sharp): <code>fb</code> must be a <code>u8</code> region of at least width &times; height &times; 4 bytes, red / green / blue / alpha per pixel, row by row. It adds a canvas to the output (like <code>canvas()</code>) that shows the region and is redrawn every animation frame while the program runs, and right after every call from the runtime (Run, <code>frame()</code>, buttons, timers), so a picture drawn once appears too. Write pixels with <code>fb[(y * 320 + x) * 4] = 255</code>; set alpha to 255 to see them. <code>touchX()</code> / <code>touchY()</code> are page coordinates, as with <code>canvas()</code>: subtract the canvas position and divide by the scale to get a pixel.</p>
 <p><strong>Layout and limits.</strong> Regions live in memory from 64 KB up, in declaration order, followed by a small table (address, length, frozen flag per region); strings start after them. All regions of a program together are limited to 256 MB. Memory starts zeroed and every Run starts from fresh memory. Not supported yet: regions sized while the program runs (and released automatically), <code>str</code> / <code>js</code> / <code>arr</code> fields, arrays of structs inside structs, slices or views of part of a region, regions in the <code>wasm64</code> target.</p>
 
+<h2>Maps</h2>
+<p>A <strong>map</strong> block is a tile map you can read: each row is a picture of the level. It starts in column 0 and its lines below are indented. Any file of the project may hold it (the drawer tools write to <code>stages.emit</code>), and every file uses it by its bare name.</p>
+<pre>map level1: 20x15, tile 16
+  legend # wall solid #3a3a5c,  . floor #1b1b2a,  ~ water solid #2050c0,  g grass sprite grass
+  rows
+    "####################"
+    "#..........~~......#"
+    &hellip; one quoted row per line, 15 rows of 20 tiles &hellip;
+  objects
+    hero 2,3
+    slime 12,8 speed 0.5
+    coin 7,2</pre>
+<p><strong>Header:</strong> <code>map NAME: WxH, tile N</code> &mdash; width and height in tiles (up to 256), pixels per tile (default 16). <strong>legend</strong>: entries separated by commas, on the same line or one per line below it &mdash; one character, a name, optionally <code>solid</code>, and a colour <code>#rrggbb</code> and / or <code>sprite NAME</code> (drawn by the sprite helper when there is one, otherwise the colour). A space in a row is an empty tile. <strong>objects</strong>: a kind, tile coordinates <code>x,y</code>, then any <code>key value</code> pairs (read by other runtime code through <code>_mapObjects</code>). Lines starting with <code>//</code> inside the block are comments.</p>
+<div class="sig">drawMap(m), drawMap(m, ox: num, oy: num) &mdash; draw the map on the canvas, its top-left corner at ox, oy</div>
+<div class="sig">tileAt(m, tx, ty) &rarr; str &mdash; the tile character ("" outside the map)</div>
+<div class="sig">solidAt(m, px: num, py: num) &rarr; bool &mdash; is the tile under this pixel solid? Outside the map counts as solid</div>
+<div class="sig">mapW(m), mapH(m), tileSize(m) &rarr; int</div>
+<div class="sig">setTile(m, tx, ty, ch: str) &mdash; change a tile while the program runs (open a door: <code>setTile(level1, 9, 4, ".")</code>)</div>
+<div class="sig">objCount(m, kind: str) &rarr; int, objX(m, kind: str, i), objY(m, kind: str, i) &rarr; num &mdash; pixel position (top-left) of the i-th object of a kind</div>
+<p>A map name stands for the map&rsquo;s number, so it can be kept in a variable: <code>mut level = level1</code>. The compiler checks the blocks: a row of the wrong length, a character missing from the legend, a character listed twice, an object off the map, an unknown map name &mdash; each with its exact line and column. <strong>Drawer &rarr; STAGE</strong> paints maps: brushes are the legend entries; pencil, rectangle, room (walls around a floor), fill, eraser (the first non-solid tile), eyedropper; objects (tap to place, drag to move, long press to edit or delete); two fingers zoom and pan; undo / redo; <em>&#9654; try it</em> walks a hero square around with the arrow keys or the stick. It reads and writes the block itself &mdash; the program text is the only place a map is kept.</p>
+
+<h2>Controls</h2>
+<p>A <strong>controls</strong> block describes on-screen controls for phones: <code>controls pad: stick left, buttons A "jump" B, size 1.0, opacity 0.5</code>. Settings, separated by commas: <code>stick left|right|none</code> or <code>dpad left|right</code> (8 directions, values -1, 0 or 1); <code>buttons A B C</code> (up to three, each with an optional label in quotes; <code>buttons left A B</code> puts them on a side, by default the side opposite the stick); <code>size</code> 0.5&ndash;2; <code>opacity</code> 0.1&ndash;1; <code>deadzone</code> 0&ndash;0.9 (default 0.15); <code>keys off</code> turns the keyboard off.</p>
+<div class="sig">useControls(c) &mdash; show the controls at the bottom of the output area, over the canvas</div>
+<div class="sig">stickX(), stickY() &rarr; num &mdash; -1 &hellip; 1 (y grows downwards, like the canvas)</div>
+<div class="sig">pressed(btn: str) &rarr; bool &mdash; "A", "B" or "C" is held</div>
+<div class="sig">justPressed(btn: str) &rarr; bool &mdash; true in one frame per press (outside frame(): once per press)</div>
+<p>Several fingers work at once (stick and buttons). Only the stick and the buttons take touches, so the page still scrolls everywhere else. The keyboard works too: arrows or WASD move the stick, Z or Space is A, X is B, C is C (not while you type in a text field). A tap on the canvas outside the controls is seen by runtime code as <code>_ctlState().tapX / tapY</code> (canvas pixels). <strong>Drawer &rarr; CONTROLS</strong> shows them at phone size: drag the stick or the buttons to a side, set size, opacity and labels, and <em>&#9654; test</em> shows live stickX / stickY / pressed values. The Example menu&rsquo;s <em>Stage</em> uses a map, its objects, <code>setTile</code> and a controls block.</p>
+
+<h2>Sprites</h2>
+<p>A <strong>sprite</strong> is a small picture written in the program text, row by row: each quoted row is a row of pixels. <code>.</code> is transparent, <code>1</code>&ndash;<code>9</code> then <code>a</code>&ndash;<code>z</code> are palette colours 1&ndash;35.</p>
+<pre style="font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--bg3);padding:8px 10px;border-radius:6px;color:var(--cyan);white-space:pre;overflow-x:auto">sprite hero: 8x8, fps 6
+  palette 1a1c2c ffcd75 b13e53 #3b5dc9
+  frame idle
+    "..1111.."
+    ".122221."
+    &hellip;8 rows&hellip;
+  frame walk1
+    &hellip;</pre>
+<p><strong>The block</strong> starts in column 0 with <code>sprite name: WxH</code> (1&times;1 to 256&times;256), optionally <code>, fps N</code> (frames per second for <code>anim</code>, default 8); every indented line after it belongs to it. <code>palette</code> lists colours as 6 hex digits (<code>#</code> optional; several palette lines add up); without a palette line the default 16 colours (Sweetie 16) are used. <code>frame name</code> starts a frame; a sprite without frame lines has one unnamed frame. <code>//</code> comments are allowed. Every row has exactly W pixels and every frame exactly H rows &mdash; mistakes are compile errors at the exact line and column.</p>
+<p><strong>Compact form.</strong> Rows wider than a phone screen can be written run-length encoded, one line per frame: <code>frame idle rle ".4 14 .8/.16 *15"</code>. Rows are separated by <code>/</code>; a row is runs separated by spaces, each run a pixel character followed by how many (<code>.4</code> = four transparent, <code>14</code> = four of colour 1, a lone <code>a</code> = one); <code>*N</code> at the end of a row repeats that row N times. A sprite without frames writes <code>rle "&hellip;"</code>. The SPRITE tool writes this form for sprites wider than 64 pixels and reads both.</p>
+<p><strong>Names.</strong> A sprite name is visible in every file of the project (put sprites in <code>sprites.emit</code> and use them from <code>main.emit</code>, no import needed). Used as a value it is an <code>int</code> (the sprite&rsquo;s number): <code>let s = hero</code> &nbsp; <code>draw(s, x, y)</code>. A local variable with the same name hides it.</p>
+<div class="sig">draw(spr, x, y) &nbsp; draw(spr, x, y, frame)</div>
+<div class="sig">drawEx(spr, x, y, frame, flipX: bool, scale: num) &mdash; flipX and scale may be left out</div>
+<div class="sig">anim(spr, t: num) &rarr; int &mdash; the frame number at t seconds, at the sprite&rsquo;s fps (looping)</div>
+<div class="sig">spriteW(spr) &rarr; int &nbsp; spriteH(spr) &rarr; int</div>
+<div class="sig">blit(spr, frame, fb, x, y, w) &mdash; copy a frame into a u8 region shown with screen(fb, w, h)</div>
+<p><code>draw</code> paints on the current canvas (the last <code>canvas()</code> or <code>screen()</code>) at canvas pixel coordinates, sharp (no smoothing; x and y are rounded). <code>frame</code> is a frame name in quotes (<code>"walk1"</code>) or a frame number (0 = the first); <code>draw(hero, x, y, anim(hero, t))</code> animates. A number past the last frame wraps around; a negative number draws nothing. Unknown sprite and frame names written as constants are compile errors; a frame name held in a variable is looked up when the program runs.</p>
+<p><code>blit</code> is the fast path for pixel games: it copies the frame&rsquo;s pixels straight into the region&rsquo;s bytes (RGBA, <code>w</code> pixels per row), skipping transparent pixels and clipping at the edges; the screen shows it at the next frame. A frozen region refuses it (catchable like any region write).</p>
+<p><strong>The SPRITE tool.</strong> 🧰 &rarr; Sprite opens a painter for the project&rsquo;s sprite blocks: pencil, eraser, fill, line, rectangle, eyedropper and mirror-X; one finger paints, two fingers pinch to zoom and pan (on a desktop: the wheel zooms, the middle button or Alt+drag pans); the grid shows when zoomed in. Tap a palette colour to paint with it, &#9998; changes it, + / &minus; add and remove colours. The frames strip adds, copies, deletes, reorders and renames frames, with an onion skin of the previous frame; the preview plays the animation at 1&times;, 2&times; or 4&times;. Import PNG brings in a picture (reduced to at most 35 colours, with a note when colours were merged). Undo / redo keep 100 steps. <strong>Save</strong> writes the sprite block into the program (into <code>sprites.emit</code> for a new one) &mdash; the text is the only place the sprite lives; lines the tool does not understand are kept.</p>
 <h2>Library Panel &mdash; 📚 button</h2>
 <p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
 <p><strong>Member autocomplete.</strong> Once a library has been loaded by a Run, the editor reads its real names: type <code>THREE.Sc</code> or <code>BABYLON.MeshBuilder.Cre</code> and pick from the popup (<code>class</code>, <code>fn(2)</code> = takes 2 arguments, <code>obj</code>, <code>value</code>). Library globals such as <code>confetti</code> are also suggested as you type, marked <code>lib</code>. After <code>let s = THREE.Scene()</code>, typing <code>s.</code> lists the class's methods (not fields set at run time). Before the first Run nothing is loaded yet, so the popup says &ldquo;Run once to load&rdquo;; the 📚 panel shows what is loaded and how many members each global has.</p>
@@ -3756,6 +3806,528 @@ compile=(function(c){return function(source,target){
   r.regions=D.regions;r.structs=D.structs;
   return r;
 }})(compile);
+// ═══ SPRITES ═══ pixel-art pictures written in the program text (compiler half; the runtime half is the
+// "SPRITES" part of the runtime block: _spriteDraw, _spriteInfo, the __spr… imports).
+//
+//   sprite hero: 16x16, fps 8                    a top-level block: `sprite <name>:` in column 0 and every
+//     palette 1a1c2c 5d275d b13e53 ef7d57        indented line after it. Rows are pictures: . is transparent,
+//     frame idle                                 1-9 then a-z are palette colours 1-35 (6-digit hex, optional #;
+//       "....1111........"                       no palette line = the default 16 colours). Frames are optional:
+//       …16 rows…                                rows without a frame line are one unnamed frame.
+//     frame walk1 rle ".4 14 .8/.16 *15"         Compact form (written for sprites wider than 64): rows split by
+//                                                /, runs "<char><count>" split by spaces, "*N" = the row N times.
+//
+// Pipeline. `sprite` is not a keyword. The lexer wrapper finds sprite blocks in the raw text (outside comments and
+// strings), parses them line by line (_sprParse, also used by the SPRITE tool) and blanks them out, so the token
+// stream sees one IDENTIFIER token "sprite" carrying the parsed block; the parseTop wrapper turns it into a
+// SpriteDecl (or throws the block's first error, with its exact line:col). The linker passes SpriteDecls through
+// untouched: sprite names are project-wide and stay bare. _sprLower runs right after _rgLower (inside
+// injectBuiltins, before builtins are injected): it numbers the sprites, turns a sprite name used as a value into
+// its number (an int), and rewrites draw / drawEx / anim / spriteW / spriteH / blit calls into SpriteCall nodes
+// (constant sprite and frame names are checked here, with positions). SpriteCalls compile to the __spr… imports.
+// The pixels travel to the runtime as imports.spriteData (JSON), like imports.regionMeta.
+// A program without sprite blocks is not touched at all (same bytes).
+var _SPR_CHARS='.123456789abcdefghijklmnopqrstuvwxyz';
+var _SPR_DEFAULT_PAL=['1a1c2c','5d275d','b13e53','ef7d57','ffcd75','a7f070','38b764','257179','29366f','3b5dc9','41a6f6','73eff7','f4f4f4','94b0c2','566c86','333c57']; // "Sweetie 16"
+var _SPR_MAX=256,_SPR_ROWS_MAX_W=64,_SPR_DEFAULT_FPS=8;
+var _SPR_FNS={draw:1,drawEx:1,anim:1,spriteW:1,spriteH:1,blit:1};
+_JS_CONV_IMPORTS.__sprDraw=[[['id','int'],['x','num'],['y','num'],['f','int'],['flip','bool'],['scale','num']],'void'];
+_JS_CONV_IMPORTS.__sprFrame=[[['id','int'],['name','str']],'int'];   // frame index of a frame name; -1 (and a message once) if unknown
+_JS_CONV_IMPORTS.__sprAnim=[[['id','int'],['t','num']],'int'];
+_JS_CONV_IMPORTS.__sprSize=[[['id','int'],['which','int']],'int'];    // 0 width, 1 height
+_JS_CONV_IMPORTS.__sprBlit=[[['id','int'],['f','int'],['rg','i32'],['x','num'],['y','num'],['w','int'],['pos','i32']],'bool'];
+// Sprite blocks of a source text: [{name, start, end (0-based line indexes), lines}]. A block is a line
+// `sprite <name>:` in column 0 outside comments and strings, plus every following indented line (blank lines
+// inside belong to it when an indented line follows).
+function _sprFindBlocks(src){
+  src=String(src==null?'':src);
+  if(src.indexOf('sprite')<0)return[];
+  var lines=src.split('\n'),out=[],st=0; /* 0 code, 1 block comment, 2 "string, 3 'string */
+  for(var i=0;i<lines.length;i++){
+    var L=lines[i];
+    if(st===0&&/^sprite[ \t]+[A-Za-z_]\w*[ \t]*:/.test(L)){
+      var j=i+1,end=i;
+      while(j<lines.length&&(/^[ \t]/.test(lines[j])||/^\s*$/.test(lines[j]))){if(/\S/.test(lines[j]))end=j;j++}
+      out.push({name:/^sprite[ \t]+([A-Za-z_]\w*)/.exec(L)[1],start:i,end:end,lines:lines.slice(i,end+1)});
+      i=end;continue;
+    }
+    for(var k=0;k<L.length;k++){
+      var c=L[k];
+      if(st===1){if(c==='*'&&L[k+1]==='/'){st=0;k++}continue}
+      if(st>=2){if(c==='\\'){k++;continue}if(c===(st===2?'"':"'"))st=0;continue}
+      if(c==='/'&&L[k+1]==='/')break;
+      if(c==='/'&&L[k+1]==='*'){st=1;k++;continue}
+      if(c==='"')st=2;else if(c==="'")st=3;
+    }
+  }
+  return out;
+}
+// Where a line's comment starts (// outside a "…" string), or -1.
+function _sprCmtAt(s){var q=false;for(var i=0;i<s.length;i++){var c=s[i];if(c==='"')q=!q;else if(!q&&c==='/'&&s[i+1]==='/')return i}return -1}
+// Run-length encoded rows: "<char><count>" runs split by spaces (count 1 may be left out), "*N" at the end of a
+// row repeats it N times, rows split by /.  ".4 14 .8/.16 *3"  =  "....1111........" and three rows of 16 dots.
+function _sprRleEncode(rows){
+  var out=[];
+  for(var i=0;i<rows.length;){
+    var r=rows[i],n=1;while(i+n<rows.length&&rows[i+n]===r)n++;
+    var toks=[];
+    for(var k=0;k<r.length;){var c=r[k],m=1;while(k+m<r.length&&r[k+m]===c)m++;toks.push(m>1?c+m:c);k+=m}
+    out.push(toks.join(' ')+(n>1?' *'+n:''));
+    i+=n;
+  }
+  return out.join('/');
+}
+// → {rows:[{text, off}], err:{off, msg}|null}; off = index into s (for error columns)
+function _sprRleDecode(s){
+  var rows=[],parts=s.split('/'),at=0;
+  for(var p=0;p<parts.length;p++){
+    var part=parts[p],start=at;at+=part.length+1;
+    if(!/\S/.test(part)){if(p===parts.length-1&&p>0)break;return{rows:rows,err:{off:start,msg:'Empty row in the compact (rle) form — every row between / needs runs such as .4 13'}}}
+    var re=/\S+/g,m,row='',rep=1,repSeen=false;
+    while((m=re.exec(part))){
+      var tok=m[0],off=start+m.index;
+      if(repSeen)return{rows:rows,err:{off:off,msg:'*N repeats the row and must come last in it'}};
+      if(tok[0]==='*'){
+        if(!/^\*\d+$/.test(tok)||+tok.slice(1)<1)return{rows:rows,err:{off:off,msg:'Expected *N (N at least 1) to repeat a row, got "'+tok+'"'}};
+        rep=+tok.slice(1);repSeen=true;continue;
+      }
+      var cnt=tok.length>1?tok.slice(1):'1';
+      if(!/^\d+$/.test(cnt)||+cnt<1)return{rows:rows,err:{off:off,msg:'Expected a run: a pixel and how many, e.g. .12 or a3 — got "'+tok+'"'}};
+      if(+cnt>_SPR_MAX)return{rows:rows,err:{off:off,msg:'A run of '+cnt+' pixels is longer than a sprite can be wide ('+_SPR_MAX+')'}};
+      row+=new Array(+cnt+1).join(tok[0]);
+    }
+    if(rep>_SPR_MAX)return{rows:rows,err:{off:start,msg:'*'+rep+' repeats a row more often than a sprite can be high ('+_SPR_MAX+')'}};
+    for(var q=0;q<rep;q++)rows.push({text:row,off:start});
+  }
+  return{rows:rows,err:null};
+}
+// Parses one sprite block. lines: its text lines (header first); line0: the header's 1-based line number.
+// tolerant=false (the compiler): every problem is an error. tolerant=true (the SPRITE tool): problems are still
+// listed, but the result is always usable (short rows padded, unknown pixels transparent, unknown lines kept).
+// → {name, w, h, fps, fpsGiven, palette:[hex6], palGiven, frames:[{name, data (w*h chars of _SPR_CHARS), rle,
+//    rowCmt:[], extra:[lines], line}], extra:[lines before the first frame], headExtra:[options], errors:[{line,col,msg}],
+//    loc:{line,col}, nameLoc:{line,col}}
+function _sprParse(lines,line0,tolerant){
+  var errors=[],head=String(lines[0]||'').replace(/\r$/,'');
+  function E(ln,col,msg){errors.push({line:ln,col:col,msg:msg})}
+  var hm=/^sprite([ \t]+)([A-Za-z_]\w*)([ \t]*):(.*)$/.exec(head)||[head,' ','sprite','',''];
+  var d={name:hm[2],w:0,h:0,fps:_SPR_DEFAULT_FPS,fpsGiven:false,palette:[],palGiven:false,frames:[],extra:[],headExtra:[],errors:errors,
+    loc:{line:line0,col:1},nameLoc:{line:line0,col:7+hm[1].length}};
+  // header: size and options after the colon
+  var rest=hm[4],restCol=7+hm[1].length+hm[2].length+hm[3].length+1,ci=_sprCmtAt(rest);
+  if(ci>=0)rest=rest.slice(0,ci);
+  var parts=[],po=0;rest.split(',').forEach(function(s){parts.push({s:s,col:restCol+po+(s.length-s.replace(/^\s+/,'').length)});po+=s.length+1});
+  var sz=/^(\s*)(\d+)(\s*[xX×]\s*)(\d+)\s*$/.exec(parts[0].s);
+  if(!sz){E(line0,parts[0].s.trim()?parts[0].col:restCol,'Expected the size after sprite '+d.name+': — width x height, e.g. sprite '+d.name+': 16x16');d.w=d.h=16}
+  else{
+    d.w=+sz[2];d.h=+sz[4];
+    var wcol=parts[0].col,hcol=parts[0].col+sz[2].length+sz[3].length;
+    if(d.w<1||d.w>_SPR_MAX){E(line0,wcol,'A sprite is 1 to '+_SPR_MAX+' pixels wide, not '+d.w);d.w=Math.max(1,Math.min(_SPR_MAX,d.w))}
+    if(d.h<1||d.h>_SPR_MAX){E(line0,hcol,'A sprite is 1 to '+_SPR_MAX+' pixels high, not '+d.h);d.h=Math.max(1,Math.min(_SPR_MAX,d.h))}
+  }
+  for(var pi=1;pi<parts.length;pi++){
+    var o=parts[pi].s.trim(),fm=/^fps\s+(\d+(?:\.\d+)?)$/.exec(o);
+    if(fm&&+fm[1]>0&&+fm[1]<=240){d.fps=+fm[1];d.fpsGiven=true;continue}
+    if(fm||/^fps\b/.test(o))E(line0,parts[pi].col,'fps is the number of frames per second, more than 0 and at most 240 — e.g. fps 8');
+    else E(line0,parts[pi].col,o?'Unknown sprite option "'+o+'" — after the size only fps N can follow (sprite '+d.name+': 16x16, fps 8)':'Expected an option after the comma — fps 8');
+    if(o&&!/^fps\b/.test(o))d.headExtra.push(o);
+  }
+  // body
+  var cur=null,implicit=null,firstFrameLine=null,rleRows=null,palEntries=[];
+  function newFrame(name,ln,rle,col){var f={name:name,rows:[],rle:rle,rowCmt:[],extra:[],line:ln,col:col||1};d.frames.push(f);return f}
+  for(var li=1;li<lines.length;li++){
+    var raw=String(lines[li]).replace(/\r$/,''),ln=line0+li;
+    if(!/\S/.test(raw))continue;
+    var ca=_sprCmtAt(raw),code=(ca>=0?raw.slice(0,ca):raw),cmt=ca>=0?raw.slice(ca):'';
+    var ind=code.length-code.replace(/^\s+/,'').length,col=ind+1;code=code.trim();
+    if(!code){(cur||implicit?(cur||implicit).extra:d.extra).push(raw);continue}
+    var m;
+    if((m=/^palette\b(.*)$/.exec(code))){
+      d.palGiven=true;
+      var re=/\S+/g,pm;
+      while((pm=re.exec(m[1]))){
+        var hx=pm[0],pcol=col+7+pm.index;
+        if(!/^#?[0-9a-fA-F]{6}$/.test(hx)){E(ln,pcol,'Expected a palette colour as 6 hex digits (rrggbb, # optional), got "'+hx+'"');continue}
+        if(d.palette.length>=35){E(ln,pcol,'A palette has at most 35 colours (1-9 and a-z)');continue}
+        d.palette.push(hx.replace('#','').toLowerCase());
+      }
+      continue;
+    }
+    if((m=/^frame\b(\s+([A-Za-z_]\w*))?(\s+rle\b)?\s*(.*)$/.exec(code))||(m=/^(rle)\b\s*(.*)$/.exec(code))){
+      var isBareRle=m[1]==='rle'&&m.length===3,fname=isBareRle?'':(m[2]||''),rle=isBareRle||!!m[3],tail=isBareRle?m[2]:m[4];
+      if(!isBareRle){
+        if(firstFrameLine===null)firstFrameLine=ln;
+        if(!m[1]){E(ln,col+5,'Expected a frame name after frame — frame idle');fname='frame'+(d.frames.length+1)}
+        else if(d.frames.some(function(f){return f.name===fname})){E(ln,col+code.indexOf(fname,5),'Frame "'+fname+'" is already declared in sprite '+d.name);fname=fname+'_'+(d.frames.length+1)}
+        cur=newFrame(fname,ln,rle,col);
+      }else{
+        if(!implicit)implicit=newFrame('',ln,true,col);
+        cur=null;implicit.rle=true;
+      }
+      if(tail){
+        var tq=/^"([^"]*)"$/.exec(tail),tcol=col+code.length-tail.length;
+        if(!rle||!tq)E(ln,tcol,rle?'Expected the rows in quotes after rle — frame '+fname+' rle ".4 14 .8/…"':'Expected the end of the line after frame '+fname+' (rows go on the lines below, or write frame '+fname+' rle "…")');
+        else addRle(cur||implicit,tq[1],ln,tcol+1);
+      }
+      if(cmt)(cur||implicit).cmt=cmt;
+      continue;
+    }
+    if((m=/^"([^"]*)"$/.exec(code))){
+      var tgt=cur||implicit;
+      if(!tgt){tgt=implicit=newFrame('',ln,false,col)}
+      if(tgt.rle)addRle(tgt,m[1],ln,col+1);
+      else{tgt.rows.push({text:m[1],line:ln,col:col+1});tgt.rowCmt[tgt.rows.length-1]=cmt?cmt:''}
+      continue;
+    }
+    if(!tolerant)E(ln,col,'Unknown line in sprite '+d.name+' — expected palette, frame or a row of pixels in quotes ("..12..")');
+    else E(ln,col,'Kept as it is: an unknown line in sprite '+d.name);
+    (cur||implicit?(cur||implicit).extra:d.extra).push(raw);
+  }
+  function addRle(f,s,ln,col0){
+    var r=_sprRleDecode(s);
+    r.rows.forEach(function(x){f.rows.push({text:x.text,line:ln,col:col0+x.off})});
+    if(r.err)E(ln,col0+r.err.off,r.err.msg);
+  }
+  if(implicit&&firstFrameLine!==null){
+    E(firstFrameLine,1,'Sprite '+d.name+' has rows before its first frame line — put them under a frame line (frame idle), or remove the frame lines');
+    if(tolerant){implicit.name='frame0';var k0=0;while(d.frames.some(function(f,i){return f!==implicit&&f.name===implicit.name})){implicit.name='frame'+(++k0)}}
+  }
+  if(!d.palGiven)d.palette=_SPR_DEFAULT_PAL.slice();
+  if(!d.frames.length){E(line0,1,'Sprite '+d.name+' has no pixels — add rows of pixels in quotes ("..12..") or frame lines');d.frames.push({name:'',rows:[],rle:false,rowCmt:[],extra:[],line:line0})}
+  // rows → pixel data, checked
+  var npal=d.palette.length;
+  d.frames.forEach(function(f){
+    var data='',what=f.name?'frame '+f.name:'sprite '+d.name;
+    if(f.rows.length!==d.h&&f.rows.length)E(f.rows.length>d.h?f.rows[d.h].line:f.line,f.rows.length>d.h?f.rows[d.h].col-(f.rle?0:1):f.col,(f.name?'Frame '+f.name:'Sprite '+d.name)+' has '+f.rows.length+' row'+(f.rows.length===1?'':'s')+', but '+(f.name?'sprite '+d.name:'it')+' is '+d.h+' high');
+    else if(!f.rows.length&&f.name)E(f.line,f.col,'Frame '+f.name+' has no rows — sprite '+d.name+' is '+d.w+'x'+d.h+': add '+d.h+' rows in quotes below it');
+    for(var r=0;r<d.h;r++){
+      var row=f.rows[r],t=row?row.text:'';
+      if(row&&t.length!==d.w)E(row.line,row.col-(f.rle?0:1),'Row '+(r+1)+' of '+what+' has '+t.length+' pixel'+(t.length===1?'':'s')+', but '+(f.name?'sprite '+d.name:'it')+' is '+d.w+' wide');
+      for(var x=0;x<d.w;x++){
+        var c=x<t.length?t[x]:'.',v=_SPR_CHARS.indexOf(c);
+        if(v<0){
+          if(row&&!f.rle)E(row.line,row.col+x,'Unknown pixel "'+c+'" — use . (transparent), 1-9 or a-z (palette colours 1-35)'+(/[A-Z]/.test(c)?': palette letters are lower case':''));
+          else if(row)E(row.line,row.col,'Unknown pixel "'+c+'" — use . (transparent), 1-9 or a-z (palette colours 1-35)');
+          c='.';
+        }else if(v>npal){
+          if(row)E(row.line,row.col+(f.rle?0:x),'Pixel "'+c+'" is palette colour '+v+', but the palette of sprite '+d.name+' has '+npal+' colour'+(npal===1?'':'s'));
+          c='.';
+        }
+        data+=c;
+      }
+    }
+    f.data=data;
+    delete f.rows;
+  });
+  errors.sort(function(a,b){return a.line-b.line||a.col-b.col});
+  return d;
+}
+// The block text for a sprite (the SPRITE tool writes this). d as _sprParse returns it (frames with .data).
+// Rows are written as pictures up to 64 pixels wide; wider sprites use the compact rle form (one line per frame).
+function _sprFormat(d){
+  var out=['sprite '+d.name+': '+d.w+'x'+d.h+(d.frames.length>1||d.fpsGiven?', fps '+(+d.fps||_SPR_DEFAULT_FPS):'')+(d.headExtra||[]).map(function(o){return', '+o}).join('')];
+  for(var i=0;i<d.palette.length;i+=8)out.push('  palette '+d.palette.slice(i,i+8).join(' '));
+  (d.extra||[]).forEach(function(l){out.push(l)});
+  var rle=d.w>_SPR_ROWS_MAX_W,single=d.frames.length===1&&!d.frames[0].name;
+  d.frames.forEach(function(f){
+    var rows=[];for(var y=0;y<d.h;y++)rows.push(f.data.substr(y*d.w,d.w));
+    var ind=single?'  ':'    ';
+    var fc=f.cmt?'  '+f.cmt:'';
+    if(rle)out.push((single?'  rle "':'  frame '+f.name+' rle "')+_sprRleEncode(rows)+'"'+fc);
+    else{
+      if(!single)out.push('  frame '+f.name+fc);
+      rows.forEach(function(r,y){out.push(ind+'"'+r+'"'+(f.rowCmt&&f.rowCmt[y]?'  '+f.rowCmt[y]:''))});
+    }
+    (f.extra||[]).forEach(function(l){out.push(l)});
+  });
+  return out.join('\n');
+}
+// ── syntax ──
+(function(){
+  var tk0=Lexer.prototype.tokenize,P=Parser.prototype,top0=P.parseTop,stmt0=P.parseStmt;
+  Lexer.prototype.tokenize=function(){
+    var bl=_sprFindBlocks(this.s);
+    if(!bl.length)return tk0.call(this);
+    var lines=String(this.s).split('\n');
+    bl.forEach(function(b){for(var i=b.start;i<=b.end;i++)lines[i]=lines[i].replace(/[^\r]/g,' ')});
+    this.s=lines.join('\n');
+    var ts=tk0.call(this);
+    bl.forEach(function(b){
+      var ln=b.start+1,tok=new Token(TT.IDENTIFIER,'sprite',ln,1);
+      tok.sprite=_sprParse(b.lines,ln,false);
+      var at=0;while(at<ts.length&&ts[at].type!==TT.EOF&&ts[at].line<=ln)at++;
+      ts.splice(at,0,tok);
+    });
+    return ts;
+  };
+  P.parseTop=function(){
+    var t=this.cur();
+    if(t&&t.sprite){
+      this.adv();
+      var d=t.sprite;
+      if(d.errors.length){var e=d.errors[0];throw new Error(e.line+':'+e.col+': '+e.msg)}
+      return{type:'SpriteDecl',name:d.name,w:d.w,h:d.h,fps:d.fps,palette:d.palette.slice(),frames:d.frames.map(function(f){return{name:f.name,data:f.data}}),loc:{line:d.loc.line,col:1},nameLoc:{line:d.nameLoc.line,col:d.nameLoc.col}};
+    }
+    return top0.call(this);
+  };
+  P.parseStmt=function(){
+    var t=this.cur();
+    if(t&&t.sprite)throw this.err('sprite declarations belong at the top level of a file, not inside a function — is a } missing above?');
+    return stmt0.call(this);
+  };
+})();
+// ── lowering: numbers for sprite names, SpriteCall nodes (runs after _rgLower, before the builtins are injected) ──
+function _sprTake(ast){
+  var S=[],b=ast.body;
+  for(var i=0;i<b.length;i++)if(b[i]&&b[i].type==='SpriteDecl')S.push(b[i]);
+  if(!S.length)return null;
+  ast.body=b.filter(function(n){return!(n&&n.type==='SpriteDecl')});
+  return S;
+}
+_rgLower=(function(lower){return function(ast){
+  var S=_sprTake(ast),r=lower.apply(this,arguments);
+  if(S)_sprLower(ast,S);
+  return r;
+}})(_rgLower);
+function _sprLower(ast,S){
+  function fail(msg,loc){throw new Error((loc&&loc.file?loc.file+':':'')+(loc?(loc.line||1)+':'+(loc.col||1)+': ':'')+msg)}
+  function where(loc){return(loc&&loc.file?loc.file+':':'line ')+((loc&&loc.line)||1)}
+  var byName=new Map(),list=[];
+  S.forEach(function(d){
+    var o=byName.get(d.name);
+    if(o)fail('Sprite "'+d.name+'" is already declared at '+where(o.loc)+' — every sprite of the project needs its own name',d.nameLoc&&{file:d.loc.file,line:d.nameLoc.line,col:d.nameLoc.col});
+    d.id=list.length;byName.set(d.name,d);list.push(d);
+  });
+  var fns=new Set(),globals=new Set();
+  ast.body.forEach(function(n){
+    if(n.type==='FunctionDecl'||n.type==='ImportDecl')fns.add(n.name);
+    if(n.type==='VarDecl')globals.add(n.name);
+    var sp=n.name&&byName.get(n.name);
+    if(sp&&/^(FunctionDecl|VarDecl|StructDecl|RegionDecl|ImportDecl)$/.test(n.type)){
+      var what={FunctionDecl:'a function',VarDecl:'a variable',StructDecl:'a struct',RegionDecl:'a region',ImportDecl:'an import fn'}[n.type];
+      fail('The name "'+n.name+'" is a sprite and also '+what+' (at '+where(n.loc)+') — sprite names are seen by every file, so rename one of them',{file:sp.loc.file,line:sp.nameLoc.line,col:sp.nameLoc.col});
+    }
+  });
+  var names=list.map(function(d){return d.name});
+  function hint(n){var c=_emitModClosest(n,names);return c?' — did you mean "'+c+'"?':''}
+  var scopes=[new Set()],seen=new Set(),fnParams=[];
+  function isVar(n){for(var i=scopes.length-1;i>=0;i--)if(scopes[i].has(n))return true;return globals.has(n)}
+  function def(n){scopes[scopes.length-1].add(n)}
+  function sprOf(e){return e&&e.type==='IdentifierExpr'&&byName.has(e.name)&&!isVar(e.name)?byName.get(e.name):null}
+  function asInt(e,v){var o=e;for(var k in o)if(k!=='loc')delete o[k];o.type='IntLiteral';o.value=String(v);return o}
+  function frameList(d){return d.frames.map(function(f){return f.name?'"'+f.name+'"':'(unnamed)'}).join(', ')}
+  // the sprite argument: {node, d (constant sprite or null)}
+  function sprArg(a,fn,L){
+    if(!a)fail(fn+' needs a sprite as its first argument',L);
+    if(a.type==='StringLiteral'){
+      var ds=byName.get(a.value);
+      if(!ds)fail('Unknown sprite "'+a.value+'"'+hint(a.value),a.loc||L);
+      return{node:asInt(a,ds.id),d:ds};
+    }
+    if(a.type==='IdentifierExpr'){
+      var d=sprOf(a);
+      if(d)return{node:asInt(a,d.id),d:d};
+      if(!isVar(a.name)&&!fns.has(a.name))fail('Unknown sprite "'+a.name+'"'+hint(a.name)+(list.length?'':' — declare one: sprite '+a.name+': 16x16'),a.loc||L);
+    }
+    if(a.type==='RegionOp')fail(fn+' needs a sprite as its first argument, not a region',a.loc||L);
+    X(a);
+    return{node:a,d:null};
+  }
+  // a constant frame argument is checked against a constant sprite
+  function frameArg(f,d,fn,L){
+    if(!f)return null;
+    if(d&&f.type==='StringLiteral'){
+      var i=-1;d.frames.forEach(function(x,k){if(x.name===f.value)i=k});
+      if(i<0){var c=_emitModClosest(f.value,d.frames.map(function(x){return x.name}).filter(Boolean));fail('Sprite '+d.name+' has no frame "'+f.value+'"'+(c?' — did you mean "'+c+'"?':' — its frames: '+frameList(d)),f.loc||L)}
+      return asInt(f,i);
+    }
+    var v=_rgTryFold(f);
+    if(d&&v!==null&&(v<0||v>=d.frames.length))fail('Sprite '+d.name+' has '+d.frames.length+' frame'+(d.frames.length===1?'':'s')+' (0'+(d.frames.length>1?' … '+(d.frames.length-1):'')+'), not frame '+v,f.loc||L);
+    X(f);
+    return f;
+  }
+  function call(e){
+    var nm=e.callee.name,a=e.args,L=e.loc;
+    function argc(n,m,usage){if(a.length<n||a.length>m)fail(nm+' takes '+usage,L)}
+    var node={type:'SpriteCall',op:nm,loc:L},s;
+    switch(nm){
+      case'draw':
+        argc(3,4,'a sprite, x and y, and optionally a frame: draw(hero, 10, 20) or draw(hero, 10, 20, "walk1")');
+        s=sprArg(a[0],nm,L);node.spr=s.node;node.frame=frameArg(a[3],s.d,nm,L);X(a[1]);X(a[2]);node.x=a[1];node.y=a[2];break;
+      case'drawEx':
+        argc(4,6,'a sprite, x, y, a frame, flipX and scale: drawEx(hero, 10, 20, 0, true, 2.0)');
+        s=sprArg(a[0],nm,L);node.spr=s.node;node.frame=frameArg(a[3],s.d,nm,L);X(a[1]);X(a[2]);node.x=a[1];node.y=a[2];
+        if(a[4]){X(a[4]);node.flip=a[4]}
+        if(a[5]){X(a[5]);node.scale=a[5]}
+        break;
+      case'anim':
+        argc(2,2,'a sprite and a time in seconds: anim(hero, t) — the frame number at t');
+        s=sprArg(a[0],nm,L);node.spr=s.node;X(a[1]);node.t=a[1];
+        break;
+      case'spriteW':case'spriteH':
+        argc(1,1,'one sprite: '+nm+'(hero)');
+        s=sprArg(a[0],nm,L);node.spr=s.node;
+        if(s.d)return asInt(e,nm==='spriteW'?s.d.w:s.d.h);
+        break;
+      case'blit':{
+        argc(6,6,'a sprite, a frame, a u8 region, x, y and the width of the picture in the region: blit(hero, 0, fb, 10, 20, 160)');
+        s=sprArg(a[0],nm,L);node.spr=s.node;node.frame=frameArg(a[1],s.d,nm,L);
+        var r=a[2],el=null;
+        if(r&&r.type==='RegionOp'&&r.op==='view'&&r.auto){
+          var rname=r.rg.name;
+          if(r.rg.k==='static'){var R=ast.rgInfo&&ast.rgInfo.regions[r.rg.id];el=R?R.elem:null;rname=R&&(R.src||R.name)}
+          else for(var pi=fnParams.length-1;pi>=0&&el===null;pi--){var pp=fnParams[pi]&&fnParams[pi].get(r.rg.name);if(pp)el=pp}
+          if(el!=='u8')fail('blit needs a u8 region (4 bytes per pixel, as screen shows it), but '+(rname||'this region')+' holds '+el,(r.loc||L));
+          node.rg=r.rg;
+        }else fail('blit copies into a u8 region: its third argument is the region\'s name (region fb: u8[160 * 120 * 4])',(r&&r.loc)||L);
+        X(a[3]);X(a[4]);X(a[5]);node.x=a[3];node.y=a[4];node.w=a[5];
+        var w0=_rgTryFold(a[5]);if(w0!==null&&w0<1)fail('blit: the width of the picture in the region must be at least 1',a[5].loc||L);
+        break;
+      }
+    }
+    for(var k in e)if(k!=='loc')delete e[k];
+    for(var k2 in node)e[k2]=node[k2];
+    return e;
+  }
+  function X(x){
+    if(!x||typeof x!=='object'||seen.has(x))return;
+    seen.add(x);
+    if(Array.isArray(x)){x.forEach(X);return}
+    switch(x.type){
+      case'IdentifierExpr':{var d=sprOf(x);if(d)asInt(x,d.id);return}
+      case'CallExpr':{
+        var c=x.callee;
+        if(c&&c.type==='IdentifierExpr'&&_SPR_FNS[c.name]&&!fns.has(c.name)&&!isVar(c.name)){call(x);return}
+        if(c&&c.type==='IdentifierExpr'){seen.add(c);if(sprOf(c))fail('"'+c.name+'" is a sprite, not a function — draw it: draw('+c.name+', x, y)',c.loc||x.loc)}
+        else X(c);
+        x.args.forEach(X);return;
+      }
+      case'MemberExpr':if(sprOf(x.object))fail('"'+x.object.name+'" is a sprite — it has no members. Use spriteW('+x.object.name+'), spriteH('+x.object.name+'), anim('+x.object.name+', t)',x.object.loc||x.loc);break;
+      case'AssignExpr':if(sprOf(x.target))fail('"'+x.target.name+'" is a sprite — it cannot be assigned',x.target.loc||x.loc);break;
+      case'BlockStmt':scopes.push(new Set());x.statements.forEach(X);scopes.pop();return;
+      case'ForStmt':scopes.push(new Set());X(x.init);X(x.condition);X(x.update);X(x.body);scopes.pop();return;
+      case'VarDecl':X(x.init);def(x.name);return;
+      case'WithStmt':X(x.target);scopes.push(new Set());def(x.alias);X(x.body);scopes.pop();return;
+    }
+    for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')X(v)}
+  }
+  ast.body.forEach(function(n){
+    if(n.type==='FunctionDecl'){
+      scopes=[new Set()];var pm=new Map();fnParams=[pm];
+      n.params.forEach(function(p){def(p.name);var el=_rgParamElem(p.type);if(el)pm.set(p.name,el)});
+      X(n.body);
+    }else if(n.type==='VarDecl'){scopes=[new Set()];X(n.init)}
+  });
+  ast.sprites=list.map(function(d){return{name:d.name,w:d.w,h:d.h,fps:d.fps,palette:d.palette,frames:d.frames,path:(d.loc&&d.loc.file)||null,line:d.loc&&d.loc.line}});
+}
+// ── types ──
+(function(){
+  var P=TypeAnnotator.prototype,a0=P.a,C=TypeChecker.prototype,inf0=C.inf;
+  P.a=function(e){
+    if(!e||e.type!=='SpriteCall')return a0.call(this,e);
+    var self=this;
+    function num(x,what){var t=self.a(x);if(t==='js')self.conv(x,'num');else if(!(self.isI(t)||self.isN(t)))self.fail(e.op+': '+what+' must be a number, but this is '+t,x.loc||e.loc)}
+    function int(x,what){var t=self.a(x);if(t==='js')self.conv(x,'int');else if(!self.isI(t))self.fail(e.op+': '+what+' must be an int, but this is '+t+(self.isN(t)?' — round it first, e.g. floor(x)':''),x.loc||e.loc)}
+    int(e.spr,'the sprite (a sprite name or its number)');
+    if(e.frame){
+      var ft=this.a(e.frame);
+      if(ft==='str'){e.frameStr=true;this.need('__sprFrame')}
+      else if(ft==='js')this.conv(e.frame,'int');
+      else if(!this.isI(ft))this.fail(e.op+': the frame must be a frame number (int) or a frame name in quotes, but this is '+ft,e.frame.loc||e.loc);
+    }
+    if(e.x)num(e.x,'x');
+    if(e.y)num(e.y,'y');
+    if(e.scale)num(e.scale,'the scale');
+    if(e.t)num(e.t,'the time (seconds)');
+    if(e.flip){var bt=this.a(e.flip);if(bt==='js')this.conv(e.flip,'bool');else if(bt!=='bool')this.fail(e.op+': flipX must be true or false, but this is '+bt,e.flip.loc||e.loc)}
+    if(e.w)int(e.w,'the width of the picture in the region');
+    var t='void';
+    switch(e.op){
+      case'draw':case'drawEx':this.need('__sprDraw');break;
+      case'anim':this.need('__sprAnim');t='int';break;
+      case'spriteW':case'spriteH':this.need('__sprSize');t='int';break;
+      case'blit':this.need('__sprBlit');break;
+    }
+    e.exprType=t;
+    return t;
+  };
+  C.inf=function(e){
+    if(e&&e.type==='SpriteCall'){
+      var self=this;
+      ['spr','frame','x','y','scale','t','flip','w'].forEach(function(k){if(e[k])self.inf(e[k])});
+      return e.exprType;
+    }
+    return inf0.call(this,e);
+  };
+})();
+// ── code generation ──
+(function(){
+  var P=WasmCodegen.prototype,nat0=P.genNatural,res0=P.exprResType,gen0=P.generate;
+  function isI(t){return t==='int'||t==='i64'}
+  P._sprNum=function(x){if(isI(x.exprType)){this.genExpr(x,'int');this.emit(0xB9)}else this.genExpr(x,'num')};
+  // pushes the frame index (i64); a frame name (str) is looked up at run time with the sprite id kept in a local
+  P._sprFrame=function(e,idLocal){
+    if(!e.frame){this.emit(Op.i64_const,...ei64(0));return}
+    if(!e.frameStr){this.genExpr(e.frame,'int');return}
+    this.emit(Op.local_get,...eu32(idLocal));
+    this.genExpr(e.frame,'str');
+    this.jsImportCall('__sprFrame');
+  };
+  P._sprId=function(e){
+    var d=this._sprDepth=(this._sprDepth||0)+1,li=-1;
+    this.genExpr(e.spr,'int');
+    if(e.frameStr){var n='_spr$'+d;li=this.getLocal(n);if(li<0)li=this.addLocal(n,'int');this.emit(Op.local_tee,...eu32(li))}
+    return li;
+  };
+  P.genNatural=function(e,exp){
+    if(!e||e.type!=='SpriteCall')return nat0.call(this,e,exp);
+    var li;
+    try{
+      switch(e.op){
+        case'draw':case'drawEx':
+          li=this._sprId(e);
+          this._sprNum(e.x);this._sprNum(e.y);
+          this._sprFrame(e,li);
+          if(e.flip)this.genExpr(e.flip,'bool');else this.emit(Op.i32_const,...ei32(0));
+          if(e.scale)this._sprNum(e.scale);else this.emit(Op.f64_const,...ef64(1));
+          this.jsImportCall('__sprDraw');
+          return;
+        case'anim':
+          this.genExpr(e.spr,'int');this._sprNum(e.t);this.jsImportCall('__sprAnim');
+          this._rgCoerce('int',exp);return;
+        case'spriteW':case'spriteH':
+          this.genExpr(e.spr,'int');this.emit(Op.i64_const,...ei64(e.op==='spriteW'?0:1));this.jsImportCall('__sprSize');
+          this._rgCoerce('int',exp);return;
+        case'blit':
+          li=this._sprId(e);
+          this._sprFrame(e,li);
+          this._rgDesc(e.rg);
+          this._sprNum(e.x);this._sprNum(e.y);
+          this.genExpr(e.w,'int');
+          this.emit(Op.i32_const,...ei32(this._rgPos(e.loc)));
+          this.jsImportCall('__sprBlit');
+          this.emit(Op.if,0x40);this.genAfterThrow();this.emit(Op.end);
+          return;
+      }
+    }finally{if(e.op==='draw'||e.op==='drawEx'||e.op==='blit')this._sprDepth--}
+  };
+  P.exprResType=function(e){
+    if(e&&e.type==='SpriteCall')return(e.op==='anim'||e.op==='spriteW'||e.op==='spriteH')?'int':'void';
+    return res0.call(this,e);
+  };
+  P.generate=function(){
+    this._sprDepth=0;
+    var w=gen0.apply(this,arguments),L=this.ast&&this.ast.sprites;
+    if(L&&L.length)this.imports.spriteData=JSON.stringify({v:1,sprites:L.map(function(d){return{name:d.name,w:d.w,h:d.h,fps:d.fps,palette:d.palette,frames:d.frames.map(function(f){return{name:f.name,data:f.data}})}})});
+    return w;
+  };
+})();
+// The compile result: r.sprites = [{name, w, h, fps, frames: [names], path, line}] (empty without sprites).
+compile=(function(c){return function(source,target){
+  var r=c.apply(this,arguments),L=r&&r.ast&&r.ast.sprites;
+  if(r)r.sprites=(L||[]).map(function(d){return{name:d.name,w:d.w,h:d.h,fps:d.fps,frames:d.frames.map(function(f){return f.name}),path:d.path,line:d.line}});
+  return r;
+}})(compile);
 // _emitModuleIndex: structs and regions of a parsed module (names as written; length null when not constant).
 function _rgIndexOf(m){
   var out={structs:[],regions:[]};
@@ -6474,6 +7046,358 @@ buildImportObject=(function(build){return function(imports,outputLog){
 if(typeof window!=='undefined'){
   window._sndPlay=_sndPlay;window._musicPlay=_musicPlay;window._musicStop=_musicStop;window._musicPlaying=_musicPlaying;
 }
+// ═══ SPRITES (runtime half; the compiler half is "SPRITES" in the compiler) ═══
+// The program's sprites arrive as imports.spriteData (JSON: name, size, fps, palette, frames as w*h pixel
+// characters). Each frame is turned into pixels once, when it is first drawn: a Uint32Array of RGBA (for blit)
+// and an offscreen canvas (for draw). For other runtime code (things / tiles):
+//   _spriteDraw(ctx2d, name, frame, x, y, opts)  frame: a frame name or index; opts {flipX, flipY, scale, alpha}
+//                                                 all optional. Pixel-crisp (no smoothing), x / y rounded.
+//                                                 An index past the last frame wraps around; a negative index or
+//                                                 an unknown name draws nothing. Returns true when it drew.
+//   _spriteInfo(name)                             {w, h, frames: [names], fps} or null
+//   _spriteRegister(def)                          adds or replaces a sprite: {name, w, h, fps, palette: [hex6],
+//                                                 frames: [{name, data}]} (data: w*h chars . 1-9 a-z)
+// `name` may also be a sprite's number (its position in the program, as the compiled code passes it).
+var _SPR_CH='.123456789abcdefghijklmnopqrstuvwxyz';
+var _sprList=[],_sprByName=Object.create(null),_sprWarned=new Set();
+function _sprMake(d){
+  var pal=new Uint32Array(128);
+  (d.palette||[]).forEach(function(h,i){
+    var v=parseInt(String(h).replace('#',''),16)||0;
+    pal[_SPR_CH.charCodeAt(i+1)]=((255<<24)|((v&255)<<16)|(((v>>8)&255)<<8)|((v>>16)&255))>>>0; /* bytes r g b a, little-endian */
+  });
+  var S={name:String(d.name),w:Math.max(1,d.w|0),h:Math.max(1,d.h|0),fps:Number(d.fps)>0?Number(d.fps):8,lut:pal,frames:[],byFrame:Object.create(null)};
+  (d.frames||[]).forEach(function(f,i){S.frames.push({name:String(f.name||''),data:String(f.data||''),u32:null,cv:null});if(f.name&&!(f.name in S.byFrame))S.byFrame[f.name]=i});
+  if(!S.frames.length)S.frames.push({name:'',data:'',u32:null,cv:null});
+  return S;
+}
+function _spriteRegister(d){
+  var S=_sprMake(d),old=_sprByName[S.name];
+  S.id=old?old.id:_sprList.length;
+  _sprList[S.id]=S;_sprByName[S.name]=S;
+  return S.id;
+}
+function _sprSetup(imports){
+  _sprList=[];_sprByName=Object.create(null);_sprWarned=new Set();
+  var m=null;
+  try{if(imports&&typeof imports.spriteData==='string')m=JSON.parse(imports.spriteData)}catch(e){m=null}
+  if(m&&m.sprites)m.sprites.forEach(_spriteRegister);
+}
+function _sprGet(s){
+  if(typeof s==='number'||typeof s==='bigint')return _sprList[Number(s)]||null;
+  return(s!=null&&_sprByName[String(s)])||null;
+}
+// frame (name or index) → index, or -1
+function _sprIx(S,f){
+  if(typeof f==='string'){var i=S.byFrame[f];return i===undefined?-1:i}
+  var n=Number(f);
+  if(!(n>=0)||!isFinite(n))return -1;
+  return Math.floor(n)%S.frames.length;
+}
+function _sprPix(S,i){
+  var F=S.frames[i];
+  if(!F.u32){
+    var n=S.w*S.h,u=new Uint32Array(n),d=F.data,L=S.lut;
+    for(var k=0;k<n&&k<d.length;k++){var c=d.charCodeAt(k);u[k]=c<128?L[c]:0}
+    F.u32=u;
+  }
+  return F.u32;
+}
+function _sprCanvas(S,i){
+  var F=S.frames[i];
+  if(!F.cv){
+    var u=_sprPix(S,i),cv=document.createElement('canvas');
+    cv.width=S.w;cv.height=S.h;
+    var c=cv.getContext('2d');
+    if(c)c.putImageData(new ImageData(new Uint8ClampedArray(u.buffer.slice(0)),S.w,S.h),0,0);
+    F.cv=cv;
+  }
+  return F.cv;
+}
+function _spriteDraw(ctx,name,frame,x,y,opts){
+  var S=_sprGet(name);
+  if(!S||!ctx)return false;
+  var fi=_sprIx(S,frame==null?0:frame);
+  if(fi<0)return false;
+  var o=opts||{},sc=o.scale==null?1:Number(o.scale);
+  if(!(sc>0)||!isFinite(sc))return false;
+  var w=Math.max(1,Math.round(S.w*sc)),h=Math.max(1,Math.round(S.h*sc)),cv=_sprCanvas(S,fi);
+  x=Math.round(Number(x)||0);y=Math.round(Number(y)||0);
+  ctx.save();
+  ctx.imageSmoothingEnabled=false;
+  if(o.alpha!=null)ctx.globalAlpha*=Math.max(0,Math.min(1,Number(o.alpha)));
+  if(o.flipX||o.flipY){ctx.translate(x+(o.flipX?w:0),y+(o.flipY?h:0));ctx.scale(o.flipX?-1:1,o.flipY?-1:1);ctx.drawImage(cv,0,0,w,h)}
+  else ctx.drawImage(cv,x,y,w,h);
+  ctx.restore();
+  return true;
+}
+function _spriteInfo(name){
+  var S=_sprGet(name);
+  return S?{w:S.w,h:S.h,frames:S.frames.map(function(f){return f.name}),fps:S.fps}:null;
+}
+// A problem while drawing is shown once (a red line), never stops the program.
+function _sprWarn(msg){if(_sprWarned.has(msg))return;_sprWarned.add(msg);_jsErr('sprite',new Error(msg))}
+// blit: copy a frame into a u8 region (RGBA, w pixels per row), transparent pixels skipped, clipped to the region.
+function _sprBlit(id,f,d,x,y,w,pos){
+  var S=_sprList[Number(id)];
+  if(!S){_sprWarn('blit: there is no sprite number '+id);return 0}
+  var R=_rgByDesc(d);
+  if(!R)return _rgRaise('blit into an unknown region',pos);
+  if(_rgIsFrozen(R))return _rgRaise('write to frozen region '+R.name,pos);
+  w=Number(w);
+  if(!(w>=1))return _rgRaise('blit('+S.name+', …, '+R.name+', …): the width of the picture must be at least 1, not '+w,pos);
+  var fi=_sprIx(S,f);
+  if(fi<0)return 0;
+  var src=_sprPix(S,fi),H=Math.floor(R.length/4/w),X=Math.round(Number(x)||0),Y=Math.round(Number(y)||0);
+  var x0=Math.max(0,X),x1=Math.min(w,X+S.w),y0=Math.max(0,Y),y1=Math.min(H,Y+S.h);
+  if(x0>=x1||y0>=y1)return 0;
+  var dst=new Uint32Array(_wasmMem.buffer,R.base,H*w);
+  for(var yy=y0;yy<y1;yy++){
+    var si=(yy-Y)*S.w+(x0-X),di=yy*w+x0;
+    for(var xx=x0;xx<x1;xx++,si++,di++){var v=src[si];if(v)dst[di]=v}
+  }
+  _rgDirty=true;
+  return 0;
+}
+_emitExtraImport=(function(extra){return function(name){
+  switch(name){
+    case'__sprDraw':return function(id,x,y,f,flip,sc){
+      var S=_sprList[Number(id)];
+      if(!S)return void _sprWarn('draw: there is no sprite number '+id);
+      var c=_need2d();
+      if(!c)return void _sprWarn('draw('+S.name+', …): there is no canvas to draw on — call canvas(w, h) first');
+      _spriteDraw(c,S.id,f<0n?-1:Number(f),x,y,{flipX:!!flip,scale:sc});
+    };
+    case'__sprFrame':return function(id,p){
+      var S=_sprList[Number(id)],nm=_readStr(p);
+      if(!S)return -1n;
+      var i=S.byFrame[nm];
+      if(i===undefined){_sprWarn('sprite '+S.name+' has no frame "'+nm+'"');return -1n}
+      return BigInt(i);
+    };
+    case'__sprAnim':return function(id,t){
+      var S=_sprList[Number(id)];
+      if(!S)return 0n;
+      var n=S.frames.length,k=Math.floor(Number(t)*S.fps);
+      if(!isFinite(k))k=0;
+      return BigInt(((k%n)+n)%n);
+    };
+    case'__sprSize':return function(id,which){var S=_sprList[Number(id)];return S?BigInt(which===0n?S.w:S.h):0n};
+    case'__sprBlit':return _sprBlit;
+  }
+  return extra(name);
+}})(_emitExtraImport);
+buildImportObject=(function(build){return function(imports,outputLog){
+  _sprSetup(imports);
+  return build.apply(this,arguments);
+}})(buildImportObject);
+if(typeof window!=='undefined'){window._spriteDraw=_spriteDraw;window._spriteInfo=_spriteInfo;window._spriteRegister=_spriteRegister}
+// ═══ MAPS & CONTROLS (runtime half; the compiler half is the "MAPS & CONTROLS" script near the end of the page) ═══
+// The compiler hands the program's `map` and `controls` blocks over as imports.stageMeta (JSON, like regionMeta):
+//   {v:1, maps:[{name,w,h,tile,legend:{ch:{name,solid,color?,sprite?}},rows:[str],objects:[{kind,x,y,props}]}],
+//    controls:[{name,stick:'left'|'right'|'none',dpad,buttons:[{id,label}],side,size,opacity,keys,deadzone}]}
+// Map number i / controls number i in the program are index i of these lists (a map name compiles to its number).
+// Helpers for other runtime code (exported with the program): _mapInfo(name) _mapTile(name,tx,ty)
+// _mapSolidAt(name,px,py) _mapDraw(ctx2d,name,ox,oy) _mapObjects(name) _ctlState().
+var _stMaps=[],_stCtls=[],_stErrSeen=new Set();
+var _stIn={tx:0,ty:0,tp:null,down:{A:0,B:0,C:0},edge:{A:false,B:false,C:false},kb:{},kbBtn:{A:false,B:false,C:false},tapX:0,tapY:0,tapping:false,tapP:null,ctl:null,el:null};
+function _stErr(what,msg){var k=what+'|'+msg;if(_stErrSeen.has(k))return;_stErrSeen.add(k);_jsErr(what,new Error(msg))}
+function _stSetup(imports){
+  var m=null;
+  try{if(imports&&typeof imports.stageMeta==='string')m=JSON.parse(imports.stageMeta)}catch(e){m=null}
+  _stMaps=[];_stCtls=[];_stErrSeen=new Set();
+  if(m){
+    (m.maps||[]).forEach(function(d){_stMaps.push({name:d.name,w:d.w,h:d.h,tile:d.tile,legend:d.legend||{},rows:(d.rows||[]).map(function(r){return Array.from(r)}),objects:d.objects||[]})});
+    _stCtls=m.controls||[];
+  }
+  _stCtlHide();
+  _stIn.tx=0;_stIn.ty=0;_stIn.tp=null;_stIn.down={A:0,B:0,C:0};_stIn.edge={A:false,B:false,C:false};_stIn.kb={};_stIn.kbBtn={A:false,B:false,C:false};
+  _stIn.tapX=0;_stIn.tapY=0;_stIn.tapping=false;_stIn.tapP=null;
+}
+function _stMapBy(name){for(var i=0;i<_stMaps.length;i++)if(_stMaps[i].name===name)return _stMaps[i];return null}
+function _stMapN(id,what){var m=_stMaps[Number(id)];if(!m)_stErr(what,'there is no map number '+String(id)+' in this program');return m||null}
+function _stTileOf(m,tx,ty){tx=Math.floor(tx);ty=Math.floor(ty);if(!m||!(tx>=0&&ty>=0&&tx<m.w&&ty<m.h))return'';return m.rows[ty][tx]}
+function _stSolidOf(m,px,py){
+  if(!m||!isFinite(px)||!isFinite(py))return true;
+  var tx=Math.floor(px/m.tile),ty=Math.floor(py/m.tile);
+  if(tx<0||ty<0||tx>=m.w||ty>=m.h)return true;   /* outside the map counts as solid */
+  var e=m.legend[m.rows[ty][tx]];return!!(e&&e.solid);
+}
+function _stDrawOf(c,m,ox,oy){
+  if(!c||!m)return;
+  ox=Number(ox)||0;oy=Number(oy)||0;
+  var t=m.tile,cw=c.canvas?c.canvas.width:1e9,ch=c.canvas?c.canvas.height:1e9;
+  var x0=Math.max(0,Math.floor(-ox/t)),y0=Math.max(0,Math.floor(-oy/t)),x1=Math.min(m.w,Math.ceil((cw-ox)/t)),y1=Math.min(m.h,Math.ceil((ch-oy)/t));
+  var spr=typeof _spriteDraw==='function'?_spriteDraw:null;
+  c.save();
+  try{
+    for(var y=y0;y<y1;y++)for(var x=x0;x<x1;x++){
+      var e=m.legend[m.rows[y][x]];if(!e)continue;
+      var px=ox+x*t,py=oy+y*t,done=false;
+      if(e.sprite&&spr){try{done=spr(c,e.sprite,0,px,py,{w:t,h:t})!==false}catch(er){done=false}}
+      if(!done&&(e.color||e.sprite)){c.fillStyle=e.color||'#808080';c.fillRect(px,py,t,t)}
+    }
+  }finally{c.restore()}
+}
+function _stObjsOf(m){return m?m.objects.map(function(o){var p={};for(var k in o.props)p[k]=o.props[k];return{kind:o.kind,x:o.x,y:o.y,px:o.x*m.tile,py:o.y*m.tile,props:p}}):[]}
+function _mapInfo(name){
+  var m=_stMapBy(name);if(!m)return null;
+  var lg={};for(var k in m.legend){var e=m.legend[k],o={name:e.name,solid:!!e.solid};if(e.sprite)o.sprite=e.sprite;if(e.color)o.color=e.color;lg[k]=o}
+  return{w:m.w,h:m.h,tile:m.tile,legend:lg};
+}
+function _mapTile(name,tx,ty){return _stTileOf(_stMapBy(name),tx,ty)}
+function _mapSolidAt(name,px,py){return _stSolidOf(_stMapBy(name),Number(px),Number(py))}
+function _mapDraw(ctx2d,name,ox,oy){_stDrawOf(ctx2d,_stMapBy(name),ox,oy)}
+function _mapObjects(name){return _stObjsOf(_stMapBy(name))}
+function _stBtnOn(b){return _stIn.down[b]>0||_stIn.kbBtn[b]}
+function _stAxis(){
+  var c=_stIn.ctl,kx=0,ky=0;
+  if(!c||c.keys!==false){var k=_stIn.kb;kx=(k.right?1:0)-(k.left?1:0);ky=(k.down?1:0)-(k.up?1:0)}
+  if(kx&&ky){kx*=Math.SQRT1_2;ky*=Math.SQRT1_2}
+  return{x:Math.max(-1,Math.min(1,_stIn.tx+kx)),y:Math.max(-1,Math.min(1,_stIn.ty+ky))};
+}
+function _ctlState(){var a=_stAxis();return{x:a.x,y:a.y,a:_stBtnOn('A'),b:_stBtnOn('B'),c:_stBtnOn('C'),tapX:_stIn.tapX,tapY:_stIn.tapY,tapping:_stIn.tapping}}
+function _stPress(b){if(!_stBtnOn(b))_stIn.edge[b]=true}
+function _stPressIn(st,b){if(st===_stIn)_stPress(b);else if(!(st.down[b]>0))st.edge[b]=true}
+function _stEdgeClear(){_stIn.edge.A=_stIn.edge.B=_stIn.edge.C=false}
+// ── the on-screen overlay: a sticky layer at the bottom of the output area; only the stick / pad and the
+//    buttons take touches (touch-action:none), everything around them lets the page scroll as usual ──
+function _stCtlHide(){if(_stIn.el&&_stIn.el.parentNode)_stIn.el.parentNode.removeChild(_stIn.el);_stIn.el=null;_stIn.ctl=null;_stIn.tx=_stIn.ty=0;_stIn.tp=null;_stIn.down={A:0,B:0,C:0}}
+function _stCtlShow(c){
+  var out=document.getElementById('tab-output');
+  if(!out)return;
+  if(_stIn.el&&_stIn.ctl===c&&_stIn.el.isConnected)return;
+  _stCtlHide();
+  var wrap=_stCtlBuild(c,_stIn);
+  out.appendChild(wrap);
+  _stIn.el=wrap;_stIn.ctl=c;
+}
+// Builds the overlay of controls c; touches update st (tx, ty, tp, down, edge — _stIn for a program, the
+// CONTROLS tool passes its own). Returns the outer element (sticky, height 0; the layer hangs above it).
+function _stCtlBuild(c,st){
+  var sz=Math.max(0.4,Math.min(2.5,Number(c.size)||1)),op=Math.max(0.05,Math.min(1,c.opacity==null?0.5:Number(c.opacity)));
+  var D=Math.round(120*sz),K=Math.round(52*sz),B=Math.round(62*sz),M=Math.round(16*sz),H=Math.max(D,B*2+Math.round(30*sz))+M*2;
+  var wrap=document.createElement('div');
+  wrap.className='emit-controls';wrap.setAttribute('data-emit-controls',c.name);
+  wrap.style.cssText='position:sticky;bottom:0;left:0;right:0;height:0;z-index:20;pointer-events:none;';
+  var layer=document.createElement('div');
+  layer.style.cssText='position:absolute;left:0;right:0;bottom:0;height:'+H+'px;pointer-events:none;opacity:'+op+';';
+  wrap.appendChild(layer);
+  var side=c.stick==='right'?'right':'left';
+  if(c.stick!=='none'){
+    var base=document.createElement('div');base.setAttribute('data-ctl',c.dpad?'dpad':'stick');
+    base.style.cssText='position:absolute;bottom:'+M+'px;'+side+':'+M+'px;width:'+D+'px;height:'+D+'px;border-radius:'+(c.dpad?'22%':'50%')+';background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.45);box-sizing:border-box;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;';
+    var knob=document.createElement('div');
+    knob.style.cssText='position:absolute;left:'+((D-K)/2-2)+'px;top:'+((D-K)/2-2)+'px;width:'+K+'px;height:'+K+'px;border-radius:'+(c.dpad?'18%':'50%')+';background:rgba(255,255,255,.6);pointer-events:none;';
+    if(c.dpad){
+      knob.style.background='rgba(255,255,255,.35)';
+      [['▲','left:50%;top:4%;transform:translateX(-50%)'],['▼','left:50%;bottom:4%;transform:translateX(-50%)'],['◀','left:5%;top:50%;transform:translateY(-50%)'],['▶','right:5%;top:50%;transform:translateY(-50%)']].forEach(function(a){
+        var s=document.createElement('span');s.textContent=a[0];s.style.cssText='position:absolute;'+a[1]+';color:#fff;font:'+Math.round(18*sz)+'px sans-serif;pointer-events:none;';base.appendChild(s);
+      });
+    }
+    base.appendChild(knob);
+    var dz=c.deadzone==null?0.15:Math.max(0,Math.min(0.9,Number(c.deadzone)));
+    var upd=function(e){
+      var r=base.getBoundingClientRect(),R=r.width/2||1,dx=(e.clientX-r.left-R)/R,dy=(e.clientY-r.top-R)/R,len=Math.sqrt(dx*dx+dy*dy);
+      if(len>1){dx/=len;dy/=len;len=1}
+      var x=0,y=0;
+      if(len>dz){
+        if(c.dpad){x=Math.abs(dx)>0.38*len?(dx>0?1:-1):0;y=Math.abs(dy)>0.38*len?(dy>0?1:-1):0}
+        else{var k=(len-dz)/(1-dz)/len;x=dx*k;y=dy*k}
+      }
+      st.tx=x;st.ty=y;
+      knob.style.transform='translate('+(c.dpad?x*D*0.22:dx*(D-K)/2)+'px,'+(c.dpad?y*D*0.22:dy*(D-K)/2)+'px)';
+    };
+    var end=function(e){if(e.pointerId!==st.tp)return;st.tp=null;st.tx=st.ty=0;knob.style.transform=''};
+    base.addEventListener('pointerdown',function(e){if(st.tp!==null)return;st.tp=e.pointerId;try{base.setPointerCapture(e.pointerId)}catch(x){}upd(e);e.preventDefault()});
+    base.addEventListener('pointermove',function(e){if(e.pointerId===st.tp)upd(e)});
+    base.addEventListener('pointerup',end);base.addEventListener('pointercancel',end);base.addEventListener('lostpointercapture',end);
+    layer.appendChild(base);
+  }
+  var bs=c.buttons||[],bside=c.side||(side==='left'?'right':'left');
+  if(c.stick==='none'&&!c.side)bside='right';
+  var spots=[[0,B*0.5],[B*1.2,0],[B*0.45,B*1.55]];
+  bs.forEach(function(b,i){
+    var el=document.createElement('div'),held=new Set();el.setAttribute('data-ctl',b.id);
+    var lbl=b.label||b.id,fs=Math.round((lbl.length>2?13:20)*sz);
+    el.textContent=lbl;
+    el.style.cssText='position:absolute;bottom:'+(M+spots[i][1])+'px;'+bside+':'+(M+spots[i][0])+'px;width:'+B+'px;height:'+B+'px;border-radius:50%;background:rgba(255,255,255,.16);border:2px solid rgba(255,255,255,.5);box-sizing:border-box;color:#fff;font:600 '+fs+'px sans-serif;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;';
+    var look=function(){el.style.background=held.size?'rgba(255,255,255,.55)':'rgba(255,255,255,.16)'};
+    el.addEventListener('pointerdown',function(e){if(held.has(e.pointerId))return;if(!held.size)_stPressIn(st,b.id);held.add(e.pointerId);st.down[b.id]=held.size;try{el.setPointerCapture(e.pointerId)}catch(x){}look();e.preventDefault()});
+    var up=function(e){if(!held.delete(e.pointerId))return;st.down[b.id]=held.size;look()};
+    el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
+    el.addEventListener('contextmenu',function(e){e.preventDefault()});
+    layer.appendChild(el);
+  });
+  return wrap;
+}
+// keyboard: arrows / WASD move the stick, Z / Space = A, X = B, C = C (not while typing in a text field)
+(function(){
+  if(typeof document==='undefined')return;
+  var DIR={ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down'},BTN={KeyZ:'A',Space:'A',KeyX:'B',KeyC:'C'};
+  var KC={37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown',65:'KeyA',87:'KeyW',68:'KeyD',83:'KeyS',90:'KeyZ',32:'Space',88:'KeyX',67:'KeyC'};
+  function typing(e){var t=e.target,n=t&&t.tagName;return n==='INPUT'||n==='TEXTAREA'||n==='SELECT'||!!(t&&t.isContentEditable)}
+  function key(e,on){
+    if(typing(e))return;
+    var code=e.code||KC[e.keyCode]||'';
+    if(DIR[code]){_stIn.kb[DIR[code]]=on;return}
+    var b=BTN[code];if(!b)return;
+    if(_stIn.ctl&&_stIn.ctl.keys===false)return;
+    if(on){if(e.repeat)return;if(!_stIn.kbBtn[b])_stPress(b);_stIn.kbBtn[b]=true}
+    else _stIn.kbBtn[b]=false;
+  }
+  document.addEventListener('keydown',function(e){key(e,true)});
+  document.addEventListener('keyup',function(e){key(e,false)});
+  if(typeof window!=='undefined')window.addEventListener('blur',function(){_stIn.kb={};_stIn.kbBtn={A:false,B:false,C:false}});
+  // taps on the program's canvas (not on the controls): _ctlState().tapX / tapY in canvas pixels
+  function tapAt(e){
+    var cv=e.target;if(!cv||cv.tagName!=='CANVAS'||!cv.closest||!cv.closest('#tab-output'))return false;
+    var r=cv.getBoundingClientRect();if(!r.width||!r.height)return false;
+    _stIn.tapX=(e.clientX-r.left)*cv.width/r.width;_stIn.tapY=(e.clientY-r.top)*cv.height/r.height;return true;
+  }
+  document.addEventListener('pointerdown',function(e){if(_stIn.tapP===null&&tapAt(e)){_stIn.tapP=e.pointerId;_stIn.tapping=true}},true);
+  document.addEventListener('pointermove',function(e){if(e.pointerId===_stIn.tapP)tapAt(e)},true);
+  var tapEnd=function(e){if(e.pointerId===_stIn.tapP){_stIn.tapP=null;_stIn.tapping=false}};
+  document.addEventListener('pointerup',tapEnd,true);document.addEventListener('pointercancel',tapEnd,true);
+})();
+function _stImport(name){
+  switch(name){
+    case'drawMap':return function(id,ox,oy){var m=_stMapN(id,'drawMap');if(m)_stDrawOf(_need2d(),m,ox,oy)};
+    case'tileAt':return function(id,tx,ty){var m=_stMapN(id,'tileAt');return _writeStr(m?_stTileOf(m,Number(tx),Number(ty)):'')};
+    case'solidAt':return function(id,px,py){var m=_stMapN(id,'solidAt');return m&&_stSolidOf(m,Number(px),Number(py))?1:0};
+    case'mapW':return function(id){var m=_stMapN(id,'mapW');return BigInt(m?m.w:0)};
+    case'mapH':return function(id){var m=_stMapN(id,'mapH');return BigInt(m?m.h:0)};
+    case'tileSize':return function(id){var m=_stMapN(id,'tileSize');return BigInt(m?m.tile:0)};
+    case'setTile':return function(id,tx,ty,p){
+      var m=_stMapN(id,'setTile');if(!m)return;
+      var x=Number(tx),y=Number(ty),ch=Array.from(_readStr(Number(p)));
+      if(!(x>=0&&y>=0&&x<m.w&&y<m.h))return void _stErr('setTile','('+x+', '+y+') is outside map '+m.name+' ('+m.w+'x'+m.h+')');
+      if(ch.length!==1||(ch[0]!==' '&&!m.legend[ch[0]]))return void _stErr('setTile','"'+ch.join('')+'" is not a tile of map '+m.name+' — use one of its legend characters: '+Object.keys(m.legend).join(' '));
+      m.rows[y][x]=ch[0];
+    };
+    case'objCount':return function(id,k){var m=_stMapN(id,'objCount'),kind=_readStr(Number(k)),n=0;if(m)m.objects.forEach(function(o){if(o.kind===kind)n++});return BigInt(n)};
+    case'objX':case'objY':var ax=name==='objX'?'x':'y';return function(id,k,i){
+      var m=_stMapN(id,'obj'+ax.toUpperCase());if(!m)return 0;
+      var kind=_readStr(Number(k)),list=m.objects.filter(function(o){return o.kind===kind}),o=list[Number(i)];
+      if(!o){_stErr('obj'+ax.toUpperCase(),'map '+m.name+' has '+list.length+' "'+kind+'" object'+(list.length===1?'':'s')+' — there is no number '+String(i));return 0}
+      return o[ax]*m.tile;
+    };
+    case'useControls':return function(id){var c=_stCtls[Number(id)];if(!c)return void _stErr('useControls','there are no controls number '+String(id)+' in this program');_stCtlShow(c)};
+    case'stickX':return function(){return _stAxis().x};
+    case'stickY':return function(){return _stAxis().y};
+    case'pressed':return function(p){var b=_readStr(Number(p));return _stBtnOn(b)?1:0};
+    case'justPressed':return function(p){var b=_readStr(Number(p)),v=!!_stIn.edge[b];if(!_animRunning)_stIn.edge[b]=false;return v?1:0};
+  }
+  return null;
+}
+buildImportObject=(function(build){return function(imports,outputLog){
+  _stSetup(imports);
+  var obj=build.apply(this,arguments);
+  if(imports.stageMeta)for(var i=0;i<imports.length;i++){var imp=imports[i];if(imp.module==='std'){var f=_stImport(imp.name);if(f)obj.std[imp.name]=f}}
+  return obj;
+}})(buildImportObject);
+_emitFrame=(function(frame){return function(){try{return frame.apply(this,arguments)}finally{_stEdgeClear()}}})(_emitFrame);
+if(typeof window!=='undefined'){window._mapInfo=_mapInfo;window._mapTile=_mapTile;window._mapSolidAt=_mapSolidAt;window._mapDraw=_mapDraw;window._mapObjects=_mapObjects;window._ctlState=_ctlState}
 //#emit-runtime-end
 // ── Library loader: use <registry name | npm spec | URL> [as Name] ──
 // The lexer must never see the rest of a `use` line: npm specs contain '@' and unquoted URLs contain '//'.
@@ -10480,6 +11404,1695 @@ checkAC=(function(f){return function(){
   if(before!==null)_blkACFallback(before);
   return r;
 }})(checkAC);
+// ═══ SPRITES in the editor: highlighting, autocomplete, the example, the SPRITE tool of the drawer ═══
+['sprite'].forEach(function(n){_emitKw.add(n)});
+var _SPR_BLT=[
+  ['draw','draw(spr, x, y, frame)','sprite on the canvas'],['drawEx','drawEx(spr, x, y, frame, flipX: bool, scale: num)','flipped / scaled'],
+  ['anim','anim(spr, t: num) int','frame number at t seconds'],['spriteW','spriteW(spr) int','width in pixels'],['spriteH','spriteH(spr) int','height in pixels'],
+  ['blit','blit(spr, frame, fb: region u8, x, y, w)','into a screen() region']];
+_SPR_BLT.forEach(function(b){
+  _emitBlt.add(b[0]);
+  if(!_allBuiltins.some(function(x){return x.name===b[0]}))_allBuiltins.push({name:b[0],sig:b[1],desc:b[2]});
+});
+(function(){try{var st=document.createElement('style');st.textContent='.hl-layer .spr{color:#f5a3c7}.hl-layer .spx{border-radius:2px}.hl-layer .spd{color:var(--fg3)}'+
+  '.spt{font-family:var(--mono);font-size:12px;color:var(--fg);display:flex;flex-direction:column;gap:8px;max-width:100%;min-width:0;box-sizing:border-box}'+
+  '.spt *{box-sizing:border-box}'+
+  '.spt-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}'+
+  '.spt button,.spt select,.spt input{font-family:var(--mono);font-size:12px;background:var(--bg4);color:var(--fg);border:1px solid var(--border);border-radius:6px;min-height:36px;padding:0 9px;min-width:0}'+
+  '.spt input[type=number]{width:62px}.spt input.spt-name{flex:1;min-width:90px}.spt select{flex:1;min-width:100px;max-width:100%}'+
+  '.spt button.on{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}'+
+  '.spt button:disabled{opacity:.4}'+
+  '.spt-tools button{min-width:40px;padding:0 6px;font-size:15px}'+
+  '.spt-stage{position:relative;width:100%;touch-action:none;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg2)}'+
+  '.spt-stage canvas{display:block;width:100%;height:100%;touch-action:none}'+
+  '.spt-zoom{position:absolute;right:6px;top:6px;display:flex;gap:4px}.spt-zoom button{min-height:32px;min-width:32px;padding:0;background:rgba(15,17,24,.85)}'+
+  '.spt-pal{display:flex;flex-wrap:wrap;gap:4px}'+
+  '.spt-sw{width:30px;height:30px;min-height:30px!important;padding:0!important;border-radius:5px!important;border:2px solid var(--border)!important;position:relative;font-size:9px!important;color:#fff!important;text-shadow:0 0 2px #000}'+
+  '.spt-sw.sel{border-color:#fff!important;box-shadow:0 0 0 2px var(--cyan)}'+
+  '.spt-sw.tr{background:repeating-conic-gradient(#555 0 25%,#999 0 50%) 0 0/10px 10px!important}'+
+  '.spt-frames{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;max-width:100%}'+
+  '.spt-fr{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px!important;min-height:0!important;height:auto}'+
+  '.spt-fr canvas{width:44px;height:44px;image-rendering:pixelated;background:repeating-conic-gradient(#333 0 25%,#444 0 50%) 0 0/8px 8px}'+
+  '.spt-fr span{font-size:10px;max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
+  '.spt-fr.sel{border-color:var(--cyan)!important}'+
+  '.spt-prev{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}'+
+  '.spt-prev canvas{image-rendering:pixelated;background:repeating-conic-gradient(#333 0 25%,#444 0 50%) 0 0/8px 8px;border:1px solid var(--border);border-radius:4px;max-width:100%}'+
+  '.spt-msg{font-size:11px;color:var(--yellow,#fbbf24);white-space:pre-wrap;word-break:break-word}.spt-msg:empty{display:none}'+
+  '.spt-lbl{font-size:10px;color:var(--fg3);letter-spacing:1px;text-transform:uppercase}';
+  document.head.appendChild(st)}catch(e){}})();
+// Sprite names of the whole project (the active file from the editor, the others from the project model)
+function _sprProjectBlocks(){
+  var out=[];
+  try{
+    var files=(typeof _proj==='object'&&_proj.files)||[];
+    for(var i=0;i<files.length;i++){
+      var src=i===_proj.active?ed.value:files[i].source;
+      _sprFindBlocks(src).forEach(function(b){out.push({name:b.name,path:files[i].path,block:b})});
+    }
+  }catch(e){}
+  return out;
+}
+// Highlighting: sprite names in plain code (not in strings / comments / keywords) get class "spr".
+// Inside a sprite block of the open file: palette entries are underlined in their colour and every pixel of a
+// row is painted in its palette colour, so the rows read as the picture (text width unchanged).
+function _sprHlBlock(lines){
+  var pal=[],m;
+  lines.forEach(function(l){if((m=/^\s+palette\b(.*)$/.exec(l)))(m[1].replace(/\/\/.*$/,'').match(/\S+/g)||[]).forEach(function(h){if(/^#?[0-9a-fA-F]{6}$/.test(h))pal.push(h.replace('#','').toLowerCase())})});
+  if(!pal.length)pal=_SPR_DEFAULT_PAL;
+  function ink(hx){var v=parseInt(hx,16);return(((v>>16)&255)*299+((v>>8)&255)*587+(v&255)*114)/1000>140?'#000':'#fff'}
+  function cmt(c){return c?'<span class="cmt">'+escH(c)+'</span>':''}
+  return lines.map(function(raw,i){
+    var ca=_sprCmtAt(raw),code=ca>=0?raw.slice(0,ca):raw,c=ca>=0?raw.slice(ca):'',hm;
+    if(i===0&&(hm=/^(sprite)(\s+)(\w+)(.*)$/.exec(code)))return'<span class="kw">sprite</span>'+hm[2]+'<span class="spr">'+escH(hm[3])+'</span>'+escH(hm[4])+cmt(c);
+    if((hm=/^(\s+)palette\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">palette</span>'+hm[2].replace(/[^\s]+/g,function(h){return/^#?[0-9a-fA-F]{6}$/.test(h)?'<span class="spc" style="box-shadow:inset 0 -3px #'+h.replace('#','')+'">'+escH(h)+'</span>':escH(h)})+cmt(c);
+    if((hm=/^(\s+)(frame|rle)\b(.*)$/.exec(code)))return hm[1]+'<span class="kw">'+hm[2]+'</span>'+escH(hm[3]).replace(/\brle\b/,'<span class="kw">rle</span>').replace(/"[^"]*"/,function(q){return'<span class="str">'+q+'</span>'})+cmt(c);
+    if((hm=/^(\s+)"([^"]*)"(\s*)$/.exec(code))){
+      var out='',t=hm[2];
+      for(var k=0;k<t.length;){var ch=t[k],n=1;while(t[k+n]===ch)n++;var v=_SPR_CHARS.indexOf(ch),hx=v>0?pal[v-1]:null;
+        out+=hx?'<span class="spx" style="background:#'+hx+';color:'+ink(hx)+'">'+escH(t.substr(k,n))+'</span>':'<span class="spd">'+escH(t.substr(k,n))+'</span>';k+=n}
+      return hm[1]+'<span class="str">"</span>'+out+'<span class="str">"</span>'+hm[3]+cmt(c);
+    }
+    return escH(code)+cmt(c);
+  });
+}
+hlCode=(function(hl){return function(){
+  var r=hl.apply(this,arguments);
+  try{
+    var bl=_sprFindBlocks(ed.value);
+    if(bl.length){
+      var segs=hlInner.innerHTML.split('\n');
+      bl.forEach(function(b){var h=_sprHlBlock(b.lines);for(var i=0;i<h.length;i++)if(b.start+i<segs.length)segs[b.start+i]=h[i]});
+      hlInner.innerHTML=segs.join('\n');
+    }
+  }catch(e){}
+  try{
+    if(ed.value.indexOf('sprite')<0&&!(_proj.files.length>1&&_proj.files.some(function(f){return f.source.indexOf('sprite')>=0})))return r;
+    var names=_sprProjectBlocks().map(function(b){return b.name});
+    if(!names.length)return r;
+    var re=new RegExp('\\b('+names.join('|')+')\\b','g'),kids=Array.prototype.slice.call(hlInner.childNodes);
+    kids.forEach(function(n){
+      if(n.nodeType!==3||!re.test(n.nodeValue))return;
+      re.lastIndex=0;
+      var s=n.nodeValue,f=document.createDocumentFragment(),at=0,m;
+      while((m=re.exec(s))){
+        if(m.index>at)f.appendChild(document.createTextNode(s.slice(at,m.index)));
+        var sp=document.createElement('span');sp.className='spr';sp.textContent=m[0];f.appendChild(sp);
+        at=m.index+m[0].length;
+      }
+      if(at<s.length)f.appendChild(document.createTextNode(s.slice(at)));
+      n.parentNode.replaceChild(f,n);
+    });
+  }catch(e){}
+  return r;
+}})(hlCode);
+// Autocomplete: frame names inside draw(hero, x, y, "…") / drawEx / blit(hero, "…"); sprite names; a snippet.
+function _sprACCheck(before){
+  try{
+    if(before.indexOf('"')<0)return false;
+    var m=/\b(?:draw|drawEx)\(\s*([A-Za-z_]\w*)\s*,[^,()"\n]*,[^,()"\n]*,\s*"(\w*)$/.exec(before)||/\bblit\(\s*([A-Za-z_]\w*)\s*,\s*"(\w*)$/.exec(before);
+    if(!m)return false;
+    var bl=_sprProjectBlocks().filter(function(b){return b.name===m[1]})[0];
+    if(!bl)return false;
+    var d=_sprParse(bl.block.lines,bl.block.start+1,true),p=m[2].toLowerCase(),items=[];
+    d.frames.forEach(function(f,i){if(f.name&&f.name.toLowerCase().indexOf(p)===0&&f.name!==m[2])items.push(_memItem(f.name,'frame '+i+' · '+d.name))});
+    _memShowItems(items,before,'sf:'+before.length+':'+m[0]);
+    return true;
+  }catch(e){}
+  return false;
+}
+var _SPR_SNIPS=[['sprite','sprite name: 16x16','name']];
+function _sprACFallback(before){
+  try{
+    if(_libInStrOrComment(before))return;
+    var wm=before.match(/(?:^|[^\w$.])([A-Za-z_]\w*)$/);
+    if(!wm)return;
+    var lineText=before.substring(before.lastIndexOf('\n')+1),items=[],w=wm[1].toLowerCase();
+    if(/^[a-z]+$/.test(lineText)&&lineText.length>=2)_SPR_SNIPS.forEach(function(s){if(s[0].indexOf(lineText)===0&&s[0]!==lineText){var it=_memItem(s[0],s[1]);it._memSnip={text:s[1],sel:s[2],rep:lineText.length};items.push(it)}});
+    if(/^\s/.test(lineText)||/[(,=]/.test(lineText)){
+      _sprProjectBlocks().forEach(function(b){
+        if(b.name!==wm[1]&&b.name.toLowerCase().indexOf(w)===0&&!items.some(function(x){return x._ins===b.name})){
+          var hm=/:\s*(\d+\s*x\s*\d+)/.exec(b.block.lines[0]);items.push(_memItem(b.name,'sprite'+(hm?' '+hm[1].replace(/\s/g,''):'')))}
+      });
+    }
+    if(!items.length)return;
+    var base=acActive?acItems.filter(function(it){return it._libac!=='hint'&&!items.some(function(x){return x._ins===it._ins})}):[];
+    _libACShow(items.concat(base),before,'sg:'+before.length+':'+wm[1]);
+  }catch(e){}
+}
+checkAC=(function(f){return function(){
+  var before=null;try{before=ed.value.substring(0,ed.selectionStart)}catch(e){}
+  if(before!==null&&_sprACCheck(before))return;
+  var r=f.apply(this,arguments);
+  if(before!==null&&(_sprProjectBlocks().length||/^spr?i?t?e?$/.test(before.substring(before.lastIndexOf('\n')+1))))_sprACFallback(before);
+  return r;
+}})(checkAC);
+// ── the example ──
+EX.sprites='// Sprites — a little walker, painted right here in the program text\n'+
+'// Each quoted row is a row of pixels: . is transparent, 1-9 / a-z are palette colours.\n'+
+'// Open 🧰 → Sprite to paint it with the mouse or a finger.\n'+
+'// Left: blit copies the frame into a memory region that screen() shows (3x).\n'+
+'// Right: the same frame with drawEx on a canvas — flipped when it turns, 3x.\n'+
+'\n'+
+'sprite walker: 8x8, fps 6\n'+
+'  palette 1a1c2c ffcd75 b13e53 3b5dc9 f4f4f4\n'+
+'  frame walk1\n'+
+'    "..1111.."\n'+
+'    ".111111."\n'+
+'    ".122251."\n'+
+'    "..2222.."\n'+
+'    ".233332."\n'+
+'    "..3333.."\n'+
+'    "..4..4.."\n'+
+'    ".44...44"\n'+
+'  frame walk2\n'+
+'    "..1111.."\n'+
+'    ".111111."\n'+
+'    ".122251."\n'+
+'    "..2222.."\n'+
+'    "..3333.."\n'+
+'    "..2332.."\n'+
+'    "...44..."\n'+
+'    "...44..."\n'+
+'\n'+
+'region fb: u8[48 * 16 * 4]\n'+
+'\n'+
+'mut x = 0.0\n'+
+'mut dir = 1.0\n'+
+'mut t = 0.0\n'+
+'\n'+
+'export fn walk() {\n'+
+'  screen(fb, 48, 16, 3)\n'+
+'  let left = getCanvas()\n'+
+'  left.style.display = "inline-block"\n'+
+'  canvas(144, 48)\n'+
+'  let right = getCanvas()\n'+
+'  right.style.display = "inline-block"\n'+
+'  animate()\n'+
+'}\n'+
+'\n'+
+'export fn frame() {\n'+
+'  t += 1.0 / 60.0\n'+
+'  x += dir * 0.4\n'+
+'  if (x > 48.0 - spriteW(walker)) { dir = -1.0 }\n'+
+'  if (x < 0.0) { dir = 1.0 }\n'+
+'  let f = anim(walker, t)\n'+
+'\n'+
+'  // the canvas: drawEx flips the sprite when it walks left\n'+
+'  clear()\n'+
+'  color(37, 113, 121)\n'+
+'  rect(0, 42, 144, 6)\n'+
+'  drawEx(walker, x * 3.0, 18, f, dir < 0.0, 3.0)\n'+
+'  draw(walker, 2, 2, "walk1")\n'+
+'\n'+
+'  // the region: wipe it, then copy the same frame in (transparent pixels skipped)\n'+
+'  wipe(fb)\n'+
+'  blit(walker, f, fb, floor(x), 6, 48)\n'+
+'}\n';
+(function(){try{
+  var sel=document.getElementById('example');if(!sel||sel.querySelector('option[value="sprites"]'))return;
+  var o=document.createElement('option');o.value='sprites';o.textContent='Sprites';
+  var mem=sel.querySelector('option[value="memory"]');sel.insertBefore(o,mem||null);
+}catch(e){}})();
+// ═══ The SPRITE tool (drawer) ═══ a pixel painter for sprite blocks. The program text is the only state:
+// opening reads the block (ctx.read), Save writes it back (ctx.write); lines it does not understand are kept.
+//
+// Ported from Spark's CUSTOM TEX painter and ANIM picker. Their problems, and what is done here instead:
+//   hidden JSON state in a REM line          the sprite block itself is read and written (round trip)
+//   no transparency, square 8/16/32 only     . is transparent; any size 1×1 … 256×256
+//   whole modal re-rendered on every tap     the UI is built once; only the canvas / changed parts redraw
+//   fillRect per pixel + grid every move     one ImageData per frame, scaled with drawImage; redraw once per animation frame
+//   strokes with gaps, no undo               line between move events (Bresenham); undo / redo, 100 steps
+//   mouse and touch handled separately       pointer events; two fingers pinch-zoom and pan, the stroke is undone
+//   inline onclick strings, window globals   closures, no globals; names never put into HTML unescaped
+//   ANIM previewed coloured boxes, not art   frames strip and animated preview show the real pixels
+//   ANIM sequence typed as "0,1,2,1"         frames are named and reordered in the strip; fps a number input
+var _SPT_UNDO_MAX=100;
+function _sprToolOpen(ctx){
+  var body=ctx.body;body.innerHTML='';
+  var root=document.createElement('div');root.className='spt';body.appendChild(root);
+  function el(tag,cls,txt,parent){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;(parent||root).appendChild(e);return e}
+  function btn(txt,title,fn,parent){var b=el('button','',txt,parent);b.type='button';if(title){b.title=title;b.setAttribute('aria-label',title)}b.addEventListener('click',function(e){e.preventDefault();fn(e)});return b}
+  // ── state ──
+  var S=null,loaded=null,dirty=false,msgs=[];
+  var tool='pencil',prevTool='pencil',color=1,mirror=false,onion=true,undo=[],redo=[];
+  var zoom=8,ox=0,oy=0,fitDone=false;
+  function setDirty(v){dirty=v;try{ctx.setDirty(v)}catch(e){}}
+  function blank(w,h){return new Uint8Array(w*h)}
+  function fromParsed(d){
+    var frames=d.frames.map(function(f){var px=new Uint8Array(d.w*d.h);for(var i=0;i<px.length;i++){var v=_SPR_CHARS.indexOf(f.data[i]);px[i]=v>0?v:0}return{name:f.name,px:px,rowCmt:f.rowCmt||[],extra:f.extra||[],cmt:f.cmt||''}});
+    return{name:d.name,w:d.w,h:d.h,fps:d.fps,fpsGiven:d.fpsGiven,palette:d.palette.slice(),frames:frames,extra:d.extra||[],headExtra:d.headExtra||[],cur:0};
+  }
+  function toDef(){
+    return{name:S.name,w:S.w,h:S.h,fps:S.fps,fpsGiven:S.fpsGiven,palette:S.palette,headExtra:S.headExtra,extra:S.extra,
+      frames:S.frames.map(function(f){var s='';for(var i=0;i<f.px.length;i++)s+=_SPR_CHARS[f.px[i]];return{name:f.name,data:s,rowCmt:f.rowCmt,extra:f.extra,cmt:f.cmt}})};
+  }
+  function newSprite(name){return{name:name,w:16,h:16,fps:8,fpsGiven:false,palette:_SPR_DEFAULT_PAL.slice(),frames:[{name:'',px:blank(16,16),rowCmt:[],extra:[],cmt:''}],extra:[],headExtra:[],cur:0}}
+  function blocks(){try{return ctx.blocks('sprite')||[]}catch(e){return[]}}
+  function freeName(){var used=blocks().map(function(b){return b.name}),n=1;while(used.indexOf('sprite'+n)>=0)n++;return'sprite'+n}
+  function load(name){
+    msgs=[];
+    var text=name?ctx.read('sprite',name):null;
+    if(text){
+      var d=_sprParse(String(text).split('\n'),1,true);
+      S=fromParsed(d);loaded=name;
+      d.errors.forEach(function(e){msgs.push('line '+e.line+': '+e.msg)});
+    }else{S=newSprite(name||freeName());loaded=null}
+    color=Math.min(Math.max(1,color),S.palette.length)||0;
+    undo=[];redo=[];fitDone=false;setDirty(false);
+    try{ctx.title('Sprite — '+S.name)}catch(e){}
+    refreshAll();
+  }
+  // ── undo ──
+  function snapAll(){return{all:true,S:{name:S.name,w:S.w,h:S.h,fps:S.fps,fpsGiven:S.fpsGiven,palette:S.palette.slice(),frames:S.frames.map(function(f){return{name:f.name,px:f.px.slice(),rowCmt:f.rowCmt.slice(),extra:f.extra.slice(),cmt:f.cmt}}),extra:S.extra,headExtra:S.headExtra,cur:S.cur}}}
+  function pushUndo(u){undo.push(u);if(undo.length>_SPT_UNDO_MAX)undo.shift();redo=[];setDirty(true);updUndo()}
+  function structural(fn){var u=snapAll();fn();pushUndo(u);refreshAll()}
+  function swapState(u){
+    if(u.all){var now=snapAll();var s=u.S;S={name:s.name,w:s.w,h:s.h,fps:s.fps,fpsGiven:s.fpsGiven,palette:s.palette.slice(),frames:s.frames.map(function(f){return{name:f.name,px:f.px.slice(),rowCmt:f.rowCmt.slice(),extra:f.extra.slice(),cmt:f.cmt}}),extra:s.extra,headExtra:s.headExtra,cur:Math.min(s.cur,s.frames.length-1)};return now}
+    var f=S.frames[u.fi];if(!f||f.px.length!==u.px.length)return null;
+    var back={fi:u.fi,px:f.px.slice()};f.px.set(u.px);S.cur=u.fi;return back;
+  }
+  function doUndo(){var u=undo.pop();if(!u)return;var r=swapState(u);if(r)redo.push(r);setDirty(true);refreshAll()}
+  function doRedo(){var u=redo.pop();if(!u)return;var r=swapState(u);if(r)undo.push(r);setDirty(true);refreshAll()}
+  // ── header: pick a sprite, name, size ──
+  var rowPick=el('div','spt-row');
+  var pick=el('select','',null,rowPick);pick.setAttribute('aria-label','Sprite');
+  var nameIn=el('input','spt-name',null,rowPick);nameIn.setAttribute('aria-label','Sprite name');nameIn.autocapitalize='off';nameIn.spellcheck=false;
+  var rowSize=el('div','spt-row');
+  el('span','spt-lbl','size',rowSize);
+  var wIn=el('input','',null,rowSize);wIn.type='number';wIn.min=1;wIn.max=256;wIn.setAttribute('aria-label','Width');
+  el('span','','×',rowSize);
+  var hIn=el('input','',null,rowSize);hIn.type='number';hIn.min=1;hIn.max=256;hIn.setAttribute('aria-label','Height');
+  var resizeB=btn('Resize','Resize the sprite (pixels keep their place, top left)',function(){
+    var w=Math.round(+wIn.value),h=Math.round(+hIn.value);
+    if(!(w>=1&&w<=256&&h>=1&&h<=256)){say('Width and height are 1 … 256');wIn.value=S.w;hIn.value=S.h;return}
+    if(w===S.w&&h===S.h)return;
+    structural(function(){resizeTo(w,h)});fitDone=false;fit();
+  },rowSize);
+  function resizeTo(w,h){
+    S.frames.forEach(function(f){var n=blank(w,h);for(var y=0;y<Math.min(h,S.h);y++)for(var x=0;x<Math.min(w,S.w);x++)n[y*w+x]=f.px[y*S.w+x];f.px=n;f.rowCmt=[]});
+    S.w=w;S.h=h;
+  }
+  pick.addEventListener('change',function(){
+    var v=pick.value;
+    if(dirty&&!confirm('Discard the changes to sprite '+S.name+'?')){pick.value=loaded||'';return}
+    if(v==='\u0000new')load(null);else load(v);
+  });
+  nameIn.addEventListener('change',function(){
+    var v=nameIn.value.trim();
+    if(!/^[A-Za-z_]\w*$/.test(v)||KW.has(v)||TY.has(v)){say('A sprite name is a word: letters, digits and _, not starting with a digit (hero, coin_2)');nameIn.value=S.name;return}
+    if(v!==S.name){S.name=v;setDirty(true);try{ctx.title('Sprite — '+S.name)}catch(e){}}
+  });
+  // ── stage: the painting canvas ──
+  var stage=el('div','spt-stage');
+  var cv=el('canvas','',null,stage);cv.setAttribute('aria-label','Sprite pixels');
+  var zb=el('div','spt-zoom',null,stage);
+  btn('−','Zoom out',function(){zoomAt(zoom/1.5,null)},zb);
+  btn('⤢','Fit',function(){fitDone=false;fit()},zb);
+  btn('+','Zoom in',function(){zoomAt(zoom*1.5,null)},zb);
+  var g=cv.getContext('2d'),dpr=1,cw=300,ch=300;
+  var img=document.createElement('canvas'),ig=img.getContext('2d'),onionImg=document.createElement('canvas'),og=onionImg.getContext('2d');
+  // ── tools ──
+  var rowTools=el('div','spt-row spt-tools');
+  var TOOLS=[['pencil','✏️','Pencil'],['eraser','🧽','Eraser'],['fill','🪣','Fill'],['line','📏','Line'],['rect','▭','Rectangle'],['pick','💧','Eyedropper']],toolBtns={};
+  TOOLS.forEach(function(t){toolBtns[t[0]]=btn(t[1],t[2],function(){setTool(t[0])},rowTools);toolBtns[t[0]].setAttribute('data-tool',t[0])});
+  var mirB=btn('⇋','Mirror X: paint on both halves',function(){mirror=!mirror;mirB.classList.toggle('on',mirror);render()},rowTools);mirB.setAttribute('data-tool','mirror');
+  var undoB=btn('↶','Undo',doUndo,rowTools),redoB=btn('↷','Redo',doRedo,rowTools);
+  function setTool(t){if(t==='pick'&&tool!=='pick')prevTool=tool;tool=t;for(var k in toolBtns)toolBtns[k].classList.toggle('on',k===t)}
+  function updUndo(){undoB.disabled=!undo.length;redoB.disabled=!redo.length}
+  // ── palette ──
+  el('div','spt-lbl','palette — tap a colour; ✎ changes it');
+  var palBox=el('div','spt-pal');
+  var rowPal=el('div','spt-row');
+  var colIn=el('input','',null,rowPal);colIn.type='color';colIn.setAttribute('aria-label','Colour of the selected palette entry');colIn.style.cssText='width:44px;padding:2px';
+  btn('+ colour','Add a colour to the palette',function(){
+    if(S.palette.length>=35){say('A palette has at most 35 colours (1-9, a-z)');return}
+    structural(function(){S.palette.push(S.palette[color-1]||'ffffff');color=S.palette.length});
+  },rowPal);
+  btn('− colour','Remove the selected colour (its pixels become transparent)',function(){
+    if(color<1||!S.palette.length)return;
+    var used=S.frames.some(function(f){return f.px.indexOf(color)>=0});
+    if(used&&!confirm('Colour '+_SPR_CHARS[color]+' is used — its pixels become transparent. Remove it?'))return;
+    structural(function(){
+      var k=color;S.palette.splice(k-1,1);
+      S.frames.forEach(function(f){for(var i=0;i<f.px.length;i++){var v=f.px[i];if(v===k)f.px[i]=0;else if(v>k)f.px[i]=v-1}});
+      color=Math.min(k,S.palette.length);
+    });
+  },rowPal);
+  btn('16 default','Use the default 16-colour palette',function(){
+    var max=0;S.frames.forEach(function(f){for(var i=0;i<f.px.length;i++)if(f.px[i]>max)max=f.px[i]});
+    if(max>16&&!confirm('Pixels use colours above 16 — they become transparent. Continue?'))return;
+    structural(function(){S.palette=_SPR_DEFAULT_PAL.slice();S.frames.forEach(function(f){for(var i=0;i<f.px.length;i++)if(f.px[i]>16)f.px[i]=0});color=Math.min(Math.max(color,1),16)});
+  },rowPal);
+  var colSnap=null;
+  colIn.addEventListener('input',function(){
+    if(color<1)return;
+    if(!colSnap)colSnap=snapAll();
+    S.palette[color-1]=colIn.value.replace('#','').toLowerCase();setDirty(true);imgDirty=true;render();drawPal();drawFrames();
+  });
+  colIn.addEventListener('change',function(){if(colSnap){pushUndo(colSnap);colSnap=null}});
+  // ── frames ──
+  el('div','spt-lbl','frames');
+  var frBox=el('div','spt-frames');
+  var rowFr=el('div','spt-row');
+  var frName=el('input','spt-name',null,rowFr);frName.setAttribute('aria-label','Frame name');frName.placeholder='frame name';frName.autocapitalize='off';frName.spellcheck=false;
+  var rowFr2=el('div','spt-row');
+  btn('+ frame','Add an empty frame after this one',function(){structural(function(){S.frames.splice(S.cur+1,0,{name:freeFrame(),px:blank(S.w,S.h),rowCmt:[],extra:[],cmt:''});nameFrames();S.cur++})},rowFr2);
+  btn('⧉ copy','Duplicate this frame',function(){structural(function(){var f=S.frames[S.cur];S.frames.splice(S.cur+1,0,{name:freeFrame(),px:f.px.slice(),rowCmt:[],extra:[],cmt:''});nameFrames();S.cur++})},rowFr2);
+  btn('🗑','Delete this frame',function(){if(S.frames.length<2){say('A sprite keeps at least one frame');return}structural(function(){S.frames.splice(S.cur,1);S.cur=Math.min(S.cur,S.frames.length-1)})},rowFr2);
+  btn('◀','Move this frame left',function(){if(S.cur<1)return;structural(function(){var f=S.frames.splice(S.cur,1)[0];S.frames.splice(S.cur-1,0,f);S.cur--})},rowFr2);
+  btn('▶','Move this frame right',function(){if(S.cur>=S.frames.length-1)return;structural(function(){var f=S.frames.splice(S.cur,1)[0];S.frames.splice(S.cur+1,0,f);S.cur++})},rowFr2);
+  var onionB=btn('🧅','Onion skin: show the previous frame faintly',function(){onion=!onion;onionB.classList.toggle('on',onion);render()},rowFr2);onionB.classList.add('on');
+  function freeFrame(){var n=S.frames.length,nm;do{nm='frame'+(n++)}while(S.frames.some(function(f){return f.name===nm}));return nm}
+  function nameFrames(){S.frames.forEach(function(f,i){if(!f.name){var k=i,nm;do{nm='frame'+(k++)}while(S.frames.some(function(x){return x.name===nm}));f.name=nm}})}
+  frName.addEventListener('change',function(){
+    var v=frName.value.trim(),f=S.frames[S.cur];
+    if(S.frames.length===1&&v===''&&f.name){structural(function(){f.name=''});return}
+    if(!/^[A-Za-z_]\w*$/.test(v)){say('A frame name is a word: letters, digits and _ (idle, walk1)');frName.value=f.name;return}
+    if(S.frames.some(function(x){return x!==f&&x.name===v})){say('Frame "'+v+'" already exists');frName.value=f.name;return}
+    if(v!==f.name)structural(function(){f.name=v});
+  });
+  // ── preview ──
+  el('div','spt-lbl','preview');
+  var pv=el('div','spt-prev');
+  var pcv=el('canvas','',null,pv),pg=pcv.getContext('2d');
+  var pctl=el('div','spt-row',null,pv);
+  var scaleBtns={},pscale=2;
+  [1,2,4].forEach(function(s){scaleBtns[s]=btn(s+'×','Preview at '+s+'×',function(){pscale=s;for(var k in scaleBtns)scaleBtns[k].classList.toggle('on',+k===s);sizePreview()},pctl)});
+  scaleBtns[2].classList.add('on');
+  el('span','spt-lbl','fps',pctl);
+  var fpsIn=el('input','',null,pctl);fpsIn.type='number';fpsIn.min=1;fpsIn.max=60;fpsIn.step=1;fpsIn.setAttribute('aria-label','Frames per second');
+  var playing=true,playB=btn('⏸','Play / pause the preview',function(){playing=!playing;playB.textContent=playing?'⏸':'▶'},pctl);
+  fpsIn.addEventListener('change',function(){var v=+fpsIn.value;if(!(v>0&&v<=240)){fpsIn.value=S.fps;say('fps is more than 0 and at most 240');return}if(v!==S.fps)structural(function(){S.fps=v;S.fpsGiven=true})});
+  // ── import, messages ──
+  var rowImp=el('div','spt-row');
+  var fileIn=el('input','',null,rowImp);fileIn.type='file';fileIn.accept='image/png,image/*';fileIn.style.display='none';fileIn.setAttribute('aria-label','PNG file');
+  btn('Import PNG…','Import a picture into this frame',function(){fileIn.click()},rowImp);
+  btn('Clear frame','Make every pixel of this frame transparent',function(){structural(function(){S.frames[S.cur].px.fill(0)})},rowImp);
+  var msgEl=el('div','spt-msg');
+  function say(t){msgs=[t];msgEl.textContent=t}
+  fileIn.addEventListener('change',function(){var f=fileIn.files&&fileIn.files[0];fileIn.value='';if(f)importFile(f)});
+  // ── footer ──
+  var saveB=document.createElement('button');saveB.type='button';saveB.textContent='Save';saveB.className='spt-save';
+  saveB.style.cssText='font-family:var(--mono);font-size:13px;font-weight:700;min-height:40px;padding:0 18px;border-radius:8px;border:none;background:var(--cyan);color:var(--bg)';
+  saveB.addEventListener('click',function(e){e.preventDefault();save()});
+  try{(ctx.footer||root).appendChild(saveB)}catch(e){root.appendChild(saveB)}
+  function save(){
+    var nm=S.name;
+    if(!/^[A-Za-z_]\w*$/.test(nm)){say('The sprite needs a name');return false}
+    if(S.frames.length>1)nameFrames();
+    var text=_sprFormat(toDef());
+    if(loaded&&loaded!==nm){
+      if(blocks().some(function(b){return b.name===nm})&&!confirm('Sprite '+nm+' already exists — replace it?'))return false;
+      try{ctx.remove('sprite',loaded)}catch(e){}
+    }else if(!loaded&&blocks().some(function(b){return b.name===nm})&&!confirm('Sprite '+nm+' already exists — replace it?'))return false;
+    ctx.write('sprite',nm,text,'sprites.emit');
+    loaded=nm;setDirty(false);
+    try{ctx.toast('Saved sprite '+nm)}catch(e){}
+    fillPick();
+    return true;
+  }
+  // ── drawing helpers ──
+  var imgDirty=true;
+  function lut(){var L=new Uint32Array(36);S.palette.forEach(function(h,i){var v=parseInt(h,16);L[i+1]=((255<<24)|((v&255)<<16)|(((v>>8)&255)<<8)|((v>>16)&255))>>>0});return L}
+  function paintInto(c,c2,px,L){
+    if(c.width!==S.w||c.height!==S.h){c.width=S.w;c.height=S.h}
+    var id=c2.createImageData(S.w,S.h),u=new Uint32Array(id.data.buffer);
+    for(var i=0;i<px.length;i++)u[i]=L[px[i]];
+    c2.putImageData(id,0,0);
+  }
+  function setCanvasSize(){
+    var w=Math.max(120,Math.floor(stage.clientWidth||root.clientWidth||300)),h=Math.max(160,Math.min(w,Math.floor((window.innerHeight||600)*0.46)));
+    stage.style.height=h+'px';
+    dpr=Math.min(3,window.devicePixelRatio||1);
+    if(cw!==w||ch!==h||cv.width!==Math.round(w*dpr)){cw=w;ch=h;cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  }
+  function fit(){
+    setCanvasSize();
+    var z=Math.min((cw-16)/S.w,(ch-16)/S.h);
+    zoom=z>=1?Math.floor(z):z;zoom=Math.max(0.25,Math.min(64,zoom));
+    ox=Math.round((cw-S.w*zoom)/2);oy=Math.round((ch-S.h*zoom)/2);fitDone=stage.clientWidth>0;render();
+  }
+  function zoomAt(z,at){
+    z=Math.max(0.25,Math.min(64,z));
+    var cx=at?at.x:cw/2,cy=at?at.y:ch/2;
+    ox=cx-(cx-ox)*z/zoom;oy=cy-(cy-oy)*z/zoom;zoom=z;render();
+  }
+  var raf=0,ver=0;
+  function render(){ver++;if(raf)return;raf=requestAnimationFrame(function(){raf=0;draw()})}
+  function draw(){
+    if(!cv.isConnected)return;
+    setCanvasSize();
+    var L=lut(),f=S.frames[S.cur];
+    if(imgDirty){paintInto(img,ig,f.px,L);imgDirty=false}
+    g.setTransform(dpr,0,0,dpr,0,0);
+    g.imageSmoothingEnabled=false;
+    g.fillStyle='#0f1118';g.fillRect(0,0,cw,ch);
+    var W=S.w*zoom,H=S.h*zoom;
+    // transparent = a checkerboard behind the sprite
+    var cs=Math.max(4,Math.round(zoom>=8?zoom/2:8));
+    g.save();g.beginPath();g.rect(ox,oy,W,H);g.clip();
+    g.fillStyle='#3a3f52';g.fillRect(ox,oy,W,H);g.fillStyle='#2a2e3d';
+    for(var yy=0;yy*cs<H;yy++)for(var xx=(yy&1);xx*cs<W;xx+=2)g.fillRect(ox+xx*cs,oy+yy*cs,cs,cs);
+    g.restore();
+    if(onion&&S.cur>0){paintInto(onionImg,og,S.frames[S.cur-1].px,L);g.globalAlpha=0.3;g.drawImage(onionImg,ox,oy,W,H);g.globalAlpha=1}
+    g.drawImage(img,ox,oy,W,H);
+    if(stroke&&stroke.preview){
+      g.fillStyle=stroke.v?'#'+S.palette[stroke.v-1]:'rgba(255,255,255,.5)';
+      stroke.preview.forEach(function(p){g.fillRect(ox+p[0]*zoom,oy+p[1]*zoom,zoom,zoom)});
+    }
+    if(zoom>=6){
+      g.strokeStyle='rgba(255,255,255,.12)';g.lineWidth=1;g.beginPath();
+      for(var x=0;x<=S.w;x++){var X=Math.round(ox+x*zoom)+0.5;g.moveTo(X,oy);g.lineTo(X,oy+H)}
+      for(var y=0;y<=S.h;y++){var Y=Math.round(oy+y*zoom)+0.5;g.moveTo(ox,Y);g.lineTo(ox+W,Y)}
+      g.stroke();
+    }
+    if(mirror){g.strokeStyle='rgba(45,212,191,.8)';g.lineWidth=1.5;g.beginPath();g.moveTo(ox+W/2,oy-4);g.lineTo(ox+W/2,oy+H+4);g.stroke()}
+    g.strokeStyle='rgba(255,255,255,.35)';g.lineWidth=1;g.strokeRect(ox-0.5,oy-0.5,W+1,H+1);
+  }
+  // ── pixel operations ──
+  function inside(x,y){return x>=0&&y>=0&&x<S.w&&y<S.h}
+  function plot(px,x,y,v){if(inside(x,y)){px[y*S.w+x]=v;if(mirror){var mx=S.w-1-x;px[y*S.w+mx]=v}}}
+  function lineCells(x0,y0,x1,y1){var out=[],dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,e=dx+dy;for(;;){out.push([x0,y0]);if(x0===x1&&y0===y1)break;var e2=2*e;if(e2>=dy){e+=dy;x0+=sx}if(e2<=dx){e+=dx;y0+=sy}}return out}
+  function rectCells(x0,y0,x1,y1){var out=[],a=Math.min(x0,x1),b=Math.max(x0,x1),c=Math.min(y0,y1),d=Math.max(y0,y1);for(var x=a;x<=b;x++){out.push([x,c]);if(d!==c)out.push([x,d])}for(var y=c+1;y<d;y++){out.push([a,y]);if(b!==a)out.push([b,y])}return out}
+  function flood(px,x,y,v){
+    if(!inside(x,y))return;
+    var w=S.w,h=S.h,t=px[y*w+x];if(t===v)return;
+    var st=[y*w+x];
+    while(st.length){var i=st.pop();if(px[i]!==t)continue;px[i]=v;var cx=i%w,cy=(i-cx)/w;if(cx>0)st.push(i-1);if(cx<w-1)st.push(i+1);if(cy>0)st.push(i-w);if(cy<h-1)st.push(i+w)}
+  }
+  // ── pointers: one finger / the mouse paints, two fingers zoom and pan ──
+  var ptrs=new Map(),stroke=null,gesture=null;
+  function cellAt(e){var r=cv.getBoundingClientRect();var x=e.clientX-r.left,y=e.clientY-r.top;return{x:Math.floor((x-ox)/zoom),y:Math.floor((y-oy)/zoom),sx:x,sy:y}}
+  function startStroke(e){
+    var c=cellAt(e),f=S.frames[S.cur],v=tool==='eraser'?0:color;
+    if(tool==='pick'){if(inside(c.x,c.y)){color=f.px[c.y*S.w+c.x];drawPal();setTool(prevTool==='pick'?'pencil':prevTool)}return}
+    stroke={fi:S.cur,before:f.px.slice(),v:v,x0:c.x,y0:c.y,last:c,changed:false};
+    if(tool==='fill'){flood(f.px,c.x,c.y,v);if(mirror)flood(f.px,S.w-1-c.x,c.y,v);endStroke();return}
+    if(tool==='line'||tool==='rect'){stroke.preview=[[c.x,c.y]].filter(function(p){return inside(p[0],p[1])});render();return}
+    plot(f.px,c.x,c.y,v);imgDirty=true;render();
+  }
+  function moveStroke(e){
+    if(!stroke)return;
+    var c=cellAt(e),f=S.frames[stroke.fi];
+    if(c.x===stroke.last.x&&c.y===stroke.last.y)return;
+    if(tool==='line'||tool==='rect'){
+      var cells=(tool==='line'?lineCells:rectCells)(stroke.x0,stroke.y0,c.x,c.y);
+      if(mirror)cells=cells.concat(cells.map(function(p){return[S.w-1-p[0],p[1]]}));
+      stroke.preview=cells.filter(function(p){return inside(p[0],p[1])});stroke.last=c;render();return;
+    }
+    lineCells(stroke.last.x,stroke.last.y,c.x,c.y).forEach(function(p){plot(f.px,p[0],p[1],stroke.v)});
+    stroke.last=c;imgDirty=true;render();
+  }
+  function endStroke(){
+    if(!stroke)return;
+    var f=S.frames[stroke.fi];
+    if(stroke.preview){stroke.preview.forEach(function(p){f.px[p[1]*S.w+p[0]]=stroke.v})}
+    var same=true;for(var i=0;i<f.px.length;i++)if(f.px[i]!==stroke.before[i]){same=false;break}
+    if(!same){pushUndo({fi:stroke.fi,px:stroke.before});drawFrames()}
+    stroke=null;imgDirty=true;render();
+  }
+  function cancelStroke(){if(!stroke)return;S.frames[stroke.fi].px.set(stroke.before);stroke=null;imgDirty=true;render()}
+  function gestureInfo(){var a=Array.from(ptrs.values());var r=cv.getBoundingClientRect();var mx=(a[0].x+a[1].x)/2-r.left,my=(a[0].y+a[1].y)/2-r.top;return{d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1,x:mx,y:my}}
+  cv.addEventListener('pointerdown',function(e){
+    e.preventDefault();
+    try{cv.setPointerCapture(e.pointerId)}catch(x){}
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size===2){cancelStroke();gesture=gestureInfo();gesture.zoom=zoom;gesture.ox=ox;gesture.oy=oy;return}
+    if(ptrs.size>2)return;
+    if(e.button===1||e.button===2||(e.pointerType==='mouse'&&e.altKey)){gesture={pan:true,x:e.clientX,y:e.clientY,ox:ox,oy:oy};return}
+    if(e.button===0||e.pointerType!=='mouse')startStroke(e);
+  });
+  cv.addEventListener('pointermove',function(e){
+    if(!ptrs.has(e.pointerId))return;
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(gesture&&gesture.pan){ox=gesture.ox+e.clientX-gesture.x;oy=gesture.oy+e.clientY-gesture.y;render();return}
+    if(gesture&&ptrs.size>=2){
+      var n=gestureInfo(),z=Math.max(0.25,Math.min(64,gesture.zoom*n.d/gesture.d));
+      /* the sprite point under the first midpoint stays under the fingers' midpoint */
+      ox=n.x-(gesture.x-gesture.ox)*z/gesture.zoom;oy=n.y-(gesture.y-gesture.oy)*z/gesture.zoom;zoom=z;render();return;
+    }
+    if(!gesture){
+      var evs=e.getCoalescedEvents?e.getCoalescedEvents():null;
+      if(evs&&evs.length>1)evs.forEach(moveStroke);else moveStroke(e);
+    }
+  });
+  function up(e){
+    if(!ptrs.has(e.pointerId))return;
+    ptrs.delete(e.pointerId);
+    if(gesture){if(!ptrs.size)gesture=null;else if(gesture.pan)gesture=null;return}
+    if(e.type==='pointercancel')cancelStroke();else endStroke();
+  }
+  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  cv.addEventListener('contextmenu',function(e){e.preventDefault()});
+  cv.addEventListener('wheel',function(e){
+    e.preventDefault();
+    var r=cv.getBoundingClientRect(),at={x:e.clientX-r.left,y:e.clientY-r.top};
+    if(e.shiftKey&&!e.ctrlKey){ox-=e.deltaY;oy-=e.deltaX;render();return}
+    zoomAt(zoom*Math.pow(1.0015,-e.deltaY*(e.ctrlKey?4:1)),at);
+  },{passive:false});
+  root.addEventListener('keydown',function(e){
+    if(e.target&&/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();if(e.shiftKey)doRedo();else doUndo()}
+    else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();doRedo()}
+  });
+  root.tabIndex=-1;
+  // ── PNG import: quantised to the palette (at most 35 colours) ──
+  function importFile(file){
+    var url=URL.createObjectURL(file),im=new Image();
+    im.onload=function(){URL.revokeObjectURL(url);importImage(im)};
+    im.onerror=function(){URL.revokeObjectURL(url);say('That file is not a picture this browser can read')};
+    im.src=url;
+  }
+  function importImage(im){
+    var w=im.naturalWidth||im.width,h=im.naturalHeight||im.height;
+    if(!(w>0&&h>0)){say('The picture is empty');return}
+    var k=Math.max(1,Math.ceil(Math.max(w,h)/256)),tw=Math.max(1,Math.floor(w/k)),th=Math.max(1,Math.floor(h/k));
+    var c=document.createElement('canvas');c.width=tw;c.height=th;var cg=c.getContext('2d');cg.imageSmoothingEnabled=false;cg.drawImage(im,0,0,tw,th);
+    importPixels(cg.getImageData(0,0,tw,th).data,tw,th,k>1);
+  }
+  function importPixels(data,w,h,scaled){
+    var note=[];
+    if(scaled)note.push('The picture was larger than 256 pixels: scaled down to '+w+'×'+h+'.');
+    if(w!==S.w||h!==S.h){
+      if(S.frames.length>1&&!confirm('The picture is '+w+'×'+h+', the sprite '+S.w+'×'+S.h+'. Resize every frame to '+w+'×'+h+'?'))return;
+    }
+    structural(function(){
+      if(w!==S.w||h!==S.h)resizeTo(w,h);
+      var cur=S.frames[S.cur];
+      // palette entries other frames use stay (renumbered in order); the rest of the 35 slots go to the picture
+      var used=new Set();S.frames.forEach(function(f){if(f!==cur)for(var i=0;i<f.px.length;i++)if(f.px[i])used.add(f.px[i])});
+      var keepIx=Array.from(used).sort(function(a,b){return a-b}),map=new Uint8Array(36);
+      keepIx.forEach(function(ix,i){map[ix]=i+1});
+      S.frames.forEach(function(f){if(f!==cur)for(var i=0;i<f.px.length;i++)f.px[i]=map[f.px[i]]});
+      var pal=keepIx.map(function(ix){return S.palette[ix-1]});
+      var counts=new Map(),n=w*h;
+      for(var i=0;i<n;i++){if(data[i*4+3]<128)continue;var rgb=(data[i*4]<<16)|(data[i*4+1]<<8)|data[i*4+2];counts.set(rgb,(counts.get(rgb)||0)+1)}
+      var have=new Set(pal.map(function(hx){return parseInt(hx,16)})),fresh=[];
+      counts.forEach(function(c,rgb){if(!have.has(rgb))fresh.push({rgb:rgb,n:c})});
+      var slots=35-pal.length,reps;
+      if(fresh.length<=slots)reps=fresh.map(function(x){return x.rgb});
+      else{reps=_sprMedianCut(fresh,Math.max(0,slots));note.push('The picture has '+(counts.size)+' colours; it was reduced to '+(pal.length+reps.length)+' (a sprite has at most 35).')}
+      reps.forEach(function(rgb){pal.push(('00000'+rgb.toString(16)).slice(-6))});
+      S.palette=pal;
+      var pr=pal.map(function(hx){var v=parseInt(hx,16);return[v>>16&255,v>>8&255,v&255]}),memo=new Map();
+      for(var j=0;j<n;j++){
+        if(data[j*4+3]<128){cur.px[j]=0;continue}
+        var key=(data[j*4]<<16)|(data[j*4+1]<<8)|data[j*4+2],ix=memo.get(key);
+        if(ix===undefined){
+          var best=0,bd=1e9,r=data[j*4],gg=data[j*4+1],b=data[j*4+2];
+          for(var q=0;q<pr.length;q++){var dr=pr[q][0]-r,dg=pr[q][1]-gg,db=pr[q][2]-b,dd=dr*dr*3+dg*dg*4+db*db*2;if(dd<bd){bd=dd;best=q+1}}
+          ix=best;memo.set(key,ix);
+        }
+        cur.px[j]=ix;
+      }
+      color=Math.min(Math.max(color,1),S.palette.length);
+    });
+    fitDone=false;fit();
+    msgs=note;msgEl.textContent=note.join('\n')||'Imported '+w+'×'+h+'.';
+  }
+  // ── UI refresh ──
+  function fillPick(){
+    pick.innerHTML='';
+    var bl=blocks(),seen={};
+    bl.forEach(function(b){if(seen[b.name])return;seen[b.name]=1;var o=document.createElement('option');o.value=b.name;o.textContent=b.name+(b.path?'  · '+b.path:'');pick.appendChild(o)});
+    if(!loaded){var o2=document.createElement('option');o2.value='';o2.textContent=S.name+' (new)';pick.appendChild(o2)}
+    var on=document.createElement('option');on.value='\u0000new';on.textContent='New sprite…';pick.appendChild(on);
+    pick.value=loaded||'';
+  }
+  function drawPal(){
+    palBox.innerHTML='';
+    var tr=btn('','Transparent (eraser colour)',function(){color=0;drawPal()},palBox);tr.className='spt-sw tr'+(color===0?' sel':'');tr.setAttribute('data-ix','0');
+    S.palette.forEach(function(hx,i){
+      var b=btn(_SPR_CHARS[i+1],'Colour '+_SPR_CHARS[i+1]+' #'+hx,function(){color=i+1;if(tool==='eraser')setTool('pencil');drawPal()},palBox);
+      b.className='spt-sw'+(color===i+1?' sel':'');b.style.background='#'+hx;b.setAttribute('data-ix',String(i+1));
+    });
+    if(color>0)colIn.value='#'+(S.palette[color-1]||'ffffff');
+  }
+  function drawFrames(){
+    frBox.innerHTML='';var L=lut();
+    S.frames.forEach(function(f,i){
+      var b=btn('',null,function(){S.cur=i;imgDirty=true;refreshFrameSel();render()},frBox);
+      b.className='spt-fr'+(i===S.cur?' sel':'');b.setAttribute('data-fi',String(i));b.title='Frame '+(f.name||i);
+      var c=document.createElement('canvas');paintInto(c,c.getContext('2d'),f.px,L);b.appendChild(c);
+      var s=document.createElement('span');s.textContent=f.name||'(unnamed)';b.appendChild(s);
+    });
+    frName.value=S.frames[S.cur].name;
+  }
+  function refreshFrameSel(){Array.prototype.forEach.call(frBox.children,function(b,i){b.classList.toggle('sel',i===S.cur)});frName.value=S.frames[S.cur].name}
+  function sizePreview(){pcv.width=S.w*pscale;pcv.height=S.h*pscale;pcv.style.width=Math.min(S.w*pscale,(root.clientWidth||300)-8)+'px'}
+  function refreshAll(){
+    if(S.cur>=S.frames.length)S.cur=S.frames.length-1;
+    if(color>S.palette.length)color=S.palette.length;
+    nameIn.value=S.name;wIn.value=S.w;hIn.value=S.h;fpsIn.value=S.fps;
+    fillPick();drawPal();drawFrames();sizePreview();updUndo();setTool(tool);
+    msgEl.textContent=msgs.join('\n');
+    imgDirty=true;if(!fitDone)fit();else render();
+  }
+  // animated preview
+  var t0=performance.now();
+  var pvC=document.createElement('canvas'),pvKey='';
+  (function tick(){
+    if(!root.isConnected&&performance.now()-t0>2000)return;
+    if(root.isConnected&&S){
+      var n=S.frames.length,i=playing?Math.floor((performance.now()-t0)/1000*S.fps)%n:S.cur,key=i+':'+ver+':'+pcv.width;
+      if(key!==pvKey){pvKey=key;paintInto(pvC,pvC.getContext('2d'),S.frames[Math.min(i,n-1)].px,lut());pg.imageSmoothingEnabled=false;pg.clearRect(0,0,pcv.width,pcv.height);pg.drawImage(pvC,0,0,pcv.width,pcv.height)}
+    }
+    requestAnimationFrame(tick);
+  })();
+  try{new ResizeObserver(function(){if(S){if(!fitDone)fit();else render()}}).observe(stage)}catch(e){}
+  // the sprite block the editor's cursor is in, else the first sprite of the project, else a new one
+  var first=blocks()[0],atCur=null;
+  try{var cl=ed.value.slice(0,ed.selectionStart).split('\n').length-1;_sprFindBlocks(ed.value).forEach(function(b){if(cl>=b.start&&cl<=b.end)atCur=b.name})}catch(e){}
+  load(atCur&&blocks().some(function(b){return b.name===atCur})?atCur:first?first.name:null);
+  // for tests and other tools: the open editor's state
+  root._spt={state:function(){return S},save:save,load:load,undo:doUndo,redo:doRedo,setTool:setTool,view:function(){return{zoom:zoom,ox:ox,oy:oy,cw:cw,ch:ch,grid:zoom>=6}},drawNow:draw,
+    importPixels:importPixels,setColor:function(c){color=c;drawPal()},setMirror:function(v){mirror=!!v;mirB.classList.toggle('on',mirror)},isDirty:function(){return dirty},text:function(){return _sprFormat(toDef())}};
+  return root._spt;
+}
+// For other tools (tile pickers, previews) in the IDE: frame fi of a sprite as _sprParse returns it, drawn on a
+// new canvas at an integer scale (the runtime registry of the running program is not touched).
+function _sprFrameCanvas(d,fi,scale){
+  scale=Math.max(1,scale|0||1);
+  var f=d.frames[Math.max(0,Math.min(d.frames.length-1,fi|0))],c=document.createElement('canvas');c.width=d.w;c.height=d.h;
+  var g=c.getContext('2d'),id=g.createImageData(d.w,d.h);
+  for(var i=0;i<d.w*d.h;i++){var v=_SPR_CHARS.indexOf(f.data[i]);if(v>0){var h=parseInt(d.palette[v-1],16);id.data[i*4]=h>>16&255;id.data[i*4+1]=h>>8&255;id.data[i*4+2]=h&255;id.data[i*4+3]=255}}
+  g.putImageData(id,0,0);
+  if(scale===1)return c;
+  var o=document.createElement('canvas');o.width=d.w*scale;o.height=d.h*scale;var og=o.getContext('2d');og.imageSmoothingEnabled=false;og.drawImage(c,0,0,o.width,o.height);
+  return o;
+}
+// Median cut over weighted colours {rgb, n} → at most k colours (rgb ints), each the weighted mean of its box.
+function _sprMedianCut(cols,k){
+  if(k<=0)return[];
+  var boxes=[cols.slice()];
+  function range(b,s){var lo=255,hi=0;b.forEach(function(c){var v=(c.rgb>>s)&255;if(v<lo)lo=v;if(v>hi)hi=v});return hi-lo}
+  while(boxes.length<k){
+    var bi=-1,best=-1,sh=0;
+    boxes.forEach(function(b,i){if(b.length<2)return;[16,8,0].forEach(function(s){var r=range(b,s);if(r>best){best=r;bi=i;sh=s}})});
+    if(bi<0||best<=0)break;
+    var b=boxes[bi].sort(function(p,q){return((p.rgb>>sh)&255)-((q.rgb>>sh)&255)}),tot=0,half=0,cut=1;
+    b.forEach(function(c){tot+=c.n});
+    for(var i=0;i<b.length-1;i++){half+=b[i].n;if(half*2>=tot){cut=i+1;break}cut=i+1}
+    boxes.splice(bi,1,b.slice(0,cut),b.slice(cut));
+  }
+  return boxes.map(function(b){var r=0,g=0,bl=0,n=0;b.forEach(function(c){r+=((c.rgb>>16)&255)*c.n;g+=((c.rgb>>8)&255)*c.n;bl+=(c.rgb&255)*c.n;n+=c.n});return(Math.round(r/n)<<16)|(Math.round(g/n)<<8)|Math.round(bl/n)});
+}
+if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools||[];window._drawerRegister=function(t){window._drawerTools.push(t)}}
+_drawerRegister({id:'sprite',label:'Sprite',icon:'🎨',desc:'Paint pixel sprites and their animation frames',open:_sprToolOpen});
+</script>
+<script>
+// ═══ MAPS & CONTROLS — compiler half, editor, STAGE and CONTROLS drawer tools ═══
+// `map` and `controls` are blocks, not statements: a line in column 0 `map <name>:` / `controls <name>:` and the
+// indented lines below it. The lexer hands each block to the parser as one BLOCK token (its lines are blanked
+// before the ordinary lexer runs, so positions elsewhere do not move); Parser.parseTop turns it into a MapDecl /
+// ControlsDecl. Names are project-wide: any file may use a map or controls block of any other file by its bare
+// name. Right before injectBuiltins, _stLower turns every name into its number, checks the calls of the map and
+// controls builtins, declares them as imports of module std and hangs the blocks' data on the import list
+// (imports.stageMeta, read by _stSetup in the runtime). A program without these blocks is not touched (same bytes).
+//
+//   map level1: 20x15, tile 16
+//     legend # wall solid #3a3a5c,  . floor #1b1b2a,  g grass sprite grass
+//     rows
+//       "####################"
+//     objects
+//       hero 2,3
+//       slime 12,8 speed 0.5
+//   controls pad: stick left, buttons A "jump" B, size 1.0, opacity 0.5
+var _ST_KINDS={map:1,controls:1};
+var _ST_HEAD=/^(map|controls)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/;
+// The blocks of a source text: [{kind, name, line (0-based first line), end (0-based last line), lines:[text]}].
+// Only lines that start outside a comment or string count.
+function _stFindBlocks(src){
+  var L=String(src==null?'':src).split('\n'),out=[],st=0,q='';   /* st 0 code, 1 block comment, 2 string */
+  for(var i=0;i<L.length;i++){
+    var line=L[i];
+    if(st===0){
+      var m=_ST_HEAD.exec(line);
+      if(m){
+        var e=i;
+        for(var j=i+1;j<L.length;j++){if(/^[ \t]*\r?$/.test(L[j]))continue;if(/^[ \t]/.test(L[j]))e=j;else break}
+        out.push({kind:m[1],name:m[2],line:i,end:e,lines:L.slice(i,e+1).map(function(s){return s.replace(/\r$/,'')})});
+        i=e;continue;
+      }
+    }
+    for(var k=0;k<line.length;k++){
+      var c=line[k];
+      if(st===1){if(c==='*'&&line[k+1]==='/'){st=0;k++}continue}
+      if(st===2){if(c==='\\'){k++;continue}if(c===q)st=0;continue}
+      if(c==='/'&&line[k+1]==='/')break;
+      if(c==='/'&&line[k+1]==='*'){st=1;k++;continue}
+      if(c==='"'||c==="'"){st=2;q=c}
+    }
+  }
+  return out;
+}
+// Comma-separated items / space-separated words of a piece of a line, with their (1-based) columns; quotes kept.
+function _stSplit(s,col,sep){
+  var out=[],cur='',at=-1,q='';
+  for(var i=0;i<=s.length;i++){
+    var c=i<s.length?s[i]:null;
+    if(c!==null&&q){cur+=c;if(c===q)q='';continue}
+    if(c===null||(sep===','?c===',':/\s/.test(c))){if(cur.trim()){var lead=cur.length-cur.replace(/^\s+/,'').length;out.push({text:cur.trim(),col:col+at+lead})}cur='';at=-1;continue}
+    if(at<0)at=i;
+    if(c==='"')q=c;
+    cur+=c;
+  }
+  return out;
+}
+function _stNum(s){return/^-?(\d+\.?\d*|\.\d+)$/.test(s)?Number(s):null}
+function _stUnq(s){return/^".*"$/.test(s)?s.slice(1,-1):s}
+// Parses a map block. b: {name, line (0-based), lines}. Returns the model the tool edits and the compiler checks:
+// {name, w, h, tile, tileSet, legend:[{ch,name,solid,color,sprite,extra:[words]}], inline, rows:[str], objects:[{kind,x,y,props:[[k,v]]}],
+//  keep:[lines kept as they are: comments and lines this version does not know], problems:[{line,col,msg}] (1-based)}
+function _stParseMap(b){
+  var M={kind:'map',name:b.name,w:0,h:0,tile:16,tileSet:false,legend:[],inline:false,rows:[],objects:[],keep:[],problems:[],headExtra:[],locs:{}};
+  var base=b.line+1,L=b.lines;
+  function P(line,col,msg){M.problems.push({line:line,col:col,msg:msg})}
+  var hm=/^map[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(L[0]);
+  M.locs.name={line:base,col:L[0].indexOf(b.name,3)+1};
+  var items=_stSplit(L[0].slice(hm[0].length),hm[0].length+1,',');
+  items.forEach(function(it,k){
+    var sm=/^(\d+)\s*x\s*(\d+)$/i.exec(it.text),tm=/^tile\s+(\S+)$/.exec(it.text);
+    if(k===0&&!sm){P(base,it.col,'Expected the size of map '+b.name+' first — map '+b.name+': 20x15, tile 16');if(!tm){M.headExtra.push(it.text);return}}
+    if(sm&&k===0){M.w=+sm[1];M.h=+sm[2];M.locs.size={line:base,col:it.col};
+      if(M.w<1||M.h<1||M.w>256||M.h>256)P(base,it.col,'The size of map '+b.name+' must be 1x1 to 256x256, not '+it.text)}
+    else if(tm){var t=_stNum(tm[1]);M.tileSet=true;if(t===null||t!==Math.floor(t)||t<1||t>256)P(base,it.col+it.text.indexOf(tm[1]),'tile must be a whole number of pixels from 1 to 256, not '+tm[1]);else M.tile=t}
+    else{P(base,it.col,'Unknown setting "'+it.text+'" in map '+b.name+' — the header is: map '+b.name+': 20x15, tile 16');M.headExtra.push(it.text)}
+  });
+  if(!items.length)P(base,L[0].length+1,'Expected the size of map '+b.name+' — map '+b.name+': 20x15, tile 16');
+  var sec=null,secInd=-1,legendLines=0;
+  for(var i=1;i<L.length;i++){
+    var raw=L[i],ln=base+i;
+    if(!raw.trim())continue;
+    var ind=raw.length-raw.replace(/^[ \t]+/,'').length,txt=raw.trim();
+    if(/^\/\//.test(txt)){M.keep.push(raw);continue}
+    if(sec&&ind>secInd){
+      if(sec==='legend'){legendLines++;legend(raw.slice(ind),ln,ind+1)}
+      else if(sec==='rows'){
+        var rm=/^"([^"]*)"\s*(\/\/.*)?$/.exec(txt);
+        if(!rm){P(ln,ind+1,'A row of map '+b.name+' is written in double quotes — "#....#"');M.keep.push(raw);continue}
+        M.rows.push({text:rm[1],line:ln,col:ind+1});
+      }else if(sec==='objects')object(txt,ln,ind+1,raw);
+      continue;
+    }
+    var wm=/^(legend|rows|objects)\b(.*)$/.exec(txt);
+    if(!wm){sec=null;P(ln,ind+1,'Unknown line in map '+b.name+' — expected legend, rows or objects');M.keep.push(raw);continue}
+    sec=wm[1];secInd=ind;
+    if(sec==='legend'){M.locs.legend={line:ln,col:ind+1};if(wm[2].trim()){M.inline=true;legend(wm[2],ln,ind+1+6)}}
+    else if(sec==='rows'){M.locs.rows={line:ln,col:ind+1};if(wm[2].trim())P(ln,ind+6,'The rows of map '+b.name+' go on the lines below "rows", one quoted row per line')}
+    else{M.locs.objects={line:ln,col:ind+1};if(wm[2].trim())P(ln,ind+9,'The objects of map '+b.name+' go on the lines below "objects", one per line — hero 2,3')}
+  }
+  if(M.inline&&legendLines)M.inline=false;
+  function legend(s,ln,col){
+    _stSplit(s,col,',').forEach(function(it){
+      var ws=_stSplit(it.text,it.col,' '),e={ch:'',name:'',solid:false,color:null,sprite:null,extra:[],line:ln,col:it.col};
+      var ch=Array.from(ws[0].text);
+      if(ch.length!==1||ch[0]==='"'){P(ln,ws[0].col,'A legend entry starts with one character, then a name — # wall solid #3a3a5c');e.extra=ws.map(function(w){return w.text});M.legend.push(e);return}
+      e.ch=ch[0];
+      var dup=M.legend.filter(function(x){return x.ch===e.ch})[0];
+      if(dup)P(ln,ws[0].col,'"'+e.ch+'" is already in the legend of map '+b.name+' (as '+dup.name+') — every character stands for one tile');
+      if(e.ch===' ')P(ln,ws[0].col,'A space is always an empty tile — it cannot be in the legend');
+      if(!ws[1]||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ws[1].text))P(ln,ws[1]?ws[1].col:ws[0].col+1,'Expected a name after "'+e.ch+'" in the legend — '+e.ch+' wall solid #3a3a5c');
+      else e.name=ws[1].text;
+      for(var k=2;k<ws.length;k++){
+        var w=ws[k].text;
+        if(w==='solid'){if(e.solid)P(ln,ws[k].col,'solid is written twice for "'+e.ch+'"');e.solid=true}
+        else if(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(w)){if(e.color)P(ln,ws[k].col,'"'+e.ch+'" has two colours');e.color=w}
+        else if(w==='sprite'){
+          var sn=ws[k+1];
+          if(!sn||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(sn.text))P(ln,sn?sn.col:ws[k].col+6,'Expected a sprite name after sprite — g grass sprite grass');
+          else{e.sprite=sn.text;k++}
+        }
+        else{P(ln,ws[k].col,'Unknown word "'+w+'" in the legend entry of "'+e.ch+'" — write solid, a colour like #3a3a5c or sprite NAME');e.extra.push(w)}
+      }
+      M.legend.push(e);
+    });
+  }
+  function object(t,ln,col,raw){
+    var ws=_stSplit(t,col,' ');
+    var o={kind:ws[0].text,x:0,y:0,props:[],line:ln,col:col,ccol:col};
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(o.kind)){P(ln,col,'An object starts with its kind — hero 2,3');M.keep.push(raw);return}
+    var rest=t.slice(ws[0].text.length),cm=/^(\s*)(-?\d+)\s*,\s*(-?\d+)/.exec(rest);
+    if(!cm){P(ln,col+ws[0].text.length+1,'Expected tile coordinates after '+o.kind+' — '+o.kind+' 2,3');M.keep.push(raw);return}
+    o.x=+cm[2];o.y=+cm[3];o.ccol=col+ws[0].text.length+cm[1].length;
+    var pw=_stSplit(rest.slice(cm[0].length),o.ccol+cm[0].length-cm[1].length,' ');
+    for(var k=0;k<pw.length;k+=2){
+      if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(pw[k].text)){P(ln,pw[k].col,'Expected a property name — '+o.kind+' '+o.x+','+o.y+' speed 0.5');break}
+      if(!pw[k+1]){P(ln,pw[k].col+pw[k].text.length,'Expected a value after '+pw[k].text+' — '+pw[k].text+' 1');break}
+      o.props.push([pw[k].text,pw[k+1].text]);
+    }
+    M.objects.push(o);
+  }
+  // whole-block checks (once every line reads)
+  if(M.w&&M.h&&!M.problems.length){
+    var known={};M.legend.forEach(function(e){if(e.ch)known[e.ch]=true});
+    if(!M.locs.rows)P(M.locs.name.line,M.locs.name.col,'map '+b.name+' has no rows — add "rows" and '+M.h+' quoted rows of '+M.w+' tiles');
+    else if(M.rows.length!==M.h)P(M.locs.rows.line,M.locs.rows.col,'map '+b.name+' has '+M.rows.length+' row'+(M.rows.length===1?'':'s')+', but its size says '+M.h+' ('+M.w+'x'+M.h+')');
+    M.rows.forEach(function(r,k){
+      var cs=Array.from(r.text);
+      if(cs.length!==M.w)P(r.line,r.col,'Row '+(k+1)+' of map '+b.name+' has '+cs.length+' tile'+(cs.length===1?'':'s')+', but the map is '+M.w+' wide');
+      for(var x=0;x<cs.length;x++)if(cs[x]!==' '&&!known[cs[x]]){P(r.line,r.col+1+cs.slice(0,x).join('').length,'"'+cs[x]+'" in row '+(k+1)+' of map '+b.name+' is not in its legend — add it: legend '+cs[x]+' name #888888');break}
+    });
+    M.objects.forEach(function(o){
+      if(o.x<0||o.y<0||o.x>=M.w||o.y>=M.h)P(o.line,o.ccol,o.kind+' '+o.x+','+o.y+' is outside map '+b.name+' — it is '+M.w+'x'+M.h+' (x 0 to '+(M.w-1)+', y 0 to '+(M.h-1)+')');
+    });
+  }
+  M.rows=M.rows.map(function(r){return r.text});
+  M.problems.sort(function(a,c){return a.line-c.line||a.col-c.col});
+  return M;
+}
+// Parses a controls block: {name, stick:'left'|'right'|'none', dpad, buttons:[{id,label}], side|null, size, opacity, keys, deadzone,
+// items:[{k, raw}] (the order of the items as written, unknown ones kept), problems}
+function _stParseControls(b){
+  var C={kind:'controls',name:b.name,stick:'left',dpad:false,buttons:[],side:null,size:1,opacity:0.5,keys:true,deadzone:0.15,items:[],keep:[],problems:[],locs:{}};
+  var base=b.line+1,L=b.lines,set={};
+  function P(line,col,msg){C.problems.push({line:line,col:col,msg:msg})}
+  var hm=/^controls[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(L[0]);
+  C.locs.name={line:base,col:L[0].indexOf(b.name,8)+1};
+  var parts=[{s:L[0].slice(hm[0].length),line:base,col:hm[0].length+1}];
+  for(var i=1;i<L.length;i++){if(!L[i].trim())continue;var ind=L[i].length-L[i].replace(/^[ \t]+/,'').length;if(/^\/\//.test(L[i].trim())){C.keep.push(L[i]);continue}parts.push({s:L[i].slice(ind),line:base+i,col:ind+1})}
+  parts.forEach(function(p){
+    _stSplit(p.s,p.col,',').forEach(function(it){
+      var ws=_stSplit(it.text,it.col,' '),k=ws[0].text,v=ws[1]?ws[1].text:null,ln=p.line;
+      function once(){if(set[k])P(ln,it.col,k+' is set twice in controls '+b.name);set[k]=true}
+      function num(lo,hi){var n=v===null?null:_stNum(v);if(n===null||n<lo||n>hi||ws.length>2){P(ln,ws[1]?ws[1].col:it.col+k.length+1,k+' must be a number from '+lo+' to '+hi+' — '+k+' '+(k==='size'?'1.0':k==='opacity'?'0.5':'0.15'));return null}return n}
+      C.items.push({k:k,raw:it.text});
+      if(k==='stick'||k==='dpad'){
+        once();if(set.stick&&set.dpad)P(ln,it.col,'controls '+b.name+' has a stick and a dpad — choose one');
+        if(!(v==='left'||v==='right'||(k==='stick'&&v==='none'))||ws.length>2){P(ln,ws[1]?ws[1].col:it.col+k.length+1,k==='stick'?'Expected left, right or none after stick':'Expected left or right after dpad');return}
+        C.stick=v;C.dpad=k==='dpad';
+      }else if(k==='buttons'){
+        once();
+        var j=1;
+        if(ws[1]&&(ws[1].text==='left'||ws[1].text==='right')){C.side=ws[1].text;j=2}
+        for(;j<ws.length;j++){
+          var id=ws[j].text;
+          if(!/^[ABC]$/.test(id)){P(ln,ws[j].col,'Buttons are named A, B and C — buttons A "jump" B');return}
+          if(C.buttons.some(function(x){return x.id===id})){P(ln,ws[j].col,'Button '+id+' is listed twice');return}
+          var lab=null;
+          if(ws[j+1]&&/^".*"$/.test(ws[j+1].text)){lab=_stUnq(ws[j+1].text);j++}
+          C.buttons.push({id:id,label:lab});
+        }
+      }else if(k==='size'){once();var n=num(0.5,2);if(n!==null)C.size=n}
+      else if(k==='opacity'){once();n=num(0.1,1);if(n!==null)C.opacity=n}
+      else if(k==='deadzone'){once();n=num(0,0.9);if(n!==null)C.deadzone=n}
+      else if(k==='keys'){once();if((v!=='on'&&v!=='off')||ws.length>2)P(ln,ws[1]?ws[1].col:it.col+5,'Expected on or off after keys');else C.keys=v==='on'}
+      else{C.items[C.items.length-1].unknown=true;P(ln,it.col,'Unknown setting "'+k+'" in controls '+b.name+' — stick, dpad, buttons, size, opacity, deadzone or keys')}
+    });
+  });
+  return C;
+}
+function _stParseBlock(b){return b.kind==='map'?_stParseMap(b):_stParseControls(b)}
+// Writes a block back as text. A model read from text and written again gives the same text when the text was
+// in this form (one setting per item, two spaces of indent; the legend on one line or one entry per line, as found).
+function _stLegendEntry(e){var s=e.ch+' '+e.name;if(e.solid)s+=' solid';if(e.color)s+=' '+e.color;if(e.sprite)s+=' sprite '+e.sprite;if(e.extra&&e.extra.length)s+=' '+e.extra.join(' ');return s}
+function _stWriteMap(M){
+  var head='map '+M.name+': '+M.w+'x'+M.h;
+  if(M.tileSet||M.tile!==16)head+=', tile '+M.tile;
+  (M.headExtra||[]).forEach(function(x){head+=', '+x});
+  var out=[head],lg=M.legend.map(_stLegendEntry);
+  if(lg.length){
+    var one='  legend '+lg.join(',  ');
+    if(M.inline&&one.length<=100)out.push(one);
+    else{out.push('  legend');lg.forEach(function(s){out.push('    '+s)})}
+  }
+  out.push('  rows');
+  M.rows.forEach(function(r){out.push('    "'+r+'"')});
+  if(M.objects.length){
+    out.push('  objects');
+    M.objects.forEach(function(o){out.push('    '+o.kind+' '+o.x+','+o.y+o.props.map(function(p){return' '+p[0]+' '+p[1]}).join(''))});
+  }
+  (M.keep||[]).forEach(function(k){out.push(k)});
+  return out.join('\n');
+}
+function _stWriteControls(C){
+  var known={},items=[];
+  function item(k){
+    if(k==='stick'||k==='dpad')return C.dpad?'dpad '+C.stick:'stick '+C.stick;
+    if(k==='buttons'){if(!C.buttons.length)return null;return'buttons '+(C.side?C.side+' ':'')+C.buttons.map(function(b){return b.id+(b.label?' "'+b.label.replace(/"/g,"'")+'"':'')}).join(' ')}
+    if(k==='size')return'size '+_stFix(C.size);
+    if(k==='opacity')return'opacity '+_stFix(C.opacity);
+    if(k==='deadzone')return'deadzone '+_stFix(C.deadzone);
+    if(k==='keys')return'keys '+(C.keys?'on':'off');
+    return null;
+  }
+  (C.items||[]).forEach(function(it){
+    var k=it.k==='dpad'?'stick':it.k;
+    if(it.unknown){items.push(it.raw);return}
+    if(known[k])return;known[k]=true;
+    var s=item(k);if(s)items.push(s);
+  });
+  ['stick','buttons','size','opacity','deadzone','keys'].forEach(function(k){
+    if(known[k])return;
+    if(k==='deadzone'&&C.deadzone===0.15)return;
+    if(k==='keys'&&C.keys)return;
+    var s=item(k);if(s)items.push(s);
+  });
+  return['controls '+C.name+': '+items.join(', ')].concat(C.keep||[]).join('\n');
+}
+function _stFix(n){n=Math.round(Number(n)*100)/100;var s=String(n);return s.indexOf('.')<0?s+'.0':s}
+// ── lexer: blocks become BLOCK tokens ──
+(function(){
+  var tk0=Lexer.prototype.tokenize;
+  Lexer.prototype.tokenize=function(){
+    var src=this.s;
+    if(typeof src!=='string'||!/(^|\n)(map|controls)[ \t]/.test(src))return tk0.call(this);
+    var bl=_stFindBlocks(src);
+    if(!bl.length)return tk0.call(this);
+    var L=src.split('\n');
+    bl.forEach(function(b){for(var i=b.line;i<=b.end;i++)L[i]=''});
+    this.s=L.join('\n');
+    var ts;
+    try{ts=tk0.call(this)}finally{this.s=src}
+    var out=[],k=0;
+    bl.forEach(function(b){
+      while(k<ts.length&&ts[k].type!==TT.EOF&&ts[k].line<=b.line+1)out.push(ts[k++]);
+      var t=new Token('BLOCK',b.kind,b.line+1,1);t.block=b;out.push(t);
+    });
+    while(k<ts.length)out.push(ts[k++]);
+    return out;
+  };
+  var P=Parser.prototype,top0=P.parseTop,stmt0=P.parseStmt;
+  P.parseTop=function(){
+    var t=this.cur();
+    if(t&&t.type==='BLOCK'){
+      this.adv();
+      var M=_stParseBlock(t.block);
+      if(M.problems.length){var p=M.problems[0];throw new Error(p.line+':'+p.col+': '+p.msg)}
+      return{type:M.kind==='map'?'MapDecl':'ControlsDecl',name:M.name,data:M,loc:{line:t.line,col:1},nameLoc:{line:M.locs.name.line,col:M.locs.name.col}};
+    }
+    return top0.call(this);
+  };
+  P.parseStmt=function(){
+    var t=this.cur();
+    if(t&&t.type==='BLOCK')throw new Error(t.line+':1: '+t.value+' blocks belong at the top level of a file, not inside a function');
+    return stmt0.call(this);
+  };
+})();
+// ── lowering ──
+var _ST_FNS={
+  drawMap:{kind:'map',args:[['m','int'],['ox','num'],['oy','num']],ret:'void',min:1},
+  tileAt:{kind:'map',args:[['m','int'],['tx','int'],['ty','int']],ret:'str'},
+  solidAt:{kind:'map',args:[['m','int'],['px','num'],['py','num']],ret:'bool'},
+  mapW:{kind:'map',args:[['m','int']],ret:'int'},
+  mapH:{kind:'map',args:[['m','int']],ret:'int'},
+  tileSize:{kind:'map',args:[['m','int']],ret:'int'},
+  setTile:{kind:'map',args:[['m','int'],['tx','int'],['ty','int'],['ch','str']],ret:'void'},
+  objCount:{kind:'map',args:[['m','int'],['kind','str']],ret:'int'},
+  objX:{kind:'map',args:[['m','int'],['kind','str'],['i','int']],ret:'num'},
+  objY:{kind:'map',args:[['m','int'],['kind','str'],['i','int']],ret:'num'},
+  useControls:{kind:'controls',args:[['c','int']],ret:'void'},
+  stickX:{args:[],ret:'num'},
+  stickY:{args:[],ret:'num'},
+  pressed:{args:[['btn','str']],ret:'bool',btn:true},
+  justPressed:{args:[['btn','str']],ret:'bool',btn:true}
+};
+function _stLower(ast){
+  var body=ast.body;
+  if(!body.some(function(n){return n.type==='MapDecl'||n.type==='ControlsDecl'}))return;
+  function fail(msg,loc){throw new Error((loc&&loc.file?loc.file+':':'')+(loc?(loc.line||1)+':'+(loc.col||1)+': ':'')+msg)}
+  var blocks=new Map(),maps=[],ctls=[],tops=new Map(),fns=new Set();
+  body.forEach(function(n){
+    if(n.type==='FunctionDecl'||n.type==='VarDecl'||n.type==='ImportDecl'||n.type==='StructDecl'||n.type==='RegionDecl'){
+      tops.set(n.modName||n.name,n);if(n.type==='FunctionDecl'||n.type==='ImportDecl')fns.add(n.name);
+    }
+  });
+  function where(l){return(l&&l.file?l.file+':':'line ')+((l&&l.line)||1)}
+  body.forEach(function(n){
+    if(n.type!=='MapDecl'&&n.type!=='ControlsDecl')return;
+    var kw=n.type==='MapDecl'?'map':'controls';
+    if(n.nameLoc&&n.loc&&n.loc.file)n.nameLoc.file=n.loc.file;
+    var prev=blocks.get(n.name);
+    if(prev)fail('"'+n.name+'" is already the name of '+prev.kw+' '+n.name+' at '+where(prev.node.nameLoc)+' — every map and controls block needs its own name',n.nameLoc);
+    var top=tops.get(n.name);
+    if(top)fail(kw+' '+n.name+' has the same name as '+(top.type==='FunctionDecl'?'the function':top.type==='VarDecl'?'the variable':top.type==='ImportDecl'?'the import':top.type==='StructDecl'?'the struct':'the region')+' '+n.name+(top.loc&&top.loc.line?' at '+where(top.loc):'')+' — rename one of them',n.nameLoc);
+    var e={kw:kw,node:n,id:kw==='map'?maps.length:ctls.length};
+    blocks.set(n.name,e);
+    (kw==='map'?maps:ctls).push(n);
+  });
+  var names=Array.from(blocks.keys()),used=new Set(),scopes=[],seen=new Set(),need=new Set();
+  function isLocal(nm){for(var i=scopes.length-1;i>=0;i--)if(scopes[i].has(nm))return true;return tops.has(nm)&&tops.get(nm).type==='VarDecl'}
+  function def(nm){scopes[scopes.length-1].add(nm)}
+  function asLit(e,b){e.type='IntLiteral';e.value=String(b.id);e.stBlock=b.node.name;delete e.name}
+  function call(e){
+    var c=e.callee,f=c&&c.type==='IdentifierExpr'&&!fns.has(c.name)&&!isLocal(c.name)&&Object.prototype.hasOwnProperty.call(_ST_FNS,c.name)?_ST_FNS[c.name]:null;
+    if(!f)return;
+    var nm=c.name,want=f.args.length,min=f.min||want;
+    if(e.args.length<min||e.args.length>want||(f.min&&e.args.length!==min&&e.args.length!==want))
+      fail(nm+'() takes '+(f.min&&f.min!==want?f.min+' or '+want:want)+' argument'+(want===1?'':'s')+' — '+nm+'('+f.args.map(function(a){return a[0]}).join(', ')+')',e.loc||c.loc);
+    if(f.kind){
+      var a=e.args[0];
+      if(a&&a.type==='IdentifierExpr'&&!isLocal(a.name)){
+        var b=blocks.get(a.name);
+        if(!b){
+          var same=names.filter(function(x){return blocks.get(x).kw===f.kind}),hint=_emitModClosest(a.name,same);
+          fail('Unknown '+(f.kind==='map'?'map':'controls')+' "'+a.name+'"'+(same.length?' — the '+(f.kind==='map'?'maps':'controls')+' of this project: '+same.join(', '):' — this project has no '+(f.kind==='map'?'map':'controls')+' block')+(hint?' (did you mean "'+hint+'"?)':''),a.loc);
+        }
+        if(b.kw!==f.kind)fail(nm+'() needs '+(f.kind==='map'?'a map':'a controls block')+', but '+a.name+' is '+(b.kw==='map'?'a map':'a controls block'),a.loc);
+        seen.add(a);used.add(b.node.name);asLit(a,b);
+        if(nm==='setTile'&&e.args[3]&&e.args[3].type==='StringLiteral'){
+          var ch=Array.from(e.args[3].value),M=b.node.data;
+          if(ch.length!==1||(ch[0]!==' '&&!M.legend.some(function(x){return x.ch===ch[0]})))fail('setTile: "'+e.args[3].value+'" is not a tile of map '+b.node.name+' — use one of its legend characters: '+M.legend.map(function(x){return x.ch}).join(' '),e.args[3].loc);
+        }
+      }
+    }
+    if(f.btn&&e.args[0]&&e.args[0].type==='StringLiteral'&&!/^[ABC]$/.test(e.args[0].value))fail(nm+'("'+e.args[0].value+'") — the buttons are "A", "B" and "C"',e.args[0].loc);
+    need.add(nm);
+    if(nm==='drawMap'&&e.args.length===1)e.args.push(new FloatLiteral('0.0',e.loc),new FloatLiteral('0.0',e.loc));
+  }
+  function X(e){
+    if(!e||typeof e!=='object')return;
+    if(Array.isArray(e)){e.forEach(X);return}
+    if(seen.has(e))return;seen.add(e);
+    if(typeof e.type==='string'&&(/Stmt$/.test(e.type)||e.type==='VarDecl')){S(e);return}
+    if(e.type==='CallExpr')call(e);
+    if(e.type==='IdentifierExpr'&&blocks.has(e.name)&&!isLocal(e.name)&&!fns.has(e.name)){var b=blocks.get(e.name);used.add(e.name);asLit(e,b);return}
+    kids(e);
+  }
+  function kids(x){for(var k in x){if(k==='loc'||k==='nameLoc')continue;var v=x[k];if(v&&typeof v==='object')X(v)}}
+  function S(n){
+    if(!n||typeof n!=='object')return;
+    seen.add(n);
+    switch(n.type){
+      case'VarDecl':X(n.init);def(n.name);return;
+      case'BlockStmt':scopes.push(new Set());n.statements.forEach(S);scopes.pop();return;
+      case'ForStmt':scopes.push(new Set());S(n.init);X(n.condition);X(n.update);S(n.body);scopes.pop();return;
+      case'WithStmt':X(n.target);scopes.push(new Set([n.alias]));S(n.body);scopes.pop();return;
+    }
+    kids(n);
+  }
+  body.forEach(function(n){
+    if(n.type==='FunctionDecl'){scopes=[new Set(n.params.map(function(p){return p.name}))];S(n.body)}
+    else if(n.type==='VarDecl'&&n.init){scopes=[new Set()];X(n.init)}
+  });
+  // the blocks leave the program; their data rides on the import list
+  var meta={v:1,maps:maps.map(function(n){var M=n.data,lg={};M.legend.forEach(function(e){var o={name:e.name,solid:!!e.solid};if(e.color)o.color=e.color;if(e.sprite)o.sprite=e.sprite;lg[e.ch]=o});
+      return{name:n.name,w:M.w,h:M.h,tile:M.tile,legend:lg,rows:M.rows.slice(),objects:M.objects.map(function(o){var p={};o.props.forEach(function(kv){var v=_stNum(kv[1]);p[kv[0]]=v===null?_stUnq(kv[1]):v});return{kind:o.kind,x:o.x,y:o.y,props:p}})}}),
+    controls:ctls.map(function(n){var C=n.data;return{name:n.name,stick:C.stick,dpad:!!C.dpad,buttons:C.buttons.map(function(b){return{id:b.id,label:b.label}}),side:C.side,size:C.size,opacity:C.opacity,keys:C.keys,deadzone:C.deadzone}})};
+  ast.body=body.filter(function(n){return n.type!=='MapDecl'&&n.type!=='ControlsDecl'});
+  ast.stageMeta=JSON.stringify(meta);
+  ast.stageBlocks={maps:maps.map(function(n){return n.name}),controls:ctls.map(function(n){return n.name})};
+  Object.keys(_ST_FNS).forEach(function(k){
+    if(!need.has(k))return;
+    var f=_ST_FNS[k];
+    ast.body.unshift(new ImportDecl(k,f.args.map(function(a){return{name:a[0],type:a[1]}}),f.ret,'std',{line:0,col:0}));
+  });
+}
+injectBuiltins=(function(inj){return function(ast){_stLower(ast);return inj.apply(this,arguments)}})(injectBuiltins);
+(function(){
+  var gen0=WasmCodegen.prototype.generate;
+  WasmCodegen.prototype.generate=function(){
+    var w=gen0.apply(this,arguments);
+    if(this.ast&&this.ast.stageMeta)this.imports.stageMeta=this.ast.stageMeta;
+    return w;
+  };
+})();
+// compile result: r.maps / r.controls — the names of the program's blocks (only when it has any)
+compile=(function(c){return function(source,target){
+  var r=c.apply(this,arguments);
+  if(r&&r.ast&&r.ast.stageBlocks){r.maps=r.ast.stageBlocks.maps;r.controls=r.ast.stageBlocks.controls}
+  return r;
+}})(compile);
+// ── editor: highlighting and autocomplete for the builtins ──
+[['drawMap','drawMap(m, ox: num, oy: num)','draw a map block'],['tileAt','tileAt(m, tx, ty) str','the tile character'],['solidAt','solidAt(m, px: num, py: num) bool','is the tile at this pixel solid?'],
+ ['mapW','mapW(m) int','width in tiles'],['mapH','mapH(m) int','height in tiles'],['tileSize','tileSize(m) int','pixels per tile'],['setTile','setTile(m, tx, ty, ch: str)','change a tile while running'],
+ ['objCount','objCount(m, kind: str) int','objects of a kind'],['objX','objX(m, kind: str, i) num','pixel x of object i'],['objY','objY(m, kind: str, i) num','pixel y of object i'],
+ ['useControls','useControls(c)','show on-screen controls'],['stickX','stickX() num','-1 … 1'],['stickY','stickY() num','-1 … 1'],['pressed','pressed(btn: str) bool','"A" "B" "C" held'],['justPressed','justPressed(btn: str) bool','once per press']].forEach(function(b){
+  _emitBlt.add(b[0]);
+  if(!_allBuiltins.some(function(x){return x.name===b[0]}))_allBuiltins.push({name:b[0],sig:b[1],desc:b[2]});
+});
+// ── the bundled example ──
+EX.stage='//// file: main.emit\n// A room from a map block: walk with the stick or the arrow keys, pick up the coins,\n// the door (+) opens when all of them are taken. The map and the controls live in stages.emit —\n// open them with the drawer tools STAGE and CONTROLS.\nmut px = 0.0\nmut py = 0.0\nmut got = 0\nmut coins = 0\nmut taken = 0\nmut opened = false\n\nexport fn main() {\n  canvas(mapW(room) * tileSize(room), mapH(room) * tileSize(room) + 20)\n  useControls(pad)\n  px = objX(room, "hero", 0)\n  py = objY(room, "hero", 0)\n  coins = objCount(room, "coin")\n  animate()\n}\n\nfn free(x: num, y: num) bool {\n  let s = 11.0\n  return !solidAt(room, x, y) && !solidAt(room, x + s, y) && !solidAt(room, x, y + s) && !solidAt(room, x + s, y + s)\n}\n\nfn collect() {\n  let t = tileSize(room)\n  for (let i = 0; i < coins; i++) {\n    let bit = 1 << i\n    if ((taken & bit) == 0) {\n      let cx = objX(room, "coin", i)\n      let cy = objY(room, "coin", i)\n      if (px + 11.0 > cx && px < cx + 16.0 && py + 11.0 > cy && py < cy + 16.0) {\n        taken = taken | bit\n        got += 1\n        beep(880, 60)\n      }\n    }\n  }\n  if (got == coins && !opened) {\n    opened = true\n    for (let y = 0; y < mapH(room); y++) {\n      for (let x = 0; x < mapW(room); x++) {\n        if (strEq(tileAt(room, x, y), "+")) { setTile(room, x, y, ".") }\n      }\n    }\n  }\n}\n\nexport fn frame() {\n  let speed = 2.0\n  let nx = px + stickX() * speed\n  if (free(nx, py)) { px = nx }\n  let ny = py + stickY() * speed\n  if (free(px, ny)) { py = ny }\n  collect()\n  clear()\n  drawMap(room)\n  for (let i = 0; i < coins; i++) {\n    if ((taken & (1 << i)) == 0) {\n      color(250, 204, 21)\n      circle(floor(objX(room, "coin", i)) + 8, floor(objY(room, "coin", i)) + 8, 5)\n    }\n  }\n  color(45, 212, 191)\n  rect(floor(px), floor(py), 11, 11)\n  color(212, 216, 227)\n  let h = mapH(room) * tileSize(room)\n  if (opened) { text("the door is open!", 4, h + 15, 12) } else { text("coins " + intToStr(got) + " / " + intToStr(coins), 4, h + 15, 12) }\n  if (justPressed("A")) { beep(440, 40) }\n}\n//// file: stages.emit\n// Blocks for the drawer tools: STAGE edits the map, CONTROLS the on-screen controls.\nmap room: 16x10, tile 16\n  legend # wall solid #3a3a5c,  . floor #1b1b2a,  ~ water solid #2050c0,  + door solid #b45309\n  rows\n    "################"\n    "#..............#"\n    "#..~~~.........#"\n    "#..~~~...####..#"\n    "#........#.....#"\n    "#........#.....+"\n    "#####....#.....#"\n    "#........####..#"\n    "#..............#"\n    "################"\n  objects\n    hero 2,1\n    coin 13,2\n    coin 4,8\n    coin 11,5\n    coin 6,4\n\ncontrols pad: stick left, buttons A "beep", size 1.0, opacity 0.5\n';
+(function(){var s=document.getElementById('example');if(s&&!s.querySelector('option[value="stage"]'))s.insertBefore(new Option('Stage','stage'),s.querySelector('option[value="memory"]')||s.querySelector('option[value="modules"]'))})();   /* Memory and Modules stay the last two */
+// ── drawer tools ──
+if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools||[];window._drawerRegister=function(t){window._drawerTools.push(t)}}
+(function(){
+  if(document.getElementById('stg-css'))return;
+  var st=document.createElement('style');st.id='stg-css';
+  st.textContent='.stg{font-family:var(--sans);color:var(--fg);font-size:13px;display:flex;flex-direction:column;gap:8px;max-width:100%;box-sizing:border-box;min-width:0}'
+    +'.stg *{box-sizing:border-box}'
+    +'.stg-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0}'
+    +'.stg-row label{font-size:11px;color:var(--fg2);display:flex;align-items:center;gap:4px}'
+    +'.stg input,.stg select{background:var(--bg3);color:var(--fg);border:1px solid var(--bg5);border-radius:6px;padding:5px 6px;font:12px var(--mono);min-width:0;max-width:100%}'
+    +'.stg input[type=number]{width:58px}.stg input[type=color]{width:34px;height:28px;padding:1px}.stg input[type=range]{width:120px;padding:0}'
+    +'.stg button{background:var(--bg4);color:var(--fg);border:1px solid var(--bg5);border-radius:6px;padding:6px 9px;font:12px var(--sans);cursor:pointer;min-height:32px;touch-action:manipulation}'
+    +'.stg button.on{border-color:var(--cyan);color:var(--cyan);background:rgba(45,212,191,.12)}'
+    +'.stg button:disabled{opacity:.4}'
+    +'.stg-brush{display:inline-flex;align-items:center;gap:5px}.stg-chip{width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.3);display:inline-block;flex:none}'
+    +'.stg-view{position:relative;width:100%;height:min(52vh,420px);background:#05060a;border:1px solid var(--bg5);border-radius:8px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}'
+    +'.stg-view canvas{position:absolute;left:0;top:0;width:100%;height:100%}'
+    +'.stg-panel{background:var(--bg2);border:1px solid var(--bg5);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}'
+    +'.stg-lg{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.stg-lg input.ch{width:32px;text-align:center}.stg-lg input.nm{width:72px}.stg-lg select{max-width:80px}'
+    +'.stg-msg{font:11px var(--mono);color:var(--fg2);white-space:pre-wrap;word-break:break-word}.stg-msg .bad{color:var(--red)}'
+    +'.stg-phone{position:relative;width:100%;max-width:360px;height:220px;margin:0 auto;border-radius:14px;border:2px solid var(--bg5);overflow:hidden;background:linear-gradient(#1b1b2a,#0b0c14);touch-action:none}'
+    +'.stg-shield{position:absolute;inset:0;z-index:30;cursor:grab}'
+    +'.stg-read{font:12px var(--mono);color:var(--cyan)}';
+  document.head.appendChild(st);
+})();
+function _stEl(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function _stBtn(txt,fn,title){var b=_stEl('button',null,txt);b.type='button';if(title)b.title=title;b.onclick=fn;return b}
+function _stBlockModel(kind,name,text){
+  var bl=_stFindBlocks(String(text||'')).filter(function(b){return b.kind===kind&&b.name===name});
+  if(!bl.length)return null;
+  var b=bl[0];b.line=0;
+  return kind==='map'?_stParseMap(b):_stParseControls(b);
+}
+function _stSpriteNames(ctx){try{return(ctx.blocks('sprite')||[]).map(function(b){return b.name})}catch(e){return[]}}
+function _stUnique(base,taken){if(taken.indexOf(base)<0)return base;for(var i=2;;i++)if(taken.indexOf(base+i)<0)return base+i}
+function _stHue(s){var h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))%360;return'hsl('+h+',70%,60%)'}
+// A fresh map: walls around a floor, a hero.
+function _stNewMap(name){
+  var w=16,h=12,rows=[];
+  for(var y=0;y<h;y++){var r='';for(var x=0;x<w;x++)r+=(x===0||y===0||x===w-1||y===h-1)?'#':'.';rows.push(r)}
+  return{kind:'map',name:name,w:w,h:h,tile:16,tileSet:true,legend:[{ch:'#',name:'wall',solid:true,color:'#3a3a5c',sprite:null,extra:[]},{ch:'.',name:'floor',solid:false,color:'#1b1b2a',sprite:null,extra:[]}],inline:true,rows:rows,objects:[{kind:'hero',x:1,y:1,props:[]}],keep:[],problems:[],headExtra:[],locs:{}};
+}
+// ═══ STAGE: the map painter ═══
+function _stageOpen(ctx){
+  var S={M:null,name:null,tool:'pencil',brush:null,kind:'coin',zoom:1,panX:0,panY:0,undo:[],redo:[],dirty:false,stroke:null,gest:null,preview:null,objSel:-1};
+  var root=_stEl('div','stg');root.setAttribute('data-stage-tool','');
+  ctx.body.innerHTML='';ctx.body.appendChild(root);
+  try{ctx.title('STAGE — maps')}catch(e){}
+  // ── header: which map, its name, size, tile ──
+  var r1=_stEl('div','stg-row'),pick=_stEl('select'),nameIn=_stEl('input'),wIn=_stEl('input'),hIn=_stEl('input'),tIn=_stEl('input');
+  pick.setAttribute('data-stg','pick');nameIn.setAttribute('data-stg','name');nameIn.style.width='110px';nameIn.spellcheck=false;
+  [wIn,hIn,tIn].forEach(function(i,k){i.type='number';i.min=1;i.max=256;i.setAttribute('data-stg',['w','h','tile'][k])});
+  var sizeBtn=_stBtn('resize',function(){resize(+wIn.value,+hIn.value)},'resize the map (the tiles that fit are kept)');sizeBtn.setAttribute('data-stg','resize');
+  var lw=_stEl('label',null,'W'),lh=_stEl('label',null,'H'),lt=_stEl('label',null,'tile');lw.appendChild(wIn);lh.appendChild(hIn);lt.appendChild(tIn);
+  r1.append(pick,nameIn,lw,lh,sizeBtn,lt);
+  // ── tools ──
+  var r2=_stEl('div','stg-row'),tbtn={};
+  [['pencil','✏','pencil'],['rect','▭','rectangle'],['room','▣','room: walls around a floor'],['fill','◧','fill'],['eraser','⌫','eraser'],['pick','⊙','eyedropper'],['objects','◆','objects']].forEach(function(t){
+    var b=_stBtn(t[1]+' '+t[0],function(){setTool(t[0])},t[2]);b.setAttribute('data-tool',t[0]);tbtn[t[0]]=b;r2.appendChild(b);
+  });
+  var undoB=_stBtn('↶',function(){undo()},'undo'),redoB=_stBtn('↷',function(){redo()},'redo');undoB.setAttribute('data-stg','undo');redoB.setAttribute('data-stg','redo');
+  var zo=_stBtn('−',function(){zoomBy(1/1.25)},'zoom out'),zi=_stBtn('+',function(){zoomBy(1.25)},'zoom in'),fit=_stBtn('fit',function(){S.zoom=1;S.panX=S.panY=0;draw()},'whole map');
+  zo.setAttribute('data-stg','zoomout');zi.setAttribute('data-stg','zoomin');fit.setAttribute('data-stg','fit');
+  var tryB=_stBtn('▶ try it',function(){tryIt()},'walk a hero square around the map');tryB.setAttribute('data-stg','try');
+  r2.append(undoB,redoB,zo,zi,fit,tryB);
+  // ── brushes (the legend) ──
+  var r3=_stEl('div','stg-row');r3.setAttribute('data-stg','brushes');
+  var lgPanel=_stEl('div','stg-panel');lgPanel.setAttribute('data-stg','legend');lgPanel.style.display='none';
+  // ── object kind ──
+  var r4=_stEl('div','stg-row'),kindIn=_stEl('input'),kinds=_stEl('datalist');
+  kinds.id='stg-kinds-'+Math.random().toString(36).slice(2);kindIn.setAttribute('list',kinds.id);kindIn.setAttribute('data-stg','kind');kindIn.value=S.kind;kindIn.style.width='120px';
+  kindIn.oninput=function(){var v=kindIn.value.trim();if(/^[A-Za-z_][A-Za-z0-9_]*$/.test(v))S.kind=v};
+  var kl=_stEl('label',null,'object');kl.appendChild(kindIn);
+  r4.append(kl,kinds,_stEl('span','stg-msg','tap: place · drag: move · long press: edit'));r4.style.display='none';
+  // ── the map view ──
+  var view=_stEl('div','stg-view'),cv=_stEl('canvas');view.appendChild(cv);view.setAttribute('data-stg','view');
+  var propPanel=_stEl('div','stg-panel');propPanel.style.display='none';propPanel.setAttribute('data-stg','props');
+  var msg=_stEl('div','stg-msg');msg.setAttribute('data-stg','msg');
+  var tryPanel=_stEl('div','stg-panel');tryPanel.style.display='none';tryPanel.setAttribute('data-stg','trypanel');
+  root.append(r1,r2,r3,lgPanel,r4,view,propPanel,tryPanel,msg);
+  var save=_stBtn('Save',function(){doSave()},'write the map block into the program');save.setAttribute('data-stg','save');
+  if(ctx.footer){ctx.footer.innerHTML='';ctx.footer.appendChild(save)}else root.appendChild(save);
+  // ── model helpers ──
+  function M(){return S.M}
+  function eraser(){var e=M().legend.filter(function(x){return x.ch&&!x.solid})[0];return e?e.ch:' '}
+  function entry(ch){return M().legend.filter(function(x){return x.ch===ch})[0]||null}
+  function getT(x,y){var r=M().rows[y];if(!r)return' ';var a=Array.from(r);return a[x]===undefined?' ':a[x]}
+  function setRow(y,arr){M().rows[y]=arr.join('')}
+  function grid(){return M().rows.map(function(r){return Array.from(r)})}
+  function snap(){return JSON.stringify({w:M().w,h:M().h,tile:M().tile,tileSet:M().tileSet,legend:M().legend,rows:M().rows,objects:M().objects,inline:M().inline,name:M().name})}
+  function restore(s){var o=JSON.parse(s);for(var k in o)M()[k]=o[k]}
+  function change(){S.undo.push(snap());if(S.undo.length>200)S.undo.shift();S.redo=[];dirty()}
+  function dirty(){S.dirty=true;try{ctx.setDirty(true)}catch(e){}btnState()}
+  function undo(){if(!S.undo.length)return;S.redo.push(snap());restore(S.undo.pop());dirty();refresh()}
+  function redo(){if(!S.redo.length)return;S.undo.push(snap());restore(S.redo.pop());dirty();refresh()}
+  function btnState(){undoB.disabled=!S.undo.length;redoB.disabled=!S.redo.length}
+  function toast(t){try{ctx.toast(t)}catch(e){}}
+  function normalise(m){
+    /* an editable picture: size from the rows when the header has none, short rows padded with the eraser */
+    if(!m.h)m.h=Math.max(1,m.rows.length);if(!m.w)m.w=Math.max(1,m.rows.reduce(function(a,r){return Math.max(a,Array.from(r).length)},0));
+    var er=null;m.legend.forEach(function(e){if(er===null&&e.ch&&!e.solid)er=e.ch});er=er||' ';
+    var rows=[];for(var y=0;y<m.h;y++){var a=Array.from(m.rows[y]||'');while(a.length<m.w)a.push(er);rows.push(a.slice(0,m.w).join(''))}
+    m.rows=rows;
+    m.objects=m.objects.map(function(o){return{kind:o.kind,x:o.x,y:o.y,props:o.props.slice()}});
+    m.legend=m.legend.map(function(e){return{ch:e.ch,name:e.name,solid:e.solid,color:e.color,sprite:e.sprite,extra:(e.extra||[]).slice()}});
+    return m;
+  }
+  // ── open / list ──
+  function names(){try{return(ctx.blocks('map')||[]).map(function(b){return b.name})}catch(e){return[]}}
+  function fillPick(){
+    pick.innerHTML='';
+    var ns=names();
+    ns.forEach(function(n){pick.appendChild(new Option('map '+n,n))});
+    if(S.name&&ns.indexOf(S.name)<0)pick.appendChild(new Option('map '+S.name+' (new)',S.name));
+    pick.appendChild(new Option('＋ new map…','\u0000new'));
+    pick.value=S.name||'\u0000new';
+  }
+  pick.onchange=function(){
+    var v=pick.value;
+    if(S.dirty&&!window.confirm('Leave map '+S.name+' without saving?')){pick.value=S.name;return}
+    if(v==='\u0000new')openNew();else open(v);
+  };
+  function open(name){
+    var text=null;try{text=ctx.read('map',name)}catch(e){}
+    var m=text?_stBlockModel('map',name,text):null;
+    if(!m){toast('map '+name+' was not found');openNew();return}
+    S.M=normalise(m);S.name=name;S.orig=name;afterOpen(m.problems);
+  }
+  function openNew(){var n=_stUnique('level1',names());S.M=_stNewMap(n);S.name=n;S.orig=null;afterOpen([]);dirty()}
+  function afterOpen(problems){
+    S.undo=[];S.redo=[];S.dirty=false;try{ctx.setDirty(false)}catch(e){}
+    S.zoom=1;S.panX=S.panY=0;S.objSel=-1;propPanel.style.display='none';
+    var b=M().legend.filter(function(e){return e.ch&&e.solid})[0]||M().legend[0];S.brush=b?b.ch:' ';
+    S.problems=problems||[];
+    fillPick();refresh();btnState();
+  }
+  function refresh(){
+    nameIn.value=M().name;wIn.value=M().w;hIn.value=M().h;tIn.value=M().tile;
+    brushes();legendEd();kindList();draw();showMsg();
+  }
+  function showMsg(t){
+    msg.innerHTML='';
+    (S.problems||[]).slice(0,6).forEach(function(p){var d=_stEl('div','bad','line '+p.line+' of the block: '+p.msg);msg.appendChild(d)});
+    if(M().keep&&M().keep.length)msg.appendChild(_stEl('div',null,M().keep.length+' line(s) this tool does not edit are kept as they are.'));
+    msg.appendChild(_stEl('div',null,t||(M().w+'×'+M().h+' tiles of '+M().tile+' px · '+M().objects.length+' object(s) · eraser = '+(eraser()===' '?'space':'"'+eraser()+'"'))));
+  }
+  nameIn.onchange=function(){
+    var v=nameIn.value.trim();
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)){toast('A map name is a word: letters, digits, _');nameIn.value=M().name;return}
+    if(v!==M().name&&names().indexOf(v)>=0){toast('There is already a map '+v);nameIn.value=M().name;return}
+    change();M().name=v;S.name=v;fillPick();
+  };
+  tIn.onchange=function(){var t=Math.round(+tIn.value);if(!(t>=1&&t<=256)){tIn.value=M().tile;return}change();M().tile=t;M().tileSet=true;showMsg()};
+  function resize(w,h){
+    w=Math.round(w);h=Math.round(h);
+    if(!(w>=1&&h>=1&&w<=256&&h<=256)){toast('The size is 1 to 256 tiles each way');wIn.value=M().w;hIn.value=M().h;return}
+    if(w===M().w&&h===M().h)return;
+    change();
+    var g=grid(),er=eraser(),rows=[];
+    for(var y=0;y<h;y++){var a=[];for(var x=0;x<w;x++)a.push(g[y]&&g[y][x]!==undefined?g[y][x]:er);rows.push(a.join(''))}
+    var before=M().objects.length;
+    M().objects=M().objects.filter(function(o){return o.x<w&&o.y<h});
+    M().w=w;M().h=h;M().rows=rows;
+    var lost=before-M().objects.length;
+    if(lost)toast(lost+' object(s) outside the new size were removed (undo brings them back)');
+    refresh();
+  }
+  // ── brushes and legend editor ──
+  function chip(e){var c=_stEl('span','stg-chip');c.style.background=e&&e.color?e.color:e&&e.sprite?'repeating-linear-gradient(45deg,#666 0 3px,#999 3px 6px)':'transparent';return c}
+  function brushes(){
+    r3.innerHTML='';
+    M().legend.forEach(function(e){
+      if(!e.ch)return;
+      var b=_stBtn('',function(){S.brush=e.ch;if(S.tool==='objects'||S.tool==='eraser'||S.tool==='pick')setTool('pencil');brushes()},'brush '+e.name+' ("'+e.ch+'")');
+      b.className='stg-brush'+(S.brush===e.ch&&S.tool!=='objects'&&S.tool!=='eraser'?' on':'');b.setAttribute('data-brush',e.ch);
+      b.append(chip(e),document.createTextNode(e.name||e.ch));
+      r3.appendChild(b);
+    });
+    var lb=_stBtn('legend…',function(){lgPanel.style.display=lgPanel.style.display==='none'?'':'none'},'edit the legend');lb.setAttribute('data-stg','legendbtn');
+    r3.appendChild(lb);
+  }
+  function legendEd(){
+    lgPanel.innerHTML='';
+    var spr=_stSpriteNames(ctx);
+    M().legend.forEach(function(e,i){
+      var row=_stEl('div','stg-lg');row.setAttribute('data-lg',String(i));
+      var ch=_stEl('input','ch'),nm=_stEl('input','nm'),so=_stEl('input'),co=_stEl('input'),sp=_stEl('select');
+      ch.value=e.ch;ch.maxLength=2;ch.setAttribute('data-f','ch');nm.value=e.name;nm.setAttribute('data-f','name');nm.spellcheck=false;
+      so.type='checkbox';so.checked=!!e.solid;so.setAttribute('data-f','solid');
+      co.type='color';co.value=/^#[0-9a-fA-F]{6}$/.test(e.color||'')?e.color:/^#[0-9a-fA-F]{3}$/.test(e.color||'')?'#'+e.color.slice(1).split('').map(function(c){return c+c}).join(''):'#808080';co.setAttribute('data-f','color');
+      sp.setAttribute('data-f','sprite');sp.appendChild(new Option('colour',''));
+      spr.concat(e.sprite&&spr.indexOf(e.sprite)<0?[e.sprite]:[]).forEach(function(n){sp.appendChild(new Option('sprite '+n,n))});
+      sp.value=e.sprite||'';
+      ch.onchange=function(){
+        var a=Array.from(ch.value);
+        if(a.length!==1||a[0]===' '||a[0]===','||a[0]==='"'){toast('One character, not a space, comma or quote');ch.value=e.ch;return}
+        if(M().legend.some(function(x){return x!==e&&x.ch===a[0]})){toast('"'+a[0]+'" is already in the legend');ch.value=e.ch;return}
+        change();var old=e.ch;
+        M().rows=M().rows.map(function(r){return Array.from(r).map(function(c){return c===old?a[0]:c}).join('')});
+        e.ch=a[0];if(S.brush===old)S.brush=a[0];refresh();
+      };
+      nm.onchange=function(){var v=nm.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)){toast('A tile name is a word');nm.value=e.name;return}change();e.name=v;brushes()};
+      so.onchange=function(){change();e.solid=so.checked;draw();showMsg()};
+      co.oninput=function(){if(!co._snap){change();co._snap=true}e.color=co.value;brushes();draw()};co.onchange=function(){co._snap=false};
+      sp.onchange=function(){change();e.sprite=sp.value||null;if(!e.sprite&&!e.color)e.color=co.value;brushes();draw()};
+      var del=_stBtn('✕',function(){
+        var n=0;M().rows.forEach(function(r){Array.from(r).forEach(function(c){if(c===e.ch)n++})});
+        change();M().legend.splice(i,1);
+        var er=eraser();if(n)M().rows=M().rows.map(function(r){return Array.from(r).map(function(c){return c===e.ch?er:c}).join('')});
+        if(S.brush===e.ch)S.brush=er;
+        if(n)toast(n+' tile(s) of '+e.name+' became '+(er===' '?'empty':'"'+er+'"'));refresh();
+      },'remove from the legend');del.setAttribute('data-f','del');
+      var sl=_stEl('label',null,'solid');sl.prepend(so);
+      row.append(ch,nm,sl,co,sp,del);
+      lgPanel.appendChild(row);
+    });
+    var add=_stBtn('＋ tile',function(){
+      var pool='#.~gwxo*=%&@$!?^:;+-|<>abcdefhijklmnpqrstuvyz0123456789',c=null;
+      for(var i=0;i<pool.length;i++)if(!M().legend.some(function(x){return x.ch===pool[i]})){c=pool[i];break}
+      if(!c){toast('The legend is full');return}
+      change();var nm=_stUnique('tile',M().legend.map(function(x){return x.name}));
+      M().legend.push({ch:c,name:nm,solid:false,color:'#'+(0x1000000+Math.floor(Math.random()*0xffffff)).toString(16).slice(1),sprite:null,extra:[]});
+      S.brush=c;refresh();lgPanel.style.display='';
+    },'add a tile to the legend');add.setAttribute('data-stg','addtile');
+    lgPanel.appendChild(add);
+  }
+  function kindList(){
+    kinds.innerHTML='';var seen={};
+    ['hero','coin','enemy','door','key'].concat(M().objects.map(function(o){return o.kind})).forEach(function(k){if(!seen[k]){seen[k]=1;kinds.appendChild(new Option(k,k))}});
+  }
+  function setTool(t){
+    S.tool=t;for(var k in tbtn)tbtn[k].classList.toggle('on',k===t);
+    r4.style.display=t==='objects'?'':'none';
+    if(t!=='objects'){propPanel.style.display='none';S.objSel=-1}
+    brushes();draw();
+  }
+  // ── drawing ──
+  function cellPx(){var r=view.getBoundingClientRect(),W=r.width||300,H=r.height||200;return Math.max(2,Math.min(W/M().w,H/M().h))*S.zoom}
+  function origin(){var r=view.getBoundingClientRect(),c=cellPx();return{x:((r.width||300)-c*M().w)/2+S.panX,y:((r.height||200)-c*M().h)/2+S.panY,c:c}}
+  function draw(){
+    if(!M())return;
+    /* the view takes the map's shape: as tall as the map at full width, between 180 px and 55% of the screen */
+    var vw=view.clientWidth||300,want=Math.round(Math.max(180,Math.min(window.innerHeight*0.55,vw*M().h/M().w)));
+    if(Math.abs(view.clientHeight-want)>1)view.style.height=want+'px';
+    var r=view.getBoundingClientRect(),dpr=window.devicePixelRatio||1,W=Math.max(1,Math.round((r.width||300)*dpr)),H=Math.max(1,Math.round((r.height||200)*dpr));
+    if(cv.width!==W)cv.width=W;if(cv.height!==H)cv.height=H;
+    var g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+    var o=origin(),c=o.c,rows=grid(),spr=typeof _spriteDraw==='function'?_spriteDraw:null;
+    for(var y=0;y<M().h;y++)for(var x=0;x<M().w;x++){
+      var ch=rows[y][x],e=entry(ch),px=o.x+x*c,py=o.y+y*c;
+      if(px>r.width||py>r.height||px+c<0||py+c<0)continue;
+      if(S.preview&&inPreview(x,y))e=entry(previewCh(x,y))||{color:null};
+      var done=false;
+      if(e&&e.sprite&&spr){try{done=spr(g,e.sprite,0,px,py,{w:c,h:c})!==false}catch(er){}}
+      if(!done){
+        if(e&&e.color){g.fillStyle=e.color;g.fillRect(px,py,c+0.5,c+0.5)}
+        else if(e&&e.sprite){g.fillStyle='#777';g.fillRect(px,py,c,c);g.fillStyle='#ddd';g.font=Math.max(6,c*0.5)+'px sans-serif';g.fillText(e.sprite[0],px+c*0.25,py+c*0.7)}
+        else if(ch!==' '){g.fillStyle='#f0f';g.fillRect(px,py,c,c)}
+      }
+    }
+    if(c>=8){
+      g.strokeStyle='rgba(255,255,255,.07)';g.lineWidth=1;g.beginPath();
+      for(var gx=0;gx<=M().w;gx++){g.moveTo(Math.round(o.x+gx*c)+0.5,o.y);g.lineTo(Math.round(o.x+gx*c)+0.5,o.y+M().h*c)}
+      for(var gy=0;gy<=M().h;gy++){g.moveTo(o.x,Math.round(o.y+gy*c)+0.5);g.lineTo(o.x+M().w*c,Math.round(o.y+gy*c)+0.5)}
+      g.stroke();
+    }
+    g.strokeStyle='rgba(45,212,191,.5)';g.strokeRect(o.x-0.5,o.y-0.5,M().w*c+1,M().h*c+1);
+    M().objects.forEach(function(ob,i){
+      var cx=o.x+(ob.x+0.5)*c,cy=o.y+(ob.y+0.5)*c,rr=Math.max(3,c*0.36);
+      g.fillStyle=_stHue(ob.kind);g.beginPath();g.arc(cx,cy,rr,0,Math.PI*2);g.fill();
+      g.strokeStyle=i===S.objSel?'#fff':'rgba(0,0,0,.6)';g.lineWidth=i===S.objSel?2:1;g.stroke();
+      if(c>=14){g.fillStyle='#000';g.font='bold '+Math.round(rr*1.1)+'px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(ob.kind[0].toUpperCase(),cx,cy+1);g.textAlign='start';g.textBaseline='alphabetic'}
+    });
+    view.setAttribute('data-cell',String(Math.round(c*100)/100));
+  }
+  function inPreview(x,y){var p=S.preview;return x>=Math.min(p.x0,p.x1)&&x<=Math.max(p.x0,p.x1)&&y>=Math.min(p.y0,p.y1)&&y<=Math.max(p.y0,p.y1)}
+  function previewCh(x,y,p){p=p||S.preview;if(p.tool==='room'&&x!==p.x0&&x!==p.x1&&y!==p.y0&&y!==p.y1)return eraser();return S.brush}
+  // ── painting ──
+  function tileAt(ev){var r=view.getBoundingClientRect(),o=origin();return{x:Math.floor((ev.clientX-r.left-o.x)/o.c),y:Math.floor((ev.clientY-r.top-o.y)/o.c)}}
+  function inside(t){return t.x>=0&&t.y>=0&&t.x<M().w&&t.y<M().h}
+  function put(x,y,ch){if(x<0||y<0||x>=M().w||y>=M().h)return;var a=Array.from(M().rows[y]);if(a[x]===ch)return;a[x]=ch;setRow(y,a)}
+  function line(a,b,ch){var dx=Math.abs(b.x-a.x),dy=Math.abs(b.y-a.y),sx=a.x<b.x?1:-1,sy=a.y<b.y?1:-1,er=dx-dy,x=a.x,y=a.y;for(var n=0;n<4096;n++){put(x,y,ch);if(x===b.x&&y===b.y)break;var e2=2*er;if(e2>-dy){er-=dy;x+=sx}if(e2<dx){er+=dx;y+=sy}}}
+  function flood(x,y,ch){
+    var g=grid(),from=g[y][x];if(from===ch)return;
+    var st=[[x,y]],W=M().w,H=M().h;
+    while(st.length){var p=st.pop(),px=p[0],py=p[1];if(px<0||py<0||px>=W||py>=H||g[py][px]!==from)continue;g[py][px]=ch;st.push([px+1,py],[px-1,py],[px,py+1],[px,py-1])}
+    M().rows=g.map(function(r){return r.join('')});
+  }
+  function objAt(t){for(var i=M().objects.length-1;i>=0;i--){var o=M().objects[i];if(o.x===t.x&&o.y===t.y)return i}return-1}
+  function down(ev){
+    var t=tileAt(ev),tool=S.tool;
+    if(tool==='objects'){
+      var i=objAt(t);
+      S.stroke={tool:tool,start:t,last:t,obj:i,moved:false,before:snap(),timer:null};
+      if(i>=0){S.objSel=i;var st=S.stroke;st.timer=setTimeout(function(){if(S.stroke===st&&!st.moved){st.long=true;editObj(i)}},500)}
+      draw();return;
+    }
+    if(!inside(t)&&tool!=='rect'&&tool!=='room')return;
+    if(tool==='pick'){if(inside(t)){var ch=getT(t.x,t.y);if(ch!==' '&&entry(ch)){S.brush=ch;setTool('pencil')}else toast('An empty tile — nothing to pick')}return}
+    var before=snap();
+    if(tool==='fill'){if(getT(t.x,t.y)===S.brush)return;change();flood(t.x,t.y,S.brush);draw();return}
+    S.stroke={tool:tool,start:t,last:t,before:before,changed:false};
+    if(tool==='pencil'||tool==='eraser'){var c0=tool==='eraser'?eraser():S.brush;if(getT(t.x,t.y)!==c0){S.stroke.changed=true;put(t.x,t.y,c0);draw()}}
+    else{S.preview={tool:tool,x0:clampX(t.x),y0:clampY(t.y),x1:clampX(t.x),y1:clampY(t.y)};draw()}
+  }
+  function clampX(x){return Math.max(0,Math.min(M().w-1,x))}
+  function clampY(y){return Math.max(0,Math.min(M().h-1,y))}
+  function move(ev){
+    var s=S.stroke;if(!s)return;
+    var t=tileAt(ev);
+    if(s.tool==='objects'){
+      if(s.obj<0||s.long)return;
+      if(t.x===s.last.x&&t.y===s.last.y)return;
+      if(!inside(t))return;
+      s.moved=true;clearTimeout(s.timer);s.last=t;
+      var o=M().objects[s.obj];o.x=t.x;o.y=t.y;draw();return;
+    }
+    if(s.tool==='pencil'||s.tool==='eraser'){
+      if(t.x===s.last.x&&t.y===s.last.y)return;
+      var before=M().rows.join('\n');line(s.last,t,s.tool==='eraser'?eraser():S.brush);if(M().rows.join('\n')!==before)s.changed=true;
+      s.last=t;draw();return;
+    }
+    if(S.preview){S.preview.x1=clampX(t.x);S.preview.y1=clampY(t.y);draw()}
+  }
+  function up(ev){
+    var s=S.stroke;S.stroke=null;if(!s)return;
+    if(s.tool==='objects'){
+      clearTimeout(s.timer);
+      if(s.long)return;
+      if(s.obj>=0){if(s.moved){S.undo.push(s.before);S.redo=[];dirty();showMsg()}return}
+      var t=s.start;if(!inside(t))return;
+      change();M().objects.push({kind:S.kind,x:t.x,y:t.y,props:[]});S.objSel=M().objects.length-1;kindList();draw();showMsg();return;
+    }
+    if(s.tool==='pencil'||s.tool==='eraser'){if(s.changed){S.undo.push(s.before);S.redo=[];dirty()}return}
+    if(S.preview){
+      var p=S.preview;S.preview=null;
+      S.undo.push(s.before);S.redo=[];
+      for(var y=Math.min(p.y0,p.y1);y<=Math.max(p.y0,p.y1);y++)for(var x=Math.min(p.x0,p.x1);x<=Math.max(p.x0,p.x1);x++)put(x,y,previewCh(x,y,p));
+      dirty();draw();
+    }
+  }
+  function cancelStroke(){
+    var s=S.stroke;S.stroke=null;S.preview=null;
+    if(!s)return;clearTimeout(s.timer);
+    if(s.before&&(s.changed||s.moved))restore(s.before);
+    draw();
+  }
+  // ── pointers: one finger paints, two fingers pinch-zoom and pan ──
+  var ptrs=new Map();
+  view.addEventListener('pointerdown',function(e){
+    e.preventDefault();try{view.setPointerCapture(e.pointerId)}catch(x){}
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size===2){cancelStroke();var a=Array.from(ptrs.values());S.gest={d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1,mx:(a[0].x+a[1].x)/2,my:(a[0].y+a[1].y)/2,zoom:S.zoom,panX:S.panX,panY:S.panY};return}
+    if(ptrs.size===1&&!S.gest)down(e);
+  });
+  view.addEventListener('pointermove',function(e){
+    if(!ptrs.has(e.pointerId))return;
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(S.gest&&ptrs.size>=2){
+      var a=Array.from(ptrs.values()),d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1,mx=(a[0].x+a[1].x)/2,my=(a[0].y+a[1].y)/2,G=S.gest;
+      var r=view.getBoundingClientRect(),z=Math.max(0.5,Math.min(12,G.zoom*d/G.d)),k=z/G.zoom;
+      /* keep the map point under the first midpoint under the fingers' midpoint */
+      var cx=r.width/2,cy=r.height/2;
+      S.zoom=z;S.panX=(G.panX-(G.mx-r.left-cx))*k+(mx-r.left-cx);S.panY=(G.panY-(G.my-r.top-cy))*k+(my-r.top-cy);
+      draw();return;
+    }
+    if(!S.gest)move(e);
+  });
+  function ptrEnd(e){
+    if(!ptrs.has(e.pointerId))return;
+    ptrs.delete(e.pointerId);
+    if(S.gest){if(!ptrs.size)S.gest=null;return}
+    if(e.type==='pointercancel')cancelStroke();else up(e);
+  }
+  view.addEventListener('pointerup',ptrEnd);view.addEventListener('pointercancel',ptrEnd);
+  view.addEventListener('wheel',function(e){
+    e.preventDefault();
+    var r=view.getBoundingClientRect(),k=Math.max(0.5,Math.min(2,Math.pow(1.002,-e.deltaY*(e.deltaMode===1?16:1)))),z=Math.max(0.5,Math.min(12,S.zoom*k));k=z/S.zoom;
+    var cx=e.clientX-r.left-r.width/2,cy=e.clientY-r.top-r.height/2;
+    S.panX=(S.panX-cx)*k+cx;S.panY=(S.panY-cy)*k+cy;S.zoom=z;draw();
+  },{passive:false});
+  function zoomBy(k){var z=Math.max(0.5,Math.min(12,S.zoom*k));k=z/S.zoom;S.panX*=k;S.panY*=k;S.zoom=z;draw()}
+  // ── object properties ──
+  function editObj(i){
+    var o=M().objects[i];if(!o)return;
+    S.objSel=i;draw();
+    propPanel.innerHTML='';propPanel.style.display='';
+    var before=snap(),touched=false;
+    function touch(){if(!touched){S.undo.push(before);S.redo=[];touched=true}dirty()}
+    var r=_stEl('div','stg-row'),k=_stEl('input');k.value=o.kind;k.setAttribute('data-f','kind');k.style.width='110px';
+    k.onchange=function(){var v=k.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)){k.value=o.kind;return}touch();o.kind=v;kindList();draw()};
+    r.append(_stEl('span',null,'object'),k,_stEl('span','stg-msg','at '+o.x+','+o.y));
+    propPanel.appendChild(r);
+    o.props.forEach(function(p,j){
+      var pr=_stEl('div','stg-row'),pk=_stEl('input'),pv=_stEl('input');pk.value=p[0];pv.value=p[1];pk.style.width='90px';pv.style.width='90px';pk.setAttribute('data-f','pk');pv.setAttribute('data-f','pv');
+      pk.onchange=function(){var v=pk.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)){pk.value=p[0];return}touch();p[0]=v};
+      pv.onchange=function(){var v=pv.value.trim();if(!v||/\s/.test(v)&&!/^".*"$/.test(v))v=/\s/.test(v)?'"'+v.replace(/"/g,"'")+'"':v;if(!v){pv.value=p[1];return}touch();p[1]=v;pv.value=v};
+      pr.append(pk,pv,_stBtn('✕',function(){touch();o.props.splice(j,1);editObj(i)},'remove this property'));
+      propPanel.appendChild(pr);
+    });
+    var r2=_stEl('div','stg-row');
+    var addP=_stBtn('＋ property',function(){touch();o.props.push([_stUnique('value',o.props.map(function(p){return p[0]})),'1']);editObj(i)});addP.setAttribute('data-f','addprop');
+    var del=_stBtn('delete object',function(){touch();M().objects.splice(i,1);S.objSel=-1;propPanel.style.display='none';draw();showMsg()});del.setAttribute('data-f','delobj');
+    var ok=_stBtn('done',function(){propPanel.style.display='none';S.objSel=-1;draw();showMsg()});ok.setAttribute('data-f','done');
+    r2.append(addP,del,ok);propPanel.appendChild(r2);
+  }
+  // ── try it: a hero square walks the map ──
+  function tryIt(){
+    if(tryPanel.style.display!=='none'){tryPanel._stop();return}
+    tryPanel.innerHTML='';tryPanel.style.display='';tryB.classList.add('on');
+    var info=_stEl('div','stg-msg','Arrows / WASD or the stick move the hero; solid tiles stop it.');
+    var box=_stEl('div','stg-phone');box.style.height='auto';box.style.maxWidth='100%';
+    var c=_stEl('canvas');c.style.cssText='display:block;width:100%;image-rendering:pixelated';box.appendChild(c);
+    var t=M().tile,W=M().w*t,H=M().h*t;c.width=W;c.height=H;
+    var pad={tx:0,ty:0,tp:null,down:{A:0,B:0,C:0},edge:{A:false,B:false,C:false}};
+    var ov=_stCtlBuild({name:'try',stick:'left',dpad:false,buttons:[],size:0.8,opacity:0.6,keys:true,deadzone:0.15},pad);
+    ov.style.position='absolute';ov.style.top='auto';box.appendChild(ov);
+    tryPanel.append(info,box,_stBtn('■ stop',function(){tryPanel._stop()}));
+    var hs=Math.max(2,Math.round(t*0.7)),hero=M().objects.filter(function(o){return o.kind==='hero'})[0],hx,hy;
+    if(hero){hx=hero.x*t+(t-hs)/2;hy=hero.y*t+(t-hs)/2}
+    else{outer:for(var y=0;y<M().h;y++)for(var x=0;x<M().w;x++){var e=entry(getT(x,y));if(!e||!e.solid){hx=x*t+(t-hs)/2;hy=y*t+(t-hs)/2;break outer}}}
+    if(hx===undefined){hx=hy=0}
+    var keys={},rows=grid();
+    function solid(px,py){var x=Math.floor(px/t),y=Math.floor(py/t);if(x<0||y<0||x>=M().w||y>=M().h)return true;var e=entry(rows[y][x]);return!!(e&&e.solid)}
+    function free(x,y){return!solid(x,y)&&!solid(x+hs-0.01,y)&&!solid(x,y+hs-0.01)&&!solid(x+hs-0.01,y+hs-0.01)}
+    function kd(e){var k={ArrowLeft:'l',KeyA:'l',ArrowRight:'r',KeyD:'r',ArrowUp:'u',KeyW:'u',ArrowDown:'d',KeyS:'d'}[e.code];if(k&&!(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))){keys[k]=e.type==='keydown';e.preventDefault()}}
+    document.addEventListener('keydown',kd);document.addEventListener('keyup',kd);
+    var raf=0,last=0;
+    function step(ts){
+      if(!root.isConnected){tryPanel._stop();return}   /* the drawer was closed */
+      var dt=last?Math.min(0.05,(ts-last)/1000):0;last=ts;
+      var ax=pad.tx+(keys.r?1:0)-(keys.l?1:0),ay=pad.ty+(keys.d?1:0)-(keys.u?1:0),sp=t*5*dt;
+      ax=Math.max(-1,Math.min(1,ax));ay=Math.max(-1,Math.min(1,ay));
+      if(free(hx+ax*sp,hy))hx+=ax*sp;
+      if(free(hx,hy+ay*sp))hy+=ay*sp;
+      var g=c.getContext('2d');g.clearRect(0,0,W,H);
+      for(var y=0;y<M().h;y++)for(var x=0;x<M().w;x++){var e=entry(rows[y][x]);if(e){g.fillStyle=e.color||'#777';g.fillRect(x*t,y*t,t,t)}}
+      M().objects.forEach(function(o){if(o.kind==='hero')return;g.fillStyle=_stHue(o.kind);g.beginPath();g.arc((o.x+0.5)*t,(o.y+0.5)*t,t*0.3,0,Math.PI*2);g.fill()});
+      g.fillStyle='#2dd4bf';g.fillRect(hx,hy,hs,hs);
+      tryPanel.setAttribute('data-hero',Math.round(hx*100)/100+','+Math.round(hy*100)/100);
+      raf=requestAnimationFrame(step);
+    }
+    raf=requestAnimationFrame(step);
+    tryPanel._stop=function(){cancelAnimationFrame(raf);document.removeEventListener('keydown',kd);document.removeEventListener('keyup',kd);tryPanel.style.display='none';tryPanel.innerHTML='';tryB.classList.remove('on')};
+  }
+  // ── save ──
+  function doSave(){
+    var m=M(),text=_stWriteMap(m);
+    try{
+      if(S.orig&&S.orig!==m.name){try{ctx.remove('map',S.orig)}catch(e){}}
+      ctx.write('map',m.name,text,'stages.emit');
+    }catch(e){toast('Could not save: '+((e&&e.message)||e));return}
+    S.orig=m.name;S.dirty=false;S.problems=[];try{ctx.setDirty(false)}catch(e){}
+    fillPick();showMsg('map '+m.name+' saved');toast('map '+m.name+' saved');
+  }
+  // ── start ──
+  var first=names();
+  if(first.length)open(first[0]);else openNew();
+  setTool('pencil');
+  var ro=null;try{ro=new ResizeObserver(function(){draw()});ro.observe(view)}catch(e){}
+  /* screen(tx, ty): the page position of a tile's centre (tests and scripts drive the painter with it) */
+  root._stage=S;root._stageApi={open:open,openNew:openNew,save:doSave,undo:undo,redo:redo,setTool:setTool,model:M,text:function(){return _stWriteMap(M())},
+    screen:function(tx,ty){var r=view.getBoundingClientRect(),o=origin();return{x:r.left+o.x+(tx+0.5)*o.c,y:r.top+o.y+(ty+0.5)*o.c,cell:o.c}}};
+  return root;
+}
+// ═══ CONTROLS: the on-screen controls designer ═══
+function _ctlToolOpen(ctx){
+  var S={C:null,orig:null,test:false,dirty:false,raf:0,just:{A:0,B:0,C:0}};
+  var st={tx:0,ty:0,tp:null,down:{A:0,B:0,C:0},edge:{A:false,B:false,C:false}};
+  var root=_stEl('div','stg');root.setAttribute('data-controls-tool','');
+  ctx.body.innerHTML='';ctx.body.appendChild(root);
+  try{ctx.title('CONTROLS — on-screen stick and buttons')}catch(e){}
+  var r1=_stEl('div','stg-row'),pick=_stEl('select'),nameIn=_stEl('input');pick.setAttribute('data-ctl-f','pick');nameIn.setAttribute('data-ctl-f','name');nameIn.style.width='110px';
+  r1.append(pick,nameIn);
+  var r2=_stEl('div','stg-row'),kindB={};
+  [['stick','stick'],['dpad','d-pad'],['none','no stick']].forEach(function(k){var b=_stBtn(k[1],function(){change();if(k[0]==='none'){S.C.stick='none';S.C.dpad=false}else{if(S.C.stick==='none')S.C.stick=S.C.side==='left'?'right':'left';S.C.dpad=k[0]==='dpad'}render()});b.setAttribute('data-ctl-f',k[0]);kindB[k[0]]=b;r2.appendChild(b)});
+  var r3=_stEl('div','stg-row'),nB={};r3.append(_stEl('span',null,'buttons'));
+  [0,1,2,3].forEach(function(n){var b=_stBtn(String(n),function(){change();var ids=['A','B','C'];while(S.C.buttons.length>n)S.C.buttons.pop();while(S.C.buttons.length<n)S.C.buttons.push({id:ids[S.C.buttons.length],label:null});render()});b.setAttribute('data-ctl-f','n'+n);nB[n]=b;r3.appendChild(b)});
+  var labels=_stEl('div','stg-row');
+  function slider(label,key,lo,hi,stepv){
+    var l=_stEl('label',null,label),i=_stEl('input'),v=_stEl('span','stg-msg');i.type='range';i.min=lo;i.max=hi;i.step=stepv;i.setAttribute('data-ctl-f',key);
+    i.oninput=function(){if(!i._snap){change();i._snap=true}S.C[key]=Math.round(+i.value*100)/100;v.textContent=_stFix(S.C[key]);render(true)};i.onchange=function(){i._snap=false};
+    l.append(i,v);l._set=function(){i.value=S.C[key];v.textContent=_stFix(S.C[key])};return l;
+  }
+  var szL=slider('size','size',0.5,2,0.05),opL=slider('opacity','opacity',0.1,1,0.05),dzL=slider('dead zone','deadzone',0,0.9,0.05);
+  var keysL=_stEl('label',null,'keyboard'),keysC=_stEl('input');keysC.type='checkbox';keysC.setAttribute('data-ctl-f','keys');keysC.onchange=function(){change();S.C.keys=keysC.checked;render(true)};keysL.prepend(keysC);
+  var r4=_stEl('div','stg-row');r4.append(szL,opL,dzL,keysL);
+  var phone=_stEl('div','stg-phone');phone.setAttribute('data-ctl-f','phone');
+  var shield=_stEl('div','stg-shield');
+  var r5=_stEl('div','stg-row'),testB=_stBtn('▶ test',function(){setTest(!S.test)},'try the controls: the values below follow your fingers');testB.setAttribute('data-ctl-f','test');
+  var read=_stEl('div','stg-read');read.setAttribute('data-ctl-f','read');
+  r5.append(testB,_stEl('span','stg-msg','drag the stick or the buttons to a side'));
+  var msg=_stEl('div','stg-msg');
+  root.append(r1,r2,r3,labels,r4,phone,r5,read,msg);
+  var save=_stBtn('Save',function(){doSave()});save.setAttribute('data-ctl-f','save');
+  if(ctx.footer){ctx.footer.innerHTML='';ctx.footer.appendChild(save)}else root.appendChild(save);
+  function toast(t){try{ctx.toast(t)}catch(e){}}
+  function names(){try{return(ctx.blocks('controls')||[]).map(function(b){return b.name})}catch(e){return[]}}
+  function change(){S.dirty=true;try{ctx.setDirty(true)}catch(e){}}
+  function fillPick(){pick.innerHTML='';var ns=names();ns.forEach(function(n){pick.appendChild(new Option('controls '+n,n))});if(S.C&&ns.indexOf(S.C.name)<0)pick.appendChild(new Option('controls '+S.C.name+' (new)',S.C.name));pick.appendChild(new Option('＋ new controls…','\u0000new'));pick.value=S.C?S.C.name:'\u0000new'}
+  pick.onchange=function(){if(S.dirty&&!window.confirm('Leave without saving?')){pick.value=S.C.name;return}if(pick.value==='\u0000new')openNew();else open(pick.value)};
+  function open(name){var t=null;try{t=ctx.read('controls',name)}catch(e){}var C=t?_stBlockModel('controls',name,t):null;if(!C){openNew();return}S.C=C;S.orig=name;S.dirty=false;try{ctx.setDirty(false)}catch(e){}fillPick();render();msg.textContent=C.problems.map(function(p){return'line '+p.line+': '+p.msg}).join('\n')}
+  function openNew(){var n=_stUnique('pad',names());S.C={kind:'controls',name:n,stick:'left',dpad:false,buttons:[{id:'A',label:null},{id:'B',label:null}],side:null,size:1,opacity:0.5,keys:true,deadzone:0.15,items:[],keep:[],problems:[],locs:{}};S.orig=null;change();fillPick();render();msg.textContent=''}
+  nameIn.onchange=function(){var v=nameIn.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)||(v!==S.C.name&&names().indexOf(v)>=0)){toast('Choose another name');nameIn.value=S.C.name;return}change();S.C.name=v;fillPick()};
+  function render(keepLabels){
+    var C=S.C;nameIn.value=C.name;
+    kindB.stick.classList.toggle('on',C.stick!=='none'&&!C.dpad);kindB.dpad.classList.toggle('on',C.stick!=='none'&&C.dpad);kindB.none.classList.toggle('on',C.stick==='none');
+    for(var n=0;n<4;n++)nB[n].classList.toggle('on',C.buttons.length===n);
+    if(!keepLabels){
+      labels.innerHTML='';
+      C.buttons.forEach(function(b){var l=_stEl('label',null,b.id),i=_stEl('input');i.value=b.label||'';i.placeholder=b.id;i.style.width='80px';i.setAttribute('data-ctl-label',b.id);
+        i.onchange=function(){change();b.label=i.value.trim().replace(/"/g,"'")||null;render(true)};l.appendChild(i);labels.appendChild(l)});
+    }
+    szL._set();opL._set();dzL._set();keysC.checked=C.keys!==false;
+    phone.innerHTML='';
+    var ov=_stCtlBuild({name:C.name,stick:C.stick,dpad:C.dpad,buttons:C.buttons,side:C.side,size:C.size,opacity:C.opacity,keys:C.keys,deadzone:C.deadzone},st);
+    ov.style.position='absolute';phone.appendChild(ov);
+    if(!S.test)phone.appendChild(shield);
+    phone.setAttribute('data-stick-side',C.stick);phone.setAttribute('data-button-side',buttonSide());
+  }
+  function buttonSide(){var C=S.C;return C.side||(C.stick==='none'?'right':C.stick==='left'?'right':'left')}
+  // edit mode: drag the stick or a button to the left or right half
+  var drag=null;
+  shield.addEventListener('pointerdown',function(e){
+    var hit=null;
+    Array.prototype.forEach.call(phone.querySelectorAll('[data-ctl]'),function(el){var r=el.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom)hit=el});
+    if(!hit)return;
+    drag={what:hit.getAttribute('data-ctl')==='stick'||hit.getAttribute('data-ctl')==='dpad'?'stick':'buttons',el:hit,x0:e.clientX,y0:e.clientY};
+    try{shield.setPointerCapture(e.pointerId)}catch(x){}e.preventDefault();
+  });
+  shield.addEventListener('pointermove',function(e){if(!drag)return;drag.el.style.translate=(e.clientX-drag.x0)+'px '+(e.clientY-drag.y0)+'px'});
+  function dropAt(e){
+    if(!drag)return;var d=drag;drag=null;
+    var r=phone.getBoundingClientRect(),side=e.clientX<r.left+r.width/2?'left':'right',C=S.C;
+    if(d.what==='stick'){if(C.stick!==side){change();C.stick=side;if(C.side===side)C.side=null}}
+    else if(buttonSide()!==side){change();C.side=side;if(C.stick===side)C.stick=side==='left'?'right':'left'}
+    render();
+  }
+  shield.addEventListener('pointerup',dropAt);shield.addEventListener('pointercancel',function(){drag=null;render()});
+  function setTest(on){
+    S.test=on;testB.classList.toggle('on',on);testB.textContent=on?'■ stop test':'▶ test';
+    S.just={A:0,B:0,C:0};st.edge={A:false,B:false,C:false};
+    render(true);
+    cancelAnimationFrame(S.raf);
+    if(!on){read.textContent='';return}
+    (function loop(){
+      if(!root.isConnected){S.test=false;return}   /* the drawer was closed */
+      var k=_stIn.kb||{},kx=S.C.keys!==false?(k.right?1:0)-(k.left?1:0):0,ky=S.C.keys!==false?(k.down?1:0)-(k.up?1:0):0;
+      var x=Math.max(-1,Math.min(1,st.tx+kx)),y=Math.max(-1,Math.min(1,st.ty+ky));
+      ['A','B','C'].forEach(function(b){if(st.edge[b])S.just[b]++;st.edge[b]=false});
+      var p=S.C.buttons.map(function(b){return b.id+(st.down[b.id]>0||(S.C.keys!==false&&_stIn.kbBtn&&_stIn.kbBtn[b.id])?'●':'○')+' ×'+S.just[b.id]}).join('  ');
+      read.textContent='stickX '+x.toFixed(2)+'  stickY '+y.toFixed(2)+(p?'  '+p:'');
+      read.setAttribute('data-x',x.toFixed(3));read.setAttribute('data-y',y.toFixed(3));
+      read.setAttribute('data-pressed',S.C.buttons.filter(function(b){return st.down[b.id]>0}).map(function(b){return b.id}).join(''));
+      read.setAttribute('data-just',JSON.stringify(S.just));
+      S.raf=requestAnimationFrame(loop);
+    })();
+  }
+  function doSave(){
+    var text=_stWriteControls(S.C);
+    try{if(S.orig&&S.orig!==S.C.name){try{ctx.remove('controls',S.orig)}catch(e){}}ctx.write('controls',S.C.name,text,'stages.emit')}catch(e){toast('Could not save: '+((e&&e.message)||e));return}
+    S.orig=S.C.name;S.dirty=false;try{ctx.setDirty(false)}catch(e){}fillPick();toast('controls '+S.C.name+' saved');msg.textContent='saved: '+text;
+  }
+  var first=names();if(first.length)open(first[0]);else openNew();
+  root._ctl=S;root._ctlApi={open:open,save:doSave,text:function(){return _stWriteControls(S.C)},state:st};
+  return root;
+}
+_drawerRegister({id:'stage',label:'STAGE',icon:'🗺',desc:'Paint tile maps — legend, rows and objects of a map block; try walking them',open:_stageOpen});
+_drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stick and buttons for phones — writes a controls block',open:_ctlToolOpen});
 </script>
 <script>_libSnapshotGlobals()</script>
 </body>
