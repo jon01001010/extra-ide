@@ -87,9 +87,10 @@ const smallTargets = (page, min) => page.evaluate(min => [...document.querySelec
   return r.height < min || r.width < min;
 }).map(e => (e.className || e.tagName) + ':' + (e.textContent || e.getAttribute('aria-label') || '').slice(0, 20) + ' ' + Math.round(e.getBoundingClientRect().width) + 'x' + Math.round(e.getBoundingClientRect().height)), min);
 const audio = page => page.evaluate(() => {
-  const c = window.__audio.ctx; if (!c) return { made: window.__audio.made, nodes: [] };
+  // the runtime's own context (the IDE also makes one for its short "done" chime after each Run)
+  const c = (typeof _sndAC !== 'undefined' && _sndAC) || (typeof _sndAC === 'undefined' ? window.__audio.ctx : null); if (!c) return { made: typeof _sndAC !== 'undefined' ? 0 : window.__audio.made, nodes: [] };
   const P = p => p ? p.events.map(e => [e[0], +(+e[1]).toFixed(4), +(+e[2]).toFixed(4)]) : null;
-  return { made: window.__audio.made, state: c.state, now: c.currentTime, nodes: c.nodes.map(n => ({ kind: n.kind, type: n.type, startT: n.startT, stopT: n.stopT, f: P(n.frequency), g: P(n.gain), r: P(n.playbackRate), loop: n.loop, to: n.out.map(o => o.kind || (o.name ? 'param:' + o.name : '?')) })) };
+  return { made: typeof _sndAC !== 'undefined' ? 1 : window.__audio.made, state: c.state, now: c.currentTime, nodes: c.nodes.map(n => ({ kind: n.kind, type: n.type, startT: n.startT, stopT: n.stopT, f: P(n.frequency), g: P(n.gain), r: P(n.playbackRate), loop: n.loop, to: n.out.map(o => o.kind || (o.name ? 'param:' + o.name : '?')) })) };
 });
 const sinceN = (a, n) => a.nodes.slice(n);
 
@@ -456,6 +457,14 @@ const sinceN = (a, n) => a.nodes.slice(n);
   r = await page.evaluate(() => ({ playing: _drawer.ctx.music.playing, ph: document.querySelector('#drawer .mus-ph').style.display }));
   check('music: ▶ Play plays once and stops by itself', !r.playing && r.ph === 'none', JSON.stringify(r));
   await page.evaluate(() => _drawerClose());
+  // ctx.run(): closes the drawer and runs the program (on a phone: the Output view)
+  await load(page, 'sound beep: sine 660, 40ms\nexport fn start() {\n  printStr("ran")\n}\n');
+  await page.evaluate(() => _drawerOpen('test'));
+  await page.evaluate(() => window.__testCtx.run());
+  await page.waitForTimeout(300);
+  r = await page.evaluate(() => ({ open: _drawerIsOpen(), out: document.getElementById('tab-output').innerText, view: document.querySelector('.vtab.active').dataset.v }));
+  check('phone: ctx.run() closes the drawer and runs the program, showing the output', !r.open && /> ran/.test(r.out) && r.view === 'run', JSON.stringify(r).slice(0, 300));
+  await page.evaluate(() => showView('edit'));
   check('phone: no page or console errors', page.errors.length === 0 && page.consoleErrors.length === 0, page.errors.concat(page.consoleErrors).join(' | '));
   await page.context().close();
 

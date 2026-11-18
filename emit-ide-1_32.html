@@ -6440,6 +6440,8 @@ function _musStart(ac,song,opts){
 var _musCur=null,_musCurName=null,_musPending=null;
 // music(name): loops the music block `name` until stopMusic() (or another music()).
 function _musicPlay(name){
+  name=String(name);
+  if((_musPending===name)||(_musCurName===name&&_musCur&&_musCur.playing))return true;   // already playing: keeps playing (music() in frame() is fine)
   var song=_sndFind('music',name);
   _musicStop();
   if(!song)return false;
@@ -9891,6 +9893,12 @@ _sndResolve=function(kind,name){
   return kind==='sound'?_sndParse(_drawerBody(t,'sound')).spec:_musParse(_drawerBody(t,'music')).spec;
 };
 doExport=(function(f){return function(fmt){if(fmt==='drawer'){_drawerOpen();return}return f.apply(this,arguments)}})(doExport);
+// Run pressed (a user gesture) on a program with sound / music blocks: make and resume the AudioContext now, inside
+// the gesture, so that phones that only unlock audio there play the first sound too.
+compileAndRun=(function(f){return function(){
+  try{var t=_projText();if(/(^|\n)(sound|music)[ \t]+[A-Za-z_]\w*[ \t]*:/.test(t)){_sndWant=true;if(_sndUnlocked)_sndUnlock()}}catch(e){}
+  return f.apply(this,arguments);
+}})(compileAndRun);
 stopProgram=(function(f){return function(){_musicStop();return f.apply(this,arguments)}})(stopProgram);
 // ── Tool UI helpers (shared by the drawer tools; optional for others) ──
 // _drwBtn(label, onclick, cls) · _drwSeg(options [[value,label]], get, set) · _drwSlider({label,min,max,step,get,set,fmt,toPos,fromPos})
@@ -10360,7 +10368,7 @@ function _drawerMusicTool(ctx){
     ui.tp={once:_drwBtn('▶ Play',function(){if(play&&!play.loop)stop();else start(false)},'drw-btn-l','Play once'),loop:_drwBtn('🔁 Loop',function(){if(play&&play.loop)stop();else start(true)},'drw-btn-l','Play in a loop'),stop:_drwBtn('■ Stop',stop,'drw-btn-l','Stop')};
     b.appendChild(_drwEl('div',{cls:'drw-wrap mus-tp'},[ui.tp.once,ui.tp.loop,ui.tp.stop]));
     ui.tbar=_drwEl('div',{cls:'mus-tbar'});b.appendChild(ui.tbar);
-    ui.roll=_drwEl('div',{cls:'mus-roll',role:'grid','aria-label':'Piano roll: tap to add a note, tap a note to remove it, drag a note sideways to change its length'});
+    ui.roll=_drwEl('div',{cls:'mus-roll',role:'group','aria-label':'Piano roll: tap to add a note, tap a note to remove it, drag a note sideways to change its length'});
     b.appendChild(ui.roll);
     ui.tset=_drwEl('div',{cls:'mus-tset'});b.appendChild(ui.tset);
     if(it.orig)b.appendChild(_drwKept(it.orig.lines.filter(function(L){return!L.ok||L.comment}).concat(it.orig.head.filter(function(p){return!p.ok})),function(){changed()}));
