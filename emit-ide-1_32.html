@@ -9768,7 +9768,7 @@ function _stageOpen(ctx){
     r3.innerHTML='';
     M().legend.forEach(function(e){
       if(!e.ch)return;
-      var b=_stBtn('',function(){if(S.brush===e.ch&&S.tool!=='objects'){lgPanel.style.display=lgPanel.style.display==='none'?'':'none';return}S.brush=e.ch;if(S.tool==='objects'||S.tool==='eraser'||S.tool==='pick')setTool('pencil');brushes()},'brush '+e.name+' ("'+e.ch+'") — tap again to edit the legend');
+      var b=_stBtn('',function(){S.brush=e.ch;if(S.tool==='objects'||S.tool==='eraser'||S.tool==='pick')setTool('pencil');brushes()},'brush '+e.name+' ("'+e.ch+'")');
       b.className='stg-brush'+(S.brush===e.ch&&S.tool!=='objects'&&S.tool!=='eraser'?' on':'');b.setAttribute('data-brush',e.ch);
       b.append(chip(e),document.createTextNode(e.name||e.ch));
       r3.appendChild(b);
@@ -9969,7 +9969,7 @@ function _stageOpen(ctx){
   view.addEventListener('pointerup',ptrEnd);view.addEventListener('pointercancel',ptrEnd);
   view.addEventListener('wheel',function(e){
     e.preventDefault();
-    var r=view.getBoundingClientRect(),k=e.deltaY<0?1.15:1/1.15,z=Math.max(0.5,Math.min(12,S.zoom*k));k=z/S.zoom;
+    var r=view.getBoundingClientRect(),k=Math.max(0.5,Math.min(2,Math.pow(1.002,-e.deltaY*(e.deltaMode===1?16:1)))),z=Math.max(0.5,Math.min(12,S.zoom*k));k=z/S.zoom;
     var cx=e.clientX-r.left-r.width/2,cy=e.clientY-r.top-r.height/2;
     S.panX=(S.panX-cx)*k+cx;S.panY=(S.panY-cy)*k+cy;S.zoom=z;draw();
   },{passive:false});
@@ -10051,7 +10051,9 @@ function _stageOpen(ctx){
   if(first.length)open(first[0]);else openNew();
   setTool('pencil');
   var ro=null;try{ro=new ResizeObserver(function(){draw()});ro.observe(view)}catch(e){}
-  root._stage=S;root._stageApi={open:open,openNew:openNew,save:doSave,undo:undo,redo:redo,setTool:setTool,model:M,text:function(){return _stWriteMap(M())}};
+  /* screen(tx, ty): the page position of a tile's centre (tests and scripts drive the painter with it) */
+  root._stage=S;root._stageApi={open:open,openNew:openNew,save:doSave,undo:undo,redo:redo,setTool:setTool,model:M,text:function(){return _stWriteMap(M())},
+    screen:function(tx,ty){var r=view.getBoundingClientRect(),o=origin();return{x:r.left+o.x+(tx+0.5)*o.c,y:r.top+o.y+(ty+0.5)*o.c,cell:o.c}}};
   return root;
 }
 // ═══ CONTROLS: the on-screen controls designer ═══
