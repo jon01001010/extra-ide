@@ -7239,7 +7239,6 @@ async function shareURL(){
   var src=_projText();if(!src.trim()){return}
   var compressed=await LZ.c(src);
   var url=location.href.split('#')[0]+'#'+compressed;
-  if(url.length>4096){alert('Program too long to share as URL ('+url.length+' chars). Max ~4096.');return}
   if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){alert('Link copied! ('+url.length+' chars, '+Math.round(compressed.length/src.length*100)+'% of original)')}).catch(function(){prompt('Copy this link:',url)})}
   else{prompt('Copy this link:',url)}
 }
