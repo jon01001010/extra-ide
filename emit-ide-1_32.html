@@ -6029,20 +6029,23 @@ var _emitBlt=new Set(['print','printNum','printStr','log','alert','abs','min','m
 ['public','package'].forEach(function(n){_emitKw.add(n)});   // module system
 function escH(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 var _brD=0;
+// names are case-insensitive: PrintStr is printStr (a lower-case copy of _emitBlt, rebuilt when it grows)
+var _emitBltLC=null;
+function _emitBltHas(w){if(_emitBlt.has(w))return true;if(!_emitBltLC||_emitBltLC.n!==_emitBlt.size){_emitBltLC=new Set();_emitBlt.forEach(function(x){_emitBltLC.add(x.toLowerCase())});_emitBltLC.n=_emitBlt.size}return _emitBltLC.has(w.toLowerCase())}
 function hlCode(){
   var src=ed.value,out='',i=0,len=src.length;_brD=0;
   while(i<len){
     var ch=src[i];
     if(ch==='\n'){out+='\n';i++;continue}
     if(ch===' '||ch==='\t'){out+=ch;i++;continue}
-    if(ch==='u'&&src.substr(i,4)==='use '){ // whole `use` line: the spec may be a URL (contains //) or an npm spec (contains @)
+    if((ch==='u'||ch==='U')&&src.substr(i,4).toLowerCase()==='use '){ // whole `use` line: the spec may be a URL (contains //) or an npm spec (contains @)
       var ub=i-1;while(ub>=0&&(src[ub]===' '||src[ub]==='\t'))ub--;
       if(ub<0||src[ub]==='\n'){
         var ul='';while(i<len&&src[i]!=='\n')ul+=src[i++];
-        var um=ul.match(/^use(\s+)("[^"]*"|'[^']*'|\S+)(?:(\s+)as(\s+)([A-Za-z_][A-Za-z0-9_]*))?(.*)$/);
-        if(!um){out+='<span class="kw">use</span>'+escH(ul.slice(3));continue}
+        var um=ul.match(/^use(\s+)("[^"]*"|'[^']*'|\S+)(?:(\s+)as(\s+)([A-Za-z_][A-Za-z0-9_]*))?(.*)$/i);
+        if(!um){out+='<span class="kw">'+escH(ul.slice(0,3))+'</span>'+escH(ul.slice(3));continue}
         var uc=um[6].match(/^(.*?)(\/\/.*)?$/);
-        out+='<span class="kw">use</span>'+um[1]+'<span class="str">'+escH(um[2])+'</span>'+(um[5]?um[3]+'<span class="kw">as</span>'+um[4]+um[5]:'')+escH(uc[1])+(uc[2]?'<span class="cmt">'+escH(uc[2])+'</span>':'');
+        out+='<span class="kw">'+escH(ul.slice(0,3))+'</span>'+um[1]+'<span class="str">'+escH(um[2])+'</span>'+(um[5]?um[3]+'<span class="kw">'+escH(ul.substr(3+um[1].length+um[2].length+um[3].length,2))+'</span>'+um[4]+um[5]:'')+escH(uc[1])+(uc[2]?'<span class="cmt">'+escH(uc[2])+'</span>':'');
         continue;
       }
     }
@@ -6050,7 +6053,7 @@ function hlCode(){
     if(ch==='/'&&src[i+1]==='*'){var c='/*';i+=2;while(i<len&&!(src[i]==='*'&&src[i+1]==='/')){c+=src[i++]}if(i<len){c+='*/';i+=2}out+='<span class="cmt">'+escH(c)+'</span>';continue}
     if(ch==='"'||ch==="'"){var q=ch,s=q;i++;while(i<len&&src[i]!==q){if(src[i]==='\\'){s+=src[i++]}if(i<len)s+=src[i++]}if(i<len){s+=q;i++}out+='<span class="str">'+escH(s)+'</span>';continue}
     if((ch>='0'&&ch<='9')||(ch==='.'&&src[i+1]>='0'&&src[i+1]<='9')){var n='';if(ch==='0'&&(src[i+1]==='x'||src[i+1]==='X')){n+=src[i++]+src[i++];while(i<len&&/[0-9a-fA-F]/.test(src[i]))n+=src[i++]}else{while(i<len&&((src[i]>='0'&&src[i]<='9')||src[i]==='.'||src[i]==='e'||src[i]==='E'))n+=src[i++]}out+='<span class="num">'+n+'</span>';continue}
-    if((ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch==='_'){var w='';while(i<len&&((src[i]>='a'&&src[i]<='z')||(src[i]>='A'&&src[i]<='Z')||(src[i]>='0'&&src[i]<='9')||src[i]==='_'))w+=src[i++];if(_emitKw.has(w))out+='<span class="kw">'+w+'</span>';else if(_emitTy.has(w))out+='<span class="ty">'+w+'</span>';else if(_emitBlt.has(w))out+='<span class="blt">'+w+'</span>';else out+=w;continue}
+    if((ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch==='_'){var w='';while(i<len&&((src[i]>='a'&&src[i]<='z')||(src[i]>='A'&&src[i]<='Z')||(src[i]>='0'&&src[i]<='9')||src[i]==='_'))w+=src[i++];var wl=w.toLowerCase();if(_emitKw.has(wl))out+='<span class="kw">'+w+'</span>';else if(_emitTy.has(wl))out+='<span class="ty">'+w+'</span>';else if(_emitBltHas(w))out+='<span class="blt">'+w+'</span>';else out+=w;continue}
     if(ch===','||ch==='.'||ch===';'||ch===':'||ch==='('||ch===')'||ch==='['||ch===']'){out+='<span class="dl">'+escH(ch)+'</span>';i++;continue}
     if(ch==='{'){out+='<span class="br br'+(_brD%4)+'">'+ch+'</span>';_brD++;i++;continue}
     if(ch==='}'){_brD--;if(_brD<0)_brD=0;out+='<span class="br br'+(_brD%4)+'">'+ch+'</span>';i++;continue}
@@ -9926,16 +9929,16 @@ function _importLib(url,label){
 function _parseUses(source){
   var uses=[];
   source.split('\n').forEach(function(text,idx){
-    var m=text.match(/^\s*use\s+(.*)$/);if(!m)return;
+    var m=text.match(/^\s*use\s+(.*)$/i);if(!m)return;
     var rest=m[1].trim(),spec,after,q=rest.match(/^(["'])(.*?)\1(.*)$/);
     if(q){spec=q[2].trim();after=q[3]}
     else{rest=rest.replace(/(^|\s)\/\/.*$/,'');var u=rest.match(/^(\S+)(.*)$/);if(!u)return;spec=u[1].replace(/;+$/,'');after=u[2]}
     if(!spec)return;
     after=after.replace(/\/\/.*$/,'').replace(/;\s*$/,'').trim();
     var alias=null;
-    if(after){var a=after.match(/^as\s+([A-Za-z_][A-Za-z0-9_]*)$/);if(!a)throw _libErr((idx+1)+':1: Bad use line — expected: use <library name or URL> [as Name]');alias=a[1]}
+    if(after){var a=after.match(/^as\s+([A-Za-z_][A-Za-z0-9_]*)$/i);if(!a)throw _libErr((idx+1)+':1: Bad use line — expected: use <library name or URL> [as Name]');alias=a[1]}
     var use={line:idx+1,spec:spec,alias:alias,label:spec,lib:null};
-    var lib=LIBS.find(function(l){return l.name===spec||l.name.replace('.js','')===spec});
+    var lib=LIBS.find(function(l){return l.name===spec||l.name.replace('.js','')===spec})||LIBS.find(function(l){var k=spec.toLowerCase();return l.name.toLowerCase()===k||l.name.replace('.js','').toLowerCase()===k});
     // Explicit source for an npm package: use esm.sh:<spec> as Name / use jsdelivr:<spec> [as Name]
     var from=spec.match(/^(esm\.sh|jsdelivr):(.*)$/i),npmRe=/^(@[a-z0-9~._-]+\/)?[a-z0-9~._-]+(@[^\s\/@]+)?(\/[^\s]*)?$/i;
     if(from){
@@ -10635,10 +10638,12 @@ function _jsOwnValue(o,name){
 }
 // ['BABYLON','MeshBuilder'] → the live object, or undefined when the root is not a loaded library global.
 function _libResolve(path,globals){
-  if((globals||_libGlobals()).indexOf(path[0])<0)return undefined;
-  var o=_jsOwnValue(window,path[0]);
+  var G=globals||_libGlobals(),p0=path[0];
+  if(G.indexOf(p0)<0){p0=null;for(var g=0;g<G.length;g++)if(G[g].toLowerCase()===String(path[0]).toLowerCase()){p0=G[g];break}if(p0===null)return undefined}   /* names are case-insensitive: three.scene → THREE.Scene */
+  var o=_jsOwnValue(window,p0);
   for(var i=1;i<path.length&&o!==undefined;i++){
-    o=_jsOwnValue(o,path[i]);
+    var pk=path[i];try{pk=_ncProp(o,pk)}catch(e){}
+    o=_jsOwnValue(o,pk);
     if(o===null||(typeof o!=='object'&&typeof o!=='function'))return undefined;
   }
   return o;
@@ -10709,7 +10714,7 @@ function _libACCheck(before){
     var globals=_libGlobals();
     if(!globals.length)return false;
     var path=m[1].slice(0,-1).split('.'),partial=m[2],target;
-    if(globals.indexOf(path[0])>=0)target=_libResolve(path,globals);
+    if(globals.indexOf(path[0])>=0||globals.some(function(g){return g.toLowerCase()===path[0].toLowerCase()}))target=_libResolve(path,globals);
     else if(path.length===1)target=_libVarProto(path[0],before.substring(0,before.length-m[1].length-m[2].length));
     if(target===undefined)return false;
     var mem=_jsMembers(target),p=partial.toLowerCase(),exact=[],pre=[],sub=[];
@@ -10747,11 +10752,11 @@ function _libHintFor(name,src){
     if(new RegExp('(?:^|[^\\w$.])(?:let|mut|const|fn)\\s+'+name.replace(/\$/g,'\\$')+'(?![\\w$])').test(src))return false;
     var lines=src.split('\n'),ln=name.toLowerCase();
     for(var i=0;i<lines.length;i++){
-      var u=lines[i].match(/^\s*use\s+(\S.*)$/);
+      var u=lines[i].match(/^\s*use\s+(\S.*)$/i);
       if(!u)continue;
-      var spec=u[1].trim(),as=spec.match(/\s+as\s+([A-Za-z_$][\w$]*)$/);
-      if(as){if(as[1]===name)return true;spec=spec.substring(0,as.index)}
-      var lib=LIBS.find(function(l){return l.name===spec||l.name.replace('.js','')===spec});
+      var spec=u[1].trim(),as=spec.match(/\s+as\s+([A-Za-z_$][\w$]*)$/i);
+      if(as){if(as[1].toLowerCase()===ln)return true;spec=spec.substring(0,as.index)}
+      var lib=LIBS.find(function(l){return l.name===spec||l.name.replace('.js','')===spec})||LIBS.find(function(l){var k=spec.toLowerCase();return l.name.toLowerCase()===k||l.name.replace('.js','').toLowerCase()===k});
       if(lib&&lib.global===name)return true;
       if(ln.length>=3&&spec.toLowerCase().replace(/[^a-z0-9]/g,'').indexOf(ln)>=0)return true;
     }
@@ -11157,7 +11162,7 @@ function activeUses(){
   // Same parsing and name resolution as the loader (_parseUses): `use three`, `use three.js as T`, comments, quotes.
   // Line by line, so one malformed use line does not hide the others.
   src.split('\n').forEach(function(line){
-    if(!/^\s*use\s/.test(line))return;
+    if(!/^\s*use\s/i.test(line))return;
     try{_parseUses(line).forEach(function(u){if(u.lib)used.add(u.lib.name)})}catch(e){}
   });
   return used;
@@ -12235,14 +12240,17 @@ function _projPubItem(p,modName,call){return{name:escH(p.name),desc:escH(_projPu
 // Called from checkAC before the library sources, so an import alias wins over a library global of the
 // same name. Returns true when it handled the position (popup shown, or deliberately none).
 var _projACSel=0,_projACKey='';
+// obj[key], or the value under a key that equals it ignoring case (names are case-insensitive) — for the editor's lookups
+function _ncGet(obj,key){if(!obj||key==null)return undefined;if(Object.prototype.hasOwnProperty.call(obj,key))return obj[key];var k=String(key).toLowerCase();for(var n in obj)if(Object.prototype.hasOwnProperty.call(obj,n)&&n.toLowerCase()===k)return obj[n];return undefined}
+function _ncKeyOf(obj,key){if(!obj||key==null)return key;if(Object.prototype.hasOwnProperty.call(obj,key))return key;var k=String(key).toLowerCase();for(var n in obj)if(Object.prototype.hasOwnProperty.call(obj,n)&&n.toLowerCase()===k)return n;return key}
 function _projACCheck(before){
   _projACSel=acActive?acSel:0;   // checkAC rebuilds the popup from scratch; remember the selected row for _projACFallback
   try{
     var line=before.substring(before.lastIndexOf('\n')+1);
-    var im=line.match(/^\s*import\s+([A-Za-z_][\w.]*)?$/);
+    var im=line.match(/^\s*import\s+([A-Za-z_][\w.]*)?$/i);
     if(im){
       var typed=im[1]||'';
-      if(typed==='fn')return false;   // import fn name(...) from "module": a JS import, not a module
+      if(typed.toLowerCase()==='fn')return false;   // import fn name(...) from "module": a JS import, not a module
       var idx=_projIndex(),cur=_projCurModule(idx),lt=typed.toLowerCase(),items=[];
       Object.keys(idx.modules).sort().forEach(function(k){
         if(idx.modules[k]===cur||k===typed)return;
@@ -12253,7 +12261,7 @@ function _projACCheck(before){
       });
       var dot=typed.lastIndexOf('.');
       if(dot>0){
-        var mn=typed.substring(0,dot),part=typed.substring(dot+1).toLowerCase(),mod=idx.modules[mn];
+        var mn=_ncKeyOf(idx.modules,typed.substring(0,dot)),part=typed.substring(dot+1).toLowerCase(),mod=idx.modules[mn];
         if(mod&&mod!==cur){
           var mem=[];
           (mod.publics||[]).forEach(function(p){if((!part||p.name.toLowerCase().indexOf(part)===0)&&p.name.toLowerCase()!==part)mem.push(_projPubItem(p,mn,false))});
@@ -12269,7 +12277,7 @@ function _projACCheck(before){
     if(!_projHasImports())return false;
     var m=before.match(/(?:^|[^\w$.])([A-Za-z_]\w*)\.(\w*)$/);
     if(!m||_libInStrOrComment(before))return false;
-    var ix=_projIndex(),mname=_projScope(ix).quals[m[1]];
+    var ix=_projIndex(),mname=_ncGet(_projScope(ix).quals,m[1]);
     if(!mname)return false;
     var pubs=(ix.modules[mname]&&ix.modules[mname].publics)||[],p=m[2].toLowerCase(),pre=[],sub=[];
     pubs.forEach(function(pb){
@@ -12956,6 +12964,14 @@ function _memScope(){
   return{idx:idx,cur:curName,regions:regions,structs:structs,quals:quals};
 }
 function _memFindStruct(sc,name,mod){
+  var r=_memFindStruct0(sc,name,mod);if(r||!name)return r;
+  var k=String(name).toLowerCase(),n;
+  if(mod){var d=_memModDecls(sc.idx,mod);for(var i=0;i<d.structs.length;i++)if(d.structs[i].name.toLowerCase()===k)return d.structs[i]}
+  for(n in sc.structs)if(n.toLowerCase()===k)return sc.structs[n].s;
+  for(n in sc.idx.modules){var e=_memModDecls(sc.idx,n);for(var j=0;j<e.structs.length;j++)if(e.structs[j].name.toLowerCase()===k)return e.structs[j]}
+  return null;
+}
+function _memFindStruct0(sc,name,mod){
   if(mod){var d=_memModDecls(sc.idx,mod);for(var i=0;i<d.structs.length;i++)if(d.structs[i].name===name)return d.structs[i]}
   if(sc.structs[name])return sc.structs[name].s;
   for(var k in sc.idx.modules){var e=_memModDecls(sc.idx,k);for(var j=0;j<e.structs.length;j++)if(e.structs[j].name===name)return e.structs[j]}
@@ -12963,10 +12979,10 @@ function _memFindStruct(sc,name,mod){
 }
 // region `name`, or `alias.name` through an import alias -> {r, mod}
 function _memRegionRef(sc,alias,name){
-  if(!alias)return sc.regions[name]||null;
-  var mod=sc.quals[alias];if(!mod)return null;
+  if(!alias)return sc.regions[name]||_ncGet(sc.regions,name)||null;
+  var mod=_ncGet(sc.quals,alias);if(!mod)return null;
   var d=_memModDecls(sc.idx,mod);
-  for(var i=0;i<d.regions.length;i++)if(d.regions[i].name===name&&d.regions[i].public)return{r:d.regions[i],mod:mod};
+  for(var i=0;i<d.regions.length;i++)if(d.regions[i].name.toLowerCase()===String(name).toLowerCase()&&d.regions[i].public)return{r:d.regions[i],mod:mod};
   return null;
 }
 function _memItem(name,desc,ins){return{name:escH(name),desc:escH(desc),_libac:'member',_projac:true,_ins:ins==null?name:ins}}
@@ -12976,7 +12992,7 @@ function _memShowItems(items,before,key){_builtinAC=false;_methodAC=false;if(!it
 // Runs first in checkAC. Returns true when it handled the position.
 // Cheap gate: no `region` / `struct` anywhere in the project -> no index work at all
 function _memAny(){
-  var re=/\b(region|struct)\b/;if(re.test(ed.value))return true;
+  var re=/\b(region|struct)\b/i;if(re.test(ed.value))return true;
   for(var i=0;i<_proj.files.length;i++)if(i!==_proj.active&&re.test(_proj.files[i].source))return true;
   return false;
 }
@@ -13000,7 +13016,7 @@ function _memACCheck(before){
       var st=_memFindStruct(sc,ref.r.elem,ref.mod);if(!st)return false;
       var path=m[3]?m[3].substring(1).split('.'):[];
       for(var i=0;i<path.length&&st;i++){
-        var fd=null;(st.fields||[]).forEach(function(f){if(f.name===path[i])fd=f});
+        var fd=null;(st.fields||[]).forEach(function(f){if(!fd&&f.name.toLowerCase()===path[i].toLowerCase())fd=f});
         st=fd?_memFindStruct(sc,String(fd.type).replace(/\[.*$/,''),ref.mod):null;
       }
       if(!st)return false;
@@ -13217,7 +13233,7 @@ function _drawerTool(t){
 // Lines inside /* */ comments or strings are not looked at; the lines of a block are not read as code.
 function _drawerScan(src,kindWanted){return _emitScanBlocks(src,kindWanted)}   // (the scanner is in the compiler: BLOCKS)
 function _drawerBlocks(kind){
-  kind=String(kind||'');_projSync();
+  kind=String(kind||'').toLowerCase();_projSync();   /* kinds and names are case-insensitive: Sprite Hero: is sprite hero */
   var out=[];
   _proj.files.forEach(function(f){
     var lines=null;
@@ -13233,6 +13249,7 @@ function _drawerFindBlock(kind,name){
   name=name==null?'':String(name);
   var l=_drawerBlocks(kind);
   for(var i=0;i<l.length;i++)if(l[i].name===name)return l[i];
+  for(i=0;i<l.length;i++)if(l[i].name.toLowerCase()===name.toLowerCase())return l[i];
   return null;
 }
 function _drawerRead(kind,name){var b=_drawerFindBlock(kind,name);return b?b.text:null}
@@ -13297,7 +13314,7 @@ function _drawerRemove(kind,name){
   return true;
 }
 // A block's text without its "kind name:" header (what the parsers take)
-function _drawerBody(text,kind){var m=new RegExp('^'+kind+'(?:[ \\t]+[A-Za-z_][A-Za-z0-9_]*)?[ \\t]*:').exec(text);return m?text.substring(m[0].length):text}
+function _drawerBody(text,kind){var m=new RegExp('^'+kind+'(?:[ \\t]+[A-Za-z_][A-Za-z0-9_]*)?[ \\t]*:','i').exec(text);return m?text.substring(m[0].length):text}
 // play() / music() of the tools and of other tools' previews, while no program is running
 _sndResolve=function(kind,name){
   if(kind!=='sound'&&kind!=='music')return null;
@@ -13308,7 +13325,7 @@ doExport=(function(f){return function(fmt){if(fmt==='drawer'){_drawerOpen();retu
 // Run pressed (a user gesture) on a program with sound / music blocks: make and resume the AudioContext now, inside
 // the gesture, so that phones that only unlock audio there play the first sound too.
 compileAndRun=(function(f){return function(){
-  try{var t=_projText();if(/(^|\n)(sound|music)[ \t]+[A-Za-z_]\w*[ \t]*:/.test(t)){_sndWant=true;if(_sndUnlocked)_sndUnlock()}}catch(e){}
+  try{var t=_projText();if(/(^|\n)(sound|music)[ \t]+[A-Za-z_]\w*[ \t]*:/i.test(t)){_sndWant=true;if(_sndUnlocked)_sndUnlock()}}catch(e){}
   return f.apply(this,arguments);
 }})(compileAndRun);
 stopProgram=(function(f){return function(){_musicStop();return f.apply(this,arguments)}})(stopProgram);
@@ -17023,6 +17040,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
   function save(){sput({v:1,i:T.i,active:T.on,collapsed:T.collapsed,speed0:T.speed0})}
   // ── reading the project ──
   function q(s,root){try{return(root||document).querySelector(s)}catch(e){return null}}
+  function lc(x){return String(x==null?'':x).toLowerCase()}   // names are case-insensitive: Hero is hero
   function blocks(k){try{return _drawerBlocks(k)}catch(e){return[]}}
   function text(){try{return _projText()}catch(e){return''}}
   function painted(){
@@ -17033,7 +17051,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     });
     return out;
   }
-  function spriteFor(want,not){var p=painted(),h=p.filter(function(s){return s.name===want})[0];if(h)return h.name;h=p.filter(function(s){return s.name!==not})[0];return h?h.name:null}
+  function spriteFor(want,not){var p=painted(),h=p.filter(function(s){return lc(s.name)===lc(want)})[0];if(h)return h.name;h=p.filter(function(s){return lc(s.name)!==lc(not)})[0];return h?h.name:null}
   function mapModel(b){try{return _stBlockModel('map',b.name,b.text)}catch(e){return null}}
   // the first map with solid tiles, a hero object and a coin object (level1 first)
   function level(){
@@ -17042,9 +17060,9 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       var m=mapModel(b);if(!m)return;
       var solid=m.legend.filter(function(e){return e.solid&&e.ch}).map(function(e){return e.ch}),walls=0;
       m.rows.forEach(function(r){Array.from(r).forEach(function(c){if(solid.indexOf(c)>=0)walls++})});
-      var hero=m.objects.filter(function(o){return o.kind==='hero'}).length,coin=m.objects.filter(function(o){return o.kind==='coin'}).length;
+      var hero=m.objects.filter(function(o){return lc(o.kind)==='hero'}).length,coin=m.objects.filter(function(o){return lc(o.kind)==='coin'}).length;
       var r={name:b.name,walls:walls,hero:hero,coin:coin,w:m.w,h:m.h,tile:m.tile,ok:walls>0&&hero>0&&coin>0};
-      if(!best||(r.ok&&!best.ok)||(r.ok&&best.ok&&r.name==='level1'))best=r;
+      if(!best||(r.ok&&!best.ok)||(r.ok&&best.ok&&lc(r.name)==='level1'))best=r;
     });
     return best;
   }
@@ -17064,13 +17082,14 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     blocks('thing').forEach(function(b){
       try{
         var d=_lgParseBlock(b.text).decl,t={name:d.name,sprite:null,map:null,speed:null,solid:false,path:b.path,text:b.text};
-        d.items.forEach(function(it){if(it.kind==='sprite')t.sprite=it.sprite.value;else if(it.kind==='from')t.map=it.map.value;else if(it.kind==='solid')t.solid=true;else if(it.kind==='field'&&it.name==='speed'){var m=/(?:^|[,:\s])speed\s+([^,\n]+)/.exec(b.text);t.speed=m?m[1].trim():'?'}});
-        if(!o[d.name])o[d.name]=t;
+        d.items.forEach(function(it){if(it.kind==='sprite')t.sprite=it.sprite.value;else if(it.kind==='from')t.map=it.map.value;else if(it.kind==='solid')t.solid=true;else if(it.kind==='field'&&lc(it.name)==='speed'){var m=/(?:^|[,:\s])speed\s+([^,\n]+)/i.exec(b.text);t.speed=m?m[1].trim():'?'}});
+        if(!o[lc(d.name)])o[lc(d.name)]=t;
       }catch(e){}
     });
     return o;
   }
   function soundNames(){return blocks('sound').map(function(b){return b.name})}
+  function hasName(list,n){return list.some(function(x){return lc(x)===lc(n)})}
   // The rules the game needs, read with the compiler's own parser. `src` (optional) is a rules: block text to
   // judge instead of the project's (the Logic tool's unsaved rows).
   function rulesCheck(src){
@@ -17082,15 +17101,15 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       try{d=_lgParseBlock(t).decl}catch(e){err=e.message;return}
       d.rules.forEach(function(R){
         var line=lines[(R.tok&&R.tok.line||1)-1]||'',A=R.actions||[];
-        if(R.dir==='stage'&&R.what==='map'&&R.map&&L&&R.map.value===L.name)need.map=true;
-        if(R.dir==='stage'&&R.what==='controls'&&R.ctl&&P&&R.ctl.value===P.name)need.ctl=true;
-        if(R.dir==='show'&&/\bscore\b/.test(line))need.show=true;
+        if(R.dir==='stage'&&R.what==='map'&&R.map&&L&&lc(R.map.value)===lc(L.name))need.map=true;
+        if(R.dir==='stage'&&R.what==='controls'&&R.ctl&&P&&lc(R.ctl.value)===lc(P.name))need.ctl=true;
+        if(R.dir==='show'&&/\bscore\b/i.test(line))need.show=true;
         if(R.dir)return;
-        function act(v,s){return A.some(function(a){return a.verb===v&&(s===undefined||(a.subj&&a.subj.value===s))})}
-        if((R.ev==='frame'||R.ev==='touch')&&A.some(function(a){return(a.verb==='mv'||a.verb==='vel')&&a.subj&&a.subj.value==='hero'})&&/stickX\s*\(/.test(line)&&/stickY\s*\(/.test(line))need.stick=true;
-        if(R.ev==='hit'&&R.a.value==='hero'&&R.b.value==='wall'&&A.some(function(a){return a.verb==='block'&&(!a.subj||a.subj.value==='hero')}))need.wall=true;
-        if(R.ev==='hit'&&R.a.value==='hero'&&R.b.value==='coin'&&act('remove','coin')&&A.some(function(a){return a.verb==='add'&&a.target&&a.target.value==='score'&&!a.field})&&A.some(function(a){return a.verb==='play'&&snd.indexOf(a.name)>=0}))need.coin=true;
-        if(R.ev==='when'&&/count\s*\(\s*coin\s*\)\s*(==\s*0|<=\s*0|<\s*1)\b/.test(line)&&act('say'))need.win=true;
+        function act(v,s){return A.some(function(a){return a.verb===v&&(s===undefined||(a.subj&&lc(a.subj.value)===s))})}
+        if((R.ev==='frame'||R.ev==='touch')&&A.some(function(a){return(a.verb==='mv'||a.verb==='vel')&&a.subj&&lc(a.subj.value)==='hero'})&&/stickX\s*\(/i.test(line)&&/stickY\s*\(/i.test(line))need.stick=true;
+        if(R.ev==='hit'&&lc(R.a.value)==='hero'&&lc(R.b.value)==='wall'&&A.some(function(a){return a.verb==='block'&&(!a.subj||lc(a.subj.value)==='hero')}))need.wall=true;
+        if(R.ev==='hit'&&lc(R.a.value)==='hero'&&lc(R.b.value)==='coin'&&act('remove','coin')&&A.some(function(a){return a.verb==='add'&&a.target&&lc(a.target.value)==='score'&&!a.field})&&A.some(function(a){return a.verb==='play'&&hasName(snd,a.name)}))need.coin=true;
+        if(R.ev==='when'&&/count\s*\(\s*coin\s*\)\s*(==\s*0|<=\s*0|<\s*1)\b/i.test(line)&&act('say'))need.win=true;
       });
     });
     if(th.hero&&th.hero.solid)need.wall=true;
@@ -17164,7 +17183,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       deps:['hero'],
       check:function(){var p=painted();return p.length>=2?{ok:true,msg:'✓ Two sprites: '+p[0].name+' and '+p[1].name+'.'}:{ok:false,msg:'Not yet: '+(p.length?'one painted sprite ('+p[0].name+'); paint a second one.':'no painted sprite yet.')}},
       target:function(){return spriteTarget('coin',true)},
-      doIt:function(){write('sprite',painted().some(function(p){return p.name==='coin'})?'coin2':'coin',COIN);reopen('sprite')}},
+      doIt:function(){write('sprite',painted().some(function(p){return lc(p.name)==='coin'})?'coin2':'coin',COIN);reopen('sprite')}},
     {id:'sound',pure:true,title:'A sound',
       html:'<p>Open <b>🧰 → Sound</b>. Tap the <b>coin</b> preset (you will hear it), then <b>Save to program</b>.</p>',
       check:function(){var s=soundNames();return s.length?{ok:true,msg:'✓ sound '+s[0]+' is in sounds.emit.'}:{ok:false,msg:'Not yet: no sound block.'}},
@@ -17181,7 +17200,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       target:function(){
         var n=nav('stage','the Stage card');if(n)return n;
         var r=q('#drawer [data-stage-tool]');if(!r||!r._stageApi)return null;
-        var m=r._stageApi.model(),c=m.objects.filter(function(o){return o.kind==='coin'}).length,h=m.objects.some(function(o){return o.kind==='hero'});
+        var m=r._stageApi.model(),c=m.objects.filter(function(o){return lc(o.kind)==='coin'}).length,h=m.objects.some(function(o){return lc(o.kind)==='hero'});
         if((c<3||!h)&&r._stage.tool!=='objects')return{el:q('#drawer [data-tool="objects"]'),say:'Tap ◆ objects.'};
         if(c<3)return{el:q('#drawer [data-stg="view"]'),say:'Tap the floor to place a coin ('+c+' of 3).'};
         if(!h)return{el:q('#drawer [data-stg="kind"]'),say:'Type hero in the object box, then tap the floor.'};
@@ -17211,7 +17230,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       deps:['coin','level'],
       check:function(){
         var th=things(),L=level(),sp=painted().map(function(p){return p.name}),bad=[];
-        ['hero','coin'].forEach(function(k){var t=th[k];if(!t)bad.push('no thing '+k);else if(!t.sprite||sp.indexOf(t.sprite)<0)bad.push(k+' does not use a painted sprite');else if(!t.map||!L||t.map!==L.name)bad.push(k+' is not “from map '+(L?L.name:'…')+'”')});
+        ['hero','coin'].forEach(function(k){var t=th[k];if(!t)bad.push('no thing '+k);else if(!t.sprite||!hasName(sp,t.sprite))bad.push(k+' does not use a painted sprite');else if(!t.map||!L||lc(t.map)!==lc(L.name))bad.push(k+' is not “from map '+(L?L.name:'…')+'”')});
         return bad.length?{ok:false,msg:'Not yet: '+bad.join(' · ')+'.'}:{ok:true,msg:'✓ thing hero and thing coin come from map '+L.name+'.'};
       },
       target:function(){
@@ -17219,9 +17238,9 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
         var S=lgState();if(!S)return null;
         if(S.tab!=='things')return{el:q('#drawer .lg-tab[data-tab="things"]'),say:'Tap THINGS.'};
         var L=level(),want=null;
-        ['hero','coin'].some(function(k){var t=S.things.filter(function(x){return x.name===k})[0];if(!t||t.kept||t.shape.kind!=='sprite'||!t.shape.sprite||!t.map){want=k;return true}return false});
+        ['hero','coin'].some(function(k){var t=S.things.filter(function(x){return lc(x.name)===k})[0];if(!t||t.kept||t.shape.kind!=='sprite'||!t.shape.sprite||!t.map){want=k;return true}return false});
         if(!want)return{el:q('#drawer .lg-save'),say:'Tap Save.'};
-        var cur=S.things[S.sel],i=-1;S.things.forEach(function(x,j){if(x.name===want)i=j});
+        var cur=S.things[S.sel],i=-1;S.things.forEach(function(x,j){if(lc(x.name)===want)i=j});
         if(i<0){if(cur&&/^thing\d+$/.test(cur.name))return{el:q('#drawer .lg-thing [data-f="name"]'),say:'Type '+want+' as the name.'};return{el:q('#drawer .lg-add-kind'),say:'Tap + thing.'}}
         if(i!==S.sel)return{el:q('#drawer .lg-kind[data-i="'+i+'"]'),say:'Tap '+want+'.'};
         if(cur.shape.kind!=='sprite')return{el:q('#drawer .lg-thing [data-f="shape"]'),say:'Choose shape: sprite.'};
@@ -17250,7 +17269,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       },
       doIt:function(){
         var L=level(),P=pad(),th=things(),s=soundNames(),sp=th.hero&&th.hero.speed!==null?'hero.speed':'2';
-        var snd=s.indexOf('coin')>=0?'coin':s[0];
+        var snd=s.filter(function(x){return lc(x)==='coin'})[0]||s[0];
         write('rules','',['rules:','  stage size '+(L.w*L.tile)+' '+(L.h*L.tile),'  stage map '+L.name,'  stage controls '+P.name,'  show score',
           '  every frame: hero mv stickX() * '+sp+', stickY() * '+sp,'  on hit hero wall: block hero','  on hit hero coin: remove coin : add score 1 : play '+snd,'  when count(coin) == 0: say "You win!"'].join('\n'));
         reopen('logic');
@@ -17261,7 +17280,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       check:function(){
         var m=null;try{m=_lgMeta}catch(e){}
         var k=m&&m.kinds?m.kinds.map(function(x){return x.name}):[],tick=0;try{tick=_lgTick}catch(e){}
-        var ok=!!(window._wi&&window._wi.exports&&window._wi.exports.frame&&k.indexOf('hero')>=0&&k.indexOf('coin')>=0&&m.shows&&m.shows.indexOf('score')>=0&&tick>=5);
+        var ok=!!(window._wi&&window._wi.exports&&window._wi.exports.frame&&hasName(k,'hero')&&hasName(k,'coin')&&m.shows&&hasName(m.shows,'score')&&tick>=5);
         return ok?{ok:true,msg:'✓ It runs: frame() has run '+tick+' times; the score shows in the corner.'}:{ok:false,msg:'Not yet: run the game with ▶.'};
       },
       keep:function(){return[q('#tab-output [data-emit-controls]'),q('#tab-output canvas')]},
@@ -17323,10 +17342,10 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
       },
       doIt:function(){
         var t=things().hero,v=t.speed===null||t.speed==='2'?'3':t.speed==='3'?'4':'3';
-        var nt=t.speed===null?t.text.replace(/^(thing hero:[^\n]*)/,'$1, speed '+v):t.text.replace(/(^|[,:\s])speed\s+[^,\n]+/,'$1speed '+v);
+        var nt=t.speed===null?t.text.replace(/^(thing hero:[^\n]*)/i,'$1, speed '+v):t.text.replace(/(^|[,:\s])speed\s+[^,\n]+/i,'$1speed '+v);
         var r=write('thing','hero',nt),i=_projFind(r.path);
         closeDrawerQuietly();
-        try{if(narrow())showView('edit');if(i>=0)_projSetActive(i);var p=ed.value.indexOf('speed '+v,ed.value.indexOf('thing hero'));if(p>=0){ed.setSelectionRange(p+6,p+6+v.length)}}catch(e){}
+        try{if(narrow())showView('edit');if(i>=0)_projSetActive(i);var p=ed.value.toLowerCase().indexOf('speed '+v,ed.value.toLowerCase().indexOf('thing hero'));if(p>=0){ed.setSelectionRange(p+6,p+6+v.length)}}catch(e){}
         return run();
       }}
   ];
