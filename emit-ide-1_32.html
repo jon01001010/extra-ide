@@ -9623,7 +9623,7 @@ compile=(function(c){return function(source,target){
 });
 // ── the bundled example ──
 EX.stage='//// file: main.emit\n// A room from a map block: walk with the stick or the arrow keys, pick up the coins,\n// the door (+) opens when all of them are taken. The map and the controls live in stages.emit —\n// open them with the drawer tools STAGE and CONTROLS.\nmut px = 0.0\nmut py = 0.0\nmut got = 0\nmut coins = 0\nmut taken = 0\nmut opened = false\n\nexport fn main() {\n  canvas(mapW(room) * tileSize(room), mapH(room) * tileSize(room) + 20)\n  useControls(pad)\n  px = objX(room, "hero", 0)\n  py = objY(room, "hero", 0)\n  coins = objCount(room, "coin")\n  animate()\n}\n\nfn free(x: num, y: num) bool {\n  let s = 11.0\n  return !solidAt(room, x, y) && !solidAt(room, x + s, y) && !solidAt(room, x, y + s) && !solidAt(room, x + s, y + s)\n}\n\nfn collect() {\n  let t = tileSize(room)\n  for (let i = 0; i < coins; i++) {\n    let bit = 1 << i\n    if ((taken & bit) == 0) {\n      let cx = objX(room, "coin", i)\n      let cy = objY(room, "coin", i)\n      if (px + 11.0 > cx && px < cx + 16.0 && py + 11.0 > cy && py < cy + 16.0) {\n        taken = taken | bit\n        got += 1\n        beep(880, 60)\n      }\n    }\n  }\n  if (got == coins && !opened) {\n    opened = true\n    for (let y = 0; y < mapH(room); y++) {\n      for (let x = 0; x < mapW(room); x++) {\n        if (strEq(tileAt(room, x, y), "+")) { setTile(room, x, y, ".") }\n      }\n    }\n  }\n}\n\nexport fn frame() {\n  let speed = 2.0\n  let nx = px + stickX() * speed\n  if (free(nx, py)) { px = nx }\n  let ny = py + stickY() * speed\n  if (free(px, ny)) { py = ny }\n  collect()\n  clear()\n  drawMap(room)\n  for (let i = 0; i < coins; i++) {\n    if ((taken & (1 << i)) == 0) {\n      color(250, 204, 21)\n      circle(floor(objX(room, "coin", i)) + 8, floor(objY(room, "coin", i)) + 8, 5)\n    }\n  }\n  color(45, 212, 191)\n  rect(floor(px), floor(py), 11, 11)\n  color(212, 216, 227)\n  let h = mapH(room) * tileSize(room)\n  if (opened) { text("the door is open!", 4, h + 15, 12) } else { text("coins " + intToStr(got) + " / " + intToStr(coins), 4, h + 15, 12) }\n  if (justPressed("A")) { beep(440, 40) }\n}\n//// file: stages.emit\n// Blocks for the drawer tools: STAGE edits the map, CONTROLS the on-screen controls.\nmap room: 16x10, tile 16\n  legend # wall solid #3a3a5c,  . floor #1b1b2a,  ~ water solid #2050c0,  + door solid #b45309\n  rows\n    "################"\n    "#..............#"\n    "#..~~~.........#"\n    "#..~~~...####..#"\n    "#........#.....#"\n    "#........#.....+"\n    "#####....#.....#"\n    "#........####..#"\n    "#..............#"\n    "################"\n  objects\n    hero 2,1\n    coin 13,2\n    coin 4,8\n    coin 11,5\n    coin 6,4\n\ncontrols pad: stick left, buttons A "beep", size 1.0, opacity 0.5\n';
-(function(){var s=document.getElementById('example');if(s&&!s.querySelector('option[value="stage"]'))s.appendChild(new Option('Stage','stage'))})();
+(function(){var s=document.getElementById('example');if(s&&!s.querySelector('option[value="stage"]'))s.insertBefore(new Option('Stage','stage'),s.querySelector('option[value="modules"]'))})();   /* before Modules, which stays last */
 // ── drawer tools ──
 if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools||[];window._drawerRegister=function(t){window._drawerTools.push(t)}}
 (function(){
@@ -10053,6 +10053,7 @@ function _stageOpen(ctx){
     document.addEventListener('keydown',kd);document.addEventListener('keyup',kd);
     var raf=0,last=0;
     function step(ts){
+      if(!root.isConnected){tryPanel._stop();return}   /* the drawer was closed */
       var dt=last?Math.min(0.05,(ts-last)/1000):0;last=ts;
       var ax=pad.tx+(keys.r?1:0)-(keys.l?1:0),ay=pad.ty+(keys.d?1:0)-(keys.u?1:0),sp=t*5*dt;
       ax=Math.max(-1,Math.min(1,ax));ay=Math.max(-1,Math.min(1,ay));
@@ -10169,6 +10170,7 @@ function _ctlToolOpen(ctx){
     cancelAnimationFrame(S.raf);
     if(!on){read.textContent='';return}
     (function loop(){
+      if(!root.isConnected){S.test=false;return}   /* the drawer was closed */
       var k=_stIn.kb||{},kx=S.C.keys!==false?(k.right?1:0)-(k.left?1:0):0,ky=S.C.keys!==false?(k.down?1:0)-(k.up?1:0):0;
       var x=Math.max(-1,Math.min(1,st.tx+kx)),y=Math.max(-1,Math.min(1,st.ty+ky));
       ['A','B','C'].forEach(function(b){if(st.edge[b])S.just[b]++;st.edge[b]=false});
