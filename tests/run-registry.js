@@ -22,6 +22,8 @@
 //                 inside a function body (placeholder argument names declared as parameters)
 // The registry URL must also be "verified by package": cdn.jsdelivr.net/npm/<pkg>@<version>/<path> where
 // <version> is the installed version and <path> is a file of that package (checked in step a).
+// A library built into the Emit page (cdn emit:<name>, e.g. mote) has no URL or package: step a instead requires that
+// loading it makes no network request at all.
 // Exit code 0 only when every checked library passes all seven.
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -878,6 +880,17 @@ export fn run() {
   print(jsLen(el.querySelectorAll("canvas")))
   fx.destroy()
 }`, expect: ['> object', '> 1'] },
+
+  // Built into the Emit page (cdn emit:mote): loads with no network at all; Mote.create is the catalogue row.
+  'mote': { builtin: true, src: `
+use mote
+export fn run() {
+  let vm = Mote.create(emptyObj())
+  let r = vm.run("return 6 * 7")
+  printStr(toStr(r[0]))
+  let v = moteVM()
+  printStr(toStr(moteRun(v, "return ('mote'):upper()")))
+}`, expect: ['> 42', '> MOTE'] },
 };
 
 // null when `url` is https://cdn.jsdelivr.net/npm/<pkg>@<installed version>/<file that exists in the package>
@@ -934,7 +947,8 @@ function matchExpect(output, expect) {
 
 async function checkLibrary(browser, fileUrl, lib, html) {
   const t = TESTS[lib.name];
-  const res = { name: lib.name, cdn: lib.cdn, pkg: t && t.pkg, version: t ? pkgVersion(t.pkg) : '?', fail: {}, notes: [], globalsFound: [], catalogue: [] };
+  const res = { name: lib.name, cdn: lib.cdn, pkg: t && (t.builtin ? 'built-in' : t.pkg), version: t ? (t.builtin ? 'page' : pkgVersion(t.pkg)) : '?', fail: {}, notes: [], globalsFound: [], catalogue: [] };
+  const builtin = /^emit:/.test(lib.cdn);   // a library built into the Emit page: no URL, no package, no request
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   const pageErrors = [], blocked = [], served = [], assets = [];
   page.on('pageerror', e => pageErrors.push(e.message.slice(0, 300)));
@@ -958,18 +972,20 @@ async function checkLibrary(browser, fileUrl, lib, html) {
 
   // ── a. load ──
   const a = [];
-  if (!CDN_FILES[lib.cdn]) a.push('registry URL has no local file in CDN_FILES: ' + lib.cdn);
+  if (builtin) { if (!(t && t.builtin)) a.push('built-in entry (' + lib.cdn + ') without `builtin: true` in TESTS'); }
+  else if (!CDN_FILES[lib.cdn]) a.push('registry URL has no local file in CDN_FILES: ' + lib.cdn);
   else if (!fs.existsSync(path.join(NM, CDN_FILES[lib.cdn].file))) a.push('local file missing (npm install in tests/): ' + CDN_FILES[lib.cdn].file);
   else if (CDN_FILES[lib.cdn].exact === false) res.notes.push('CDN file name is not in the npm package / unversioned; served ' + CDN_FILES[lib.cdn].file);
   // verified by package: the URL names the installed version and a file that is in the npm package
-  for (const u of [lib.cdn].concat(lib.needs || [], lib.css || [])) { const why = verifiedByPackage(u); if (why) a.push('URL not verified by package: ' + u + ' — ' + why); }
+  for (const u of (builtin ? [] : [lib.cdn]).concat(lib.needs || [], lib.css || [])) { const why = verifiedByPackage(u); if (why) a.push('URL not verified by package: ' + u + ' — ' + why); }
   const load = await setAndRun(page, 'use ' + lib.name + '\n\nexport fn run() {\n  print(1)\n}\n');
   await page.waitForTimeout(300);
   const loadOut = await readOutput(page);
   if (load.rejected) a.push('run rejected: ' + load.rejected);
   if (load.status !== 'Done') a.push('status after `use ' + lib.name + '`: ' + load.status + (errLine(loadOut) ? ' — ' + errLine(loadOut) : ''));
   else if (errLine(loadOut)) a.push('output reports an error: ' + errLine(loadOut));
-  if (!served.includes(lib.cdn)) a.push('the registry URL was never requested');
+  if (builtin) { if (blocked.length || served.length) a.push('a built-in library made network requests: ' + blocked.concat(served).join(', ')); }
+  else if (!served.includes(lib.cdn)) a.push('the registry URL was never requested');
   const loadBlocked = blocked.splice(0);
   // Requests the library itself makes while loading (telemetry, workers, fonts) are noted, not failed.
   const libBlocked = loadBlocked.filter(u => u !== lib.cdn && !(lib.needs || []).includes(u));
