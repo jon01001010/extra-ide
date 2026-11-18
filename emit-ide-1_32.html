@@ -5510,6 +5510,169 @@ function _lgLower(prog){
     return gb.apply(this,arguments);
   };
 })();
+// ── thing / rules blocks in several files ──
+// When the blocks of a project are in ONE file, that file is lowered while it is parsed (above), exactly as
+// before. When two or more files have thing / rules blocks, _emitModFront parses every file with the lowering
+// held back (_lgDefer): the ThingDecl / RulesDecl nodes go through the module linker untouched, and the wrapper
+// below lowers all of them together in the merged program, after linking:
+//   - thing kinds are project-wide names (like sprites, sounds and maps): a rules block or a thing in any file
+//     may use a kind declared in any other file, and code in every file reaches a kind's region by its name
+//     (hero[0].x). Two things of the same name are an error naming both places.
+//   - names in a block's expressions and actions (set score …, call f, f(x), physics.speed) are resolved in
+//     the block's own file, as code of that file would be (its own top-level names, its imports); a name no
+//     file declares is an auto-declared global shared by every rules block (set score 0).
+//   - rules: blocks of several files are concatenated in file order (the order of the project's files, the
+//     entry file first) — one rules: block per file, as before. Their stage / seed settings must agree:
+//     `stage size 320 240` in one file and `stage size 400 300` in another is an error naming both positions
+//     (the same setting written twice is fine).
+// Generated code takes positions from the blocks (file:line:col); the struct / region of a kind belong to the
+// file of its thing block (Memory tab, LOGIC › link). Error positions: while lowering, the lines of each file's
+// blocks are offset by (file number + 1) × 1000000 and mapped back afterwards.
+var _lgDefer=false;
+_lgLower=(function(low){return function(prog){
+  if(_lgDefer){prog.lgDeferred=true;return prog}
+  return low.apply(this,arguments);
+}})(_lgLower);
+_emitModFront=(function(front){return function(text){
+  var n=0;
+  try{_emitSplitBundle(String(text==null?'':text)).forEach(function(f){if(_emitScanBlocks(f.source).some(function(b){return b.kind==='thing'||b.kind==='rules'}))n++})}catch(e){n=0}
+  if(n<2)return front.apply(this,arguments);
+  var was=_lgDefer;_lgDefer=true;
+  try{var fr=front.apply(this,arguments);fr.lgDeferred=true;return fr}
+  finally{_lgDefer=was}
+}})(_emitModFront);
+_emitModLink=(function(link){return function(fr){
+  var r=link.apply(this,arguments);
+  if(!fr||!fr.lgDeferred||!r||!r.ast)return r;
+  var body=r.ast.body,blocks=body.filter(function(n){return n&&(n.type==='ThingDecl'||n.type==='RulesDecl')});
+  if(!blocks.length)return r;
+  if(r.errors&&r.errors.length){r.ast.body=body.filter(function(n){return blocks.indexOf(n)<0});return r}
+  var OFF=1000000,mods=fr.mods,byPath=new Map();
+  mods.forEach(function(m,i){byPath.set(m.path,{m:m,k:i+1})});
+  function modOf(n){return byPath.get(n.loc&&n.loc.file)||{m:mods[0],k:1}}
+  function pos(m,t){return m.path+':'+((t&&t.line)||1)+':'+((t&&t.col)||1)}
+  var kinds=new Set();blocks.forEach(function(b){if(b.type==='ThingDecl')kinds.add(b.name)});
+  var warnDrop=new Set(),mangled=new Map(),stubs=[];
+  // ── 1. names of each block, resolved in its own file ──
+  // (a set / add / call action names its variable / function with a token that becomes generated source text,
+  //  where game.score would read as a property: such a name is written as __emitR<n> and put back afterwards)
+  blocks.forEach(function(b){
+    var m=modOf(b).m;
+    function used(imp){if(imp.used)return;imp.used=true;var l=imp.node.loc||{};warnDrop.add(fr.pre(m,l.line||1,l.col||1)+'Unused import '+imp.node.path.join('.')+(imp.kind==='star'?'.*':''))}
+    function res(name){
+      var d=m.decls&&m.decls.get(name);
+      if(d)return d.kind==='raw'?name:d.internal;
+      var imp=m.direct&&m.direct.get(name);
+      if(imp&&imp.decl){used(imp);return imp.decl.internal}
+      var st=m.stars||[];
+      for(var i=0;i<st.length;i++){var t=st[i].target,c=t===m?null:t.decls.get(name);if(c&&c.kind!=='raw'&&c.pub){used(st[i]);return c.internal}}
+      return null;
+    }
+    function retok(t){
+      if(!t||kinds.has(t.value))return t;
+      var nn=res(t.value);if(!nn||nn===t.value)return t;
+      if(nn.indexOf('.')>=0){
+        var mk=null;mangled.forEach(function(v,k){if(v===nn)mk=k});
+        if(!mk){
+          mk='__emitR'+mangled.size;mangled.set(mk,nn);
+          var dd=null;mods.forEach(function(mm){if(mm.decls)mm.decls.forEach(function(x){if(x.internal===nn)dd=x})});
+          if(dd&&dd.kind==='fn'){var sf=new FunctionDecl(mk,dd.node.params,dd.node.returnType,new BlockStmt([],dd.node.loc),false,dd.node.loc);stubs.push(sf)}
+          else stubs.push(new VarDecl(mk,null,null,true,(dd&&dd.node.loc)||t));
+        }
+        nn=mk;
+      }
+      var c=Object.create(Object.getPrototypeOf(t));for(var k in t)if(Object.prototype.hasOwnProperty.call(t,k))c[k]=t[k];c.value=nn;return c;
+    }
+    (function fix(x,parent,key){
+      if(!x||typeof x!=='object'||x instanceof Token)return;
+      if(Array.isArray(x)){for(var i=0;i<x.length;i++)fix(x[i],x,i);return}
+      if(x.type==='IdentifierExpr'){if(!kinds.has(x.name)&&x.name!=='i'){var nn=res(x.name);if(nn)x.name=nn}return}
+      if(x.type==='MemberExpr'&&x.object&&x.object.type==='IdentifierExpr'&&!kinds.has(x.object.name)&&m.aliases&&m.aliases.has(x.object.name)&&parent){
+        var imp=m.aliases.get(x.object.name),d=imp.target.decls.get(String(x.property));
+        if(d&&d.kind!=='raw'&&(d.pub||imp.target===m)){used(imp);var ie=new IdentifierExpr(d.internal,x.loc);parent[key]=ie;return}
+      }
+      if(x.verb&&(x.verb==='set'||x.verb==='add')&&x.target&&!x.field)x.target=retok(x.target);
+      if(x.verb==='call'&&x.fn)x.fn=retok(x.fn);
+      for(var k in x){if(k==='loc'||k==='lgToks')continue;var v=x[k];if(v&&typeof v==='object')fix(v,x,k)}
+    })(b,null,null);
+  });
+  if(warnDrop.size&&r.warnings)r.warnings=r.warnings.filter(function(w){return!warnDrop.has(w)});
+  // ── 2. one rules block: concatenated in file order; stage / seed settings must agree ──
+  var rules=blocks.filter(function(b){return b.type==='RulesDecl'}),errs=[];
+  var first=new Map(),seenFile=new Map();
+  function fold(e){var v=_rgTryFold(e);return v===null?'?':String(v)}
+  rules.forEach(function(R){
+    var mo=modOf(R).m;
+    if(seenFile.has(mo)){var o=seenFile.get(mo);errs.push(pos(mo,R.loc)+'A file has one rules: block — put these rules into the rules: block at line '+o.loc.line);return}
+    seenFile.set(mo,R);
+    R.rules.forEach(function(x){
+      if(!x||!x.dir||x.dir==='show')return;
+      var key=x.dir==='stage'?'stage '+x.what:x.dir,val;
+      if(x.dir==='seed')val=fold(x.n);
+      else if(x.what==='size')val=fold(x.w)+' '+fold(x.h);
+      else if(x.what==='color')val=String(x.color&&x.color.value);
+      else if(x.what==='map')val=String(x.map&&x.map.value);
+      else if(x.what==='controls')val=String(x.ctl&&x.ctl.value);
+      else return;
+      var p=first.get(key);
+      if(!p){first.set(key,{val:val,m:mo,tok:x.tok});return}
+      if(p.val!==val)errs.push(pos(mo,x.tok)+key+' '+val+' contradicts '+key+' '+p.val+' at '+pos(p.m,p.tok)+' — a project has one stage: make the two the same or remove one');
+    });
+  });
+  if(errs.length){r.errors=(r.errors||[]).concat(errs);r.ast.body=body.filter(function(n){return blocks.indexOf(n)<0});return r}
+  // ── 3. lower the merged program; positions: per-file line offsets ──
+  var touched=[],seen=new Set();
+  blocks.forEach(function(b){
+    var k=modOf(b).k;
+    (function sh(x){
+      if(!x||typeof x!=='object'||seen.has(x))return;
+      seen.add(x);
+      if(Array.isArray(x)){x.forEach(sh);return}
+      if(typeof x.line==='number'&&x.line<OFF){x.line+=k*OFF;touched.push(x)}
+      for(var key in x){var v=x[key];if(v&&typeof v==='object')sh(v)}
+    })(b);
+  });
+  if(rules.length>1){
+    var R0=rules[0];
+    rules.slice(1).forEach(function(R){R0.rules=R0.rules.concat(R.rules)});
+    r.ast.body=body=body.filter(function(n){return n.type!=='RulesDecl'||n===R0});
+    blocks=blocks.filter(function(n){return n.type!=='RulesDecl'||n===R0});
+  }
+  function unshift(msg){
+    return String(msg).replace(/^(\d+):(\d+): /,function(all,l,c){l=Number(l);if(l<OFF)return all;var mo=mods[Math.floor(l/OFF)-1];return(mo?mo.path+':':'')+(l%OFF)+':'+c+': '})
+      .replace(/\b(\d{7,})\b/g,function(all,l){l=Number(l);var mo=mods[Math.floor(l/OFF)-1];return(l%OFF)+(mo?' of '+mo.path:'')});
+  }
+  var thingMod=new Map();blocks.forEach(function(b){if(b.type==='ThingDecl'&&!thingMod.has(b.name))thingMod.set(b.name,modOf(b).m)});
+  var host=modOf(blocks.find(function(b){return b.type==='RulesDecl'})||blocks[0]).m;
+  stubs.forEach(function(x){r.ast.body.push(x)});
+  function unstub(){if(stubs.length)r.ast.body=r.ast.body.filter(function(n){return stubs.indexOf(n)<0})}
+  try{_lgLower(r.ast);unstub()}
+  catch(e){
+    unstub();
+    touched.forEach(function(x){x.line%=OFF});
+    r.errors=(r.errors||[]).concat([unshift((e&&e.message)||e)]);
+    r.ast.body=r.ast.body.filter(function(n){return n.type!=='ThingDecl'&&n.type!=='RulesDecl'});
+    return r;
+  }
+  touched.forEach(function(x){x.line%=OFF});
+  var seen2=new Set();
+  r.ast.body.forEach(function(n){
+    if(!n||!n.lgGen)return;
+    if(n.type==='StructDecl'||n.type==='RegionDecl'){
+      var kn=n.type==='StructDecl'?String(n.name).replace(/^__lgT_/,''):n.name,mo=thingMod.get(kn)||host;
+      n.module=mo.name;n.path=mo.path;
+    }
+    (function fx(x){
+      if(!x||typeof x!=='object'||seen2.has(x))return;
+      seen2.add(x);
+      if(Array.isArray(x)){x.forEach(fx);return}
+      if(x.type==='IdentifierExpr'&&mangled.has(x.name))x.name=mangled.get(x.name);
+      if(typeof x.line==='number'&&x.line>=OFF){var mo=mods[Math.floor(x.line/OFF)-1];x.line%=OFF;if(mo&&fr.multi&&x.file===undefined&&typeof x.col==='number'&&!(x instanceof Token))x.file=mo.path}
+      for(var key in x){var v=x[key];if(v&&typeof v==='object')fx(v)}
+    })(n);
+  });
+  return r;
+}})(_emitModLink);
 // After linking: the generated game / frame become the program's exported game() and frame() — also when the
 // thing / rules blocks are in another file than the entry (game.emit). A frame() the program exports itself
 // calls the generated step first instead.
@@ -14902,6 +15065,8 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
     }
     function renderRules(){
       var h=lists()+'<div class="lg-rules">';
+      /* rules: blocks of other files run after this one (file order); the tab edits the first block */
+      try{var more=(ctx.blocks('rules')||[]).slice(1).map(function(b){return b&&b.path}).filter(Boolean);if(more.length)h='<p class="lg-hint lg-more-rules">These are the rules of '+esc(blockFile('rules')||'')+'. More rules: blocks in '+esc(more.join(', '))+' run after them (in file order) — edit those in their files.</p>'+h}catch(e){}
       S.rules.forEach(function(r,i){
         if(r.type==='blank')return;
         h+='<div class="lg-rule'+(r.type==='kept'?' kept':'')+(r.type==='rule'&&!r.enabled?' off':'')+'" data-i="'+i+'">';
@@ -14998,8 +15163,9 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
       S.things.forEach(function(T){
         if(!T.dirty)return;
         var txt=T.kept?T.raw:thingText(T);
-        if(T.origName&&T.origName!==T.name){try{ctx.remove('thing',T.origName)}catch(e){}}
-        ctx.write('thing',T.name,txt,file);n++;
+        var tf=file;   /* a renamed thing stays in the file of its block (things may be in several files) */
+        if(T.origName&&T.origName!==T.name){try{var ob=(ctx.blocks('thing')||[]).filter(function(b){return b&&b.name===T.origName})[0];if(ob&&ob.path)tf=ob.path}catch(e){}try{ctx.remove('thing',T.origName)}catch(e){}}
+        ctx.write('thing',T.name,txt,tf);n++;
         T.orig=txt;T.origName=T.name;T.dirty=false;
       });
       if(S.rulesDirty){
