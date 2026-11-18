@@ -321,7 +321,7 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 </head>
 <body>
 <div class="app">
-  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="newfile">New file in project…</option><option value="find">Find / replace…</option><option value="drawer">Drawer…</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="sfx">Sound</option><option value="algo">Algo</option><option value="memory">Memory</option><option value="modules">Modules</option></select><button class="hdr-btn" onclick="_drawerOpen()" title="Drawer" aria-label="Drawer">&#x1F9F0;</button><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
+  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="newfile">New file in project…</option><option value="find">Find / replace…</option><option value="drawer">Drawer…</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="sfx">Sound</option><option value="algo">Algo</option><option value="game">Game</option><option value="memory">Memory</option><option value="modules">Modules</option></select><button class="hdr-btn" onclick="_drawerOpen()" title="Drawer" aria-label="Drawer">&#x1F9F0;</button><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
   <div class="vtabs"><div class="vtab active" data-v="edit" onclick="showView('edit')">Editor</div><div class="vtab" data-v="run" onclick="showView('run')">Output<div class="dot" id="runDot"></div></div></div>
   <div class="panels" id="panels">
     <div class="pnl" id="pnl-edit">
@@ -581,6 +581,19 @@ public fn step(dt: num) num {
 <p><code>draw</code> paints on the current canvas (the last <code>canvas()</code> or <code>screen()</code>) at canvas pixel coordinates, sharp (no smoothing; x and y are rounded). <code>frame</code> is a frame name in quotes (<code>"walk1"</code>) or a frame number (0 = the first); <code>draw(hero, x, y, anim(hero, t))</code> animates. A number past the last frame wraps around; a negative number draws nothing. Unknown sprite and frame names written as constants are compile errors; a frame name held in a variable is looked up when the program runs.</p>
 <p><code>blit</code> is the fast path for pixel games: it copies the frame&rsquo;s pixels straight into the region&rsquo;s bytes (RGBA, <code>w</code> pixels per row), skipping transparent pixels and clipping at the edges; the screen shows it at the next frame. A frozen region refuses it (catchable like any region write).</p>
 <p><strong>The SPRITE tool.</strong> 🧰 &rarr; Sprite opens a painter for the project&rsquo;s sprite blocks: pencil, eraser, fill, line, rectangle, eyedropper and mirror-X; one finger paints, two fingers pinch to zoom and pan (on a desktop: the wheel zooms, the middle button or Alt+drag pans); the grid shows when zoomed in. Tap a palette colour to paint with it, &#9998; changes it, + / &minus; add and remove colours. The frames strip adds, copies, deletes, reorders and renames frames, with an onion skin of the previous frame; the preview plays the animation at 1&times;, 2&times; or 4&times;. Import PNG brings in a picture (reduced to at most 35 colours, with a note when colours were merged). Undo / redo keep 100 steps. <strong>Save</strong> writes the sprite block into the program (into <code>sprites.emit</code> for a new one) &mdash; the text is the only place the sprite lives; lines the tool does not understand are kept.</p>
+<h2>Things</h2>
+<p>A <strong>thing</strong> block declares a kind of game object: <code>thing hero: box 14 14 #5fcde4, at 40 200, speed 2, hp 3, solid</code>. It starts in column 1; its parts are separated by commas and may go on on indented lines. Each kind becomes a struct and a region named after it (<code>hero[0].x</code> works in your own functions, and the Memory tab shows every instance); a program with things gets a canvas (320&times;240 unless it calls <code>canvas</code> itself or the rules say <code>stage size W H</code>), a generated <code>game()</code> that starts it and a generated <code>frame()</code> (if the program exports its own <code>frame()</code>, that one calls the game step first).</p>
+<p><strong>Shape:</strong> <code>box W H #rrggbb</code> &nbsp; <code>circ R #rgb</code> &nbsp; <code>oval W H red</code> &nbsp; <code>sprite NAME</code> (drawn by the Drawer&rsquo;s SPRITE tool; animated when it has frames; a white box until it exists). Colours: <code>#rgb</code>, <code>#rrggbb</code> or white black red green blue yellow orange purple pink cyan gray brown navy lime gold. <code>size W H</code> overrides the size.</p>
+<p><strong>How many:</strong> one by default; <code>count 5</code> (alive from the start), <code>pool 32</code> (room for 32, all dead until <code>spawn</code>), <code>from map level1</code> (one per object of the same kind name in that map, room for 64 unless <code>pool</code> says otherwise). <code>at X Y</code> places them; <code>i</code> is the instance number: <code>at 30 + i * 40, 80</code> (write a comma between X and Y when Y starts with a minus or a parenthesis).</p>
+<p><strong>Behaviours:</strong> <code>chase hero 0.5</code> / <code>flee hero 1</code> (toward / away from the nearest live hero, pixels per frame; without a number the thing&rsquo;s <code>speed</code> field or 1), <code>wander 1</code>, <code>patrol 1</code> (back and forth, turning at walls and screen edges), <code>track hero</code> (faces it: a sprite or shape is drawn turned), <code>follow head 12</code> (a chain: each instance keeps 12 px behind the previous one, the first behind the head), <code>gravity 0.3</code>, <code>bounce</code> (off screen edges and walls), <code>wrap</code> (leaves one side, comes back on the other), <code>solid</code> (never moves into a wall), <code>wall</code> (the thing <em>is</em> a wall for <code>solid</code> things and <code>on hit X wall</code>).</p>
+<p><strong>Fields:</strong> any other <code>name value</code> pair is a number field of every instance: <code>hp 3</code>, <code>score 0</code>, <code>value 5</code> (a map object&rsquo;s numeric property of the same name overrides it). Every thing also has <code>alive x y vx vy w h px py frame dir</code> (<code>px py</code>: where it was before this frame&rsquo;s move).</p>
+<h2>Rules</h2>
+<p>One <code>rules:</code> block per file, one rule per indented line, QR2D style: <code>EVENT: action : action &hellip;</code>. Comment a rule out with <code>//</code>. The Drawer&rsquo;s LOGIC tool builds both blocks from menus.</p>
+<p><strong>Events:</strong> <code>on start</code> &nbsp; <code>every frame</code> &nbsp; <code>every 2s</code> / <code>every 500ms</code> (counted in frames, 60 per second) &nbsp; <code>on key left</code> (while held) &nbsp; <code>on keydown space</code> / <code>on keyup space</code> (once) &nbsp; <code>on press A</code> (once; A B C of the on-screen controls, or Z/space, X, C) &nbsp; <code>on hold A</code> &nbsp; <code>on tap</code> (once) &nbsp; <code>on touch</code> (while a finger / the mouse is down on the game) &nbsp; <code>on hit hero coin</code> (every overlapping pair; <code>wall</code> = solid map tiles and wall things, <code>edge</code> = the screen edge) &nbsp; <code>when score &gt;= 10</code> (once each time it becomes true) &nbsp; <code>each slime</code> / <code>each slime when slime.y &gt; 240</code> (for every live slime).</p>
+<p><strong>Actions:</strong> <code>hero mv 2, 0</code> &nbsp; <code>hero vel 0, -6</code> &nbsp; <code>hero to 40, 200</code> &nbsp; <code>spawn bullet at hero.x hero.y vel 6 0</code> &nbsp; <code>remove coin</code> &nbsp; <code>block hero</code> (undo the move into what it hit) &nbsp; <code>bounce ball</code> &nbsp; <code>set score 0</code> &nbsp; <code>add hero.hp -1</code> &nbsp; <code>play coin</code> &nbsp; <code>music theme</code> &nbsp; <code>say "You win!"</code> &nbsp; <code>frame hero 2</code> (pin a sprite frame; -1 animates) &nbsp; <code>restart</code> &nbsp; <code>stop</code> (freezes the game; a tap or A plays again) &nbsp; <code>call openChest</code> (an ordinary fn; it gets the numbers of the things involved as <code>int</code> parameters: <code>fn openChest(h: int, c: int) { chest[c].gold = 0.0 }</code>). In <code>on hit A B</code> and <code>each</code> the things named are the ones involved; elsewhere <code>hero</code> means the first live hero. Without a thing name, <code>mv vel to remove block bounce frame</code> act on the first thing of the hit / each.</p>
+<p><strong>Expressions</strong> are ordinary Emit expressions plus <code>hero.hp</code> (a field), <code>i</code> (the involved instance), <code>rnd(100)</code> (0 up to 100, from the game&rsquo;s own generator: <code>seed 42</code> in the rules makes every run the same), <code>count(coin)</code>, <code>stickX()</code> / <code>stickY()</code> (-1&hellip;1: on-screen stick or arrows / WASD), <code>tapX()</code> / <code>tapY()</code>. A name that <code>set</code> / <code>add</code> uses and the file does not declare is declared for you (0; reset by <code>restart</code>). <strong>Settings:</strong> <code>stage size 320 240</code>, <code>stage color #1a1c2c</code>, <code>stage map level1</code> (drawn under the things; its solid tiles are <code>wall</code>; outside the map counts as solid too), <code>stage controls pad</code> (shows the on-screen controls of a <code>controls</code> block: its stick moves like the arrow keys, its buttons are <code>on press A</code> &hellip;), <code>show score, hero.hp</code> (top-left), <code>seed 42</code>.</p>
+<p>Everything compiles to ordinary Emit (<code>_lgLower.lastSource</code> in the console shows the generated text) and runs at WebAssembly speed: 500 chasing things with collision checks take well under a millisecond per frame. Limits: the thing and rules blocks of a project live in one file; collision checks are every pair of the two kinds (no spatial grid); <code>%</code> of two <code>num</code> values is not supported.</p>
+
 <h2>Library Panel &mdash; 📚 button</h2>
 <p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
 <p><strong>Member autocomplete.</strong> Once a library has been loaded by a Run, the editor reads its real names: type <code>THREE.Sc</code> or <code>BABYLON.MeshBuilder.Cre</code> and pick from the popup (<code>class</code>, <code>fn(2)</code> = takes 2 arguments, <code>obj</code>, <code>value</code>). Library globals such as <code>confetti</code> are also suggested as you type, marked <code>lib</code>. After <code>let s = THREE.Scene()</code>, typing <code>s.</code> lists the class's methods (not fields set at run time). Before the first Run nothing is loaded yet, so the popup says &ldquo;Run once to load&rdquo;; the 📚 panel shows what is loaded and how many members each global has.</p>
@@ -675,6 +688,7 @@ public fn step(dt: num) num {
 <script>
 const EX = {"basics":"// Emit — everything just works\n// No semicolons, no arrows, types inferred\n\nfn greet(name: str) {\n  printStr(name)\n}\n\nfn distance(x1: num, y1: num, x2: num, y2: num) num {\n  let dx = x2 - x1\n  let dy = y2 - y1\n  return sqrt(dx * dx + dy * dy)\n}\n\nexport fn demo() {\n  // Strings\n  greet(\"Hello from Emit!\")\n\n  // Math\n  printNum(distance(0.0, 0.0, 3.0, 4.0))\n  printNum(sin(3.14159 / 2.0))\n  print(max(42, 17))\n\n  // Arrays\n  let scores = newArray(5)\n  let i = 0\n  while (i < 5) {\n    setItem(scores, i, (i + 1) * 10)\n    i++\n  }\n  push(scores, 99)\n  print(arrayLen(scores))\n  print(getItem(scores, 5))\n\n  // Canvas\n  canvas(200, 100)\n  color(45, 212, 191)\n  rect(10, 10, 80, 80)\n  color(255, 100, 50)\n  circle(150, 50, 35)\n  color(255, 255, 255)\n  text(\"Emit!\", 20, 55, 16)\n\n  // Sound\n  beep(440, 150)\n  beep(550, 150)\n  beep(660, 200)\n}","draw":"// Canvas drawing — house scene\n\nexport fn house() {\n  canvas(300, 200)\n\n  // Sky\n  color(30, 30, 80)\n  rect(0, 0, 300, 140)\n\n  // Ground\n  color(30, 100, 30)\n  rect(0, 140, 300, 60)\n\n  // Sun\n  color(255, 220, 50)\n  circle(240, 45, 30)\n\n  // House\n  color(160, 80, 40)\n  rect(80, 80, 80, 60)\n\n  // Door\n  color(100, 50, 20)\n  rect(108, 105, 24, 35)\n\n  // Roof lines\n  let i = 0\n  while (i < 50) {\n    color(180, 40, 40)\n    line(70 + i, 80, 120, 40)\n    line(170 - i, 80, 120, 40)\n    i++\n  }\n\n  // Stars\n  color(255, 255, 255)\n  circle(30, 20, 2)\n  circle(80, 35, 1)\n  circle(150, 15, 2)\n  circle(200, 50, 1)\n\n  // Label\n  text(\"Home\", 100, 175, 14)\n}","art":"// Generative Art — rainbow spirograph\n\nexport fn spirograph() {\n  canvas(400, 400)\n  color(0, 0, 0)\n  rect(0, 0, 400, 400)\n\n  let cx = 200.0\n  let cy = 200.0\n  let R = 120.0\n  let r = 45.0\n  let d = 90.0\n  let t = 0.0\n  mut prevX = 0\n  mut prevY = 0\n  mut steps = 0\n\n  while (t < 62.8) {\n    let x: num = (R - r) * cos(t) + d * cos((R - r) * t / r)\n    let y: num = (R - r) * sin(t) - d * sin((R - r) * t / r)\n    let px = floor(cx + x)\n    let py = floor(cy + y)\n\n    let hue = steps % 360\n    mut cr = 0\n    mut cg = 0\n    mut cb = 0\n    if (hue < 60) { cr = 255; cg = hue * 4 }\n    if (hue >= 60) { if (hue < 120) { cr = 255 - (hue - 60) * 4; cg = 255 } }\n    if (hue >= 120) { if (hue < 180) { cg = 255; cb = (hue - 120) * 4 } }\n    if (hue >= 180) { if (hue < 240) { cg = 255 - (hue - 180) * 4; cb = 255 } }\n    if (hue >= 240) { if (hue < 300) { cr = (hue - 240) * 4; cb = 255 } }\n    if (hue >= 300) { cr = 255; cb = 255 - (hue - 300) * 4 }\n\n    color(cr, cg, cb)\n    if (steps > 0) { line(prevX, prevY, px, py) }\n    prevX = px\n    prevY = py\n    t = t + 0.02\n    steps++\n  }\n}","cube3d":"// 3D Room — drag to look around, scroll to zoom\nuse three.js\n\nexport fn room() {\n  scene3d(400, 350)\n  bgColor3d(20, 20, 35)\n\n  // Floor\n  let floor = plane(10.0, 10.0)\n  color3d(floor, 60, 60, 70)\n\n  // Walls\n  let back = wallBox(0.0, 1.5, -5.0, 10.0, 3.0, 0.1)\n  color3d(back, 80, 70, 90)\n\n  let left = wallBox(-5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(left, 90, 75, 85)\n\n  let right = wallBox(5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(right, 90, 75, 85)\n\n  let front = wallBox(0.0, 1.5, 5.0, 10.0, 3.0, 0.1)\n  color3d(front, 80, 70, 90)\n\n  // Table\n  let top = wallBox(0.0, 1.0, 0.0, 2.0, 0.1, 1.2)\n  color3d(top, 139, 90, 43)\n  let leg1 = cylinder(-0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg1, 100, 60, 30)\n  let leg2 = cylinder(0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg2, 100, 60, 30)\n  let leg3 = cylinder(-0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg3, 100, 60, 30)\n  let leg4 = cylinder(0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg4, 100, 60, 30)\n\n  // Chair\n  let seat = wallBox(-2.5, 0.6, 0.0, 0.7, 0.08, 0.7)\n  color3d(seat, 45, 100, 180)\n  let chairBack = wallBox(-2.5, 1.2, -0.35, 0.7, 1.0, 0.08)\n  color3d(chairBack, 40, 90, 170)\n\n  // Lamp on table\n  let pole = cylinder(0.5, 1.3, 0.0, 0.03, 0.5)\n  color3d(pole, 200, 200, 200)\n  let shade = sphere(0.5, 1.6, 0.0, 0.15)\n  color3d(shade, 255, 240, 180)\n\n  // Rug\n  let rug = wallBox(0.0, 0.01, 2.0, 3.0, 0.02, 2.0)\n  color3d(rug, 150, 50, 50)\n\n  // Lighting\n  ambient3d(60, 60, 80)\n  light3d(0.5, 2.8, 0.0)\n  light3d(-3.0, 2.5, 3.0)\n\n  // Camera + controls\n  camera3d(3.0, 2.5, 5.0)\n  lookAt3d(0.0, 1.0, 0.0)\n  controls3d()\n  render3d()\n}","ui":"// Interactive UI — buttons, globals, canvas\n\nmut counter = 0\n\nexport fn app() {\n  div(\"Welcome to Emit!\")\n  div(\"Click a button:\")\n  button(\"Say Hello\", 1)\n  button(\"Count\", 2)\n  button(\"Draw\", 3)\n}\n\nexport fn onclick_1() {\n  div(\"Hello from Emit!\")\n  beep(523, 100)\n}\n\nexport fn onclick_2() {\n  counter++\n  print(counter)\n  beep(440 + counter * 50, 80)\n}\n\nexport fn onclick_3() {\n  canvas(200, 100)\n  let r = floor(random() * 255.0)\n  let g = floor(random() * 255.0)\n  let b = floor(random() * 255.0)\n  color(r, g, b)\n  circle(100, 50, 40)\n  color(255, 255, 255)\n  text(\"Random!\", 55, 55, 16)\n}","sound":"// Music — beep a melody\n\nexport fn melody() {\n  // Twinkle Twinkle Little Star\n  beep(262, 300)\n  beep(262, 300)\n  beep(392, 300)\n  beep(392, 300)\n  beep(440, 300)\n  beep(440, 300)\n  beep(392, 600)\n\n  beep(349, 300)\n  beep(349, 300)\n  beep(330, 300)\n  beep(330, 300)\n  beep(294, 300)\n  beep(294, 300)\n  beep(262, 600)\n}","algo":"// Algorithms — recursion, arrays, sorting\n\nfn factorial(n: int) int {\n  if (n <= 1) { return 1 }\n  return n * factorial(n - 1)\n}\n\nfn fibonacci(n: int) int {\n  if (n <= 1) { return n }\n  let a = 0\n  let b = 1\n  let i = 2\n  while (i <= n) {\n    let t = b\n    b = a + b\n    a = t\n    i++\n  }\n  return b\n}\n\nexport fn algorithms() {\n  printStr(\"Factorials:\")\n  let i = 1\n  while (i <= 8) {\n    print(factorial(i))\n    i++\n  }\n\n  printStr(\"Fibonacci:\")\n  i = 1\n  while (i <= 10) {\n    print(fibonacci(i))\n    i++\n  }\n\n  // Sort an array\n  printStr(\"Sorted:\")\n  let arr = newArray(0)\n  push(arr, 38)\n  push(arr, 7)\n  push(arr, 91)\n  push(arr, 14)\n  push(arr, 55)\n  push(arr, 3)\n\n  let n = arrayLen(arr)\n  i = 0\n  while (i < n) {\n    let j = 0\n    while (j < n - 1 - i) {\n      if (getItem(arr, j) > getItem(arr, j + 1)) {\n        let t = getItem(arr, j)\n        setItem(arr, j, getItem(arr, j + 1))\n        setItem(arr, j + 1, t)\n      }\n      j++\n    }\n    i++\n  }\n  i = 0\n  while (i < n) {\n    print(getItem(arr, i))\n    i++\n  }\n}","pong":"// Brick Breaker — touch/mouse to move paddle\n// Smash all the bricks!\n\nmut bx = 0\nmut by = 0\nmut dx = 0\nmut dy = 0\nmut px = 0\nmut score = 0\nmut bricks = 0\nmut lives = 0\n\nexport fn breaker() {\n  bx = 150\n  by = 140\n  dx = 3\n  dy = -3\n  px = 130\n  score = 0\n  lives = 3\n\n  // Create brick grid: 8 cols x 4 rows = 32 bricks\n  bricks = newArray(32)\n  let i = 0\n  while (i < 32) {\n    setItem(bricks, i, 1)\n    i++\n  }\n\n  canvas(300, 200)\n  animate()\n}\n\nexport fn frame() {\n  // Paddle follows touch/mouse\n  let mx = touchX()\n  if (mx > 0) { px = mx - 150 }\n  if (px < 0) { px = 0 }\n  if (px > 260) { px = 260 }\n\n  // Move ball\n  bx += dx\n  by += dy\n\n  // Bounce walls\n  if (bx < 4) { dx = 0 - dx; bx = 4 }\n  if (bx > 296) { dx = 0 - dx; bx = 296 }\n  if (by < 4) { dy = 0 - dy; by = 4 }\n\n  // Bounce paddle\n  if (by > 182) {\n    if (bx > px) {\n      if (bx < px + 40) {\n        dy = 0 - dy\n        by = 182\n        // Angle based on hit position\n        dx = (bx - px - 20) / 5\n        beep(440, 30)\n      }\n    }\n  }\n\n  // Miss — lose life\n  if (by > 200) {\n    lives -= 1\n    beep(150, 300)\n    bx = 150\n    by = 140\n    dx = 3\n    dy = -3\n    if (lives < 1) {\n      // Reset all bricks\n      let i = 0\n      while (i < 32) {\n        setItem(bricks, i, 1)\n        i++\n      }\n      lives = 3\n      score = 0\n    }\n  }\n\n  // Check brick collisions\n  let row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      let idx = row * 8 + col\n      if (getItem(bricks, idx) == 1) {\n        let bkx = col * 36 + 6\n        let bky = row * 14 + 10\n        if (bx > bkx) {\n          if (bx < bkx + 34) {\n            if (by > bky) {\n              if (by < bky + 12) {\n                setItem(bricks, idx, 0)\n                dy = 0 - dy\n                score++\n                beep(660 + score * 20, 40)\n              }\n            }\n          }\n        }\n      }\n      col++\n    }\n    row++\n  }\n\n  // Draw\n  clear()\n  color(0, 0, 20)\n  rect(0, 0, 300, 200)\n\n  // Bricks\n  row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      if (getItem(bricks, row * 8 + col) == 1) {\n        // Color by row\n        if (row == 0) { color(255, 80, 80) }\n        if (row == 1) { color(255, 180, 50) }\n        if (row == 2) { color(50, 220, 100) }\n        if (row == 3) { color(80, 150, 255) }\n        rect(col * 36 + 6, row * 14 + 10, 34, 12)\n      }\n      col++\n    }\n    row++\n  }\n\n  // Ball\n  color(255, 255, 255)\n  circle(bx, by, 4)\n\n  // Paddle\n  color(45, 212, 191)\n  rect(px, 185, 40, 8)\n\n  // Score + lives\n  color(200, 200, 200)\n  text(\"Score:\", 10, 198, 10)\n}","chat":"// Chat — text input and output\n\nexport fn chatapp() {\n  div(\"Emit Chat\")\n  input(\"Type a message...\", 1)\n  button(\"Send\", 1)\n  button(\"Clear\", 2)\n}\n\nexport fn onclick_1() {\n  let val = getInput(1)\n  if (val > 0) {\n    printStr(\"You said something!\")\n    print(val)\n    beep(500, 80)\n  }\n}\n\nexport fn onclick_2() {\n  div(\"Chat cleared!\")\n  beep(300, 100)\n}","babylon":"// Babylon.js — rotating 3D cube\n// No hand-wrapped builtins: `use babylon.js` + member calls = it just works\n\nuse babylon.js\n\nmut sceneH = 0\nmut boxH = 0\n\nexport fn world() {\n  canvas(500, 400)\n  let cv = getCanvas()\n\n  // Engine + scene\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n\n  // Orbit camera — drag to rotate, scroll to zoom\n  let target = BABYLON.Vector3(0.0, 0.0, 0.0)\n  let cam = BABYLON.ArcRotateCamera(\"cam\", 1.0, 1.2, 6.0, target, scene)\n  cam.attachControl(cv, true)\n\n  // Light\n  let lightDir = BABYLON.Vector3(0.0, 1.0, 0.0)\n  BABYLON.HemisphericLight(\"light\", lightDir, scene)\n\n  // Meshes\n  let opts = emptyObj()\n  let cube = BABYLON.MeshBuilder.CreateBox(\"box\", opts, scene)\n\n  sceneH = scene\n  boxH = cube\n  animate()\n}\n\nexport fn frame() {\n  // Spin the cube around Y\n  let axis = BABYLON.Vector3(0.0, 1.0, 0.0)\n  boxH.rotate(axis, 0.02, 0)\n  sceneH.render()\n}","confetti":"// Word Confetti — particles are real words & emoji\n// textShape(text, color, scalar) builds a bitmap shape from text\n\nuse confetti\n\nexport fn party() {\n  div(\"🎉 Tap a button for word confetti!\")\n  button(\"Words\", 1)\n  button(\"Emoji\", 2)\n  button(\"Mixed\", 3)\n}\n\n// Fire confetti with a custom shape array\nfn fireShapes(shapes: int) {\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n\n  let opts = emptyObj()\n  opts.particleCount = 40\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 2.0\n  opts.ticks = 200\n  opts.shapes = shapes\n  opts.origin = origin\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  // Real words as confetti particles\n  let shapes = toJsArray([\n    textShape(\"WOW\",   \"#ff3366\", 2.0),\n    textShape(\"YES!\",  \"#fde047\", 2.0),\n    textShape(\"NICE\",  \"#22d3ee\", 2.0),\n    textShape(\"COOL\",  \"#4ade80\", 2.0),\n    textShape(\"EMIT\",  \"#a78bfa\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(880, 80)\n}\n\nexport fn onclick_2() {\n  // Emoji confetti — color is ignored for emoji glyphs\n  let shapes = toJsArray([\n    textShape(\"🎉\", \"#ffffff\", 2.0),\n    textShape(\"🎊\", \"#ffffff\", 2.0),\n    textShape(\"⭐\", \"#ffffff\", 2.0),\n    textShape(\"💖\", \"#ffffff\", 2.0),\n    textShape(\"🚀\", \"#ffffff\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(660, 80)\n}\n\nexport fn onclick_3() {\n  // Mix words, emoji, and built-in shapes\n  let shapes = toJsArray([\n    textShape(\"HI!\", \"#ff3366\", 2.0),\n    textShape(\"✨\",  \"#ffffff\", 2.0),\n    textShape(\"YAY\", \"#22d3ee\", 2.0),\n    \"star\",\n    \"circle\"\n  ])\n  fireShapes(shapes)\n  beep(990, 80)\n}","clock":"// Dayjs — chained member calls for date formatting\n// Every .format(), .year(), .month() dispatches through __jsCall\n\nuse dayjs\n\nexport fn clock() {\n  div(\"Current time (via dayjs):\")\n\n  let now = dayjs()\n  let stamp = now.format(\"YYYY-MM-DD HH:mm:ss\")\n  printStr(toStr(stamp))\n\n  let dayName = now.format(\"dddd, MMMM D\")\n  printStr(toStr(dayName))\n\n  // Math on dates — subtract 7 days\n  let lastWeek = now.subtract(7, \"day\")\n  let ago = lastWeek.format(\"YYYY-MM-DD\")\n  printStr(strConcat(\"One week ago: \", toStr(ago)))\n}","strings":"// Strings — concat, format, compare, slice\n// All the string builtins, no external libraries\n\nexport fn tour() {\n  // Build a greeting from pieces\n  let greeting = strConcat(\"Emit has \", intToStr(8))\n  let full = strConcat(greeting, \" string builtins.\")\n  printStr(full)\n\n  // Format a computed number\n  let circle = 3.14159 * 2.0 * 5.0\n  printStr(strConcat(\"Circle circumference: \", numToStr(circle)))\n\n  // Length + substring\n  let name = \"Emit language\"\n  printStr(strConcat(\"Length: \", intToStr(strLen(name))))\n  printStr(strConcat(\"Slice: \", substr(name, 5, 8)))\n\n  // Equality test\n  if (strEq(\"hello\", \"hello\")) {\n    printStr(\"✓ strEq works\")\n  }\n\n  // Char code of first character\n  let code = charAt(name, 0)\n  printStr(strConcat(\"'E' is code \", intToStr(code)))\n}","callbacks":"// Callbacks, promises, null checks — browser globals only, no library\n// fnRef(fn) hands an Emit function to JS. The parameter types you declare\n// decide how the JS arguments arrive: int / num / str / bool, or a handle.\n\nmut total = 0\nmut clicks = 0\n\n// arr.forEach calls this with (value, index)\nfn addUp(value: int, index: int) {\n  total += value\n  printStr(strConcat(\"item \", strConcat(intToStr(index), strConcat(\" = \", intToStr(value)))))\n}\n\n// arr.map uses the return value\nfn square(x: num) num {\n  return x * x\n}\n\n// Promise callbacks: the resolved value arrives with the type you declare\nfn onResolved(msg: str) {\n  printStr(strConcat(\"promise resolved: \", msg))\n}\n\n// A rejected promise passes an Error object — it arrives as a handle\nfn onRejected(err: int) {\n  let why: str = err.message\n  printStr(strConcat(\"promise rejected: \", why))\n}\n\nfn onTimer() {\n  printStr(\"timer fired after 300 ms\")\n}\n\n// DOM event listener: the event object is a handle\nfn onClick(ev: int) {\n  clicks++\n  let kind: str = ev.type\n  printStr(strConcat(kind, strConcat(\" #\", intToStr(clicks))))\n}\n\nexport fn run() {\n  // 1. Callbacks that receive arguments\n  let list = JSON.parse(\"[3, 4, 5]\")\n  list.forEach(fnRef(addUp))\n  printStr(strConcat(\"total = \", intToStr(total)))\n\n  // 2. Iterating a JS array: jsLen + jsAt\n  let squares = list.map(fnRef(square))\n  for (let i = 0; i < jsLen(squares); i++) {\n    let sq: num = jsAt(squares, i)\n    printNum(sq)\n  }\n\n  // 3. Null checks\n  let missing = document.getElementById(\"no-such-element\")\n  if (isNull(missing)) {\n    printStr(\"no such element: got null\")\n  }\n\n  // 4. Explicit new, and a typed value straight from JS\n  let d = new Date(2024, 0, 15)\n  let year: num = d.getFullYear()\n  printNum(year)\n\n  // 5. Promises, callback style (WASM cannot await)\n  Promise.resolve(\"hello from a promise\").then(fnRef(onResolved))\n  Promise.reject(new Error(\"nope\")).catch(fnRef(onRejected))\n  setTimeout(fnRef(onTimer), 300)\n\n  // 6. A real DOM button in the Output panel with an Emit click handler\n  let btn = document.createElement(\"button\")\n  btn.textContent = \"Click me\"\n  btn.addEventListener(\"click\", fnRef(onClick))\n  document.getElementById(\"tab-output\").appendChild(btn)\n}","particles":"// Particles — directed confetti via nested config objects\n// origin: {x, y} sets where particles launch from (0-1 screen coords)\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button to fire particles!\")\n  button(\"Burst from bottom\", 1)\n  button(\"Double cannons\", 2)\n  button(\"Rain from top\", 3)\n}\n\nexport fn onclick_1() {\n  // Center-bottom burst, straight up\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.9\n\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 70\n  opts.startVelocity = 55\n  opts.origin = org\n  confetti(opts)\n}\n\nexport fn onclick_2() {\n  // Left cannon — angle 60 shoots up-right\n  let orgL = emptyObj()\n  orgL.x = 0.15\n  orgL.y = 0.6\n  let optsL = emptyObj()\n  optsL.particleCount = 70\n  optsL.angle = 60\n  optsL.spread = 55\n  optsL.startVelocity = 50\n  optsL.origin = orgL\n  confetti(optsL)\n\n  // Right cannon — angle 120 shoots up-left\n  let orgR = emptyObj()\n  orgR.x = 0.85\n  orgR.y = 0.6\n  let optsR = emptyObj()\n  optsR.particleCount = 70\n  optsR.angle = 120\n  optsR.spread = 55\n  optsR.startVelocity = 50\n  optsR.origin = orgR\n  confetti(optsR)\n}\n\nexport fn onclick_3() {\n  // Falling from top, wide spread, slow\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.0\n\n  let opts = emptyObj()\n  opts.particleCount = 100\n  opts.spread = 180\n  opts.startVelocity = 20\n  opts.gravity = 0.8\n  opts.ticks = 300\n  opts.origin = org\n  confetti(opts)\n}","orbit":"// Three.js — rotating cube via pure Path C\n// Field assignment at work: opts.canvas = cv, rot.x = rotX\n\nuse three.js\n\nmut sceneH = 0\nmut rendererH = 0\nmut cubeH = 0\nmut camH = 0\nmut rotX = 0.0\nmut rotY = 0.0\n\nexport fn scene() {\n  canvas(400, 300)\n  let cv = getCanvas()\n\n  let scn = THREE.Scene()\n  sceneH = scn\n\n  let cam = THREE.PerspectiveCamera(75.0, 1.333, 0.1, 1000.0)\n  let p = cam.position\n  p.z = 5.0\n  camH = cam\n\n  // Renderer needs a config object — build it with emptyObj + field assignment\n  let optsR = emptyObj()\n  optsR.canvas = cv\n  optsR.antialias = true\n  let r = THREE.WebGLRenderer(optsR)\n  r.setSize(400, 300)\n  rendererH = r\n\n  // Material config — red cube\n  let geo = THREE.BoxGeometry(1.0, 1.0, 1.0)\n  let matOpts = emptyObj()\n  matOpts.color = 16724736\n  let mat = THREE.MeshBasicMaterial(matOpts)\n  let cube = THREE.Mesh(geo, mat)\n  scn.add(cube)\n  cubeH = cube\n\n  animate()\n}\n\nexport fn frame() {\n  // Track rotation in pure Emit vars, then write back to the cube\n  rotX = rotX + 0.01\n  rotY = rotY + 0.015\n  let rot = cubeH.rotation\n  rot.x = rotX\n  rot.y = rotY\n  rendererH.render(sceneH, camH)\n}","snake":"// Snake — tap toward where you want to go\n// No external libraries — just Emit + canvas + arrays + animate()\n\nmut headX = 10\nmut headY = 10\nmut dirX = 1\nmut dirY = 0\nmut foodX = 15\nmut foodY = 15\nmut tail = 0\nmut tailLen = 3\nmut score = 0\nmut tickN = 0\n\nfn randCell() int { return floor(random() * 18.0) + 1 }\n\nexport fn game() {\n  headX = 10\n  headY = 10\n  dirX = 1\n  dirY = 0\n  foodX = randCell()\n  foodY = randCell()\n  tailLen = 3\n  score = 0\n  tickN = 0\n\n  tail = newArray(200)\n  let i = 0\n  while (i < 200) {\n    setItem(tail, i, 0)\n    i++\n  }\n\n  canvas(300, 300)\n  animate()\n}\n\nexport fn frame() {\n  tickN++\n\n  // Step every 6 frames\n  if (tickN % 6 == 0) {\n    // Steer toward touch point\n    let tx = touchX()\n    let ty = touchY()\n    if (tx > 0) {\n      let cx = headX * 15\n      let cy = headY * 15\n      let dx = tx - cx\n      let dy = ty - cy\n      if (abs(dx) > abs(dy)) {\n        if (dx > 0) { dirX = 1; dirY = 0 }\n        if (dx < 0) { dirX = 0 - 1; dirY = 0 }\n      }\n      if (abs(dy) >= abs(dx)) {\n        if (dy > 0) { dirX = 0; dirY = 1 }\n        if (dy < 0) { dirX = 0; dirY = 0 - 1 }\n      }\n    }\n\n    let newX = headX + dirX\n    let newY = headY + dirY\n\n    // Wrap at walls\n    if (newX < 1) { newX = 18 }\n    if (newX > 18) { newX = 1 }\n    if (newY < 1) { newY = 18 }\n    if (newY > 18) { newY = 1 }\n\n    // Eat food\n    if (newX == foodX) {\n      if (newY == foodY) {\n        score++\n        tailLen++\n        foodX = randCell()\n        foodY = randCell()\n        beep(880, 60)\n      }\n    }\n\n    // Shift tail history\n    let i = tailLen\n    while (i > 0) {\n      setItem(tail, i * 2, getItem(tail, (i - 1) * 2))\n      setItem(tail, i * 2 + 1, getItem(tail, (i - 1) * 2 + 1))\n      i--\n    }\n    setItem(tail, 0, headX)\n    setItem(tail, 1, headY)\n\n    headX = newX\n    headY = newY\n  }\n\n  // Draw every frame for smooth movement\n  clear()\n  color(10, 15, 30)\n  rect(0, 0, 300, 300)\n\n  color(40, 180, 100)\n  let i = 0\n  while (i < tailLen) {\n    let x = getItem(tail, i * 2)\n    let y = getItem(tail, i * 2 + 1)\n    rect(x * 15 + 1, y * 15 + 1, 13, 13)\n    i++\n  }\n\n  color(80, 240, 140)\n  rect(headX * 15 + 1, headY * 15 + 1, 13, 13)\n\n  color(240, 80, 80)\n  circle(foodX * 15 + 7, foodY * 15 + 7, 5)\n\n  color(200, 200, 230)\n  text(\"Score:\", 8, 295, 10)\n  text(intToStr(score), 50, 295, 10)\n}","words":"// Colors — confetti with custom palettes and shape mixes\n// Uses arrays via toJsArray() — works on every browser\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button for themed confetti!\")\n  button(\"Hot Pink\", 1)\n  button(\"Ocean\", 2)\n  button(\"Stars\", 3)\n  button(\"Fire\", 4)\n}\n\nfn fire(palette: int, useStars: bool) {\n  let opts = emptyObj()\n  opts.particleCount = 80\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 1.2\n  opts.colors = palette\n\n  // Mix in star shape\n  if (useStars) {\n    let shapes = toJsArray([\"star\", \"circle\"])\n    opts.shapes = shapes\n  }\n\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n  opts.origin = origin\n\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  fire(toJsArray([\"#ff3366\", \"#ff70a6\", \"#ff85b3\", \"#ffaad4\"]), false)\n}\n\nexport fn onclick_2() {\n  fire(toJsArray([\"#0ea5e9\", \"#22d3ee\", \"#06b6d4\", \"#67e8f9\"]), false)\n}\n\nexport fn onclick_3() {\n  fire(toJsArray([\"#fde047\", \"#facc15\", \"#fbbf24\", \"#f59e0b\"]), true)\n}\n\nexport fn onclick_4() {\n  fire(toJsArray([\"#dc2626\", \"#ea580c\", \"#f97316\", \"#fb923c\", \"#fde047\"]), false)\n}","npm":"// Any npm package — no built-in registry entry needed\n// `use name@version` loads the package's browser build from the jsDelivr CDN\n\nuse tinycolor2@1.6.0\n\nexport fn colors() {\n  div(\"tinycolor2, loaded straight from npm:\")\n\n  let base = tinycolor(\"#3498db\")\n  printStr(strConcat(\"Base: \", toStr(base.toHexString())))\n\n  // Chained member calls on the library's objects\n  let light = tinycolor(\"#3498db\").lighten(20)\n  printStr(strConcat(\"Lighter: \", toStr(light.toHexString())))\n\n  let opposite = tinycolor(\"#3498db\").complement()\n  printStr(strConcat(\"Complement: \", toStr(opposite.toHexString())))\n\n  printStr(strConcat(\"As RGB: \", toStr(base.toRgbString())))\n}","countdown":"// Callbacks — pass an Emit function to JS via fnRef(\"name\")\n// Recursive setTimeout schedules itself\n\nmut n = 5\n\nfn tick() {\n  printStr(strConcat(\"Tick: \", intToStr(n)))\n  n--\n  if (n > 0) {\n    setTimeout(fnRef(\"tick\"), 1000)\n  } else {\n    printStr(\"🎉 Done!\")\n  }\n}\n\nexport fn run() {\n  div(\"Counting down from 5...\")\n  setTimeout(fnRef(\"tick\"), 1000)\n}","modules":"// Modules — one program in three files (the tabs above the editor)\n// main.emit is the entry file. It imports two modules from the folder game/:\n//   game/physics.emit  moves the balls   (module game.physics)\n//   game/draw.emit     paints them       (module game.draw)\n\nimport game.physics\nimport game.draw\n\nexport fn balls() {\n  canvas(300, 200)\n  physics.setup(7)\n  animate()\n}\n\nexport fn frame() {\n  physics.step()\n  draw.render()\n}\n//// file: game/physics.emit\npackage game\n\n// Only names marked `public` can be used from other files.\npublic let width = 300\npublic let height = 200\npublic let radius = 8\n\nmut n = 0\nmut xs = 0\nmut ys = 0\nmut vx = 0\nmut vy = 0\n\npublic fn setup(count: int) {\n  n = count\n  xs = newArray(n)\n  ys = newArray(n)\n  vx = newArray(n)\n  vy = newArray(n)\n  let i = 0\n  while (i < n) {\n    setItem(xs, i, randInt(radius, width - radius))\n    setItem(ys, i, randInt(radius, height - radius))\n    setItem(vx, i, speed())\n    setItem(vy, i, speed())\n    i++\n  }\n}\n\npublic fn step() {\n  let i = 0\n  while (i < n) {\n    let x = getItem(xs, i) + getItem(vx, i)\n    let y = getItem(ys, i) + getItem(vy, i)\n    if (outside(x, width) == 1) { setItem(vx, i, 0 - getItem(vx, i)) }\n    if (outside(y, height) == 1) { setItem(vy, i, 0 - getItem(vy, i)) }\n    setItem(xs, i, keep(x, width))\n    setItem(ys, i, keep(y, height))\n    i++\n  }\n}\n\npublic fn count() int {\n  return n\n}\n\npublic fn ballX(i: int) int {\n  return getItem(xs, i)\n}\n\npublic fn ballY(i: int) int {\n  return getItem(ys, i)\n}\n\n// Private helpers: no `public`, so other files cannot call them.\n\n// 1 to 3 pixels per frame, in either direction\nfn speed() int {\n  let s = randInt(1, 3)\n  if (randInt(0, 1) == 0) { return 0 - s }\n  return s\n}\n\n// 1 when a ball at v has left the field 0..size, else 0\nfn outside(v: int, size: int) int {\n  if (v < radius) { return 1 }\n  if (v > size - radius) { return 1 }\n  return 0\n}\n\n// v moved back into the field\nfn keep(v: int, size: int) int {\n  if (v < radius) { return radius }\n  if (v > size - radius) { return size - radius }\n  return v\n}\n//// file: game/draw.emit\npackage game\n\nimport game.physics\n\npublic fn render() {\n  color(8, 9, 13)\n  rect(0, 0, physics.width, physics.height)\n  let i = 0\n  while (i < physics.count()) {\n    paint(i)\n    circle(physics.ballX(i), physics.ballY(i), physics.radius)\n    i++\n  }\n}\n\n// Private helper: a colour for ball number i\nfn paint(i: int) {\n  color(45 + i * 30, 212 - i * 20, 191)\n}","memory":"// Memory — falling sand that lives in memory regions\n// Open Output → MEMORY while it runs: each region is a live card there.\n// Tap a cell to poke it, tap 🔓 to lock a region.\n//\n//   fb      u8 region: the picture, 160 x 120 pixels of 4 bytes (RGBA), shown by screen()\n//   sparks  struct region: a few glowing particles\n//   stats   int region: grains poured, frames, errors caught\n//   sand/world.emit owns the grid of grains and the rules of falling sand\n//\n// Touch (or hold the mouse) to pour where you point.\n// \"Freeze grid\" locks the grid region: the sand stands still and pouring\n// becomes a write to a frozen region, an error that pour() catches.\n\nimport sand.world\n\nstruct Spark { x: num, y: num, vx: num, vy: num, life: int, alive: bool }\n\nregion fb: u8[160 * 120 * 4]\nregion sparks: Spark[12]\nregion stats: int[3]\n\nmut spout = 30\nmut dir = 1\nmut tick = 0\nmut next = 0\nmut warned = false\n\nexport fn sand() {\n  world.setup()\n  screen(fb, 160, 120, 2)\n  button(\"Freeze grid\", 1)\n  button(\"Thaw grid\", 2)\n  button(\"Clear\", 3)\n  animate()\n}\n\nexport fn onclick_1() {\n  world.lock(true)\n}\n\nexport fn onclick_2() {\n  world.lock(false)\n  warned = false\n}\n\nexport fn onclick_3() {\n  world.setup()\n  wipe(sparks)\n  fill(stats, 0)\n}\n\nexport fn frame() {\n  tick++\n  stats[1] += 1\n  // the spout wanders by itself; a touch takes it over\n  if (touching() == 1) {\n    spout = touchX() * 160 / screenW()\n  } else {\n    spout += dir\n    if (spout < 12) { dir = 1 }\n    if (spout > 148) { dir = -1 }\n  }\n  if (tick % 2 == 0) { pour(spout) }\n  world.step()\n  moveSparks()\n  paint()\n}\n\n// Drop a grain. A frozen grid refuses the write: catch it, say so once\nfn pour(x: int) {\n  try {\n    world.drop(x)\n    stats[0] += 1\n    if (tick % 8 == 0) { spark(x) }\n  } catch (e) {\n    stats[2] += 1\n    if (warned == false) {\n      printStr(\"caught: \" + e.message)\n      printStr(\"Thaw the grid, or poke it in the MEMORY tab: a front panel write overrides the lock.\")\n      warned = true\n    }\n  }\n}\n\nfn spark(x: int) {\n  let i = next\n  next = (next + 1) % sparks.length\n  sparks[i].x = x\n  sparks[i].y = 1.0\n  sparks[i].vx = random() * 2.0 - 1.0\n  sparks[i].vy = random() * 0.5\n  sparks[i].life = 45\n  sparks[i].alive = true\n}\n\nfn moveSparks() {\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      sparks[i].x = sparks[i].x + sparks[i].vx\n      sparks[i].vy = sparks[i].vy + 0.06\n      sparks[i].y = sparks[i].y + sparks[i].vy\n      sparks[i].life = sparks[i].life - 1\n      if (sparks[i].life <= 0) { sparks[i].alive = false }\n    }\n    i++\n  }\n}\n\n// The grid, one byte per cell, becomes 4 bytes per pixel in fb\nfn paint() {\n  mut p = 0\n  while (p < 160 * 120) {\n    let g = world.grid[p]\n    let o = p * 4\n    if (g == 0) {\n      fb[o] = 10\n      fb[o + 1] = 12\n      fb[o + 2] = 22\n    } else if (g == 1) {\n      fb[o] = 72\n      fb[o + 1] = 80\n      fb[o + 2] = 110\n    } else {\n      fb[o] = 205 + g % 50\n      fb[o + 1] = 150 + g % 70\n      fb[o + 2] = 60 + g % 50\n    }\n    fb[o + 3] = 255\n    p++\n  }\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      let x = floor(sparks[i].x)\n      let y = floor(sparks[i].y)\n      if (x >= 0 && x < 160 && y >= 0 && y < 120) {\n        let o = (y * 160 + x) * 4\n        fb[o] = 255\n        fb[o + 1] = 245\n        fb[o + 2] = 170\n      }\n    }\n    i++\n  }\n  // a violet bar on top while the grid is frozen\n  if (world.isFrozen()) {\n    mut x = 0\n    while (x < 160) {\n      fb[x * 4] = 167\n      fb[x * 4 + 1] = 139\n      fb[x * 4 + 2] = 250\n      x++\n    }\n  }\n}\n//// file: sand/world.emit\npackage sand\n\n// The grid: one byte per cell, 160 x 120.\n// 0 = empty, 1 = wall, 2..255 = sand (the value is the grain's shade)\npublic region grid: u8[160 * 120]\n\nlet W = 160\nlet H = 120\nmut tick = 0\n\npublic fn setup() {\n  thaw(grid)\n  wipe(grid)\n  // two shelves for the sand to pile on and slide off\n  mut x = 0\n  while (x < 56) {\n    grid[(62 + x / 4) * W + 18 + x] = 1\n    grid[(88 - x / 5) * W + 142 - x] = 1\n    x++\n  }\n}\n\npublic fn lock(on: bool) {\n  if (on) { freeze(grid) } else { thaw(grid) }\n}\n\npublic fn isFrozen() bool {\n  return frozen(grid)\n}\n\n// A new grain at the top of column x: a write, so a frozen grid refuses it\npublic fn drop(x: int) {\n  let cx = max(0, min(W - 1, x))\n  grid[W + cx] = randInt(2, 255)\n}\n\n// One step of falling sand, bottom row first so a grain moves once per step\npublic fn step() {\n  if (frozen(grid) == false) {\n    tick++\n    mut y = H - 2\n    while (y >= 0) {\n      mut i = 0\n      while (i < W) {\n        mut x = i\n        if (tick % 2 == 1) { x = W - 1 - i }\n        let p = y * W + x\n        let g = grid[p]\n        if (g > 1) { fall(p, x, g) }\n        i++\n      }\n      y--\n    }\n  }\n}\n\n// Down if free, else down-left or down-right (alternating which is tried first)\nfn fall(p: int, x: int, g: int) {\n  let below = p + W\n  mut d = 1\n  if ((x + tick) % 2 == 0) { d = -1 }\n  if (grid[below] == 0) {\n    grid[below] = g\n    grid[p] = 0\n  } else if (x + d >= 0 && x + d < W && grid[below + d] == 0) {\n    grid[below + d] = g\n    grid[p] = 0\n  } else if (x - d >= 0 && x - d < W && grid[below - d] == 0) {\n    grid[below - d] = g\n    grid[p] = 0\n  }\n}\n"};
 EX.sfx="// Sound — sound effects and music as blocks of the program\n// Open 🧰 (Drawer) → Sound or Music to edit them with sliders and a piano roll,\n// or edit the lines below by hand: the tools read them back.\n\nsound coin: square 988, 80ms, atk 1, rel 180, vol 0.4, arp 1.335 60ms\nsound jump: square 300 > 720, 150ms, atk 2, dec 80, sus 0.5, rel 70, vol 0.4, curve exp\nsound laser: saw 1500 > 220, 170ms, atk 1, vol 0.35, lowpass 7000, curve exp\nsound boom: noise 900 > 80, 420ms, atk 2, dec 300, sus 0.3, rel 320, vol 0.7, lowpass 3200, curve exp\n\nmusic theme: 132 bpm, 16 steps\n  lead square vol 0.7: E5 . G5 . C6 - - . G5 . E5 . D5 - - .\n  bass triangle: C3 - - - C3 - - - A2 - - - G2 - - -\n  drums: K . H . S . H . K K H . S . H H\n\nmut coins = 0\n\nexport fn start() {\n  div(\"Sounds start after your first tap (phones allow audio only then).\")\n  button(\"Coin\", 1)\n  button(\"Jump\", 2)\n  button(\"Laser\", 3)\n  button(\"Boom\", 4)\n  button(\"Music\", 5)\n  button(\"Stop music\", 6)\n}\n\nexport fn onclick_1() {\n  coins++\n  // every fifth coin a little higher\n  if (coins % 5 == 0) {\n    play(coin, 1.5)\n  } else {\n    play(coin)\n  }\n  print(coins)\n}\n\nexport fn onclick_2() {\n  play(jump)\n}\n\nexport fn onclick_3() {\n  // a slightly different pitch each time\n  play(laser, 0.8 + random() * 0.4, 0.8)\n}\n\nexport fn onclick_4() {\n  play(boom)\n}\n\nexport fn onclick_5() {\n  music(theme)\n  if (musicPlaying()) {\n    div(\"music: playing (loops until Stop music)\")\n  }\n}\n\nexport fn onclick_6() {\n  stopMusic()\n  div(\"music: stopped\")\n}\n";   // Sound: sound / music blocks, play(), music()
+EX.game="// Coin Dash — a whole game in thing and rules blocks (Help → Things, Rules).\n// Arrow keys / WASD, or hold a finger on the game, to move. Grab every coin;\n// the slimes chase you and every touch costs a heart. Tap to play again.\n\nthing hero: box 14 14 #5fcde4, at 153 113, speed 2, hp 3, solid\nthing coin: circ 5 #ffcd75, count 8, at 34 + (i % 4) * 80, 40 + floor(i / 4) * 150\nthing rock: box 60 8 #5d6f8a, count 2, at 130, 70 + i * 92, wall\nthing slime: oval 16 12 #6ec850, count 2, pool 6, at 10 + i * 284, 200, chase hero 0.6\n\nrules:\n  stage size 320 240\n  show score, hero.hp\n  every frame: hero mv stickX() * hero.speed, stickY() * hero.speed\n  on touch: hero mv (tapX() - hero.x - 7) / 12, (tapY() - hero.y - 7) / 12\n  on hit hero edge: block hero\n  on hit hero coin: remove coin : add score 1 : play coin\n  on hit hero slime: add hero.hp -1 : remove slime : say \"Ouch!\" : play hurt\n  every 4s: spawn slime at rnd(300), 0\n  when count(coin) == 0: say \"You win!\" : stop\n  when hero.hp <= 0: say \"Game over\" : stop\n";
 // ═══ EMIT COMPILER v0.4 — int/num + imports ═══
 const TT={INTEGER:'INTEGER',FLOAT:'FLOAT',STRING:'STRING',BOOLEAN:'BOOLEAN',NULL:'NULL',IDENTIFIER:'IDENTIFIER',KEYWORD:'KEYWORD',TYPE:'TYPE',PLUS:'PLUS',MINUS:'MINUS',STAR:'STAR',SLASH:'SLASH',PERCENT:'PERCENT',AMP:'AMP',PIPE:'PIPE',CARET:'CARET',TILDE:'TILDE',SHL:'SHL',SHR:'SHR',AND:'AND',OR:'OR',NOT:'NOT',EQ:'EQ',NEQ:'NEQ',LT:'LT',GT:'GT',LTE:'LTE',GTE:'GTE',ASSIGN:'ASSIGN',QUESTION:'QUESTION',NULLCOALESCE:'NULLCOALESCE',ARROW:'ARROW',DOT:'DOT',LPAREN:'LPAREN',RPAREN:'RPAREN',LBRACE:'LBRACE',RBRACE:'RBRACE',LBRACKET:'LBRACKET',RBRACKET:'RBRACKET',SEMICOLON:'SEMICOLON',COLON:'COLON',COMMA:'COMMA',PLUSPLUS:'PLUSPLUS',MINUSMINUS:'MINUSMINUS',PLUSEQ:'PLUSEQ',MINUSEQ:'MINUSEQ',STAREQ:'STAREQ',SLASHEQ:'SLASHEQ',EOF:'EOF'};
 const KW=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
@@ -4090,7 +4104,7 @@ function _sprLower(ast,S){
     if(n.type==='FunctionDecl'||n.type==='ImportDecl')fns.add(n.name);
     if(n.type==='VarDecl')globals.add(n.name);
     var sp=n.name&&byName.get(n.name);
-    if(sp&&/^(FunctionDecl|VarDecl|StructDecl|RegionDecl|ImportDecl)$/.test(n.type)){
+    if(sp&&/^(FunctionDecl|VarDecl|StructDecl|RegionDecl|ImportDecl)$/.test(n.type)&&!(n.type==='RegionDecl'&&/(^|\.)__lgT_/.test(String(n.elem)))){   /* a thing's region (LOGIC) may share its sprite's name */
       var what={FunctionDecl:'a function',VarDecl:'a variable',StructDecl:'a struct',RegionDecl:'a region',ImportDecl:'an import fn'}[n.type];
       fail('The name "'+n.name+'" is a sprite and also '+what+' (at '+where(n.loc)+') — sprite names are seen by every file, so rename one of them',{file:sp.loc.file,line:sp.nameLoc.line,col:sp.nameLoc.col});
     }
@@ -4548,6 +4562,981 @@ compile=(function(c){return function(source,target){
   return r;
 }})(compile);
 function compile(source,target='wasm32'){const t0=performance.now();const lexer=new Lexer(source);const tokens=lexer.tokenize();const parser=new Parser(tokens);const ast=parser.parse();const inj=injectBuiltins(ast);const annotator=new TypeAnnotator();annotator.annotate(ast);const checker=new TypeChecker();const errors=checker.check(ast);const codegen=new WasmCodegen(ast,target);const wasm=codegen.generate();return{wasm,ast,tokens,errors,imports:codegen.imports,functions:codegen.functions,injected:inj.injected,autoJs:inj.autoJs,elapsed:performance.now()-t0,stats:{tokens:tokens.length,decls:ast.body.length,funcs:codegen.functions.length,imports:codegen.imports.length,bytes:wasm.length}}}
+// ═══ THINGS & RULES ═══ game objects and QR2D-style rules, lowered to ordinary Emit (compiler half; the runtime
+// half is "THINGS & RULES (runtime half)" at the end of the first runtime block, the editor half is the LOGIC tool).
+//
+//   thing hero: box 16 16 #5fcde4, at 40 200, speed 2, hp 3, solid
+//   thing coin: circ 5 #ffcd75, count 5, at 30+i*50 80
+//   thing slime: oval 14 10 green, count 3, at 260 40+i*60, chase hero 0.6
+//   rules:
+//     every frame: hero mv stickX()*hero.speed, stickY()*hero.speed
+//     on hit hero coin: remove coin : add score 1 : play coin
+//     when count(coin) == 0: say "You win!" : stop
+//
+// Pipeline. The lexer masks #hex colours inside thing / rules blocks (they become identifier tokens marked
+// lgHex); parseTop reads `thing NAME:` and `rules:` blocks (column 1, the following indented lines) into
+// ThingDecl / RulesDecl; Parser.parse then lowers them (_lgLower) into ordinary declarations of the same file:
+// one struct + region per kind (`region hero: __lgT_hero[1]`, so hero[0].x works in user code and the Memory
+// tab shows it), auto-declared globals, generated functions (__lg_init, __lg_update, __lg_spawn_K …) and two
+// entry points (game, frame) that _emitModLink's wrapper exports under their plain names (also from a
+// non-entry file such as game.emit). The generated code is Emit source text parsed by the ordinary parser;
+// every generated node gets the position of the thing / rule line it came from, and the user's expressions
+// are spliced in with their own positions. A program without thing / rules blocks is not touched at all.
+var _LG_KEYS={left:37,up:38,right:39,down:40,space:32,enter:13,shift:16,ctrl:17,alt:18,esc:27,escape:27,tab:9,backspace:8};
+(function(){var i;for(i=0;i<26;i++)_LG_KEYS[String.fromCharCode(97+i)]=65+i;for(i=0;i<10;i++)_LG_KEYS[String(i)]=48+i})();
+var _LG_COLORS={white:'#ffffff',black:'#000000',red:'#e43b44',green:'#63c74d',blue:'#3b5dc9',yellow:'#feae34',orange:'#f77622',purple:'#b55088',pink:'#f6757a',cyan:'#2ce8f5',gray:'#8b9bb4',grey:'#8b9bb4',brown:'#be4a2f',navy:'#262b44',lime:'#a7f070',gold:'#ffcd75'};
+var _LG_BASE_FIELDS=['alive','x','y','vx','vy','w','h','px','py','frame','dir'];
+var _LG_THING_WORDS=['box','circ','oval','sprite','at','size','count','pool','from','chase','flee','wander','patrol','track','follow','gravity','bounce','wrap','solid','wall'];
+var _LG_EVENT_HELP='on start, every frame, every 2s, every 500ms, on key K, on keydown K, on keyup K, on press A, on hold A, on tap, on touch, on hit A B, when <condition>, each K, each K when <condition>';
+var _LG_VERBS=['mv','vel','to','spawn','remove','block','bounce','set','add','play','music','say','frame','restart','stop','call'];
+var _LG_SUBJ_VERBS={mv:1,vel:1,to:1,remove:1,block:1,bounce:1,frame:1};
+var _LG_FN_HELPERS={rnd:1,stickX:1,stickY:1,tapX:1,tapY:1,count:1};
+class ThingDecl extends Z{constructor(n,items,l){super('ThingDecl',l);this.name=n;this.items=items}}
+class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=rules}}
+// ── lexer: #hex colours inside thing / rules blocks ──
+(function(){
+  var tk0=Lexer.prototype.tokenize,HEAD=/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/;
+  /* tokens on lines outside every block (the shared scanner, _emitScanBlocks) get lgOut: a thing / rules block
+     ends there even when the line does not start in column 1 (e.g. indented lines after a column-1 comment) */
+  function outMark(src,ts){
+    var inb=new Uint8Array(src.split('\n').length+2);
+    _emitScanBlocks(src).forEach(function(b){for(var i=b.start;i<=b.end;i++)inb[i+1]=1});
+    ts.forEach(function(t){if(t&&t.line&&!inb[t.line])t.lgOut=true});
+    return ts;
+  }
+  Lexer.prototype.tokenize=function(){
+    if(typeof this.s!=='string'||!/^(thing[ \t]+[A-Za-z_]\w*[ \t]*:|rules[ \t]*:)/m.test(this.s))return tk0.call(this);
+    var src0=this.s;
+    var lines=this.s.split('\n'),inB=false,marks=Object.create(null),any=false;
+    for(var li=0;li<lines.length;li++){
+      var ln=lines[li];
+      if(HEAD.test(ln))inB=true;
+      else if(/^[^\s\/]/.test(ln))inB=false;
+      if(!inB||ln.indexOf('#')<0)continue;
+      var out='',q=null;
+      for(var c=0;c<ln.length;c++){
+        var ch=ln[c];
+        if(q){out+=ch;if(ch==='\\'&&c+1<ln.length){out+=ln[++c];continue}if(ch===q)q=null;continue}
+        if(ch==='"'||ch==="'"){q=ch;out+=ch;continue}
+        if(ch==='/'&&ln[c+1]==='/'){out+=ln.slice(c);break}
+        if(ch==='#'&&/[0-9a-fA-F]/.test(ln[c+1]||'')){out+='_';marks[(li+1)+':'+(c+1)]=1;any=true;continue}
+        out+=ch;
+      }
+      lines[li]=out;
+    }
+    if(!any)return outMark(src0,tk0.call(this));
+    var s0=this.s,ts;this.s=lines.join('\n');
+    try{ts=tk0.call(this)}finally{this.s=s0}
+    ts.forEach(function(t){if(t.type===TT.IDENTIFIER&&marks[t.line+':'+t.col]){t.value='#'+String(t.value).slice(1);t.lgHex=true}});
+    return outMark(src0,ts);
+  };
+})();
+// ── syntax: thing NAME: … and rules: … (contextual words in column 1) ──
+(function(){
+  var P=Parser.prototype,top0=P.parseTop,parse0=P.parse;
+  function E(t,m){return new Error(t.line+':'+t.col+': '+m)}
+  function tokLen(t){return t.type===TT.STRING?String(t.value).length+2:String(t.value).length||1}
+  function Cur(toks,owner){this.t=toks;this.k=0;this.owner=owner}
+  Cur.prototype.peek=function(o){return this.t[this.k+(o||0)]};
+  Cur.prototype.end=function(){return this.k>=this.t.length};
+  Cur.prototype.next=function(){return this.t[this.k++]};
+  Cur.prototype.eofTok=function(){var l=this.t[this.t.length-1]||this.owner;return new Token(TT.EOF,'',l.line,l.col+tokLen(l))};
+  Cur.prototype.here=function(){return this.end()?this.eofTok():this.peek()};
+  Cur.prototype.isWord=function(v,o){var t=this.peek(o);return!!t&&(t.type===TT.IDENTIFIER||t.type===TT.KEYWORD||t.type===TT.TYPE)&&(v===undefined||t.value===v)};
+  Cur.prototype.isType=function(ty,o){var t=this.peek(o);return!!t&&t.type===ty};
+  Cur.prototype.expr=function(what){
+    if(this.end()||this.isType(TT.COLON)||this.isType(TT.COMMA))throw E(this.here(),'Expected '+what);
+    var sub=new Parser(this.t.slice(this.k).concat([this.eofTok()])),e;
+    e=sub.parseExpr();
+    e.lgToks=this.t.slice(this.k,this.k+sub.p);
+    this.k+=sub.p;
+    return e;
+  };
+  Cur.prototype.word=function(what){var t=this.peek();if(t&&(t.type===TT.IDENTIFIER||t.type===TT.KEYWORD||t.type===TT.TYPE))return this.next();throw E(this.here(),'Expected '+what)};
+  // an optional comma between the two numbers of a pair (mv -2, 0) — only when a value follows it
+  Cur.prototype.pairSep=function(){
+    if(!this.isType(TT.COMMA))return;
+    var n=this.peek(1);
+    if(n&&(n.type===TT.INTEGER||n.type===TT.FLOAT||n.type===TT.MINUS||n.type===TT.LPAREN||(n.type===TT.IDENTIFIER&&_LG_THING_WORDS.indexOf(n.value)<0&&!this.owner.lgThing)))this.next();
+  };
+  P.lgBlock=function(){
+    var first=this.cur(),lines=[],cur=null,last=-1;
+    while(!this.check(TT.EOF)){
+      var t=this.cur();
+      if(t.line!==first.line&&(t.col===1||t.lgOut))break;
+      if(t.line!==last){cur=[];lines.push(cur);last=t.line}
+      cur.push(this.adv());
+    }
+    return lines;
+  };
+  P.parseTop=function(){
+    var t=this.cur(),n=this.t[this.p+1],n2=this.t[this.p+2];
+    if(t.type===TT.IDENTIFIER&&t.col===1&&n&&n.line===t.line){
+      if(t.value==='thing'&&(n.type===TT.IDENTIFIER||n.type===TT.TYPE||n.type===TT.KEYWORD)){
+        if(n.type!==TT.IDENTIFIER)throw E(n,'"'+n.value+'" cannot name a thing — it is a reserved word');
+        if(!(n2&&n2.type===TT.COLON&&n2.line===t.line))throw E(n2&&n2.line===t.line?n2:n,'Expected : after thing '+n.value+' — thing '+n.value+': box 16 16 #ffffff');
+        return this.parseThing();
+      }
+      if(t.value==='rules'&&n.type===TT.COLON)return this.parseRules();
+    }
+    return top0.call(this);
+  };
+  P.parseThing=function(){
+    var l=this.loc(),lines=this.lgBlock(),head=lines[0],nt=head[1],items=[];
+    lines[0]=head.slice(3);
+    var owner={line:head[2].line,col:head[2].col,lgThing:true};
+    lines.forEach(function(toks){
+      if(!toks.length)return;
+      var C=new Cur(toks,owner);
+      while(!C.end()){
+        items.push(lgThingItem(C,nt.value));
+        if(C.end())break;
+        if(!C.isType(TT.COMMA))throw E(C.peek(),'Expected , between the parts of thing '+nt.value+' (or a new line)');
+        C.next();
+        if(C.end())break;
+      }
+    });
+    var d=new ThingDecl(nt.value,items,l);
+    d.nameTok=nt;
+    return d;
+  };
+  function color(C){
+    var t=C.peek();
+    if(t&&t.type===TT.IDENTIFIER&&t.lgHex){
+      if(!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(t.value))throw E(t,'"'+t.value+'" is not a colour — write #rgb or #rrggbb, e.g. #ffcd75');
+      C.next();return{value:t.value,tok:t};
+    }
+    if(t&&t.type===TT.IDENTIFIER&&Object.prototype.hasOwnProperty.call(_LG_COLORS,t.value)){C.next();return{value:t.value,tok:t}}
+    return null;
+  }
+  function optExpr(C){return(C.end()||C.isType(TT.COMMA))?null:C.expr('a number')}
+  function lgThingItem(C,kname){
+    var w=C.peek();
+    if(w&&w.type===TT.IDENTIFIER&&w.lgHex)throw E(w,'A colour belongs right after the shape — box 16 16 '+w.value);
+    w=C.word('a part of thing '+kname+' — box W H #color, circ R #color, oval W H #color, sprite NAME, at X Y, count N, …');
+    var it={kind:w.value,tok:w};
+    switch(w.value){
+      case'box':case'oval':it.w=C.expr('the width — '+w.value+' 16 16 #ffffff');it.h=C.expr('the height — '+w.value+' 16 16 #ffffff');it.color=color(C);break;
+      case'circ':it.r=C.expr('the radius — circ 8 #ffffff');it.color=color(C);break;
+      case'sprite':it.sprite=C.word('a sprite name — sprite hero');break;
+      case'at':it.x=C.expr('the x position — at 40 200');C.pairSep();it.y=C.expr('the y position — at 40 200');break;
+      case'size':it.w=C.expr('the width — size 16 16');C.pairSep();it.h=C.expr('the height — size 16 16');break;
+      case'count':case'pool':it.n=C.expr('how many — '+w.value+' 10');break;
+      case'from':
+        if(!C.isWord('map'))throw E(C.here(),'Expected map after from — from map level1');
+        C.next();it.map=C.word('a map name — from map level1');break;
+      case'chase':case'flee':case'track':
+        it.target=C.word('the thing to '+w.value+' — '+w.value+' hero'+(w.value==='track'?'':' 1.5'));
+        if(w.value!=='track')it.speed=optExpr(C);
+        break;
+      case'follow':it.target=C.word('the thing to follow — follow hero');it.gap=optExpr(C);break;
+      case'wander':case'patrol':it.speed=optExpr(C);break;
+      case'gravity':it.g=C.expr('the pull per frame — gravity 0.3');break;
+      case'bounce':case'wrap':case'solid':case'wall':break;
+      default:
+        if(C.end()||C.isType(TT.COMMA)){
+          var hint=_emitModClosest(w.value,_LG_THING_WORDS);
+          throw E(w,'Unknown part "'+w.value+'" of thing '+kname+(hint?' — did you mean "'+hint+'"?':' — use box, circ, oval, sprite, at, size, count, pool, from map, chase, flee, wander, patrol, track, follow, gravity, bounce, wrap, solid, wall, or NAME VALUE for a field (hp 3)'));
+        }
+        if(w.type!==TT.IDENTIFIER)throw E(w,'"'+w.value+'" is a reserved word — it cannot name a field');
+        var near=_emitModClosest(w.value,_LG_THING_WORDS);
+        var nx=C.peek();
+        if(near&&near!==w.value&&nx&&nx.type===TT.IDENTIFIER)throw E(w,'Unknown part "'+w.value+'" of thing '+kname+' — did you mean "'+near+'"?');
+        it.kind='field';it.name=w.value;it.value=C.expr('the starting value of field '+w.value+' — '+w.value+' 3');
+    }
+    return it;
+  }
+  P.parseRules=function(){
+    var l=this.loc(),lines=this.lgBlock(),rules=[];
+    lines[0]=lines[0].slice(2);
+    var owner=lines[0].length?lines[0][0]:{line:l.line,col:l.col+5};
+    lines.forEach(function(toks){if(toks.length)rules.push(lgRule(new Cur(toks,{line:toks[0].line,col:toks[0].col})))});
+    var d=new RulesDecl(rules,l);
+    void owner;
+    return d;
+  };
+  function keyTok(C,what){
+    var t=C.peek();
+    if(t&&(t.type===TT.IDENTIFIER||t.type===TT.INTEGER)){
+      var k=String(t.value).toLowerCase();
+      if(Object.prototype.hasOwnProperty.call(_LG_KEYS,k)){C.next();return{tok:t,code:_LG_KEYS[k],name:k}}
+      throw E(t,'Unknown key "'+t.value+'" — use left right up down space enter shift ctrl alt esc tab backspace, a–z or 0–9');
+    }
+    throw E(C.here(),'Expected a key after '+what+' — '+what+' left');
+  }
+  function btnTok(C,what){
+    var t=C.peek();
+    if(t&&t.type===TT.IDENTIFIER&&/^[abcABC]$/.test(t.value)){C.next();return{tok:t,btn:t.value.toUpperCase()}}
+    throw E(C.here(),'Expected A, B or C after '+what+' — '+what+' A');
+  }
+  function lgRule(C){
+    var w=C.peek(),r={tok:w,actions:[]};
+    if(w.type===TT.IDENTIFIER&&(w.value==='stage'||w.value==='seed'||w.value==='show'))return lgDirective(C);
+    if(!(w.type===TT.IDENTIFIER||w.type===TT.KEYWORD))throw E(w,'Expected an event — '+_LG_EVENT_HELP);
+    C.next();
+    switch(w.value){
+      case'on':{
+        var e=C.word('what to react to after on — on start, on key left, on press A, on tap, on hit hero coin');
+        r.ev=e.value;r.evTok=e;
+        switch(e.value){
+          case'start':case'tap':case'touch':break;
+          case'key':case'keydown':case'keyup':r.key=keyTok(C,'on '+e.value);break;
+          case'press':case'hold':r.btn=btnTok(C,'on '+e.value);break;
+          case'hit':r.a=C.word('two things after on hit — on hit hero coin');r.b=C.word('a second thing after on hit '+r.a.value+' — on hit '+r.a.value+' coin (or wall, edge)');break;
+          default:{var h=_emitModClosest(e.value,['start','key','keydown','keyup','press','hold','tap','touch','hit']);throw E(e,'Unknown event "on '+e.value+'"'+(h?' — did you mean "on '+h+'"?':' — use on start, on key K, on keydown K, on keyup K, on press A, on hold A, on tap, on touch, on hit A B'))}
+        }
+        break;
+      }
+      case'every':{
+        if(C.isWord('frame')){C.next();r.ev='frame';break}
+        var n=C.peek();
+        if(!n||(n.type!==TT.INTEGER&&n.type!==TT.FLOAT))throw E(C.here(),'Expected frame or a time after every — every frame, every 2s, every 500ms');
+        C.next();
+        var u=C.peek();
+        if(!u||u.type!==TT.IDENTIFIER||(u.value!=='s'&&u.value!=='ms')||u.line!==n.line)throw E(u&&u.line===n.line?u:C.here(),'Expected s or ms after the number — every '+n.value+'s, every 500ms');
+        C.next();
+        r.ev='every';r.frames=Math.max(1,Math.round(Number(n.value)*(u.value==='s'?60:0.06)));r.evTok=n;
+        break;
+      }
+      case'when':r.ev='when';r.cond=C.expr('a condition after when — when score >= 10');break;
+      case'each':
+        r.ev='each';r.kind=C.word('a thing after each — each slime: mv 0, 1');
+        if(C.isWord('when')){C.next();r.cond=C.expr('a condition after when — each slime when slime.y > 240')}
+        break;
+      default:{var hh=_emitModClosest(w.value,['on','every','when','each','stage','seed','show']);throw E(w,'Unknown event "'+w.value+'"'+(hh?' — did you mean "'+hh+'"?':' — a rule starts with on, every, when or each ('+_LG_EVENT_HELP+')'))}
+    }
+    if(!C.isType(TT.COLON))throw E(C.here(),C.end()?'Expected : and an action after the event — on tap: hero to tapX(), tapY()':'Expected : after the event — '+(r.ev==='hit'?'on hit '+r.a.value+' '+r.b.value+': remove '+r.b.value:'on start: set score 0'));
+    C.next();
+    for(;;){
+      r.actions.push(lgAction(C));
+      if(C.end())break;
+      if(!C.isType(TT.COLON))throw E(C.peek(),'Expected : between two actions — add score 1 : play coin');
+      C.next();
+    }
+    return r;
+  }
+  function lgDirective(C){
+    var w=C.next(),r={tok:w,dir:w.value};
+    if(w.value==='seed'){r.n=C.expr('a number after seed — seed 42')}
+    else if(w.value==='show'){r.items=[C.expr('what to show — show score')];while(C.isType(TT.COMMA)){C.next();r.items.push(C.expr('what to show — show score, hero.hp'))}}
+    else{
+      var s=C.word('size, color or map after stage — stage size 320 240');r.what=s.value;r.whatTok=s;
+      if(s.value==='size'){r.w=C.expr('the width — stage size 320 240');C.pairSep();r.h=C.expr('the height — stage size 320 240')}
+      else if(s.value==='color'){r.color=color(C);if(!r.color)throw E(C.here(),'Expected a colour — stage color #1a1c2c')}
+      else if(s.value==='map'){r.map=C.word('a map name — stage map level1')}
+      else if(s.value==='controls'){r.ctl=C.word('the name of a controls block — stage controls pad')}
+      else throw E(s,'Unknown stage setting "'+s.value+'" — stage size W H, stage color #rrggbb, stage map NAME, stage controls NAME');
+    }
+    if(!C.end())throw E(C.peek(),'Unexpected "'+C.peek().value+'" after '+(r.dir==='stage'?'stage '+r.what:r.dir));
+    return r;
+  }
+  function lgAction(C){
+    var w=C.peek(),a={tok:w};
+    if(!w||!(w.type===TT.IDENTIFIER||w.type===TT.KEYWORD))throw E(C.here(),'Expected an action — '+_LG_VERBS.join(', '));
+    var n=C.peek(1);
+    if(w.type===TT.IDENTIFIER&&_LG_VERBS.indexOf(w.value)<0&&n&&n.type===TT.IDENTIFIER&&_LG_SUBJ_VERBS[n.value]){a.subj=C.next();w=C.peek();a.tok=w}
+    C.next();
+    a.verb=w.value;
+    var end=function(){return C.end()||C.isType(TT.COLON)};
+    switch(w.value){
+      case'mv':case'vel':case'to':a.x=C.expr('two numbers — '+w.value+' 2, 0');C.pairSep();a.y=C.expr('a second number — '+w.value+' 2, 0');break;
+      case'spawn':
+        a.kind=C.word('a thing after spawn — spawn bullet at hero.x hero.y vel 6 0');
+        if(C.isWord('at')){C.next();a.x=C.expr('x after at');C.pairSep();a.y=C.expr('y after at')}
+        if(C.isWord('vel')){C.next();a.vx=C.expr('vx after vel');C.pairSep();a.vy=C.expr('vy after vel')}
+        break;
+      case'remove':case'block':case'bounce':
+        if(!a.subj&&!end())a.subj=C.word('a thing — '+w.value+' hero');
+        break;
+      case'frame':
+        if(!a.subj&&C.isType(TT.IDENTIFIER)){var f1=C.peek(1);if(f1&&f1.line===w.line&&(f1.type===TT.INTEGER||f1.type===TT.FLOAT||f1.type===TT.IDENTIFIER||f1.type===TT.LPAREN||f1.type===TT.STRING))a.subj=C.next()}
+        a.value=C.expr('the frame number — frame hero 2');
+        break;
+      case'set':case'add':{
+        var t=C.word('a variable or thing field after '+w.value+' — '+w.value+' score 1, '+w.value+' hero.hp -1');
+        a.target=t;
+        if(C.isType(TT.DOT)){C.next();a.field=C.word('a field name after '+t.value+'.');}
+        a.value=C.expr('a value — '+w.value+' '+t.value+(a.field?'.'+a.field.value:'')+' 1');
+        break;
+      }
+      case'play':case'music':{
+        var s=C.peek();
+        if(s&&(s.type===TT.IDENTIFIER||s.type===TT.STRING||s.type===TT.KEYWORD)){C.next();a.name=String(s.value);a.nameTok=s}
+        else throw E(C.here(),'Expected a sound name after '+w.value+' — '+w.value+' coin');
+        break;
+      }
+      case'say':a.value=C.expr('what to say — say "You win!"');break;
+      case'restart':case'stop':break;
+      case'call':{
+        var f=C.peek();
+        if(!f||f.type!==TT.IDENTIFIER)throw E(C.here(),'Expected a function name after call — call openChest');
+        if(C.isType(TT.LPAREN,1)){a.callExpr=C.expr('a call')}
+        else{C.next();a.fn=f}
+        break;
+      }
+      default:{var hv=_emitModClosest(w.value,_LG_VERBS);throw E(w,'Unknown action "'+w.value+'"'+(hv?' — did you mean "'+hv+'"?':' — use '+_LG_VERBS.join(', ')))}
+    }
+    if(!end())throw E(C.peek(),'Unexpected "'+C.peek().value+'" after the '+a.verb+' action — separate actions with :');
+    return a;
+  }
+  // The LOGIC tool reads blocks with the compiler's own parser: one thing block, or one rules line wrapped as
+  // `rules:\n  <line>`. Returns {decl, tokens} (expressions carry .lgToks) or throws the compiler's error.
+  window._lgParseBlock=function(text){
+    var ts=new Lexer(String(text)).tokenize(),p=new Parser(ts),d=p.parseTop();
+    if(!p.check(TT.EOF))throw new Error(p.cur().line+':'+p.cur().col+': more than one block');
+    return{decl:d,tokens:ts};
+  };
+  P.parse=function(){
+    var prog=parse0.apply(this,arguments);
+    for(var i=0;i<prog.body.length;i++)if(prog.body[i]&&(prog.body[i].type==='ThingDecl'||prog.body[i].type==='RulesDecl')){_lgLower(prog);break}
+    return prog;
+  };
+})();
+// ── lowering ──
+function _lgLower(prog){
+  function E(at,m){var l=at&&(at.loc||at);return new Error(((l&&l.line)||1)+':'+((l&&l.col)||1)+': '+m)}
+  var body=prog.body,things=[],rulesDecl=null,userFns=new Map(),userVars=new Set(),userNames=new Map(),hasImports=false,userFrame=null,usesCanvas=false;
+  body.forEach(function(n){
+    if(!n)return;
+    if(n.type==='ThingDecl'){things.push(n);return}
+    if(n.type==='RulesDecl'){if(rulesDecl)throw E(n.loc,'A file has one rules: block — put these rules into the rules: block at line '+rulesDecl.loc.line);rulesDecl=n;return}
+    if(n.type==='ModImportDecl')hasImports=true;
+    if(n.type==='FunctionDecl'){userFns.set(n.name,n);if(n.name==='frame'&&n.exported)userFrame=n}
+    if(n.type==='ImportDecl')userFns.set(n.name,n);
+    if(n.type==='VarDecl')userVars.add(n.name);
+    if(n.name&&typeof n.name==='string'&&!/^(SoundDecl|MusicDecl|SpriteDecl)$/.test(n.type)){   /* play coin / sprite hero name blocks of their own kind */
+      if(/^__lg/.test(n.name))throw E(n.loc,'Names starting with __lg are reserved for the code generated from thing / rules blocks — rename '+n.name);
+      userNames.set(n.name,n);
+    }
+  });
+  (function scan(x){
+    if(!x||typeof x!=='object'||usesCanvas)return;
+    if(Array.isArray(x)){x.forEach(scan);return}
+    if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr'&&/^(canvas|screen|scene3d|pixiApp|physics)$/.test(x.callee.name)){usesCanvas=true;return}
+    for(var k in x){var v=x[k];if(v&&typeof v==='object'&&k!=='loc')scan(v)}
+  })(body.filter(function(n){return n&&n.type!=='ThingDecl'&&n.type!=='RulesDecl'}));
+  // ── kinds ──
+  var kinds=new Map(),KL=[];
+  things.forEach(function(d){
+    if(kinds.has(d.name))throw E(d.nameTok,'thing '+d.name+' is already declared at line '+kinds.get(d.name).decl.loc.line);
+    if(userNames.has(d.name))throw E(d.nameTok,'"'+d.name+'" is already declared at line '+((userNames.get(d.name).loc||{}).line||1)+' of this file — a thing name is a top-level name too (its region)');
+    if(/^__lg/.test(d.name))throw E(d.nameTok,'Names starting with __lg are reserved');
+    if(d.name==='wall'||d.name==='edge')throw E(d.nameTok,'"'+d.name+'" is a word of on hit (solid map tiles / the screen edge) — call the thing something else');
+    if(/^(sqrt|sin|cos|canvas|animate|wipe|rnd|count|stickX|stickY|tapX|tapY|i|game|frame)$/.test(d.name))throw E(d.nameTok,'"'+d.name+'" is used by the game code (a builtin, a rules helper or an entry point) — call the thing something else');
+    var K={name:d.name,decl:d,idx:KL.length,shape:null,sprite:null,at:null,size:null,count:null,pool:null,map:null,beh:[],flags:{},fields:[],fieldSet:new Set(),struct:'__lgT_'+d.name,track:false};
+    var seen={};
+    d.items.forEach(function(it){
+      var once=['at','size','count','pool','from','gravity','follow'];
+      var shapeW=['box','circ','oval','sprite'];
+      if(shapeW.indexOf(it.kind)>=0){if(K.shape)throw E(it.tok,'thing '+d.name+' already has a shape ('+K.shape.kind+') — a thing has one shape');K.shape=it;return}
+      if(once.indexOf(it.kind)>=0&&seen[it.kind])throw E(it.tok,it.kind+' is given twice for thing '+d.name);
+      seen[it.kind]=1;
+      switch(it.kind){
+        case'at':K.at=it;break;
+        case'size':K.size=it;break;
+        case'count':case'pool':{
+          var v=_rgTryFold(it.n);
+          if(v===null)throw E(it.n.loc,it.kind+' needs a whole number written as a constant — '+it.kind+' 10');
+          if(v<(it.kind==='pool'?1:0)||v>100000)throw E(it.n.loc,it.kind+' must be between '+(it.kind==='pool'?1:0)+' and 100000, not '+v);
+          K[it.kind]=v;break;
+        }
+        case'from':K.map=it.map;break;
+        case'bounce':case'wrap':case'solid':case'wall':K.flags[it.kind]=it;break;
+        case'gravity':K.gravity=it;break;
+        case'field':
+          if(_LG_BASE_FIELDS.indexOf(it.name)>=0||it.name==='fx'||it.name==='fy')throw E(it.tok,'"'+it.name+'" is a built-in field of every thing — '+(it.name==='x'||it.name==='y'?'set the position with at X Y':it.name==='w'||it.name==='h'?'set the size with size W H':'choose another name'));
+          if(K.fieldSet.has(it.name))throw E(it.tok,'Field "'+it.name+'" is given twice for thing '+d.name);
+          K.fieldSet.add(it.name);K.fields.push(it);break;
+        default:K.beh.push(it);if(it.kind==='track')K.track=true;
+      }
+    });
+    if(!K.shape)K.shape={kind:'box',tok:d.nameTok,w:null,h:null,color:null};
+    var cap=K.count!==null?K.count:(K.pool!==null||K.map?0:1);
+    K.alive0=cap;
+    if(K.pool!==null)cap=Math.max(cap,K.pool);
+    if(K.map&&K.pool===null)cap=Math.max(cap,64);
+    K.cap=Math.max(1,cap);
+    kinds.set(d.name,K);KL.push(K);
+  });
+  function kindHint(t){var h=_emitModClosest(t.value,KL.map(function(k){return k.name}));return h?' — did you mean "'+h+'"?':(KL.length?' — the things are: '+KL.map(function(k){return k.name}).join(', '):' — declare it first: thing '+t.value+': box 16 16 #ffffff')}
+  function kindOf(t,extra){
+    if(kinds.has(t.value))return kinds.get(t.value);
+    throw E(t,'Unknown thing "'+t.value+'"'+(extra||'')+kindHint(t));
+  }
+  KL.forEach(function(K){K.beh.forEach(function(b){if(b.target){b.T=kindOf(b.target)}})});
+  // ── generated text ──
+  var lines=[],anchors=[],ph=Object.create(null),phn=0,needFirst=new Set(),needFind=new Set(),needCount=new Set(),needSolid=false,needBlock=new Set(),autoVars=new Map(),showLabels=[],stage={w:320,h:240,color:'#1a1c2c',map:null},seed=null,hasStop=false;
+  var anchor=things.length?things[0].loc:rulesDecl.loc;
+  function L(s,at){String(s).split('\n').forEach(function(x){lines.push(x);anchors.push(at||anchor)})}
+  function lit(x){var s=String(x);return/[.eE]/.test(s)?s:s+'.0'}
+  function q(s){return JSON.stringify(String(s))}
+  // user expression → placeholder, rewritten for its context cx {binds: {kind: idxVar}, i: idxVar|null}
+  function X(e,cx){
+    var id='__lgX'+(phn++);
+    ph[id]=rw(e,cx||{binds:{}},e.lgToks||[]);
+    return id;
+  }
+  function clone(x){
+    if(!x||typeof x!=='object')return x;
+    if(Array.isArray(x))return x.map(clone);
+    var o=Object.create(Object.getPrototypeOf(x));
+    for(var k in x)if(Object.prototype.hasOwnProperty.call(x,k))o[k]=k==='lgToks'?undefined:(k==='loc'?(x[k]?{line:x[k].line,col:x[k].col}:x[k]):clone(x[k]));
+    delete o.lgToks;
+    return o;
+  }
+  function idxOf(K,cx){
+    if(cx.binds&&cx.binds[K.name])return new IdentifierExpr(cx.binds[K.name],null);
+    needFirst.add(K);
+    return new CallExpr(new IdentifierExpr('__lg_first_'+K.name,null),[],null);
+  }
+  function propTok(toks,loc){
+    for(var j=0;j+2<toks.length;j++)if(toks[j].line===loc.line&&toks[j].col===loc.col&&toks[j+1].type===TT.DOT)return toks[j+2];
+    return null;
+  }
+  function rw(e,cx,toks,nv){
+    if(!e||typeof e!=='object')return e;
+    if(Array.isArray(e))return e.map(function(x){return rw(x,cx,toks)});
+    if(e.type==='IdentifierExpr'){
+      if(e.name==='i'&&cx.i)return new IdentifierExpr(cx.i,{line:e.loc.line,col:e.loc.col});
+      if(kinds.has(e.name))throw E(e.loc,'"'+e.name+'" is a thing — use one of its fields: '+e.name+'.x, '+e.name+'.y'+(kinds.get(e.name).fields.length?', '+e.name+'.'+kinds.get(e.name).fields[0].name:'')+' (or count('+e.name+'))');
+      if(!nv&&!hasImports&&!userVars.has(e.name)&&!userFns.has(e.name)&&!preAuto.has(e.name)&&!userNames.has(e.name)){
+        var known=Array.from(userVars).concat(Array.from(preAuto.keys()));
+        var hn=_emitModClosest(e.name,known);
+        throw E(e.loc,'Unknown name "'+e.name+'"'+(hn?' — did you mean "'+hn+'"?':' — declare it (mut '+e.name+' = 0) or give it a value in a rule (set '+e.name+' 0)'));
+      }
+      return clone(e);
+    }
+    if(e.type==='MemberExpr'&&e.object&&e.object.type==='IdentifierExpr'&&kinds.has(e.object.name)){
+      var K=kinds.get(e.object.name),f=String(e.property);
+      if(_LG_BASE_FIELDS.indexOf(f)<0&&!K.fieldSet.has(f)&&!(K.track&&(f==='fx'||f==='fy'))){
+        var all=_LG_BASE_FIELDS.concat(K.fields.map(function(x){return x.name})),h=_emitModClosest(f,all),pt=propTok(toks,e.object.loc);
+        throw E(pt||e.loc,'thing '+K.name+' has no field "'+f+'"'+(h?' — did you mean "'+h+'"?':' — its fields: '+all.join(' ')));
+      }
+      var ie=new IndexExpr(new IdentifierExpr(K.name,{line:e.loc.line,col:e.loc.col}),idxOf(K,cx),{line:e.loc.line,col:e.loc.col});
+      return new MemberExpr(ie,f,{line:e.loc.line,col:e.loc.col});
+    }
+    if(e.type==='CallExpr'&&e.callee&&e.callee.type==='IdentifierExpr'&&_LG_FN_HELPERS[e.callee.name]&&!userFns.has(e.callee.name)){
+      var nm=e.callee.name,l={line:e.loc.line,col:e.loc.col},want=nm==='rnd'||nm==='count'?1:0;
+      if(e.args.length!==want)throw E(e.loc,nm+'() takes '+(want?'one argument — '+(nm==='rnd'?'rnd(100) is a random number from 0 up to 100':'count(coin) is how many coins are alive'):'no arguments'));
+      if(nm==='count'){
+        var a=e.args[0];
+        if(!a||a.type!=='IdentifierExpr'||!kinds.has(a.name))throw E(a?a.loc:e.loc,'count() takes the name of a thing — count(coin)');
+        needCount.add(kinds.get(a.name));
+        return new CallExpr(new IdentifierExpr('__lg_count_'+a.name,l),[],l);
+      }
+      if(nm==='rnd')return new CallExpr(new IdentifierExpr('__lg_rnd',l),[rw(e.args[0],cx,toks)],l);
+      var code={stickX:0,stickY:1,tapX:2,tapY:3}[nm];
+      return new CallExpr(new IdentifierExpr('__lgIn',l),[new IntLiteral(String(code),l)],l);
+    }
+    var o=Object.create(Object.getPrototypeOf(e));
+    for(var k in e){if(!Object.prototype.hasOwnProperty.call(e,k)||k==='lgToks')continue;var v=e[k];o[k]=k==='loc'?(v?{line:v.line,col:v.col}:v):(v&&typeof v==='object'?rw(v,cx,toks,(e.type==='CallExpr'&&k==='callee')||(e.type==='MemberExpr'&&k==='object')||e.type==='NewExpr'):v)}
+    return o;
+  }
+  function R(K,ix){return '@'+K.name+'['+ix+']'}
+  // ── directives ──
+  var rules=rulesDecl?rulesDecl.rules:[],preAuto=new Map();
+  var autoNum=new Set();
+  function intLit(e){return!!e&&(e.type==='IntLiteral'||(e.type==='UnaryExpr'&&e.op==='-'&&intLit(e.operand)))}
+  rules.forEach(function(r){(r.actions||[]).forEach(function(a){
+    if((a.verb==='set'||a.verb==='add')&&!a.field&&!userVars.has(a.target.value)){
+      if(!preAuto.has(a.target.value))preAuto.set(a.target.value,a.target);
+      if(!intLit(a.value))autoNum.add(a.target.value);
+    }
+  })});
+  rules.forEach(function(r){
+    if(!r.dir)return;
+    if(r.dir==='seed'){var s=_rgTryFold(r.n);if(s===null)throw E(r.n.loc,'seed needs a whole number constant — seed 42');seed=s}
+    else if(r.dir==='show'){r.items.forEach(function(e){showLabels.push({e:e,label:(e.lgToks||[]).map(function(t){return t.type===TT.STRING?JSON.stringify(t.value):String(t.value)}).join('')})})}
+    else if(r.what==='size'){var w=_rgTryFold(r.w),h=_rgTryFold(r.h);if(w===null||w<1)throw E(r.w.loc,'stage size needs whole numbers — stage size 320 240');if(h===null||h<1)throw E(r.h.loc,'stage size needs whole numbers — stage size 320 240');stage.w=w;stage.h=h}
+    else if(r.what==='color')stage.color=_LG_COLORS[r.color.value]||r.color.value;
+    else if(r.what==='map')stage.map=r.map.value;
+    else if(r.what==='controls'){stage.controls=r.ctl.value;Object.defineProperty(stage,'controlsTok',{value:r.ctl,enumerable:false,configurable:true})}   /* STAGE's on-screen controls: useControls(NAME) at the start */
+  });
+  if(!stage.map)KL.some(function(K){if(K.map){stage.map=K.map.value;return true}});
+  function solidUsed(){needSolid=true}
+  KL.forEach(function(K){if(K.flags.solid||K.flags.bounce||K.beh.some(function(b){return b.kind==='patrol'}))solidUsed()});
+  var wallKinds=KL.filter(function(K){return K.flags.wall});
+  // ── one action → lines ──
+  // ctx: {binds, i, hit:{A,B,a,b,other}|null, each:K|null, start:bool, rule}
+  function subject(a,cx,verb){
+    var K=null,ix=null;
+    if(a.subj){
+      K=kindOf(a.subj);
+      if(cx.binds[K.name])ix=cx.binds[K.name];
+    }else{
+      if(cx.hit){K=cx.hit.A;ix=cx.hit.a}
+      else if(cx.each){K=cx.each;ix=cx.binds[K.name]}
+      else throw E(a.tok,'Say which thing: '+(KL[0]?KL[0].name:'hero')+' '+verb+(verb==='mv'||verb==='vel'||verb==='to'?' 1, 0':verb==='frame'?' 2':'')+(verb==='remove'||verb==='block'||verb==='bounce'||verb==='frame'?' (or '+verb+' '+(KL[0]?KL[0].name:'hero')+')':'')+' — outside on hit / each, an action needs its thing');
+    }
+    return{K:K,ix:ix};
+  }
+  function act(a,cx,ind){
+    var at=a.tok,S;
+    function W(s){L(ind+s,at)}
+    function withSubj(verb,f){
+      S=subject(a,cx,verb);
+      if(S.ix){f(S.K,S.ix);return}
+      needFind.add(S.K);
+      var v='__lg_s'+(phn++);
+      W('let '+v+' = __lg_find_'+S.K.name+'()');
+      W('if ('+v+' >= 0) {');ind+='  ';f(S.K,v);ind=ind.slice(2);W('}');
+    }
+    switch(a.verb){
+      case'mv':withSubj('mv',function(K,ix){W(R(K,ix)+'.x += '+X(a.x,cx));W(R(K,ix)+'.y += '+X(a.y,cx))});break;
+      case'vel':withSubj('vel',function(K,ix){W(R(K,ix)+'.vx = '+X(a.x,cx));W(R(K,ix)+'.vy = '+X(a.y,cx))});break;
+      case'to':withSubj('to',function(K,ix){var tx=X(a.x,cx),ty=X(a.y,cx);W(R(K,ix)+'.x = '+tx);W(R(K,ix)+'.y = '+ty);W(R(K,ix)+'.px = '+R(K,ix)+'.x');W(R(K,ix)+'.py = '+R(K,ix)+'.y')});break;
+      case'frame':withSubj('frame',function(K,ix){W(R(K,ix)+'.frame = '+X(a.value,cx))});break;
+      case'remove':withSubj('remove',function(K,ix){W(R(K,ix)+'.alive = false')});break;
+      case'block':case'bounce':withSubj(a.verb,function(K,ix){
+        var neg=a.verb==='bounce'?'true':'false';
+        needBlock.add(K);
+        var h=cx.hit,other=null;
+        if(h&&ix===h.a)other=h.B?{K:h.B,ix:h.b}:h.other;
+        else if(h&&ix===h.b)other={K:h.A,ix:h.a};
+        if(other&&other.K)W('__lg_blockB_'+K.name+'('+ix+', '+R(other.K,other.ix)+'.x, '+R(other.K,other.ix)+'.y, '+R(other.K,other.ix)+'.w, '+R(other.K,other.ix)+'.h, '+neg+')');
+        else if(other==='wall'){solidUsed();W('__lg_blockW_'+K.name+'('+ix+', '+neg+')')}
+        else if(other==='edge')W('__lg_blockE_'+K.name+'('+ix+', '+neg+')');
+        else W('__lg_blockP_'+K.name+'('+ix+', '+neg+')');
+      });break;
+      case'spawn':{
+        var K=kindOf(a.kind);
+        var x=a.x?X(a.x,cx):'0.0',y=a.y?X(a.y,cx):'0.0',vx=a.vx?X(a.vx,cx):'0.0',vy=a.vy?X(a.vy,cx):'0.0';
+        W('__lg_spawn_'+K.name+'('+x+', '+y+', '+vx+', '+vy+', '+(a.x?'false':'true')+')');
+        break;
+      }
+      case'set':case'add':{
+        var op=a.verb==='set'?' = ':' += ',val=X(a.value,cx);
+        if(a.field){
+          var TK=kindOf(a.target),f=a.field.value;
+          if(_LG_BASE_FIELDS.indexOf(f)<0&&!TK.fieldSet.has(f)&&!(TK.track&&(f==='fx'||f==='fy'))){var hh=_emitModClosest(f,_LG_BASE_FIELDS.concat(TK.fields.map(function(z){return z.name})));throw E(a.field,'thing '+TK.name+' has no field "'+f+'"'+(hh?' — did you mean "'+hh+'"?':''))}
+          if(f==='alive')throw E(a.field,'Use remove / spawn to change whether a thing is alive');
+          if(cx.binds[TK.name]){W(R(TK,cx.binds[TK.name])+'.'+f+op+val)}
+          else{needFind.add(TK);var v2='__lg_s'+(phn++);W('let '+v2+' = __lg_find_'+TK.name+'()');W('if ('+v2+' >= 0) { '+R(TK,v2)+'.'+f+op+val+' }')}
+        }else{
+          var nm=a.target.value;
+          if(kinds.has(nm))throw E(a.target,'"'+nm+'" is a thing — '+a.verb+' one of its fields: '+a.verb+' '+nm+'.x 10');
+          if(nm==='i')throw E(a.target,'i is the number of the thing involved — it cannot be changed');
+          if(!userVars.has(nm)){
+            if(userFns.has(nm))throw E(a.target,'"'+nm+'" is a function — '+a.verb+' needs a variable');
+            if(!autoVars.has(nm))autoVars.set(nm,a.target);
+          }
+          W('@'+nm+op+val);
+        }
+        break;
+      }
+      case'play':case'music':W('__lgPlay('+q(a.name)+', '+(a.verb==='music'?1:0)+')');break;
+      case'say':W('__lgSay("" + '+X(a.value,cx)+')');break;
+      case'restart':if(cx.start)throw E(at,'restart cannot be an action of on start — it would start again forever');W('__lg_init()');W('return;');break;
+      case'stop':if(cx.start)throw E(at,'stop cannot be an action of on start');hasStop=true;W('__lg_on = false');W('__lg_hold = true');W('return;');break;
+      case'call':{
+        if(a.callExpr){W(X(a.callExpr,cx));break}
+        var fn=a.fn.value,fd=userFns.get(fn),idx=[];
+        if(cx.hit){idx.push(cx.hit.a);if(cx.hit.B)idx.push(cx.hit.b)}
+        else if(cx.each)idx.push(cx.binds[cx.each.name]);
+        if(!fd){
+          if(kinds.has(fn))throw E(a.fn,'"'+fn+'" is a thing, not a function');
+          if(!hasImports){var hf=_emitModClosest(fn,Array.from(userFns.keys()));throw E(a.fn,'Unknown function "'+fn+'"'+(hf?' — did you mean "'+hf+'"?':' — declare it in this file: fn '+fn+'() { … }'))}
+          W('@'+fn+'()');break;
+        }
+        var np=(fd.params||[]).length;
+        if(np>idx.length)throw E(a.fn,'call '+fn+': '+fn+'() takes '+np+' parameter'+(np>1?'s':'')+', but this rule has '+(idx.length?idx.length+' thing number'+(idx.length>1?'s':'')+' to pass ('+(cx.hit?'on hit passes the two things involved':'each passes its thing')+')':'no thing to pass (only on hit and each pass the numbers of their things)'));
+        W('@'+fn+'('+idx.slice(0,np).join(', ')+')');
+        break;
+      }
+    }
+  }
+  function acts(r,cx,ind){r.actions.forEach(function(a){act(a,cx,ind)})}
+  // ── declarations ──
+  KL.forEach(function(K){
+    var at=K.decl.loc,f=['alive: bool','x: num','y: num','vx: num','vy: num','w: num','h: num','px: num','py: num','frame: num','dir: num'];
+    if(K.track)f.push('fx: num','fy: num');
+    K.fields.forEach(function(x){f.push(x.name+': num')});
+    L('struct '+K.struct+' { '+f.join(', ')+' }',at);
+    L('region @'+K.name+': '+K.struct+'['+K.cap+']',at);
+  });
+  L('import fn __lgIn(k: int) num from "__js__"');
+  L('import fn __lgFrame(tick: num, on: int) from "__js__"');
+  L('import fn __lgSay(s: str) from "__js__"');
+  L('import fn __lgPlay(name: str, music: int) from "__js__"');
+  L('import fn __lgShow(slot: int, v: num) from "__js__"');
+  L('import fn __lgStart(seeded: int) int from "__js__"');
+  L('mut __lg_on = true');L('mut __lg_hold = false');L('mut __lg_tick = 0');L('mut __lg_seed = 0');L('mut __lg_W = '+lit(stage.w));L('mut __lg_H = '+lit(stage.h));
+  L('fn __lg_rnd(n: num) num {');
+  L('  __lg_seed = __lg_seed * 6364136223846793005 + 1442695040888963407');
+  L('  let r = (__lg_seed >> 33) & 2147483647');
+  L('  return r * n / 2147483648.0');
+  L('}');
+  // per-kind helpers
+  var helperAt={};
+  KL.forEach(function(K){
+    var at=K.decl.loc,cx={binds:{},i:'__lgv_k'};cx.binds[K.name]='__lgv_k';
+    var sh=K.shape;
+    L('fn __lg_new_'+K.name+'(k: int) {',at);
+    L('  '+R(K,'k')+'.alive = true',at);
+    var w,h;
+    if(K.size){w=X(K.size.w,cx);h=X(K.size.h,cx)}
+    else if(sh.kind==='circ'){var rr=X(sh.r,cx);w='2.0 * '+rr;h=null;L('  '+R(K,'k')+'.w = '+w,sh.tok);L('  '+R(K,'k')+'.h = '+R(K,'k')+'.w',sh.tok)}
+    else if(sh.kind==='sprite'){w='__lgSpr('+K.idx+', 0)';h='__lgSpr('+K.idx+', 1)';helperAt.spr=true}
+    else if(sh.w){w=X(sh.w,cx);h=X(sh.h,cx)}
+    else{w='16.0';h='16.0'}
+    if(h!==null){L('  '+R(K,'k')+'.w = '+w,K.size?K.size.tok:sh.tok);L('  '+R(K,'k')+'.h = '+h,K.size?K.size.tok:sh.tok)}
+    if(K.at){L('  '+R(K,'k')+'.x = '+X(K.at.x,cx),K.at.tok);L('  '+R(K,'k')+'.y = '+X(K.at.y,cx),K.at.tok)}
+    else{L('  '+R(K,'k')+'.x = 0.0');L('  '+R(K,'k')+'.y = 0.0')}
+    L('  '+R(K,'k')+'.vx = 0.0');L('  '+R(K,'k')+'.vy = 0.0');
+    L('  '+R(K,'k')+'.px = '+R(K,'k')+'.x');L('  '+R(K,'k')+'.py = '+R(K,'k')+'.y');
+    L('  '+R(K,'k')+'.frame = '+(sh.kind==='sprite'?'-1.0':'0.0'));L('  '+R(K,'k')+'.dir = 1.0');
+    if(K.track){L('  '+R(K,'k')+'.fx = 1.0');L('  '+R(K,'k')+'.fy = 0.0')}
+    K.fields.forEach(function(fl){L('  '+R(K,'k')+'.'+fl.name+' = '+X(fl.value,cx),fl.tok)});
+    K.beh.forEach(function(b){if(b.kind==='patrol')L('  '+R(K,'k')+'.vx = '+spd(K,b,cx),b.tok)});
+    L('}',at);
+    L('fn __lg_spawn_'+K.name+'(x: num, y: num, vx: num, vy: num, useAt: bool) int {',at);
+    L('  for (let k = 0; k < '+K.cap+'; k++) {',at);
+    L('    if (!'+R(K,'k')+'.alive) {',at);
+    L('      __lg_new_'+K.name+'(k)',at);
+    L('      if (!useAt) { '+R(K,'k')+'.x = x\n '+R(K,'k')+'.y = y\n '+R(K,'k')+'.px = x\n '+R(K,'k')+'.py = y }',at);
+    L('      if (vx != 0.0 || vy != 0.0) { '+R(K,'k')+'.vx = vx\n '+R(K,'k')+'.vy = vy }',at);
+    L('      return k',at);
+    L('    }',at);L('  }',at);L('  return -1',at);L('}',at);
+  });
+  function spd(K,b,cx){return b.speed?X(b.speed,cx):(K.fieldSet.has('speed')?R(K,'k')+'.speed':'1.0')}
+  // ── update ──
+  var U=[];   // collected later into __lg_update: we generate it in place
+  L('fn __lg_update() {');
+  // 1. remember positions, behaviours
+  KL.forEach(function(K){
+    var at=K.decl.loc,cx={binds:{},i:'__lgv_k'};cx.binds[K.name]='__lgv_k';
+    L('  for (let k = 0; k < '+K.cap+'; k++) {',at);
+    L('    if ('+R(K,'k')+'.alive) {',at);
+    L('      '+R(K,'k')+'.px = '+R(K,'k')+'.x',at);
+    L('      '+R(K,'k')+'.py = '+R(K,'k')+'.y',at);
+    K.beh.forEach(function(b){
+      var T=b.T,bt=b.tok,u='_'+(phn++);
+      if(b.kind==='chase'||b.kind==='flee'||b.kind==='track'){
+        var same=T===K;
+        L('      let bt'+u+' = -1',bt);L('      let bd'+u+' = 1000000000000000.0',bt);
+        L('      for (let t = 0; t < '+T.cap+'; t++) {',bt);
+        L('        if ('+R(T,'t')+'.alive'+(same?' && t != k':'')+') {',bt);
+        L('          let ddx'+u+' = '+R(T,'t')+'.x - '+R(K,'k')+'.x',bt);L('          let ddy'+u+' = '+R(T,'t')+'.y - '+R(K,'k')+'.y',bt);
+        L('          let dd'+u+' = ddx'+u+' * ddx'+u+' + ddy'+u+' * ddy'+u+'',bt);
+        L('          if (dd'+u+' < bd'+u+') { bd'+u+' = dd'+u+'\n bt'+u+' = t }',bt);
+        L('        }',bt);L('      }',bt);
+        L('      if (bt'+u+' >= 0) {',bt);
+        L('        let dx'+u+' = '+R(T,'bt'+u+'')+'.x + '+R(T,'bt'+u+'')+'.w / 2.0 - '+R(K,'k')+'.x - '+R(K,'k')+'.w / 2.0',bt);
+        L('        let dy'+u+' = '+R(T,'bt'+u+'')+'.y + '+R(T,'bt'+u+'')+'.h / 2.0 - '+R(K,'k')+'.y - '+R(K,'k')+'.h / 2.0',bt);
+        L('        let d'+u+' = sqrt(dx'+u+' * dx'+u+' + dy'+u+' * dy'+u+')',bt);
+        L('        if (d'+u+' > 0.0001) {',bt);
+        if(b.kind==='track'){L('          '+R(K,'k')+'.fx = dx'+u+' / d'+u+'',bt);L('          '+R(K,'k')+'.fy = dy'+u+' / d'+u+'',bt)}
+        else{var s=spd(K,b,cx),sg=b.kind==='flee'?'-':'';L('          '+R(K,'k')+'.vx = '+sg+'dx'+u+' / d'+u+' * '+s,bt);L('          '+R(K,'k')+'.vy = '+sg+'dy'+u+' / d'+u+' * '+s,bt)}
+        L('        }',bt);L('      }',bt);
+      }else if(b.kind==='wander'){
+        L('      if (__lg_rnd(1.0) < 0.02 || ('+R(K,'k')+'.vx == 0.0 && '+R(K,'k')+'.vy == 0.0)) {',bt);
+        L('        let wa'+u+' = __lg_rnd(6.283185307179586)',bt);
+        var ws=spd(K,b,cx);
+        L('        '+R(K,'k')+'.vx = cos(wa'+u+') * '+ws,bt);L('        '+R(K,'k')+'.vy = sin(wa'+u+') * '+ws,bt);
+        L('      }',bt);
+      }else if(b.kind==='patrol'){
+        L('      if ('+R(K,'k')+'.vx == 0.0) { '+R(K,'k')+'.vx = '+spd(K,b,cx)+' }',bt);
+      }
+    });
+    if(K.gravity)L('      '+R(K,'k')+'.vy += '+X(K.gravity.g,cx),K.gravity.tok);
+    L('    }',at);L('  }',at);
+  });
+  // 2. rules except on hit / when, in their order
+  var ruleNo=0,stateVars=[],timerVars=[];
+  rules.forEach(function(r){
+    if(r.dir)return;
+    var n=ruleNo++,at=r.tok;
+    r.n=n;
+    if(r.ev==='hit'||r.ev==='when'||r.ev==='start')return;
+    var cx={binds:{}},I='    ';
+    switch(r.ev){
+      case'frame':acts(r,cx,'  ');break;
+      case'every':timerVars.push('__lg_t'+n);L('  __lg_t'+n+' += 1',at);L('  if (__lg_t'+n+' >= '+r.frames+') {',at);L('    __lg_t'+n+' = 0',at);acts(r,cx,I);L('  }',at);break;
+      case'key':case'keydown':case'keyup':case'press':case'hold':case'tap':case'touch':{
+        var code=r.key?100+r.key.code:r.btn?{A:5,B:6,C:7}[r.btn.btn]:4;
+        var cond='__lgIn('+code+') > 0.5';
+        if(r.ev==='key'||r.ev==='hold'||r.ev==='touch'){L('  if ('+cond+') {',at);acts(r,cx,I);L('  }',at);break}
+        var sv='__lg_e'+n;stateVars.push(sv);
+        if(r.ev==='keyup'){L('  if ('+cond+') { '+sv+' = true } else {',at);L('    if ('+sv+') {',at);L('      '+sv+' = false',at);acts(r,cx,'      ');L('    }',at);L('  }',at);break}
+        L('  if ('+cond+') {',at);L('    if (!'+sv+') {',at);L('      '+sv+' = true',at);acts(r,cx,'      ');L('    }',at);L('  } else { '+sv+' = false }',at);
+        break;
+      }
+      case'each':{
+        var K=kindOf(r.kind),k='__lg_k'+n,cx2={binds:{},i:k,each:K};cx2.binds[K.name]=k;
+        L('  for (let '+k+' = 0; '+k+' < '+K.cap+'; '+k+'++) {',at);
+        L('    if ('+R(K,k)+'.alive) {',at);
+        if(r.cond){L('      if ('+X(r.cond,cx2)+') {',at);acts(r,cx2,'        ');L('      }',at)}
+        else acts(r,cx2,'      ');
+        L('    }',at);L('  }',at);
+        break;
+      }
+    }
+  });
+  // 3. move
+  KL.forEach(function(K){
+    var at=K.decl.loc,k='k',P=R(K,k);
+    L('  for (let k = 0; k < '+K.cap+'; k++) {',at);
+    L('    if ('+P+'.alive) {',at);
+    L('      '+P+'.x += '+P+'.vx',at);L('      '+P+'.y += '+P+'.vy',at);
+    var patrol=K.beh.some(function(b){return b.kind==='patrol'}),bnc=!!K.flags.bounce;
+    if(K.flags.solid||patrol||bnc){
+      var neg=patrol||bnc;
+      L('      if (__lg_solid('+P+'.x, '+P+'.py, '+P+'.w, '+P+'.h)) { '+P+'.x = '+P+'.px\n '+P+'.vx = '+(neg?'-'+P+'.vx':'0.0')+' }',at);
+      L('      if (__lg_solid('+P+'.x, '+P+'.y, '+P+'.w, '+P+'.h)) { '+P+'.y = '+P+'.py\n '+P+'.vy = '+(bnc?'-'+P+'.vy':'0.0')+' }',at);
+    }
+    if(patrol||bnc){
+      L('      if ('+P+'.x < 0.0 || '+P+'.x + '+P+'.w > __lg_W) { '+P+'.x = '+P+'.px\n '+P+'.vx = -'+P+'.vx }',at);
+      if(bnc)L('      if ('+P+'.y < 0.0 || '+P+'.y + '+P+'.h > __lg_H) { '+P+'.y = '+P+'.py\n '+P+'.vy = -'+P+'.vy }',at);
+    }
+    if(K.flags.wrap){
+      L('      if ('+P+'.x < -'+P+'.w) { '+P+'.x = __lg_W\n '+P+'.px = '+P+'.x } else { if ('+P+'.x > __lg_W) { '+P+'.x = -'+P+'.w\n '+P+'.px = '+P+'.x } }',at);
+      L('      if ('+P+'.y < -'+P+'.h) { '+P+'.y = __lg_H\n '+P+'.py = '+P+'.y } else { if ('+P+'.y > __lg_H) { '+P+'.y = -'+P+'.h\n '+P+'.py = '+P+'.y } }',at);
+    }
+    L('      if ('+P+'.x < '+P+'.px) { '+P+'.dir = -1.0 } else { if ('+P+'.x > '+P+'.px) { '+P+'.dir = 1.0 } }',at);
+    L('    }',at);L('  }',at);
+    K.beh.forEach(function(b){
+      if(b.kind!=='follow')return;
+      var T=b.T,bt=b.tok,gap=b.gap?X(b.gap,{binds:{},i:null}):null;
+      L('  let __lg_fl'+K.idx+' = -1',bt);
+      L('  for (let k = 0; k < '+K.cap+'; k++) {',bt);
+      L('    if ('+P+'.alive) {',bt);
+      L('      let lx = 0.0\n let ly = 0.0\n let ok = false',bt);
+      L('      if (__lg_fl'+K.idx+' >= 0) { lx = '+R(K,'__lg_fl'+K.idx)+'.x\n ly = '+R(K,'__lg_fl'+K.idx)+'.y\n ok = true } else {',bt);
+      needFind.add(T);
+      L('        let li = __lg_find_'+T.name+'()',bt);
+      L('        if (li >= 0'+(T===K?' && li != k':'')+') { lx = '+R(T,'li')+'.x\n ly = '+R(T,'li')+'.y\n ok = true }',bt);
+      L('      }',bt);
+      L('      if (ok) {',bt);
+      L('        let g = '+(gap||P+'.w'),bt);
+      L('        let dx = lx - '+P+'.x\n let dy = ly - '+P+'.y\n let d = sqrt(dx * dx + dy * dy)',bt);
+      L('        if (d > g) { '+P+'.x += dx * (d - g) / d\n '+P+'.y += dy * (d - g) / d }',bt);
+      L('        '+P+'.vx = 0.0\n '+P+'.vy = 0.0',bt);
+      L('      }',bt);
+      L('      __lg_fl'+K.idx+' = k',bt);
+      L('    }',bt);L('  }',bt);
+    });
+  });
+  // 4. on hit
+  rules.forEach(function(r){
+    if(r.ev!=='hit')return;
+    var n=r.n,at=r.tok,A=kindOf(r.a,' in on hit'),bw=r.b.value,a='__lg_a'+n,b='__lg_b'+n;
+    var B=(bw==='wall'||bw==='edge')?null:kindOf(r.b,' in on hit (or wall: a solid map tile / wall thing, edge: the screen edge)');
+    var cx={binds:{},i:a,hit:{A:A,B:B,a:a,b:B?b:null,other:B?null:bw}};
+    cx.binds[A.name]=a;if(B&&B!==A)cx.binds[B.name]=b;
+    var PA=R(A,a);
+    L('  for (let '+a+' = 0; '+a+' < '+A.cap+'; '+a+'++) {',at);
+    L('    if ('+PA+'.alive) {',at);
+    if(B){
+      var PB=R(B,b);
+      L('      for (let '+b+' = '+(A===B?a+' + 1':'0')+'; '+b+' < '+B.cap+'; '+b+'++) {',at);
+      L('        if ('+PB+'.alive && '+PA+'.alive) {',at);
+      L('          if ('+PA+'.x < '+PB+'.x + '+PB+'.w && '+PB+'.x < '+PA+'.x + '+PA+'.w && '+PA+'.y < '+PB+'.y + '+PB+'.h && '+PB+'.y < '+PA+'.y + '+PA+'.h) {',at);
+      acts(r,cx,'            ');
+      L('          }',at);L('        }',at);L('      }',at);
+    }else if(bw==='wall'){
+      solidUsed();
+      L('      if (__lg_solid('+PA+'.x - 0.5, '+PA+'.y - 0.5, '+PA+'.w + 1.0, '+PA+'.h + 1.0)) {',at);acts(r,cx,'        ');L('      }',at);
+    }else{
+      L('      if ('+PA+'.x < 0.0 || '+PA+'.y < 0.0 || '+PA+'.x + '+PA+'.w > __lg_W || '+PA+'.y + '+PA+'.h > __lg_H) {',at);acts(r,cx,'        ');L('      }',at);
+    }
+    L('    }',at);L('  }',at);
+  });
+  // 5. when
+  rules.forEach(function(r){
+    if(r.ev!=='when')return;
+    var n=r.n,at=r.tok,sv='__lg_w'+n;stateVars.push(sv);
+    L('  if ('+X(r.cond,{binds:{}})+') {',at);L('    if (!'+sv+') {',at);L('      '+sv+' = true',at);acts(r,{binds:{}},'      ');L('    }',at);L('  } else { '+sv+' = false }',at);
+  });
+  L('}');
+  // init / start
+  L('fn __lg_init() {');
+  L('  __lg_W = __lgIn(10)');L('  __lg_H = __lgIn(11)');
+  L('  let sd = __lgStart('+(seed===null?0:1)+')');
+  if(seed!==null)L('  __lg_seed = '+seed);else L('  __lg_seed = sd');
+  L('  __lg_on = true');L('  __lg_hold = false');
+  stateVars.forEach(function(v){L('  '+v+' = false')});
+  timerVars.forEach(function(v){L('  '+v+' = 0')});
+  autoVars.forEach(function(t,nm){L('  @'+nm+' = '+(autoNum.has(nm)?'0.0':'0'),t)});
+  KL.forEach(function(K){
+    var at=K.decl.loc;
+    L('  wipe(@'+K.name+')',at);
+    if(K.alive0>0){L('  for (let k = 0; k < '+K.alive0+'; k++) { __lg_new_'+K.name+'(k) }',at)}
+    if(K.map){
+      L('  let mn'+K.idx+' = __lgMapQ('+K.idx+')',K.map);
+      L('  for (let j = 0; j < mn'+K.idx+'; j++) {',K.map);
+      L('    let s = __lg_spawn_'+K.name+'(__lgMapAt(j, 0), __lgMapAt(j, 1), 0.0, 0.0, false)',K.map);
+      K.fields.forEach(function(fl){L('    if (s >= 0) { '+R(K,'s')+'.'+fl.name+' = __lgMapProp(j, '+q(fl.name)+', '+R(K,'s')+'.'+fl.name+') }',K.map)});
+      L('  }',K.map);
+    }
+  });
+  rules.forEach(function(r){if(r.ev==='start')acts(r,{binds:{},start:true},'  ')});
+  L('}');
+  L('fn __lg_step() {');
+  L('  __lg_tick += 1');
+  L('  if (__lg_on) { __lg_update() } else {');
+  L('    let p = __lgIn(4) > 0.5 || __lgIn(5) > 0.5 || __lgIn(132) > 0.5 || __lgIn(113) > 0.5');
+  L('    if (p && !__lg_hold) { __lg_init() }');
+  L('    __lg_hold = p');
+  L('  }');
+  showLabels.forEach(function(s,i){L('  __lgShow('+i+', '+X(s.e,{binds:{}})+')',s.e.loc)});
+  L('  if (__lg_on) { __lgFrame(__lg_tick, 1) } else { __lgFrame(__lg_tick, 0) }');
+  L('}');
+  L('fn __lg_game() {');
+  if(!usesCanvas)L('  canvas('+stage.w+', '+stage.h+')');
+  if(stage.controls)L('  useControls('+stage.controls+')',stage.controlsTok&&{line:stage.controlsTok.line,col:stage.controlsTok.col});
+  L('  __lg_init()');L('  animate()');L('}');
+  L('fn __lg_frame() { __lg_step() }');
+  // helpers that were asked for
+  KL.forEach(function(K){
+    var at=K.decl.loc,P=R(K,'k');
+    if(needFind.has(K)||needFirst.has(K)){
+      L('fn __lg_find_'+K.name+'() int {',at);L('  for (let k = 0; k < '+K.cap+'; k++) { if ('+P+'.alive) { return k } }',at);L('  return -1',at);L('}',at);
+    }
+    if(needFirst.has(K)){L('fn __lg_first_'+K.name+'() int {',at);L('  let k = __lg_find_'+K.name+'()',at);L('  if (k < 0) { return 0 }',at);L('  return k',at);L('}',at)}
+    if(needCount.has(K)){L('fn __lg_count_'+K.name+'() int {',at);L('  let c = 0',at);L('  for (let k = 0; k < '+K.cap+'; k++) { if ('+P+'.alive) { c += 1 } }',at);L('  return c',at);L('}',at)}
+    if(needBlock.has(K)){
+      // undo the move into a box (per axis, from where the thing was before this frame's move)
+      L('fn __lg_blockB_'+K.name+'(k: int, ox: num, oy: num, ow: num, oh: num, neg: bool) {',at);
+      L('  let hx = '+P+'.px < ox + ow && ox < '+P+'.px + '+P+'.w',at);
+      L('  let hy = '+P+'.py < oy + oh && oy < '+P+'.py + '+P+'.h',at);
+      L('  if (hx && !hy) { '+P+'.y = '+P+'.py\n if (neg) { '+P+'.vy = -'+P+'.vy } else { '+P+'.vy = 0.0 } } else {',at);
+      L('    if (hy && !hx) { '+P+'.x = '+P+'.px\n if (neg) { '+P+'.vx = -'+P+'.vx } else { '+P+'.vx = 0.0 } } else {',at);
+      L('      '+P+'.x = '+P+'.px\n '+P+'.y = '+P+'.py\n if (neg) { '+P+'.vx = -'+P+'.vx\n '+P+'.vy = -'+P+'.vy } else { '+P+'.vx = 0.0\n '+P+'.vy = 0.0 }',at);
+      L('    }',at);L('  }',at);L('}',at);
+      L('fn __lg_blockW_'+K.name+'(k: int, neg: bool) {',at);
+      L('  if (__lg_solid('+P+'.x, '+P+'.py, '+P+'.w, '+P+'.h)) { '+P+'.x = '+P+'.px\n if (neg) { '+P+'.vx = -'+P+'.vx } else { '+P+'.vx = 0.0 } }',at);
+      L('  if (__lg_solid('+P+'.x, '+P+'.y, '+P+'.w, '+P+'.h)) { '+P+'.y = '+P+'.py\n if (neg) { '+P+'.vy = -'+P+'.vy } else { '+P+'.vy = 0.0 } }',at);
+      L('}',at);
+      L('fn __lg_blockE_'+K.name+'(k: int, neg: bool) {',at);
+      L('  if ('+P+'.x < 0.0) { '+P+'.x = 0.0\n if (neg) { '+P+'.vx = -'+P+'.vx } else { '+P+'.vx = 0.0 } }',at);
+      L('  if ('+P+'.x + '+P+'.w > __lg_W) { '+P+'.x = __lg_W - '+P+'.w\n if (neg) { '+P+'.vx = -'+P+'.vx } else { '+P+'.vx = 0.0 } }',at);
+      L('  if ('+P+'.y < 0.0) { '+P+'.y = 0.0\n if (neg) { '+P+'.vy = -'+P+'.vy } else { '+P+'.vy = 0.0 } }',at);
+      L('  if ('+P+'.y + '+P+'.h > __lg_H) { '+P+'.y = __lg_H - '+P+'.h\n if (neg) { '+P+'.vy = -'+P+'.vy } else { '+P+'.vy = 0.0 } }',at);
+      L('}',at);
+      L('fn __lg_blockP_'+K.name+'(k: int, neg: bool) {',at);
+      L('  '+P+'.x = '+P+'.px\n '+P+'.y = '+P+'.py',at);
+      L('  if (neg) { '+P+'.vx = -'+P+'.vx\n '+P+'.vy = -'+P+'.vy } else { '+P+'.vx = 0.0\n '+P+'.vy = 0.0 }',at);
+      L('}',at);
+    }
+  });
+  if(needSolid||needBlock.size){
+    L('fn __lg_solid(x: num, y: num, w: num, h: num) bool {');
+    if(stage.map)L('  if (__lgSolid(x, y, w, h)) { return true }');
+    wallKinds.forEach(function(K){
+      var P=R(K,'k');
+      L('  for (let k = 0; k < '+K.cap+'; k++) { if ('+P+'.alive) { if (x < '+P+'.x + '+P+'.w && '+P+'.x < x + w && y < '+P+'.y + '+P+'.h && '+P+'.y < y + h) { return true } } }',K.flags.wall.tok);
+    });
+    L('  return false');L('}');
+  }
+  if(stage.map)L('import fn __lgSolid(x: num, y: num, w: num, h: num) bool from "__js__"');
+  if(helperAt.spr)L('import fn __lgSpr(kind: int, what: int) num from "__js__"');
+  if(KL.some(function(K){return K.map}))L('import fn __lgMapQ(kind: int) int from "__js__"'),L('import fn __lgMapAt(j: int, what: int) num from "__js__"'),L('import fn __lgMapProp(j: int, name: str, v: num) num from "__js__"');
+  stateVars.forEach(function(v){L('mut '+v+' = false')});
+  timerVars.forEach(function(v){L('mut '+v+' = 0')});
+  // auto-declared globals (set / add of a name this file does not declare)
+  autoVars.forEach(function(t,nm){
+    if(/^__lg/.test(nm))throw E(t,'Names starting with __lg are reserved');
+    L('mut @'+nm+' = '+(autoNum.has(nm)?'0.0':'0'),t);
+  });
+  // ── parse, position, splice ──
+  // generated locals and parameters get a reserved prefix (k → __lgv_k); kind and user names were written
+  // with an @ in front so they are left alone (a thing may be called k, x or d)
+  var LOCALS=/^(k|t|j|s|p|sd|c|x|y|vx|vy|useAt|ox|oy|ow|oh|neg|hx|hy|w|h|n|r|lx|ly|ok|li|g|dx|dy|d|wa|bt|bd|dd|ddx|ddy|(?:bt|bd|dd|ddx|ddy|dx|dy|d|wa)_\d+|mn\d+)$/;
+  var src=lines.map(function(ln){
+    if(/^struct /.test(ln))return ln.replace(/@/g,'');
+    return ln.replace(/"(?:[^"\\]|\\.)*"|(@?)([A-Za-z_]\w*)/g,function(m,at,id,off,all){
+      if(!id)return m;
+      if(at)return id;
+      if(off>0&&all[off-1]==='.')return m;
+      return LOCALS.test(id)?'__lgv_'+id:m;
+    });
+  }).join('\n'),gen;
+  _lgLower.lastSource=src;   // the generated Emit text (for the tests and for curious users: _lgLower.lastSource)
+  try{gen=new Parser(new Lexer(src).tokenize()).parse()}
+  catch(e){var m=/^(\d+):(\d+): ([\s\S]*)$/.exec(String(e&&e.message));var al=m?anchors[Number(m[1])-1]:null;throw E(al||anchor,'(generated code'+(m?' line '+m[1]:'')+') '+(m?m[3]:String(e&&e.message)))}
+  (function pos(x){
+    if(!x||typeof x!=='object')return;
+    if(Array.isArray(x)){x.forEach(pos);return}
+    for(var k in x){
+      var v=x[k];
+      if(!v||typeof v!=='object')continue;
+      if((k==='loc'||k==='aliasLoc')&&typeof v.line==='number'){var a=anchors[v.line-1]||anchor;x[k]={line:a.line,col:a.col}}
+      else pos(v);
+    }
+  })(gen.body);
+  (function splice(x){
+    if(!x||typeof x!=='object')return;
+    if(Array.isArray(x)){for(var i=0;i<x.length;i++){var v=x[i];if(v&&v.type==='IdentifierExpr'&&ph[v.name])x[i]=clone(ph[v.name]);else splice(v)}return}
+    for(var k in x){
+      var w=x[k];
+      if(!w||typeof w!=='object'||k==='loc')continue;
+      if(w.type==='IdentifierExpr'&&ph[w.name])x[k]=clone(ph[w.name]);
+      else splice(w);
+    }
+  })(gen.body);
+  var meta={v:1,stage:stage,kinds:KL.map(function(K){
+    var sh=K.shape,c=sh.color?(_LG_COLORS[sh.color.value]||sh.color.value):'#ffffff';
+    return{name:K.name,struct:K.struct,shape:sh.kind,color:c,sprite:sh.sprite?sh.sprite.value:null,map:K.map?K.map.value:null,track:K.track,fields:K.fields.map(function(f){return f.name})};
+  }),shows:showLabels.map(function(s){return s.label}),seeded:seed!==null,stop:hasStop};
+  var out=[];
+  body.forEach(function(n){if(n&&n.type!=='ThingDecl'&&n.type!=='RulesDecl')out.push(n)});
+  gen.body.forEach(function(n){
+    if(n.type==='FunctionDecl'){
+      if(n.name==='__lg_game'){n.lgExport='game';n.lgMeta=meta}
+      else if(n.name==='__lg_frame'){n.lgExport='frame'}
+      else if(n.name==='__lg_step')n.lgStep=true;
+    }
+    n.lgGen=true;
+    out.push(n);
+  });
+  prog.body=out;
+  prog.lgUserFrame=userFrame;
+  return prog;
+}
+// int-only operators (% & | ^ << >>) where a num is expected (`x = k % 3` into a num variable or struct field,
+// as the generated thing code does with `at (i * 37) % 320 …`): computed on int, then converted. Without this
+// the operands were widened to num, for which there is no such instruction, and the module did not validate —
+// so only programs that could not run before compile differently.
+(function(){
+  var gb=WasmCodegen.prototype.genBinary,INT_ONLY={'%':1,'&':1,'|':1,'^':1,'<<':1,'>>':1};
+  WasmCodegen.prototype.genBinary=function(e,exp){
+    if(e&&INT_ONLY[e.op]&&(exp==='num'||exp==='f64')&&this.inferOpType(e.left,e.right)!=='num'){gb.call(this,e,'int');this.emit(Op.f64_convert_i64_s);return}
+    return gb.apply(this,arguments);
+  };
+})();
+// After linking: the generated game / frame become the program's exported game() and frame() — also when the
+// thing / rules blocks are in another file than the entry (game.emit). A frame() the program exports itself
+// calls the generated step first instead.
+_emitModLink=(function(link){return function(fr){
+  var r=link.apply(this,arguments);
+  if(!r||!r.ast||(r.errors&&r.errors.length))return r;
+  var body=r.ast.body,gens=body.filter(function(n){return n&&n.type==='FunctionDecl'&&n.lgExport});
+  if(!gens.length)return r;
+  function at(n){var l=n.loc||{};return(fr&&fr.multi&&l.file?l.file+':':'')+(l.line||1)+':'+(l.col||1)+': '}
+  var games=gens.filter(function(n){return n.lgExport==='game'});
+  if(games.length>1){r.errors.push(at(games[1])+'thing / rules blocks are in two files ('+(games[0].loc.file||'')+' and '+(games[1].loc.file||'')+') — keep the game\'s thing and rules blocks in one file');return r}
+  var taken=new Set();body.forEach(function(n){if(n&&!n.lgGen&&n.name)taken.add(n.name)});
+  var step=body.find(function(n){return n&&n.type==='FunctionDecl'&&n.lgStep});
+  gens.forEach(function(n){
+    if(n.lgExport==='frame'){
+      var uf=body.find(function(x){return x&&x.type==='FunctionDecl'&&!x.lgGen&&x.exported&&x.name==='frame'});
+      if(uf){var l={line:uf.loc.line,col:uf.loc.col};if(uf.loc.file)l.file=uf.loc.file;uf.body.statements.unshift(new ExprStmt(new CallExpr(new IdentifierExpr(step.name,l),[],l),l));return}
+      n.name='frame';n.exported=true;
+    }else{
+      n.name=taken.has('game')?'__lg_game':'game';n.exported=true;
+    }
+  });
+  return r;
+}})(_emitModLink);
+(function(){
+  var P=WasmCodegen.prototype,gen0=P.generate;
+  P.generate=function(){
+    var w=gen0.apply(this,arguments),a=this.ast;
+    if(a&&a.body)for(var i=0;i<a.body.length;i++){var n=a.body[i];if(n&&n.type==='FunctionDecl'&&n.lgMeta){this.imports.logicMeta=JSON.stringify(n.lgMeta);break}}
+    return w;
+  };
+})();
+// ═══ end THINGS & RULES (compiler half) ═══
 // EXAMPLES
 // EX is injected by build script before this file
 // UI
@@ -7429,6 +8418,178 @@ buildImportObject=(function(build){return function(imports,outputLog){
 }})(buildImportObject);
 _emitFrame=(function(frame){return function(){try{return frame.apply(this,arguments)}finally{_stEdgeClear()}}})(_emitFrame);
 if(typeof window!=='undefined'){window._mapInfo=_mapInfo;window._mapTile=_mapTile;window._mapSolidAt=_mapSolidAt;window._mapDraw=_mapDraw;window._mapObjects=_mapObjects;window._ctlState=_ctlState}
+// ═══ THINGS & RULES (runtime half; the compiler half is "THINGS & RULES" in the compiler) ═══
+// The program's imports.logicMeta (JSON: stage, kinds with their shape / colour / sprite / map, shown values)
+// is read by buildImportObject. The generated code calls the __js__ imports below: __lgIn (input: stick, tap,
+// buttons A/B/C, keys, canvas size), __lgFrame (draws the stage, the map, every live thing straight from the
+// kinds' regions in WASM memory, and the HUD), __lgSay, __lgShow, __lgPlay, __lgStart, __lgSolid, __lgSpr and
+// __lgMap*. Helpers of the other drawer tools are used only when they exist (typeof checks): _spriteDraw /
+// _spriteInfo (sprites), _mapDraw / _mapSolidAt / _mapObjects (maps), _ctlState (on-screen controls),
+// _sndPlay / _musicPlay (sounds); without them a sprite thing is drawn as a box, there are no solid tiles,
+// input is keyboard / touch only and play is silent (one note in the output).
+var _lgMeta=null,_lgSay='',_lgSayAt=0,_lgShows=[],_lgTick=0,_lgNoted=Object.create(null),_lgMapList=[],_lgRegCache=null;
+function _lgSetup(imports){
+  var m=null;
+  try{if(imports&&typeof imports.logicMeta==='string')m=JSON.parse(imports.logicMeta)}catch(e){m=null}
+  _lgMeta=m;_lgSay='';_lgSayAt=0;_lgShows=[];_lgTick=0;_lgNoted=Object.create(null);_lgMapList=[];_lgRegCache=null;
+}
+function _lgCtl(){try{if(typeof _ctlState==='function'){var c=_ctlState();if(c&&typeof c==='object')return c}}catch(e){}return null}
+function _lgCanvasXY(cx,cy){
+  var c=_canvas;if(!c||!c.getBoundingClientRect)return null;
+  var r=c.getBoundingClientRect();if(!r.width||!r.height)return null;
+  return{x:(cx-r.left)*c.width/r.width,y:(cy-r.top)*c.height/r.height,inside:cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom};
+}
+function _lgIn(k){
+  k=Number(k);
+  var c,p;
+  if(k>=100)return _keys[k-100]?1:0;
+  switch(k){
+    case 0:case 1:{
+      c=_lgCtl();var v=c?Number(k===0?c.x:c.y)||0:0;
+      if(v)return Math.max(-1,Math.min(1,v));
+      if(k===0)return(_keys[39]||_keys[68]?1:0)-(_keys[37]||_keys[65]?1:0);
+      return(_keys[40]||_keys[83]?1:0)-(_keys[38]||_keys[87]?1:0);
+    }
+    case 2:case 3:
+      c=_lgCtl();
+      if(c&&c.tapping&&(c.tapX!=null))return Number(k===2?c.tapX:c.tapY)||0;
+      p=_lgCanvasXY(_touch.x,_touch.y);
+      return p?(k===2?p.x:p.y):0;
+    case 4:
+      c=_lgCtl();if(c&&c.tapping)return 1;
+      if(!_touch.on)return 0;
+      p=_lgCanvasXY(_touch.x,_touch.y);
+      return p&&p.inside?1:0;
+    case 5:case 6:case 7:
+      c=_lgCtl();
+      if(c&&c[k===5?'a':k===6?'b':'c'])return 1;
+      if(k===5)return _keys[32]||_keys[90]?1:0;
+      return _keys[k===6?88:67]?1:0;
+    case 10:return _canvas?_canvas.width:(_lgMeta?_lgMeta.stage.w:320);
+    case 11:return _canvas?_canvas.height:(_lgMeta?_lgMeta.stage.h:240);
+  }
+  return 0;
+}
+// The kind's region: its base, length, element size and field offsets (from the region metadata).
+function _lgRegion(K){
+  if(!_rgMeta||!_rgMeta.regions)return null;
+  if(!_lgRegCache)_lgRegCache=Object.create(null);
+  var hit=_lgRegCache[K.struct];if(hit)return hit;
+  for(var i=0;i<_rgMeta.regions.length;i++){
+    var r=_rgMeta.regions[i],s=r.elem&&r.elem.struct;
+    if(!s||(s!==K.struct&&s.slice(-K.struct.length-1)!=='.'+K.struct))continue;
+    var off={};r.elem.fields.forEach(function(f){off[f.name]=f.offset});
+    return(_lgRegCache[K.struct]={base:r.base,length:r.length,size:r.elemSize,off:off});
+  }
+  return null;
+}
+function _lgFmt(v){v=Number(v);return Math.abs(v-Math.round(v))<1e-9?String(Math.round(v)):String(Math.round(v*100)/100)}
+function _lgNote(key,msg){
+  if(_lgNoted[key])return;_lgNoted[key]=true;
+  try{var d=document.createElement('div');d.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:11px;';d.textContent=msg;var o=document.getElementById('tab-output');if(o)o.appendChild(d)}catch(e){}
+}
+function _lgDraw(tick,on){
+  _lgTick=Number(tick);
+  var g=_need2d(),M=_lgMeta;
+  if(!g||!M||!_wasmMem)return;
+  var W=_canvas.width,H=_canvas.height,dv=new DataView(_wasmMem.buffer);
+  g.save();
+  g.fillStyle=M.stage.color||'#1a1c2c';g.fillRect(0,0,W,H);
+  if(M.stage.map&&typeof _mapDraw==='function'){
+    if(typeof _mapInfo==='function'&&!_mapInfo(M.stage.map))_lgNote('map:'+M.stage.map,'stage map '+M.stage.map+': there is no map block '+M.stage.map+' yet — make one with the Drawer\'s STAGE tool');
+    try{_mapDraw(g,M.stage.map,0,0)}catch(e){}
+  }
+  M.kinds.forEach(function(K){
+    var R=_lgRegion(K);if(!R)return;
+    var o=R.off,info=null;
+    if(K.shape==='sprite'&&typeof _spriteInfo==='function'){try{info=_spriteInfo(K.sprite)}catch(e){info=null}}
+    var spr=K.shape==='sprite'&&info&&typeof _spriteDraw==='function';
+    if(K.shape==='sprite'&&!spr)_lgNote('spr:'+K.sprite,'thing '+K.name+': no sprite named '+K.sprite+' yet — drawn as a box (make one with the Drawer\'s SPRITE tool)');
+    for(var i=0;i<R.length;i++){
+      var b=R.base+i*R.size;
+      if(!dv.getUint8(b+o.alive))continue;
+      var x=dv.getFloat64(b+o.x,true),y=dv.getFloat64(b+o.y,true),w=dv.getFloat64(b+o.w,true),h=dv.getFloat64(b+o.h,true),dir=dv.getFloat64(b+o.dir,true);
+      var rot=K.track?Math.atan2(dv.getFloat64(b+o.fy,true),dv.getFloat64(b+o.fx,true)):0;
+      g.save();
+      if(rot){g.translate(x+w/2,y+h/2);g.rotate(rot);g.translate(-x-w/2,-y-h/2)}
+      if(spr){
+        /* SPRITE's _spriteInfo: frames is the list of frame names; _spriteDraw draws stretched to w x h */
+        var fr=dv.getFloat64(b+o.frame,true),n=Math.max(1,Array.isArray(info.frames)?info.frames.length:Number(info.frames)||1),fps=Number(info.fps)||8;
+        var f=fr>=0?Math.floor(fr)%n:Math.floor(_lgTick*fps/60)%n;
+        try{_spriteDraw(g,K.sprite,f,x,y,{flipX:dir<0&&!K.track,flipY:false,w:w,h:h,alpha:1})}catch(e){}
+      }else{
+        g.fillStyle=K.color||'#ffffff';
+        if(K.shape==='circ'||K.shape==='oval'){g.beginPath();g.ellipse(x+w/2,y+h/2,Math.max(0,w/2),Math.max(0,h/2),0,0,Math.PI*2);g.fill()}
+        else g.fillRect(x,y,w,h);
+      }
+      g.restore();
+    }
+  });
+  g.textBaseline='top';g.font='bold 12px monospace';g.textAlign='left';
+  for(var s=0;s<M.shows.length;s++){
+    var t=M.shows[s]+' '+_lgFmt(_lgShows[s]||0);
+    g.fillStyle='rgba(0,0,0,0.5)';g.fillText(t,7,7+s*16);g.fillStyle='#ffffff';g.fillText(t,6,6+s*16);
+  }
+  if(_lgSay&&(!on||_lgTick-_lgSayAt<150)){
+    g.font='bold 18px sans-serif';g.textAlign='center';g.textBaseline='middle';
+    var tw=g.measureText(_lgSay).width;
+    g.fillStyle='rgba(0,0,0,0.6)';g.fillRect(W/2-tw/2-12,H/2-18,tw+24,36);
+    g.fillStyle='#ffffff';g.fillText(_lgSay,W/2,H/2);
+  }
+  if(!on){g.font='12px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillStyle='#cbd5e1';g.fillText('tap to play again',W/2,H/2+30)}
+  g.restore();
+}
+function _lgSolidAt(x,y,w,h){
+  var M=_lgMeta;if(!M||!M.stage.map||typeof _mapSolidAt!=='function')return 0;
+  if(typeof _mapInfo==='function'&&!_mapInfo(M.stage.map))return 0;   /* STAGE counts every point of an unknown map as solid */
+  var st=8,nx=Math.max(1,Math.ceil(w/st)),ny=Math.max(1,Math.ceil(h/st));
+  try{
+    for(var i=0;i<=nx;i++)for(var j=0;j<=ny;j++){
+      var px=Math.min(x+i*st,x+w-0.01),py=Math.min(y+j*st,y+h-0.01);
+      if(_mapSolidAt(M.stage.map,px,py))return 1;
+    }
+  }catch(e){}
+  return 0;
+}
+_emitExtraImport=(function(extra){return function(name){
+  switch(name){
+    case'__lgIn':return _lgIn;
+    case'__lgFrame':return function(t,on){_lgDraw(t,Number(on))};
+    case'__lgSay':return function(p){_lgSay=_readStr(p);_lgSayAt=_lgTick};
+    case'__lgShow':return function(i,v){_lgShows[Number(i)]=v};
+    case'__lgStart':return function(){_lgSay='';_lgSayAt=0;return BigInt(Math.floor(Math.random()*2147483647))};
+    case'__lgPlay':return function(p,music){
+      var n=_readStr(p);music=Number(music);
+      try{
+        if(typeof _sndFind==='function'&&!_sndFind(music?'music':'sound',n))return void _lgNote('snd:'+n,(music?'music ':'play ')+n+': there is no '+(music?'music':'sound')+' block '+n+' — make one with the Drawer\'s '+(music?'Music':'Sound')+' tool (the rule is silent)');
+        if(music&&typeof _musicPlay==='function')return void _musicPlay(n);
+        if(typeof _sndPlay==='function')return void _sndPlay(n);
+      }catch(e){}
+      _lgNote('snd:'+n,(music?'music ':'play ')+n+': no sound helper in this page — the rule is silent (add sounds with the Drawer\'s SOUND tool)');
+    };
+    case'__lgSolid':return _lgSolidAt;
+    case'__lgSpr':return function(k,what){
+      var K=_lgMeta&&_lgMeta.kinds[Number(k)];what=Number(what);
+      try{if(K&&typeof _spriteInfo==='function'){var i=_spriteInfo(K.sprite);if(i&&i.w)return Number(what?i.h:i.w)||16}}catch(e){}
+      return 16;
+    };
+    case'__lgMapQ':return function(k){
+      var K=_lgMeta&&_lgMeta.kinds[Number(k)];_lgMapList=[];
+      try{if(K&&K.map&&typeof _mapObjects==='function')_lgMapList=(_mapObjects(K.map)||[]).filter(function(o){return o&&o.kind===K.name})}catch(e){_lgMapList=[]}
+      if(K&&K.map&&typeof _mapInfo==='function'&&!_mapInfo(K.map))_lgNote('map:'+K.map,'thing '+K.name+': from map '+K.map+' — there is no map block '+K.map+' yet, so none are placed (make one with the Drawer\'s STAGE tool)');
+      if(K&&K.map&&typeof _mapObjects!=='function')_lgNote('map:'+K.map,'thing '+K.name+': from map '+K.map+' — no map helper in this page, so none are placed (make maps with the Drawer\'s MAP tool)');
+      return BigInt(_lgMapList.length);
+    };
+    /* STAGE's _mapObjects: x / y in tiles, px / py in pixels (things are placed in pixels) */
+    case'__lgMapAt':return function(j,what){var o=_lgMapList[Number(j)];if(!o)return 0;var v=Number(what)?(o.py!=null?o.py:o.y):(o.px!=null?o.px:o.x);return Number(v)||0};
+    case'__lgMapProp':return function(j,p,v){var o=_lgMapList[Number(j)],n=_readStr(p);if(o&&o.props&&o.props[n]!=null&&isFinite(Number(o.props[n])))return Number(o.props[n]);return v};
+  }
+  return extra(name);
+}})(_emitExtraImport);
+buildImportObject=(function(build){return function(imports,outputLog){
+  _lgSetup(imports);
+  return build.apply(this,arguments);
+}})(buildImportObject);
 //#emit-runtime-end
 // ── Library loader: use <registry name | npm spec | URL> [as Name] ──
 // The lexer must never see the rest of a `use` line: npm specs contain '@' and unquoted URLs contain '//'.
@@ -12091,6 +13252,18 @@ function _sprFrameCanvas(d,fi,scale){
   var o=document.createElement('canvas');o.width=d.w*scale;o.height=d.h*scale;var og=o.getContext('2d');og.imageSmoothingEnabled=false;og.drawImage(c,0,0,o.width,o.height);
   return o;
 }
+// For other tools (STAGE's map view and legend, LOGIC's thing preview): sprite `name` of the program text as a
+// canvas (its first frame, 1:1) — read through the drawer's ctx like every block, parsed with _sprParse
+// (tolerant), cached in `cache` (one tool session: the text cannot change while a tool is open). null: no sprite.
+function _sprBlockCanvas(ctx,cache,name){
+  if(Object.prototype.hasOwnProperty.call(cache,name))return cache[name];
+  var cv=null;
+  try{
+    var t=ctx.read('sprite',name);
+    if(t){var d=_sprParse(String(t).split('\n'),1,true);if(d&&d.w>0&&d.h>0&&d.frames&&d.frames.length)cv=_sprFrameCanvas(d,0,1)}
+  }catch(e){cv=null}
+  cache[name]=cv;return cv;
+}
 // Median cut over weighted colours {rgb, n} → at most k colours (rgb ints), each the weighted mean of its box.
 function _sprMedianCut(cols,k){
   if(k<=0)return[];
@@ -12554,17 +13727,6 @@ function _stBlockModel(kind,name,text){
   var b=bl[0];b.line=0;
   return kind==='map'?_stParseMap(b):_stParseControls(b);
 }
-// A sprite of the program text as a canvas (its first frame) for the STAGE view: read through ctx like every
-// block, parsed with SPRITE's own parser (tolerant), cached per tool session in `cache`. null: no such sprite.
-function _stSpriteCanvas(ctx,cache,name){
-  if(Object.prototype.hasOwnProperty.call(cache,name))return cache[name];
-  var cv=null;
-  try{
-    var t=ctx.read('sprite',name);
-    if(t&&typeof _sprParse==='function'&&typeof _sprFrameCanvas==='function'){var d=_sprParse(String(t).split('\n'),1,true);if(d&&d.w>0&&d.h>0&&d.frames&&d.frames.length)cv=_sprFrameCanvas(d,0,1)}
-  }catch(e){cv=null}
-  cache[name]=cv;return cv;
-}
 function _stSpriteNames(ctx){try{return(ctx.blocks('sprite')||[]).map(function(b){return b.name})}catch(e){return[]}}
 function _stUnique(base,taken){if(taken.indexOf(base)<0)return base;for(var i=2;;i++)if(taken.indexOf(base+i)<0)return base+i}
 function _stHue(s){var h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))%360;return'hsl('+h+',70%,60%)'}
@@ -12700,7 +13862,7 @@ function _stageOpen(ctx){
     refresh();
   }
   // ── brushes and legend editor ──
-  function chip(e){var c=_stEl('span','stg-chip'),sc=e&&e.sprite?_stSpriteCanvas(ctx,S.sprCache||(S.sprCache={}),e.sprite):null;c.style.background=e&&e.color?e.color:e&&e.sprite?'repeating-linear-gradient(45deg,#666 0 3px,#999 3px 6px)':'transparent';
+  function chip(e){var c=_stEl('span','stg-chip'),sc=e&&e.sprite?_sprBlockCanvas(ctx,S.sprCache||(S.sprCache={}),e.sprite):null;c.style.background=e&&e.color?e.color:e&&e.sprite?'repeating-linear-gradient(45deg,#666 0 3px,#999 3px 6px)':'transparent';
     if(sc){try{c.style.background='url('+sc.toDataURL()+') center/100% 100% no-repeat'+(e.color?' '+e.color:'');c.style.imageRendering='pixelated';c.setAttribute('data-sprite',e.sprite)}catch(x){}}
     return c}
   function brushes(){
@@ -12783,7 +13945,7 @@ function _stageOpen(ctx){
     var g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
     var o=origin(),c=o.c,rows=grid(),rt=typeof _spriteDraw==='function'?_spriteDraw:null;
     /* sprite tiles: the sprite block of the program text; else the running program's sprite (runtime registry) */
-    var spr=function(g2,name,f,x0,y0,op){var sc=_stSpriteCanvas(ctx,S.sprCache||(S.sprCache={}),name);if(!sc)return rt?rt(g2,name,f,x0,y0,op):false;g2.save();g2.imageSmoothingEnabled=false;g2.drawImage(sc,x0,y0,op.w,op.h);g2.restore();return true};
+    var spr=function(g2,name,f,x0,y0,op){var sc=_sprBlockCanvas(ctx,S.sprCache||(S.sprCache={}),name);if(!sc)return rt?rt(g2,name,f,x0,y0,op):false;g2.save();g2.imageSmoothingEnabled=false;g2.drawImage(sc,x0,y0,op.w,op.h);g2.restore();return true};
     for(var y=0;y<M().h;y++)for(var x=0;x<M().w;x++){
       var ch=rows[y][x],e=entry(ch),px=o.x+x*c,py=o.y+y*c;
       if(px>r.width||py>r.height||px+c<0||py+c<0)continue;
@@ -13107,6 +14269,584 @@ _drawerRegister({id:'stage',label:'STAGE',icon:'🗺',desc:'Paint tile maps — 
 _drawerRegister({id:'controls',label:'CONTROLS',icon:'🎮',desc:'On-screen stick and buttons for phones — writes a controls block',open:_ctlToolOpen});
 </script>
 <script>
+// ═══ LOGIC tool (Drawer) ═══ builds `thing` and `rules:` blocks with forms and menus. Two tabs: THINGS (one
+// form per kind: shape / sprite, size, colour, how many, behaviours, fields) and RULES (rows "WHEN event … DO
+// action …" from menus whose choices are the declared things, sounds, maps and variables). Blocks are read
+// with the compiler's own parser (_lgParseBlock) and written back through the drawer's ctx.write: what the
+// tool did not touch is written back exactly as it was, a rule the tool cannot show as menus is kept as is
+// (read-only), a disabled rule is written commented out. Live validation compiles the project with the
+// edited blocks in place. IDE-only (not part of the exported runtime).
+(function(){
+  if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools||[];window._drawerRegister=function(t){window._drawerTools.push(t)}}
+  var EVENTS=[['start','on start'],['frame','every frame'],['every','every … (time)'],['key','on key (held)'],['keydown','on keydown'],['keyup','on keyup'],['press','on press (button)'],['hold','on hold (button)'],['tap','on tap'],['touch','on touch (held)'],['hit','on hit'],['when','when (condition)'],['each','each (thing)']];
+  var VERBS=[['mv','move by'],['vel','set velocity'],['to','move to'],['spawn','spawn'],['remove','remove'],['block','block'],['bounce','bounce'],['set','set'],['add','add'],['play','play sound'],['music','play music'],['say','say'],['frame','frame'],['call','call fn'],['restart','restart'],['stop','stop']];
+  var SUBJ={mv:1,vel:1,to:1,remove:1,block:1,bounce:1,frame:1};
+  var KEYS=['left','right','up','down','space','enter','shift','ctrl','alt','esc','tab','backspace'].concat('abcdefghijklmnopqrstuvwxyz0123456789'.split(''));
+  var BEH=[['chase','chase'],['flee','flee'],['wander','wander'],['patrol','patrol'],['track','track (face)'],['follow','follow (chain)'],['gravity','gravity']];
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function names(list){return(list||[]).map(function(b){return b&&typeof b==='object'?b.name:b}).filter(function(n){return typeof n==='string'&&n})}
+  // ── reading blocks ──
+  // the source text of an expression parsed by the compiler (from its first token to the next token on the line)
+  function exprText(e,tokens,line){
+    var t=e&&e.lgToks;if(!t||!t.length)return'';
+    var first=t[0],last=t[t.length-1],k=tokens.indexOf(last),next=tokens[k+1];
+    var end=next&&next.line===first.line?next.col-1:line.length;
+    return stripComment(line.slice(first.col-1,end)).trim().replace(/,$/,'').trim();
+  }
+  // text up to a // comment that is not inside a string
+  function stripComment(t){var q=null;for(var i=0;i<t.length;i++){var c=t[i];if(q){if(c==='\\')i++;else if(c===q)q=null;continue}if(c==='"'||c==="'")q=c;else if(c==='/'&&t[i+1]==='/')return t.slice(0,i)}return t}
+  function parseThing(text){
+    var lines=String(text).replace(/\r/g,'').split('\n'),comments=[];
+    lines.slice(1).forEach(function(l){if(/^\s*\/\//.test(l))comments.push(l.trim())});
+    var r=_lgParseBlock(text),d=r.decl;
+    if(!d||d.type!=='ThingDecl')throw new Error('not a thing block');
+    var T={name:d.name,shape:{kind:'box',w:'16',h:'16',r:'8',color:'',sprite:''},at:null,size:null,count:'',pool:'',map:'',beh:[],flags:{},fields:[],comments:comments};
+    function X(e,it){return exprText(e,r.tokens,lines[(it.tok.line||1)-1]||'')}
+    d.items.forEach(function(it){
+      switch(it.kind){
+        case'box':case'oval':T.shape={kind:it.kind,w:X(it.w,it),h:X(it.h,it),r:'8',color:it.color?it.color.value:'',sprite:''};break;
+        case'circ':T.shape={kind:'circ',w:'16',h:'16',r:X(it.r,it),color:it.color?it.color.value:'',sprite:''};break;
+        case'sprite':T.shape={kind:'sprite',w:'16',h:'16',r:'8',color:'',sprite:it.sprite.value};break;
+        case'at':T.at={x:X(it.x,it),y:X(it.y,it)};break;
+        case'size':T.size={w:X(it.w,it),h:X(it.h,it)};break;
+        case'count':case'pool':T[it.kind]=X(it.n,it);break;
+        case'from':T.map=it.map.value;break;
+        case'bounce':case'wrap':case'solid':case'wall':T.flags[it.kind]=true;break;
+        case'gravity':T.beh.push({kind:'gravity',target:'',arg:X(it.g,it)});break;
+        case'field':T.fields.push({name:it.name,value:X(it.value,it)});break;
+        default:T.beh.push({kind:it.kind,target:it.target?it.target.value:'',arg:it.speed?X(it.speed,it):it.gap?X(it.gap,it):''});
+      }
+    });
+    return T;
+  }
+  function thingText(T){
+    var p=[],s=T.shape;
+    if(s.kind==='sprite')p.push('sprite '+(s.sprite||T.name));
+    else if(s.kind==='circ')p.push('circ '+(s.r||'8')+(s.color?' '+s.color:''));
+    else p.push(s.kind+' '+(s.w||'16')+' '+(s.h||'16')+(s.color?' '+s.color:''));
+    if(T.at&&(T.at.x!==''||T.at.y!==''))p.push('at '+(T.at.x||'0')+pairSep(T.at.y)+(T.at.y||'0'));
+    if(T.size&&(T.size.w!==''||T.size.h!==''))p.push('size '+(T.size.w||'16')+pairSep(T.size.h)+(T.size.h||'16'));
+    if(T.count!=='')p.push('count '+T.count);
+    if(T.pool!=='')p.push('pool '+T.pool);
+    if(T.map)p.push('from map '+T.map);
+    T.beh.forEach(function(b){
+      if(b.kind==='gravity')p.push('gravity '+(b.arg||'0.3'));
+      else if(b.kind==='wander'||b.kind==='patrol')p.push(b.kind+(b.arg?' '+b.arg:''));
+      else p.push(b.kind+' '+(b.target||'?')+(b.kind!=='track'&&b.arg?' '+b.arg:''));
+    });
+    ['solid','wall','bounce','wrap'].forEach(function(f){if(T.flags[f])p.push(f)});
+    T.fields.forEach(function(f){if(f.name)p.push(f.name+' '+(f.value===''?'0':f.value))});
+    return'thing '+T.name+': '+p.join(', ')+(T.comments.length?'\n'+T.comments.map(function(c){return'  '+c}).join('\n'):'');
+  }
+  // a comma is needed between two numbers when the second starts with - or ( (else it would be one expression)
+  function pairSep(y){return/^\s*[-(]/.test(String(y||''))?', ':' '}
+  function parseRuleLine(line){
+    var t=line.trim(),off=0,m=/^\/\/\s?(.*)$/.exec(t),enabled=true;
+    if(m){enabled=false;t=m[1].trim()}
+    if(!t)return null;
+    if(/^(stage|seed|show)\b/.test(t))return{type:'setting',enabled:enabled,text:t};
+    var src='  '+t,r=_lgParseBlock('rules:\n'+src),d=r.decl;
+    if(!d||d.type!=='RulesDecl'||d.rules.length!==1)throw new Error('not one rule');
+    var R=d.rules[0];
+    function X(e){return exprText(e,r.tokens,src)}
+    var ev={kind:R.ev};
+    switch(R.ev){
+      case'every':{var n=r.tokens[r.tokens.indexOf(R.evTok)],u=r.tokens[r.tokens.indexOf(R.evTok)+1];ev.n=String(n.value);ev.unit=u.value;break}
+      case'key':case'keydown':case'keyup':ev.key=R.key.name;break;
+      case'press':case'hold':ev.btn=R.btn.btn;break;
+      case'hit':ev.a=R.a.value;ev.b=R.b.value;break;
+      case'when':ev.cond=X(R.cond);break;
+      case'each':ev.k=R.kind.value;ev.cond=R.cond?X(R.cond):'';break;
+    }
+    var acts=R.actions.map(function(a){
+      var A={verb:a.verb,subj:a.subj?a.subj.value:''};
+      switch(a.verb){
+        case'mv':case'vel':case'to':A.x=X(a.x);A.y=X(a.y);break;
+        case'spawn':A.kind=a.kind.value;A.x=a.x?X(a.x):'';A.y=a.y?X(a.y):'';A.vx=a.vx?X(a.vx):'';A.vy=a.vy?X(a.vy):'';break;
+        case'set':case'add':A.target=a.target.value+(a.field?'.'+a.field.value:'');A.value=X(a.value);break;
+        case'play':case'music':A.name=a.name;break;
+        case'say':case'frame':A.value=X(a.value);break;
+        case'call':A.fn=a.fn?a.fn.value:X(a.callExpr);break;
+      }
+      return A;
+    });
+    return{type:'rule',enabled:enabled,ev:ev,actions:acts};
+  }
+  function eventText(e){
+    switch(e.kind){
+      case'start':return'on start';
+      case'frame':return'every frame';
+      case'every':return'every '+(e.n||'1')+(e.unit||'s');
+      case'key':case'keydown':case'keyup':return'on '+e.kind+' '+(e.key||'space');
+      case'press':case'hold':return'on '+e.kind+' '+(e.btn||'A');
+      case'tap':case'touch':return'on '+e.kind;
+      case'hit':return'on hit '+(e.a||'?')+' '+(e.b||'?');
+      case'when':return'when '+(e.cond||'true');
+      case'each':return'each '+(e.k||'?')+(e.cond?' when '+e.cond:'');
+    }
+    return'on start';
+  }
+  function actionText(a){
+    var s=a.subj?a.subj+' ':'';
+    switch(a.verb){
+      case'mv':case'vel':case'to':return s+a.verb+' '+(a.x||'0')+', '+(a.y||'0');
+      case'spawn':return'spawn '+(a.kind||'?')+(a.x!==''||a.y!==''?' at '+(a.x||'0')+', '+(a.y||'0'):'')+(a.vx!==''||a.vy!==''?' vel '+(a.vx||'0')+', '+(a.vy||'0'):'');
+      case'remove':case'block':case'bounce':return a.verb+(a.subj?' '+a.subj:'');
+      case'frame':return'frame '+(a.subj?a.subj+' ':'')+(a.value||'0');
+      case'set':case'add':return a.verb+' '+(a.target||'score')+' '+(a.value||(a.verb==='add'?'1':'0'));
+      case'play':case'music':return a.verb+' '+(a.name||'?');
+      case'say':return'say '+(a.value||'""');
+      case'call':return'call '+(a.fn||'?');
+      default:return a.verb;
+    }
+  }
+  function ruleText(row){
+    if(row.type==='setting')return row.text;
+    return eventText(row.ev)+': '+row.actions.map(actionText).join(' : ');
+  }
+  function rowLine(row){
+    if(row.type==='blank')return'';
+    if(row.type==='kept'||!row.dirty)return row.orig;
+    return'  '+(row.enabled?'':'// ')+ruleText(row);
+  }
+  function parseRules(text){
+    var lines=String(text||'').replace(/\r/g,'').split('\n');
+    return lines.slice(1).map(function(l){
+      if(!l.trim())return{type:'blank',orig:l};
+      var row=null;
+      try{row=parseRuleLine(l)}catch(e){row=null}
+      if(!row)return{type:'kept',orig:l,text:l.trim()};
+      row.orig=l;row.dirty=false;
+      return row;
+    });
+  }
+  function rulesText(rows){
+    var out=['rules:'];rows.forEach(function(r){out.push(rowLine(r))});
+    while(out.length>1&&!out[out.length-1].trim())out.pop();
+    return out.join('\n');
+  }
+  // ── the whole project text with blocks replaced (for live validation) ──
+  function projText(){try{return typeof _projText==='function'?_projText():document.getElementById('editor').value}catch(e){return''}}
+  function blockRange(lines,head){
+    for(var i=0;i<lines.length;i++)if(head.test(lines[i])){
+      var j=i+1;while(j<lines.length&&(/^\s/.test(lines[j])||lines[j]===''||/^\/\//.test(lines[j]))&&!/^\/\/\/\/ file: /.test(lines[j]))j++;
+      while(j>i+1&&!lines[j-1].trim())j--;
+      return[i,j];
+    }
+    return null;
+  }
+  function headRe(kind,name){return kind==='rules'?/^rules\s*:/:new RegExp('^thing\\s+'+name+'\\s*:')}
+  function fileStart(lines,i){for(var k=i;k>=0;k--)if(/^\/\/\/\/ file: /.test(lines[k]))return{line:k+1,path:lines[k].slice(11).trim()};return{line:0,path:null}}
+  // ── the tool ──
+  function open(ctx){
+    var S={tab:'things',things:[],removed:[],rules:[],rulesDirty:false,rulesExisted:false,sel:0,errs:{},msg:''};
+    var body=ctx.body,timer=null;
+    ctx.title('LOGIC — things & rules');
+    function blocksOf(kind){try{return names(ctx.blocks(kind))}catch(e){return[]}}
+    function blockFile(kind){try{var b=(ctx.blocks(kind)||[])[0];return b&&typeof b==='object'&&(b.path||b.file)?(b.path||b.file):null}catch(e){return null}}   /* CORE's blocks carry `path` */
+    // load
+    blocksOf('thing').forEach(function(n){
+      var txt=null;try{txt=ctx.read('thing',n)}catch(e){}
+      if(txt==null)return;
+      var T;try{T=parseThing(txt);T.kept=false}catch(e){T={name:n,kept:true,raw:txt,err:String(e.message||e)}}
+      T.orig=txt;T.origName=n;T.dirty=false;
+      S.things.push(T);
+    });
+    var rtxt=null;try{rtxt=ctx.read('rules','')}catch(e){}
+    if(rtxt!=null){S.rulesExisted=true;S.rules=parseRules(rtxt);S.rulesOrig=rtxt}
+    function kinds(){return S.things.map(function(t){return t.name})}
+    function dirty(){ctx.setDirty(true);schedule()}
+    function schedule(){clearTimeout(timer);timer=setTimeout(validate,350)}
+    // ── live validation: compile the project with the edited blocks in place ──
+    function validate(){
+      S.errs={};S.msg='';
+      var text=projText(),lines=text.split('\n'),place=[];
+      function put(kind,name,blockText,key){
+        var r=blockRange(lines,headRe(kind,name)),bl=blockText.split('\n');
+        if(r){lines.splice.apply(lines,[r[0],r[1]-r[0]].concat(bl));place.push({key:key,at:r[0],n:bl.length})}
+        else{lines.push.apply(lines,['']);var at=lines.length;lines.push.apply(lines,bl);place.push({key:key,at:at,n:bl.length})}
+        // later blocks move: recompute positions from scratch after all replacements
+      }
+      S.removed.forEach(function(n){var r=blockRange(lines,headRe('thing',n));if(r)lines.splice(r[0],r[1]-r[0])});
+      S.things.forEach(function(T,i){put('thing',T.origName||T.name,T.kept?T.raw:(T.dirty?thingText(T):T.orig),'t'+i)});
+      // a kept line that does not compile is left out of the check (it is shown with its own error), so the
+      // other rules are still checked
+      S.keptErr={};
+      var vrows=S.rules.map(function(r,i){
+        if(r.type!=='kept'||/^\/\//.test(r.text))return r;
+        try{_lgParseBlock('rules:\n  '+r.text);return r}catch(e){S.keptErr[i]=String(e.message||e).replace(/^\d+:\d+: /,'');return{type:'kept',orig:'  // '+r.text,text:r.text}}
+      });
+      if(S.rules.length||S.rulesExisted)put('rules','',rulesText(vrows),'r');
+      var full=lines.join('\n');
+      // positions after every replacement: find each block again by its header
+      var L2=full.split('\n'),spots=[];
+      S.things.forEach(function(T,i){var r=blockRange(L2,headRe('thing',T.name));if(r)spots.push({key:'t'+i,r:r})});
+      var rr=blockRange(L2,/^rules\s*:/);if(rr)spots.push({key:'r',r:rr});
+      var errs=[];
+      try{var c=compile(full,'wasm32');errs=c.errors||[]}catch(e){errs=[String(e.message||e)]}
+      errs.forEach(function(msg){
+        var m=/^(?:([A-Za-z0-9_.\/-]+\.emit):)?(\d+):(\d+): ([\s\S]*)$/.exec(msg),hit=false;
+        if(m){
+          spots.forEach(function(sp){
+            var fs=fileStart(L2,sp.r[0]),line=Number(m[2])+fs.line-1;
+            if(m[1]&&fs.path&&m[1]!==fs.path)return;
+            if(line>=sp.r[0]&&line<sp.r[1]){hit=true;(S.errs[sp.key]=S.errs[sp.key]||[]).push({line:line-sp.r[0],col:Number(m[3]),text:m[4]})}
+          });
+        }
+        if(!hit&&!S.msg)S.msg=msg;
+      });
+      renderStatus();
+      if(S.tab==='rules')markRules();else markThings();
+    }
+    // ── rendering ──
+    var css=document.getElementById('lg-tool-css');
+    if(!css){css=document.createElement('style');css.id='lg-tool-css';css.textContent=CSS;document.head.appendChild(css)}
+    body.innerHTML='';
+    var root=document.createElement('div');root.className='lg-tool';body.appendChild(root);
+    root.innerHTML='<div class="lg-tabs"><button class="lg-tab" data-tab="things">THINGS</button><button class="lg-tab" data-tab="rules">RULES</button></div><div class="lg-pane"></div><div class="lg-status"></div>';
+    var pane=root.querySelector('.lg-pane'),status=root.querySelector('.lg-status');
+    root.querySelectorAll('.lg-tab').forEach(function(b){b.onclick=function(){S.tab=b.getAttribute('data-tab');render()}});
+    function renderStatus(){
+      var n=Object.keys(S.errs).reduce(function(a,k){return a+S.errs[k].length},0)+Object.keys(S.keptErr||{}).length;
+      status.className='lg-status'+(n||S.msg?' bad':'');
+      status.textContent=n?'✗ '+n+' problem'+(n>1?'s':'')+' — marked in red':S.msg?'✗ '+S.msg:'✓ compiles';
+    }
+    function sel(opts,val,attr){return'<select '+attr+'>'+opts.map(function(o){var v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;return'<option value="'+esc(v)+'"'+(String(v)===String(val)?' selected':'')+'>'+esc(l)+'</option>'}).join('')+'</select>'}
+    function inp(val,attr,ph,list){return'<input '+attr+' value="'+esc(val)+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+(list?' list="'+list+'"':'')+' autocomplete="off" spellcheck="false">'}
+    function render(){
+      root.querySelectorAll('.lg-tab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-tab')===S.tab)});
+      if(S.tab==='things')renderThings();else renderRules();
+      renderStatus();
+    }
+    // ── THINGS ──
+    function renderThings(){
+      var h='<div class="lg-kinds">';
+      S.things.forEach(function(T,i){h+='<button class="lg-kind'+(i===S.sel?' on':'')+'" data-i="'+i+'">'+esc(T.name)+'</button>'});
+      h+='<button class="lg-add-kind">+ thing</button></div>';
+      var T=S.things[S.sel];
+      if(!T)h+='<p class="lg-hint">No things yet. A thing is a kind of game object: a hero, coins, enemies, bullets. Add one with + thing.</p>';
+      else if(T.kept)h+='<div class="lg-thing" data-i="'+S.sel+'"><p class="lg-hint">This thing could not be read as a form ('+esc(T.err)+'). Edit its text:</p><textarea class="lg-raw" rows="4">'+esc(T.raw)+'</textarea><div class="lg-row"><button class="lg-del-thing">Delete thing</button></div></div>';
+      else h+=thingForm(T,S.sel);
+      pane.innerHTML=h;
+      pane.querySelectorAll('.lg-kind').forEach(function(b){b.onclick=function(){S.sel=Number(b.getAttribute('data-i'));renderThings()}});
+      pane.querySelector('.lg-add-kind').onclick=function(){
+        var n='thing'+(S.things.length+1),k=1;while(kinds().indexOf(n)>=0)n='thing'+(S.things.length+(++k));
+        S.things.push({name:n,origName:null,dirty:true,kept:false,shape:{kind:'box',w:'16',h:'16',r:'8',color:'#ffffff',sprite:''},at:{x:'160',y:'120'},size:null,count:'',pool:'',map:'',beh:[],flags:{},fields:[],comments:[]});
+        S.sel=S.things.length-1;dirty();renderThings();
+      };
+      if(T)wireThing(T);
+      markThings();
+    }
+    function thingForm(T,i){
+      var s=T.shape,sprites=blocksOf('sprite'),maps=blocksOf('map'),ks=kinds();
+      var h='<div class="lg-thing" data-i="'+i+'">';
+      h+='<div class="lg-row"><label>name</label>'+inp(T.name,'data-f="name" class="lg-name"','hero')+'<button class="lg-del-thing" title="Delete this thing">🗑</button></div>';
+      h+='<div class="lg-row"><label>shape</label>'+sel([['box','box'],['circ','circle'],['oval','oval'],['sprite','sprite']],s.kind,'data-f="shape"');
+      if(s.kind==='sprite')h+=sel([''].concat(sprites.length?sprites:[]).concat(s.sprite&&sprites.indexOf(s.sprite)<0?[s.sprite]:[]).map(function(n){return[n,n||'(choose)']}),s.sprite,'data-f="sprite"')+'<canvas class="lg-spr" width="32" height="32"></canvas>';
+      else if(s.kind==='circ')h+='<label>r</label>'+inp(s.r,'data-f="r" class="lg-num"','8');
+      else h+='<label>w</label>'+inp(s.w,'data-f="w" class="lg-num"','16')+'<label>h</label>'+inp(s.h,'data-f="h" class="lg-num"','16');
+      if(s.kind!=='sprite')h+='<input type="color" data-f="colorpick" value="'+esc(/^#[0-9a-fA-F]{6}$/.test(s.color)?s.color:'#ffffff')+'">'+inp(s.color,'data-f="color" class="lg-col"','#ffffff');
+      h+='</div>';
+      h+='<div class="lg-row"><label>at</label>'+inp(T.at?T.at.x:'','data-f="atx"','x (i = number)')+inp(T.at?T.at.y:'','data-f="aty"','y')+'</div>';
+      h+='<div class="lg-row"><label>size</label>'+inp(T.size?T.size.w:'','data-f="sizew" class="lg-num"','w')+inp(T.size?T.size.h:'','data-f="sizeh" class="lg-num"','h')+'<span class="lg-hint">only to override the shape</span></div>';
+      h+='<div class="lg-row"><label>count</label>'+inp(T.count,'data-f="count" class="lg-num" inputmode="numeric"','1')+'<label>pool</label>'+inp(T.pool,'data-f="pool" class="lg-num" inputmode="numeric"','—')+'<label>from map</label>'+sel([['','—']].concat(maps.concat(T.map&&maps.indexOf(T.map)<0?[T.map]:[]).map(function(n){return[n,n]})),T.map,'data-f="map"')+'</div>';
+      h+='<div class="lg-sub">behaviours</div>';
+      T.beh.forEach(function(b,j){
+        h+='<div class="lg-row lg-beh" data-j="'+j+'">'+sel(BEH,b.kind,'data-f="bkind"');
+        if(b.kind==='chase'||b.kind==='flee'||b.kind==='track'||b.kind==='follow')h+=sel([['','(thing)']].concat(ks.map(function(n){return[n,n]})),b.target,'data-f="btarget"');
+        if(b.kind!=='track')h+=inp(b.arg,'data-f="barg" class="lg-num"',b.kind==='gravity'?'0.3':b.kind==='follow'?'gap':'speed');
+        h+='<button class="lg-x" data-f="bdel" title="Remove">✕</button></div>';
+      });
+      h+='<div class="lg-row"><button class="lg-add-beh">+ behaviour</button>';
+      ['solid','wall','bounce','wrap'].forEach(function(f){h+='<label class="lg-chk"><input type="checkbox" data-flag="'+f+'"'+(T.flags[f]?' checked':'')+'>'+f+'</label>'});
+      h+='</div><div class="lg-sub">fields</div>';
+      T.fields.forEach(function(f,j){h+='<div class="lg-row lg-field" data-j="'+j+'">'+inp(f.name,'data-f="fname"','hp')+inp(f.value,'data-f="fvalue" class="lg-num"','3')+'<button class="lg-x" data-f="fdel" title="Remove">✕</button></div>'});
+      h+='<div class="lg-row"><button class="lg-add-field">+ field</button></div><div class="lg-errs"></div></div>';
+      return h;
+    }
+    function wireThing(T){
+      var box=pane.querySelector('.lg-thing');if(!box)return;
+      function ch(){T.dirty=true;dirty()}
+      var raw=box.querySelector('.lg-raw');
+      if(raw)raw.oninput=function(){T.raw=raw.value;T.dirty=true;var m=/^thing\s+(\w+)/.exec(raw.value);if(m)T.name=m[1];dirty()};
+      box.querySelector('.lg-del-thing').onclick=function(){
+        var gone=S.things.splice(S.sel,1)[0];
+        if(gone&&gone.origName)S.removed.push(gone.origName);
+        S.sel=Math.max(0,S.sel-1);dirty();renderThings();
+      };
+      if(T.kept)return;
+      box.querySelectorAll('input[data-f],select[data-f]').forEach(function(el){
+        var f=el.getAttribute('data-f'),row=el.closest('[data-j]'),j=row?Number(row.getAttribute('data-j')):-1;
+        var ev=el.tagName==='SELECT'||el.type==='color'?'change':'input';
+        el.addEventListener(ev,function(){
+          var v=el.value;
+          switch(f){
+            case'name':{var old=T.name;T.name=v.trim();renameKind(old,T.name);pane.querySelector('.lg-kind.on').textContent=T.name;break}
+            case'shape':T.shape.kind=v;ch();renderThings();return;
+            case'sprite':T.shape.sprite=v;drawSprite(T);break;
+            case'w':case'h':case'r':T.shape[f]=v;break;
+            case'color':T.shape.color=v.trim();break;
+            case'colorpick':T.shape.color=v;var c=box.querySelector('[data-f="color"]');if(c)c.value=v;break;
+            case'atx':case'aty':T.at=T.at||{x:'',y:''};T.at[f==='atx'?'x':'y']=v.trim();break;
+            case'sizew':case'sizeh':T.size=T.size||{w:'',h:''};T.size[f==='sizew'?'w':'h']=v.trim();break;
+            case'count':case'pool':T[f]=v.trim();break;
+            case'map':T.map=v;break;
+            case'bkind':T.beh[j].kind=v;ch();renderThings();return;
+            case'btarget':T.beh[j].target=v;break;
+            case'barg':T.beh[j].arg=v.trim();break;
+            case'fname':T.fields[j].name=v.trim();break;
+            case'fvalue':T.fields[j].value=v.trim();break;
+          }
+          ch();
+        });
+        if(f==='bdel'||f==='fdel')el.onclick=function(){if(f==='bdel')T.beh.splice(j,1);else T.fields.splice(j,1);ch();renderThings()};
+      });
+      box.querySelectorAll('button[data-f="bdel"],button[data-f="fdel"]').forEach(function(el){
+        var f=el.getAttribute('data-f'),j=Number(el.closest('[data-j]').getAttribute('data-j'));
+        el.onclick=function(){if(f==='bdel')T.beh.splice(j,1);else T.fields.splice(j,1);ch();renderThings()};
+      });
+      box.querySelectorAll('input[data-flag]').forEach(function(el){el.onchange=function(){T.flags[el.getAttribute('data-flag')]=el.checked;ch()}});
+      box.querySelector('.lg-add-beh').onclick=function(){T.beh.push({kind:'chase',target:kinds().filter(function(n){return n!==T.name})[0]||'',arg:'1'});ch();renderThings()};
+      box.querySelector('.lg-add-field').onclick=function(){T.fields.push({name:'hp',value:'3'});ch();renderThings()};
+      drawSprite(T);
+    }
+    function drawSprite(T){
+      var c=pane.querySelector('.lg-spr');if(!c)return;
+      var g=c.getContext('2d');g.clearRect(0,0,32,32);
+      /* the sprite block of the program text (SPRITE's _sprBlockCanvas), scaled into the 32 px preview */
+      var sc=T.shape.sprite&&typeof _sprBlockCanvas==='function'?_sprBlockCanvas(ctx,S.sprCache||(S.sprCache={}),T.shape.sprite):null;
+      if(sc){var k=Math.min(32/sc.width,32/sc.height);g.save();g.imageSmoothingEnabled=false;g.drawImage(sc,Math.round((32-sc.width*k)/2),Math.round((32-sc.height*k)/2),Math.round(sc.width*k),Math.round(sc.height*k));g.restore()}
+      else{g.strokeStyle='#4e5569';g.strokeRect(4.5,4.5,23,23)}
+    }
+    function renameKind(old,nw){
+      if(!old||old===nw)return;
+      S.things.forEach(function(t){t.beh.forEach(function(b){if(b.target===old){b.target=nw;t.dirty=true}})});
+      S.rules.forEach(function(r){
+        if(r.type!=='rule')return;
+        var ch=false,e=r.ev;
+        ['a','b','k'].forEach(function(k){if(e[k]===old){e[k]=nw;ch=true}});
+        var re=new RegExp('(^|[^\\w.])'+old+'(?=\\s*\\.|\\s*\\))','g');
+        function ren(o,k){if(typeof o[k]==='string'&&re.test(o[k])){re.lastIndex=0;o[k]=o[k].replace(re,function(m,pre){return pre+nw});ch=true}re.lastIndex=0}
+        ren(e,'cond');
+        r.actions.forEach(function(a){
+          ['x','y','vx','vy','value'].forEach(function(k){ren(a,k)});
+          if(a.subj===old){a.subj=nw;ch=true}
+          if(a.kind===old){a.kind=nw;ch=true}
+          if(a.target&&a.target.split('.')[0]===old){a.target=nw+a.target.slice(old.length);ch=true}
+        });
+        if(ch){r.dirty=true;S.rulesDirty=true}
+      });
+    }
+    function markThings(){
+      var box=pane.querySelector('.lg-thing');if(!box)return;
+      var e=S.errs['t'+S.sel]||[],el=box.querySelector('.lg-errs');
+      box.classList.toggle('bad',e.length>0);
+      if(el)el.innerHTML=e.map(function(x){return'<div class="lg-err">✗ '+esc(x.text)+'</div>'}).join('');
+      pane.querySelectorAll('.lg-kind').forEach(function(b){b.classList.toggle('bad',!!(S.errs['t'+b.getAttribute('data-i')]||[]).length)});
+    }
+    // ── RULES ──
+    function evParams(e){
+      var ks=kinds(),kopt=[['','(thing)']].concat(ks.map(function(n){return[n,n]})),h='';
+      switch(e.kind){
+        case'every':h+=inp(e.n,'data-f="n" class="lg-num" inputmode="decimal"','2')+sel([['s','seconds'],['ms','ms']],e.unit||'s','data-f="unit"');break;
+        case'key':case'keydown':case'keyup':h+=sel(KEYS,e.key||'space','data-f="key"');break;
+        case'press':case'hold':h+=sel(['A','B','C'],e.btn||'A','data-f="btn"');break;
+        case'hit':h+=sel(kopt.concat(e.a&&ks.indexOf(e.a)<0?[[e.a,e.a]]:[]),e.a,'data-f="a"')+sel(kopt.concat([['wall','wall'],['edge','edge']]).concat(e.b&&ks.indexOf(e.b)<0&&e.b!=='wall'&&e.b!=='edge'?[[e.b,e.b]]:[]),e.b,'data-f="b"');break;
+        case'when':h+=inp(e.cond,'data-f="cond" class="lg-expr"','score >= 10','lg-dl-expr');break;
+        case'each':h+=sel(kopt.concat(e.k&&ks.indexOf(e.k)<0?[[e.k,e.k]]:[]),e.k,'data-f="k"')+inp(e.cond,'data-f="cond" class="lg-expr"','when … (optional)','lg-dl-expr');break;
+      }
+      return h;
+    }
+    function actParams(a){
+      var ks=kinds(),sounds=blocksOf('sound'),h='';
+      var subj=sel([['','(the thing involved)']].concat(ks.map(function(n){return[n,n]})).concat(a.subj&&ks.indexOf(a.subj)<0?[[a.subj,a.subj]]:[]),a.subj,'data-f="subj"');
+      switch(a.verb){
+        case'mv':case'vel':case'to':h+=subj+inp(a.x,'data-f="x" class="lg-expr"','x','lg-dl-expr')+inp(a.y,'data-f="y" class="lg-expr"','y','lg-dl-expr');break;
+        case'remove':case'block':case'bounce':h+=subj;break;
+        case'frame':h+=subj+inp(a.value,'data-f="value" class="lg-num"','0');break;
+        case'spawn':h+=sel([['','(thing)']].concat(ks.map(function(n){return[n,n]})).concat(a.kind&&ks.indexOf(a.kind)<0?[[a.kind,a.kind]]:[]),a.kind,'data-f="kind"')+'<span class="lg-w">at</span>'+inp(a.x,'data-f="x" class="lg-expr"','x','lg-dl-expr')+inp(a.y,'data-f="y" class="lg-expr"','y','lg-dl-expr')+'<span class="lg-w">vel</span>'+inp(a.vx,'data-f="vx" class="lg-expr"','vx','lg-dl-expr')+inp(a.vy,'data-f="vy" class="lg-expr"','vy','lg-dl-expr');break;
+        case'set':case'add':h+=inp(a.target,'data-f="target" class="lg-var"','score','lg-dl-var')+inp(a.value,'data-f="value" class="lg-expr"',a.verb==='add'?'1':'0','lg-dl-expr');break;
+        case'play':case'music':h+=(sounds.length?sel([['','(sound)']].concat(sounds.concat(a.name&&sounds.indexOf(a.name)<0?[a.name]:[]).map(function(n){return[n,n]})),a.name,'data-f="name"'):inp(a.name,'data-f="name"','coin'));break;
+        case'say':h+=inp(a.value,'data-f="value" class="lg-expr"','"You win!"','lg-dl-expr');break;
+        case'call':h+=inp(a.fn,'data-f="fn"','openChest','lg-dl-fn');break;
+      }
+      return h;
+    }
+    function lists(){
+      var text=projText(),vars={},fns={};
+      text.replace(/^(?:public\s+)?(?:mut|let)\s+([A-Za-z_]\w*)/gm,function(m,n){vars[n]=1});
+      text.replace(/^(?:export\s+|public\s+)*fn\s+([A-Za-z_]\w*)/gm,function(m,n){fns[n]=1});
+      S.rules.forEach(function(r){if(r.type==='rule')r.actions.forEach(function(a){if((a.verb==='set'||a.verb==='add')&&a.target&&a.target.indexOf('.')<0)vars[a.target]=1})});
+      var fields=[];S.things.forEach(function(T){if(!T.kept){['x','y','vx','vy'].concat(T.fields.map(function(f){return f.name})).forEach(function(f){fields.push(T.name+'.'+f)})}});
+      var v=Object.keys(vars).filter(function(n){return!/^__lg/.test(n)}).concat(fields);
+      var ex=v.concat(S.things.map(function(T){return'count('+T.name+')'})).concat(['rnd(100)','stickX()','stickY()','tapX()','tapY()','i']);
+      function dl(id,items){return'<datalist id="'+id+'">'+items.map(function(n){return'<option value="'+esc(n)+'">'}).join('')+'</datalist>'}
+      return dl('lg-dl-var',v)+dl('lg-dl-expr',ex)+dl('lg-dl-fn',Object.keys(fns).filter(function(n){return n!=='frame'&&!/^__lg/.test(n)}));
+    }
+    function renderRules(){
+      var h=lists()+'<div class="lg-rules">';
+      S.rules.forEach(function(r,i){
+        if(r.type==='blank')return;
+        h+='<div class="lg-rule'+(r.type==='kept'?' kept':'')+(r.type==='rule'&&!r.enabled?' off':'')+'" data-i="'+i+'">';
+        h+='<div class="lg-rhead"><span class="lg-handle" title="Drag to reorder">≡</span>';
+        if(r.type==='kept'){h+='<span class="lg-keptlbl">kept as is</span><code class="lg-kepttext">'+esc(r.text)+'</code>'}
+        else if(r.type==='setting'){h+='<label class="lg-chk"><input type="checkbox" data-f="enabled"'+(r.enabled?' checked':'')+'>on</label><span class="lg-w">setting</span>'+inp(r.text,'data-f="text" class="lg-expr lg-wide"','stage size 320 240')}
+        else{
+          h+='<label class="lg-chk"><input type="checkbox" data-f="enabled"'+(r.enabled?' checked':'')+'>on</label><span class="lg-w">WHEN</span>'+sel(EVENTS,r.ev.kind,'data-f="event"')+evParams(r.ev);
+        }
+        h+='<span class="lg-sp"></span><button class="lg-mv" data-d="-1" title="Move up">▲</button><button class="lg-mv" data-d="1" title="Move down">▼</button><button class="lg-x lg-delrule" title="Delete rule">🗑</button></div>';
+        if(r.type==='rule'){
+          r.actions.forEach(function(a,j){h+='<div class="lg-act" data-j="'+j+'"><span class="lg-w">'+(j?'and':'DO')+'</span>'+sel(VERBS,a.verb,'data-f="verb"')+actParams(a)+'<button class="lg-x" data-f="adel" title="Remove action">✕</button></div>'});
+          h+='<div class="lg-act"><button class="lg-add-act">+ action</button></div>';
+        }
+        h+='<div class="lg-errs"></div></div>';
+      });
+      h+='</div><div class="lg-row"><button class="lg-add-rule">+ rule</button><button class="lg-add-setting">+ setting</button></div>';
+      pane.innerHTML=h;
+      pane.querySelector('.lg-add-rule').onclick=function(){S.rules.push({type:'rule',enabled:true,dirty:true,ev:{kind:'start'},actions:[{verb:'set',subj:'',target:'score',value:'0'}]});S.rulesDirty=true;dirty();renderRules()};
+      pane.querySelector('.lg-add-setting').onclick=function(){S.rules.push({type:'setting',enabled:true,dirty:true,text:'stage size 320 240'});S.rulesDirty=true;dirty();renderRules()};
+      pane.querySelectorAll('.lg-rule').forEach(wireRule);
+      markRules();
+    }
+    function touch(r){r.dirty=true;S.rulesDirty=true;dirty()}
+    function wireRule(el){
+      var i=Number(el.getAttribute('data-i')),r=S.rules[i];
+      el.querySelector('.lg-delrule').onclick=function(){S.rules.splice(i,1);S.rulesDirty=true;dirty();renderRules()};
+      el.querySelectorAll('.lg-mv').forEach(function(b){b.onclick=function(){moveRule(i,Number(b.getAttribute('data-d')))}});
+      dragHandle(el.querySelector('.lg-handle'),i);
+      if(r.type==='kept')return;
+      el.querySelectorAll('input[data-f],select[data-f]').forEach(function(x){
+        var f=x.getAttribute('data-f'),act=x.closest('.lg-act'),j=act&&act.hasAttribute('data-j')?Number(act.getAttribute('data-j')):-1;
+        var evn=x.tagName==='SELECT'||x.type==='checkbox'?'change':'input';
+        x.addEventListener(evn,function(){
+          var v=x.type==='checkbox'?x.checked:x.value;
+          if(f==='enabled'){r.enabled=v;el.classList.toggle('off',!v);touch(r);return}
+          if(r.type==='setting'){r.text=String(v).trim();touch(r);return}
+          if(j<0){
+            if(f==='event'){r.ev={kind:v};if(v==='hit'){var ks=kinds();r.ev.a=ks[0]||'';r.ev.b=ks[1]||'edge'}if(v==='each')r.ev.k=kinds()[0]||'';if(v==='every'){r.ev.n='1';r.ev.unit='s'}touch(r);renderRules();return}
+            r.ev[f]=f==='cond'||f==='n'?String(v).trim():v;touch(r);return;
+          }
+          var a=r.actions[j];
+          if(f==='verb'){r.actions[j]={verb:v,subj:'',x:'',y:'',vx:'',vy:'',kind:'',target:'',value:'',name:'',fn:''};if(v==='set'||v==='add'){r.actions[j].target='score';r.actions[j].value=v==='add'?'1':'0'}if(v==='mv'||v==='vel'||v==='to'){r.actions[j].x='0';r.actions[j].y='0'}if(v==='spawn')r.actions[j].kind=kinds()[0]||'';touch(r);renderRules();return}
+          a[f]=typeof v==='string'&&f!=='subj'&&f!=='kind'&&f!=='name'?v.trim():v;touch(r);
+        });
+      });
+      el.querySelectorAll('button[data-f="adel"]').forEach(function(b){var j=Number(b.closest('.lg-act').getAttribute('data-j'));b.onclick=function(){r.actions.splice(j,1);if(!r.actions.length)r.actions.push({verb:'stop',subj:''});touch(r);renderRules()}});
+      var add=el.querySelector('.lg-add-act');
+      if(add)add.onclick=function(){r.actions.push({verb:'add',subj:'',target:'score',value:'1'});touch(r);renderRules()};
+    }
+    function moveRule(i,d){
+      var vis=S.rules.map(function(r,k){return r.type==='blank'?-1:k}).filter(function(k){return k>=0}),p=vis.indexOf(i),q=p+d;
+      if(q<0||q>=vis.length)return;
+      var to=vis[q],r=S.rules.splice(i,1)[0];
+      S.rules.splice(to,0,r);
+      S.rulesDirty=true;dirty();renderRules();
+    }
+    // drag a rule by its handle (pointer events: mouse, pen and touch)
+    function dragHandle(hd,i){
+      if(!hd)return;
+      hd.style.touchAction='none';
+      hd.addEventListener('pointerdown',function(ev){
+        ev.preventDefault();
+        var rows=Array.prototype.slice.call(pane.querySelectorAll('.lg-rule')),me=hd.closest('.lg-rule');
+        me.classList.add('drag');
+        try{hd.setPointerCapture(ev.pointerId)}catch(e){}
+        function target(y){var t=null;rows.forEach(function(rw){var b=rw.getBoundingClientRect();if(y>b.top+b.height/2)t=rw});return t}
+        function mv(e2){rows.forEach(function(rw){rw.classList.remove('dropafter')});var t=target(e2.clientY);if(t&&t!==me)t.classList.add('dropafter');else if(!t&&rows[0]!==me)rows[0].classList.add('dropbefore')}
+        function up(e2){
+          hd.removeEventListener('pointermove',mv);hd.removeEventListener('pointerup',up);hd.removeEventListener('pointercancel',up);
+          var t=target(e2.clientY),from=i,r=S.rules[from];
+          var to=t?Number(t.getAttribute('data-i')):-1;
+          if(t===me){renderRules();return}
+          S.rules.splice(from,1);
+          if(to<0)S.rules.unshift(r);else{if(to>from)to--;S.rules.splice(to+1,0,r)}
+          S.rulesDirty=true;dirty();renderRules();
+        }
+        hd.addEventListener('pointermove',mv);hd.addEventListener('pointerup',up);hd.addEventListener('pointercancel',up);
+      });
+    }
+    function markRules(){
+      var e=S.errs.r||[];
+      pane.querySelectorAll('.lg-rule').forEach(function(el){
+        var i=Number(el.getAttribute('data-i')),line=i+1,mine=e.filter(function(x){return x.line===line}).map(function(x){return x.text});
+        if(S.keptErr&&S.keptErr[i])mine.push('does not compile: '+S.keptErr[i]);
+        el.classList.toggle('bad',mine.length>0);
+        el.querySelector('.lg-errs').innerHTML=mine.map(function(x){return'<div class="lg-err">✗ '+esc(x)+'</div>'}).join('');
+      });
+    }
+    // ── save / try ──
+    function save(){
+      var file=blockFile('rules')||blockFile('thing')||undefined,n=0;
+      S.removed.forEach(function(nm){try{ctx.remove('thing',nm);n++}catch(e){}});S.removed=[];
+      S.things.forEach(function(T){
+        if(!T.dirty)return;
+        var txt=T.kept?T.raw:thingText(T);
+        if(T.origName&&T.origName!==T.name){try{ctx.remove('thing',T.origName)}catch(e){}}
+        ctx.write('thing',T.name,txt,file);n++;
+        T.orig=txt;T.origName=T.name;T.dirty=false;
+      });
+      if(S.rulesDirty){
+        var rt=rulesText(S.rules);
+        ctx.write('rules','',rt,file);n++;
+        S.rules=parseRules(rt);S.rulesDirty=false;S.rulesExisted=true;
+      }
+      ctx.setDirty(false);
+      ctx.toast(n?'Saved '+n+' block'+(n>1?'s':''):'Nothing changed');
+      render();validate();
+    }
+    var foot=ctx.footer;
+    foot.innerHTML='<button class="lg-try">▶ Try it</button><button class="lg-save">Save</button>';
+    foot.querySelector('.lg-save').onclick=save;
+    foot.querySelector('.lg-try').onclick=function(){save();try{ctx.run()}catch(e){}};
+    window._lgTool={state:S,save:save,validate:validate,thingText:thingText,ruleText:ruleText,parseThing:parseThing,parseRuleLine:parseRuleLine,render:render};
+    render();validate();
+  }
+  var CSS=[
+    '.lg-tool{font-family:var(--sans,sans-serif);color:var(--fg,#d4d8e3);font-size:13px;max-width:100%;box-sizing:border-box}',
+    '.lg-tool *{box-sizing:border-box}',
+    '.lg-tabs{display:flex;gap:6px;margin-bottom:8px}',
+    '.lg-tab{flex:1;padding:8px;border:1px solid var(--border,#1a1d2a);background:var(--bg3,#171a24);color:var(--fg2,#8c93a8);border-radius:6px;font-weight:600;letter-spacing:1px}',
+    '.lg-tab.on{color:var(--cyan,#2dd4bf);border-color:var(--cyan,#2dd4bf)}',
+    '.lg-kinds{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}',
+    '.lg-kind,.lg-add-kind,.lg-tool button{min-height:32px;padding:4px 10px;border:1px solid var(--border,#1a1d2a);background:var(--bg4,#1f2333);color:var(--fg,#d4d8e3);border-radius:6px;font:inherit;max-width:100%}',
+    '.lg-kind.on{border-color:var(--cyan,#2dd4bf);color:var(--cyan,#2dd4bf)}',
+    '.lg-kind.bad,.lg-rule.bad,.lg-thing.bad{border-color:var(--red,#fb7185)!important}',
+    '.lg-thing,.lg-rule{border:1px solid var(--border,#1a1d2a);background:var(--bg2,#0f1118);border-radius:8px;padding:8px;margin-bottom:8px;min-width:0}',
+    '.lg-rule.off{opacity:.55}',
+    '.lg-rule.kept{border-style:dashed}',
+    '.lg-rule.drag{outline:2px solid var(--cyan,#2dd4bf)}',
+    '.lg-rule.dropafter{box-shadow:0 3px 0 var(--cyan,#2dd4bf)}',
+    '.lg-rule.dropbefore{box-shadow:0 -3px 0 var(--cyan,#2dd4bf)}',
+    '.lg-row,.lg-rhead,.lg-act{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0;min-width:0}',
+    '.lg-act{padding-left:18px}',
+    '.lg-tool label{color:var(--fg2,#8c93a8);font-size:11px}',
+    '.lg-tool input,.lg-tool select,.lg-tool textarea{min-height:32px;background:var(--bg,#08090d);color:var(--fg,#d4d8e3);border:1px solid var(--bg5,#282d3e);border-radius:5px;padding:3px 6px;font:12px var(--mono,monospace);min-width:0;max-width:100%}',
+    '.lg-tool input[type=checkbox]{min-height:0;width:18px;height:18px}',
+    '.lg-tool input[type=color]{width:36px;padding:1px}',
+    '.lg-tool textarea{width:100%}',
+    '.lg-num{width:64px}',
+    '.lg-col{width:84px}',
+    '.lg-name{flex:1 1 120px}',
+    '.lg-expr{flex:1 1 110px;width:110px}',
+    '.lg-var{flex:1 1 100px;width:100px}',
+    '.lg-wide{flex:1 1 180px}',
+    '.lg-w{color:var(--fg2,#8c93a8);font-size:11px;font-weight:700}',
+    '.lg-sp{flex:1}',
+    '.lg-handle{cursor:grab;padding:4px 8px;color:var(--fg3,#4e5569);font-size:18px;user-select:none}',
+    '.lg-sub{color:var(--fg3,#4e5569);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-top:8px}',
+    '.lg-chk{display:inline-flex;align-items:center;gap:3px}',
+    '.lg-keptlbl{color:var(--yellow,#fde047);font-size:11px}',
+    '.lg-kepttext{font:12px var(--mono,monospace);color:var(--fg2,#8c93a8);overflow-wrap:anywhere;flex:1 1 160px;min-width:0}',
+    '.lg-err{color:var(--red,#fb7185);font-size:12px;overflow-wrap:anywhere}',
+    '.lg-hint{color:var(--fg3,#4e5569);font-size:11px}',
+    '.lg-status{font-size:12px;color:var(--green,#4ade80);padding:6px 0;overflow-wrap:anywhere}',
+    '.lg-status.bad{color:var(--red,#fb7185)}',
+    '.lg-spr{width:32px;height:32px;border:1px solid var(--bg5,#282d3e);border-radius:4px;image-rendering:pixelated}'
+  ].join('\n');
+  _drawerRegister({id:'logic',label:'LOGIC',icon:'🧩',desc:'Things (game objects) and rules: what happens when',open:open});
+})();
+</script>
+<script>
 // ═══ INTEGRATION of the drawer parts (CORE, SPRITE, STAGE, LOGIC) ═══
 // What no single part owns: the Memory card of the drawer, and the Memory tab's "open in tool" links.
 //   window._memtabToolLink(region) → {label, open()} | null   asked for every card of the Memory tab (when the
@@ -13120,7 +14860,36 @@ function _memtabOpen(){
   var t=document.querySelector('.otab[data-t="memory"]');if(t)showOTab(t);
   return!!t;
 }
-if(typeof window._memtabToolLink!=='function')window._memtabToolLink=function(region){return null};
+// LOGIC's `stage controls NAME` becomes useControls(NAME) in the generated game(); without any controls block
+// STAGE does not look at the call, so the name is checked here, after linking (every file's blocks are known).
+_emitModLink=(function(link){return function(fr){
+  var r=link.apply(this,arguments);
+  try{
+    if(!r||!r.ast||(r.errors&&r.errors.length))return r;
+    var g=r.ast.body.find(function(n){return n&&n.type==='FunctionDecl'&&n.lgMeta&&n.lgMeta.stage&&n.lgMeta.stage.controls});
+    if(!g)return r;
+    var want=g.lgMeta.stage.controls,have=r.ast.body.filter(function(n){return n&&n.type==='ControlsDecl'}).map(function(n){return n.name});
+    if(have.indexOf(want)<0){
+      var t=g.lgMeta.stage.controlsTok||{},f=g.loc&&g.loc.file,c=_emitModClosest(want,have);
+      r.errors.push((fr&&fr.multi&&f?f+':':'')+(t.line||1)+':'+(t.col||1)+': stage controls '+want+': there is no controls block '+want+(c?' — did you mean "'+c+'"?':have.length?' — the controls blocks of this project: '+have.join(', '):' — write one (controls '+want+': stick left, buttons A) or make one with the Drawer\'s CONTROLS tool'));
+    }
+  }catch(e){}
+  return r;
+}})(_emitModLink);
+// LOGIC: a thing kind's region (struct __lgT_<kind>, region <kind>) opens the LOGIC tool on that thing.
+function _lgOpenThing(kind){
+  if(!_drawerOpen('logic'))return false;
+  var t=window._lgTool;if(!t||!t.state)return true;
+  var i=-1;(t.state.things||[]).forEach(function(x,k){if(x&&x.name===kind&&i<0)i=k});
+  if(i>=0){t.state.tab='things';t.state.sel=i;try{t.render()}catch(e){}}
+  return true;
+}
+window._memtabToolLink=function(region){
+  var st=region&&region.elem&&typeof region.elem==='object'?String(region.elem.struct||''):'';
+  if(!/(^|\.)__lgT_\w+$/.test(st)||!_drawerFind('logic'))return null;
+  var kind=st.replace(/^.*__lgT_/,'');
+  return{label:'LOGIC ›',open:function(){_lgOpenThing(kind)}};
+};
 _memCardHead=(function(f){return function(c){
   var r=f.apply(this,arguments);
   c.link=null;

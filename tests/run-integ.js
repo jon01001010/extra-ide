@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// The drawer parts working together (CORE: drawer, sound, music · SPRITE · STAGE: maps, controls · LOGIC when
-// merged), in headless Chromium, offline:
+// The drawer parts working together (CORE: drawer, sound, music · SPRITE · STAGE: maps, controls · LOGIC:
+// things, rules), in headless Chromium, offline:
 //   - one program using every block kind, in one file and spread over several files: it compiles, runs, draws
 //     the map with a sprite tile and a sprite, plays a sound on a button press and keeps the music going;
 //   - error positions (line:col, file) after each kind of block and inside each kind of block;
 //   - the block helpers of the drawer and the parts' own block finders agree on every block's extent;
 //   - the default files of new blocks; the Example dropdown order; the three tool examples loaded and run in
 //     turn through the dropdown in one page;
-//   - the Memory card of the drawer and the Memory tab's "open in tool" hook (_memtabToolLink).
+//   - the Memory card of the drawer and the Memory tab's "open in tool" hook (_memtabToolLink; LOGIC's things).
+// (LOGIC's own game with every real part is tests/run-rules.js game-with-real-sprite-map-controls-sound.)
 // AudioContext is replaced by tests/fake-audio.js (a recorder): nothing is heard here.
 //
 //   node tests/run-integ.js [path/to/emit-ide.html]
@@ -66,8 +67,12 @@ export fn frame() {
     print(presses)
   }
 }`;
-const ONE_FILE = SOUNDS + '\n\n' + SPRITES + '\n\n' + STAGES + '\n\n' + CODE + '\n';
-const MULTI = '//// file: main.emit\n' + CODE + '\n//// file: sounds.emit\n' + SOUNDS + '\n//// file: sprites.emit\n' + SPRITES + '\n//// file: stages.emit\n' + STAGES + '\n';
+// LOGIC: a thing and a rule (the program draws its own canvas, so LOGIC only adds its step to frame())
+const GAME = `thing bug: box 2 2 #ffffff, at 1 1, hits 0
+rules:
+  on press A: add bug.hits 1`;
+const ONE_FILE = SOUNDS + '\n\n' + SPRITES + '\n\n' + STAGES + '\n\n' + GAME + '\n\n' + CODE + '\n';
+const MULTI = '//// file: main.emit\n' + CODE + '\n//// file: sounds.emit\n' + SOUNDS + '\n//// file: sprites.emit\n' + SPRITES + '\n//// file: stages.emit\n' + STAGES + '\n//// file: game.emit\n' + GAME + '\n';
 
 async function openIde(browser, fileUrl, mode) {
   const ctx = await browser.newContext(mode);
@@ -114,6 +119,8 @@ async function allKinds(page, T, bundle) {
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.waitForTimeout(120); await page.mouse.up(); await page.waitForTimeout(120);
   const lines3 = await outLines(page);
   check(T + 'the on-screen button A reaches justPressed / play', lines3[lines3.length - 1] === '2' && (await oscs(page)).filter(f => Math.abs(f - 988) < 0.01).length === before + 2, JSON.stringify(lines3.slice(-3)));
+  const hits = await page.evaluate(() => { const R = _emitRegions().find(r => r.name === 'bug'); return R ? Number(_emitRegionRead(R.id, 0, 'hits')) : 'no region bug'; });
+  check(T + 'the LOGIC rule `on press A` saw both presses (keyboard and on-screen button): bug.hits', hits === 2, hits);
   await page.evaluate(() => stopProgram());
   check(T + 'Stop stops the music', await page.evaluate(() => _musicPlaying()) === false, '');
 }
@@ -168,7 +175,9 @@ async function compileChecks(page) {
       music: 'music theme: 120 bpm, 4 steps\n  lead square: C5 . E5 .\n\n  bass saw: C3 . . .',
       sprite: 'sprite hero: 2x1\n  "11"',
       map: 'map room: 2x1, tile 8\n  legend # wall solid #ff0000\n  rows\n    "##"',
-      controls: 'controls pad: stick left, buttons A' };
+      controls: 'controls pad: stick left, buttons A',
+      thing: 'thing hero: box 8 8 #ff0000, at 10 10,\n  speed 2',
+      rules: 'rules:\n  every frame: add n 1\n\n  on start: set n 0' };
     out.after = {};
     for (const k in blocks) {
       out.after[k] = [errs(blocks[k] + '\nexport fn main() {\n  let x = 1\n  let y: int = "a"\n}\n'), errs(blocks[k] + '\nexport fn main() {\n  let x = 1\n  let z = (1 +\n}\n'), blocks[k].split('\n').length];
@@ -186,13 +195,23 @@ async function compileChecks(page) {
       '//// file: sprites.emit\nsprite ok: 1x1\n  "1"\nsprite hero: 2x2\n  "11"\n  "1"\n',
       '//// file: stages.emit\nsprite ok: 1x1\n  "1"\nmap room: 2x1, tile 8\n  legend # wall solid #ff0000\n  rows\n    "#?"\n',
       '//// file: stages.emit\nsound ok: sine 440\ncontrols pad: stick middle, buttons A\n',
+      '//// file: game.emit\nsound ok: sine 440\nthing hero: box 8 8 #12345\n',
+      '//// file: game.emit\nthing hero: box 8 8\nrules:\n  on hitt hero hero: stop\n',
     ].map(s => errs(main + s).join(' | ').replace(/:\s.*$/, m => m.split(' ')[0]));
     out.clash = [
       errs('sprite room: 1x1\n  "1"\nmap room: 1x1\n  legend # w #ffffff\n  rows\n    "#"\nexport fn main() {\n  drawMap(room)\n}\n'),
       errs('//// file: main.emit\nexport fn main() {\n  draw(pad, 1, 1)\n}\n//// file: sprites.emit\nsprite pad: 1x1\n  "1"\n//// file: stages.emit\ncontrols pad: stick left\n'),
       errs('sound coin: sine 440\nsprite coin: 1x1\n  "1"\nexport fn main() {\n  play(coin)\n  draw(coin, 1, 1)\n}\n')];
+    // a thing block ends where the drawer's block ends: an indented line after a column-1 comment is not part of it
+    out.cut = errs('thing hero: box 8 8\n// a comment in column 1\n  speed 2\n');
+    out.lgNames = [errs('sprite hero: 1x1\n  "1"\nsound hero: sine 440\nthing hero: sprite hero\nrules:\n  on start: play hero\n'), errs('map gem: 1x1\n  legend # w #ffffff\n  rows\n    "#"\nthing gem: circ 3\n')];
+    out.ctl = [errs('controls pad: stick left\nthing hero: box 4 4\nrules:\n  stage controls pda\n'), errs('//// file: main.emit\nexport fn x() {}\n//// file: game.emit\nthing hero: box 4 4\nrules:\n  stage controls pda\n'), errs('controls pad: stick left\nthing hero: box 4 4\nrules:\n  stage controls pad\n')];
     return out;
   }, [ONE_FILE, MULTI]);
+  check('a thing block ends where the drawer\'s block ends (indented lines after a column-1 comment are an error, not part of it)', /^throws 3:3: Unexpected "speed"/.test(r.cut[0] || ''), JSON.stringify(r.cut));
+  check('a thing may share its name with a sprite and a sound (thing hero: sprite hero, play hero), not with a map', JSON.stringify(r.lgNames[0]) === '[]' && /already declared/.test(r.lgNames[1][0] || ''), JSON.stringify(r.lgNames));
+  check('stage controls NAME: an unknown controls block is an error at the setting (one file, other file), a known one compiles',
+    /^4:18: stage controls pda: there is no controls block pda — did you mean "pad"\?/.test(r.ctl[0][0] || '') && /^game\.emit:3:18: stage controls pda: there is no controls block pda/.test(r.ctl[1][0] || '') && JSON.stringify(r.ctl[2]) === '[]', JSON.stringify(r.ctl));
   check('a sprite and a map / controls of the same name is an error at the second one (in one file and across files)',
     /^throws 3:5: map room has the same name as the sprite room at line 1/.test(r.clash[0][0]) && /^throws stages\.emit:1:10: controls pad has the same name as the sprite pad at sprites\.emit:1/.test(r.clash[1][0]), JSON.stringify(r.clash));
   check('a sound and a sprite may share a name (play() and draw() tell them apart)', JSON.stringify(r.clash[2]) === '[]', JSON.stringify(r.clash[2]));
@@ -202,10 +221,10 @@ async function compileChecks(page) {
     const [type, syn, n] = r.after[k];
     check('an error after a ' + k + ' block is at its own line (type and syntax errors)', JSON.stringify(type) === JSON.stringify([(n + 3) + ':3: Cannot assign str to int']) && syn.length === 1 && syn[0].startsWith('throws ' + (n + 4) + ':1: '), JSON.stringify([type, syn]));
   }
-  check('an error after all five kinds of blocks in one file', JSON.stringify(r.allAfter[0]) === JSON.stringify([(r.allAfter[1] + 2) + ':3: Cannot assign str to int']), JSON.stringify(r.allAfter));
+  check('an error after all seven kinds of blocks in one file', JSON.stringify(r.allAfter[0]) === JSON.stringify([(r.allAfter[1] + 2) + ':3: Cannot assign str to int']), JSON.stringify(r.allAfter));
   check('errors in several files after blocks keep their file:line:col', JSON.stringify(r.files) === JSON.stringify(['main.emit:6:3: Cannot assign str to int', 'stages.emit:8:3: Return type is int but this returns str — change the return type to str or cast the value']), JSON.stringify(r.files));
   check('an error inside each kind of block (after another block in its file) has the exact file:line:col',
-    JSON.stringify(r.inside) === JSON.stringify(['throws sounds.emit:3:13:', 'throws sounds.emit:3:21:', 'throws sprites.emit:5:3:', 'throws stages.emit:6:7:', 'throws stages.emit:2:21:']), JSON.stringify(r.inside));
+    JSON.stringify(r.inside) === JSON.stringify(['throws sounds.emit:3:13:', 'throws sounds.emit:3:21:', 'throws sprites.emit:5:3:', 'throws stages.emit:6:7:', 'throws stages.emit:2:21:', 'throws game.emit:2:21:', 'throws game.emit:3:6:']), JSON.stringify(r.inside));
 }
 
 async function extentChecks(page) {
@@ -220,6 +239,8 @@ async function extentChecks(page) {
     'sprite t: 1x1\r\n\t"1"\r\n\r\ncontrols p: stick none, buttons A\r\nmap e: 1x1\n  legend # w #ffffff\n  rows\n    "#"',
     // a header not in column 1, a header of a kind that is not a block, a block right after another one
     '  sprite no: 1x1\nregion r: int[4]\nsprite a: 1x1\n  "1"\nsprite b: 1x1\n  "1"\nmap m: 1x1\n  legend # w #ffffff\n  rows\n    "#"\ncontrols c: stick left\n',
+    // thing and rules blocks (their bodies have strings with quotes and #colours) next to the others
+    'thing hero: box 8 8 #ff0000,\n  speed 2\n\nrules:\n  on start: say "it\'s on"\n\n  every frame: add n 1\nsprite s: 1x1\n  "1"\nmap m: 1x1\n  legend # w #ffffff\n  rows\n    "#"\n',
   ];
   const r = await page.evaluate(SRCS => SRCS.map(src => {
     const core = _drawerScan(src).map(b => b.kind + ' ' + b.name + ' ' + b.start + '-' + b.end);
@@ -236,10 +257,13 @@ async function extentChecks(page) {
     ['controls pad 5-5', 'map m 6-9', 'sprite after 1-2'],
     ['controls p 3-3', 'map e 4-7', 'sprite t 0-1'],
     ['controls c 10-10', 'map m 6-9', 'sprite a 2-3', 'sprite b 4-5'],
+    ['map m 9-12', 'sprite s 7-8'],
   ];
   r.forEach((x, i) => {
     check('block extent ' + (i + 1) + ': the drawer scanner, SPRITE\'s and STAGE\'s finders and the drawer\'s helpers agree', JSON.stringify(x.core) === JSON.stringify(x.own) && JSON.stringify(x.helpers) === JSON.stringify(x.finders) && JSON.stringify(x.core) === JSON.stringify(want[i].map(s => s.replace(/^(\w+) (\w+)/, '$1 $2')).sort()), JSON.stringify(x));
   });
+  const lg = await page.evaluate(src => { _projLoad(src); return ['thing', 'rules'].map(k => _drawerBlocks(k).map(b => k + ' ' + b.name + ' ' + (b.startLine - 1) + '-' + (b.endLine - 1))).flat(); }, SRCS[5]);
+  check('thing and rules blocks: the drawer\'s helpers find them with their extent', JSON.stringify(lg) === JSON.stringify(['thing hero 0-1', 'rules  3-6']), JSON.stringify(lg));
   // the compiler sees the same blocks: source 3 (a sound body with "/*") and 5 compile
   const comp = await page.evaluate(SRCS => [2].map(i => { try { return compile(SRCS[i].replace(/"it's"/, '"ok"') + '\nexport fn main() {\n  print(1)\n}\n').errors.join(' | ') || 'OK'; } catch (e) { return e.message; } }), SRCS);
   check('the compiler finds the same blocks (a "/*" inside a sound line does not hide the sprite after it)', comp.every(c => c === 'OK'), JSON.stringify(comp));
@@ -256,18 +280,20 @@ async function filesAndExamples(browser, fileUrl) {
     at.sprite = _drawerWrite('sprite', 'p1', 'sprite p1: 1x1\n  "1"').path;
     at.map = _drawerWrite('map', 'r1', 'map r1: 1x1\n  legend # w #ffffff\n  rows\n    "#"').path;
     at.controls = _drawerWrite('controls', 'c1', 'controls c1: stick left, buttons A').path;
+    at.thing = _drawerWrite('thing', 't1', 'thing t1: box 4 4').path;
+    at.rules = _drawerWrite('rules', '', 'rules:\n  every frame: t1 mv 1, 0').path;
     let errs; try { errs = compile(_projText()).errors.join(' | ') || 'OK'; } catch (e) { errs = e.message; }
     return { files, at, paths: _proj.files.map(f => f.path), errs };
   });
   check('default files: sounds / music → sounds.emit, sprites → sprites.emit, maps / controls → stages.emit, things / rules → game.emit',
     r.files === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit', thing: 'game.emit', rules: 'game.emit' }), r.files);
-  check('new blocks are written to their default files, and the project compiles', JSON.stringify(r.at) === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit' }) && r.errs === 'OK', JSON.stringify(r));
+  check('new blocks are written to their default files, and the project compiles', JSON.stringify(r.at) === JSON.stringify({ sound: 'sounds.emit', music: 'sounds.emit', sprite: 'sprites.emit', map: 'stages.emit', controls: 'stages.emit', thing: 'game.emit', rules: 'game.emit' }) && r.errs === 'OK', JSON.stringify(r));
   const opts = await page.$$eval('#example option', os => os.map(o => o.value));
-  check('Example dropdown: the tool examples are listed, Memory and Modules are the last two', ['sfx', 'sprites', 'stage'].every(v => opts.includes(v)) && opts.slice(-2).join() === 'memory,modules', JSON.stringify(opts));
-  // the three tool examples, loaded through the dropdown and run in turn in one page
+  check('Example dropdown: the tool examples are listed, Memory and Modules are the last two', ['sfx', 'sprites', 'stage', 'game'].every(v => opts.includes(v)) && opts.slice(-2).join() === 'memory,modules', JSON.stringify(opts));
+  // the tool examples (sound, sprites, stage, game), loaded through the dropdown and run in turn in one page
   await page.mouse.click(5, 5);
   const seen = [];
-  for (const ex of ['sfx', 'sprites', 'stage', 'sfx']) {
+  for (const ex of ['sfx', 'sprites', 'stage', 'game', 'sfx']) {
     await page.selectOption('#example', ex);
     await page.evaluate(() => compileAndRun());
     await page.waitForTimeout(1200);
@@ -287,6 +313,7 @@ async function filesAndExamples(browser, fileUrl) {
 async function memoryChecks(browser, fileUrl, mode, T) {
   const page = await openIde(browser, fileUrl, mode);
   await page.evaluate(() => {
+    window.__lgLink = window._memtabToolLink;   // the product's hook (LOGIC), restored below
     window._memtabToolLink = function (r) { return r.name === 'pts' ? { label: 'Edit pts', open: function () { window.__opened = r.name; } } : null; };
     _projLoad('region pts: int[4]\nregion other: int[2]\nexport fn main() {\n  pts[1] = 7\n  print(pts[1])\n}\n');
   });
@@ -308,6 +335,20 @@ async function memoryChecks(browser, fileUrl, mode, T) {
     const o = await page.evaluate(() => ({ opened: window.__opened, open: [...document.querySelectorAll('#tab-memory .mcard')].map(c => c.querySelector('.mbody').style.display) }));
     check(T + 'the link calls open() (and does not toggle the card)', o.opened === 'pts', JSON.stringify(o));
   }
+  // the product's own hook: a thing's region opens the LOGIC tool on that thing; a plain region has no link
+  await page.evaluate(() => { delete window.__opened; window._memtabToolLink = window.__lgLink || window._memtabToolLink; });
+  await page.evaluate(() => { _projLoad('region plain: int[2]\nthing hero: box 8 8, hp 3\nthing coin: box 4 4, count 3\n'); });
+  await page.evaluate(() => compileAndRun());
+  await page.waitForTimeout(300);
+  await page.evaluate(() => _memtabOpen());
+  await page.waitForTimeout(200);
+  const lk = await page.evaluate(() => [...document.querySelectorAll('#tab-memory .mcard')].map(c => { const b = c.querySelector('[data-act="tool"]'); return _mem.cards[+c.getAttribute('data-n')].r.name + ':' + (b ? b.textContent : '-'); }));
+  check(T + 'Memory tab: thing regions link to LOGIC, a plain region does not', JSON.stringify(lk.sort()) === JSON.stringify(['coin:LOGIC ›', 'hero:LOGIC ›', 'plain:-']), JSON.stringify(lk));
+  const coinBtn = await page.evaluateHandle(() => [...document.querySelectorAll('#tab-memory .mcard')].find(c => _mem.cards[+c.getAttribute('data-n')].r.name === 'coin').querySelector('[data-act="tool"]'));
+  if (coinBtn.asElement()) await coinBtn.asElement().click();
+  await page.waitForTimeout(200);
+  const lt = await page.evaluate(() => ({ open: _drawerIsOpen(), tool: _drawer.tool && _drawer.tool.id, sel: window._lgTool && _lgTool.state.things[_lgTool.state.sel] && _lgTool.state.things[_lgTool.state.sel].name }));
+  check(T + '"LOGIC ›" on the coin card opens the LOGIC tool on thing coin', lt.open && lt.tool === 'logic' && lt.sel === 'coin', JSON.stringify(lt));
   await page.evaluate(() => { _drawerOpen('memory'); });
   check(T + '_drawerOpen("memory") goes to the Memory tab too', await page.evaluate(() => !_drawerIsOpen() && document.querySelector('.otab.active').dataset.t === 'memory'), '');
   check(T + 'memory: no page errors', !page.errors.length, page.errors.join(' | '));
@@ -321,11 +362,11 @@ async function highlightChecks(browser, fileUrl) {
     hlCode();
     const lines = hlInner.innerHTML.split('\n');
     const at = re => lines[src.split('\n').findIndex(l => re.test(l))];
-    return { sound: at(/^sound coin/), sprite: at(/^sprite hero/), row: at(/^  "12"/), map: at(/^map room/), controls: at(/^controls pad/) };
+    return { sound: at(/^sound coin/), sprite: at(/^sprite hero/), row: at(/^  "12"/), map: at(/^map room/), controls: at(/^controls pad/), thing: at(/^thing bug/), rules: at(/^rules:/) };
   }, ONE_FILE);
   const kw = s => (s.match(/<span class="kw">/g) || []).length;
-  check('highlighting: every block header coloured once (sound, map, controls by the drawer; sprite by SPRITE), sprite rows painted',
-    kw(r.sound) === 1 && kw(r.sprite) === 1 && kw(r.map) === 1 && kw(r.controls) === 1 && /class="spx"/.test(r.row) && /class="spr"/.test(r.sprite), JSON.stringify(r));
+  check('highlighting: every block header coloured once (sound, map, controls, thing, rules by the drawer; sprite by SPRITE), sprite rows painted',
+    kw(r.sound) === 1 && kw(r.sprite) === 1 && kw(r.map) === 1 && kw(r.controls) === 1 && kw(r.thing) === 1 && kw(r.rules) === 1 && /class="spx"/.test(r.row) && /class="spr"/.test(r.sprite), JSON.stringify(r));
   await page.context().close();
 }
 
