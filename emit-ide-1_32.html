@@ -446,6 +446,35 @@ public fn step(dt: num) num {
 <p><strong>A memory-mapped screen.</strong> <code>screen(fb, 320, 200)</code> or <code>screen(fb, 160, 100, 3)</code> (each pixel 3&times;3, sharp): <code>fb</code> must be a <code>u8</code> region of at least width &times; height &times; 4 bytes, red / green / blue / alpha per pixel, row by row. It adds a canvas to the output (like <code>canvas()</code>) that shows the region and is redrawn every animation frame while the program runs, and right after every call from the runtime (Run, <code>frame()</code>, buttons, timers), so a picture drawn once appears too. Write pixels with <code>fb[(y * 320 + x) * 4] = 255</code>; set alpha to 255 to see them. <code>touchX()</code> / <code>touchY()</code> are page coordinates, as with <code>canvas()</code>: subtract the canvas position and divide by the scale to get a pixel.</p>
 <p><strong>Layout and limits.</strong> Regions live in memory from 64 KB up, in declaration order, followed by a small table (address, length, frozen flag per region); strings start after them. All regions of a program together are limited to 256 MB. Memory starts zeroed and every Run starts from fresh memory. Not supported yet: regions sized while the program runs (and released automatically), <code>str</code> / <code>js</code> / <code>arr</code> fields, arrays of structs inside structs, slices or views of part of a region, regions in the <code>wasm64</code> target.</p>
 
+<h2>Maps</h2>
+<p>A <strong>map</strong> block is a tile map you can read: each row is a picture of the level. It starts in column 0 and its lines below are indented. Any file of the project may hold it (the drawer tools write to <code>stages.emit</code>), and every file uses it by its bare name.</p>
+<pre>map level1: 20x15, tile 16
+  legend # wall solid #3a3a5c,  . floor #1b1b2a,  ~ water solid #2050c0,  g grass sprite grass
+  rows
+    "####################"
+    "#..........~~......#"
+    &hellip; one quoted row per line, 15 rows of 20 tiles &hellip;
+  objects
+    hero 2,3
+    slime 12,8 speed 0.5
+    coin 7,2</pre>
+<p><strong>Header:</strong> <code>map NAME: WxH, tile N</code> &mdash; width and height in tiles (up to 256), pixels per tile (default 16). <strong>legend</strong>: entries separated by commas, on the same line or one per line below it &mdash; one character, a name, optionally <code>solid</code>, and a colour <code>#rrggbb</code> and / or <code>sprite NAME</code> (drawn by the sprite helper when there is one, otherwise the colour). A space in a row is an empty tile. <strong>objects</strong>: a kind, tile coordinates <code>x,y</code>, then any <code>key value</code> pairs (read by other runtime code through <code>_mapObjects</code>). Lines starting with <code>//</code> inside the block are comments.</p>
+<div class="sig">drawMap(m), drawMap(m, ox: num, oy: num) &mdash; draw the map on the canvas, its top-left corner at ox, oy</div>
+<div class="sig">tileAt(m, tx, ty) &rarr; str &mdash; the tile character ("" outside the map)</div>
+<div class="sig">solidAt(m, px: num, py: num) &rarr; bool &mdash; is the tile under this pixel solid? Outside the map counts as solid</div>
+<div class="sig">mapW(m), mapH(m), tileSize(m) &rarr; int</div>
+<div class="sig">setTile(m, tx, ty, ch: str) &mdash; change a tile while the program runs (open a door: <code>setTile(level1, 9, 4, ".")</code>)</div>
+<div class="sig">objCount(m, kind: str) &rarr; int, objX(m, kind: str, i), objY(m, kind: str, i) &rarr; num &mdash; pixel position (top-left) of the i-th object of a kind</div>
+<p>A map name stands for the map&rsquo;s number, so it can be kept in a variable: <code>mut level = level1</code>. The compiler checks the blocks: a row of the wrong length, a character missing from the legend, a character listed twice, an object off the map, an unknown map name &mdash; each with its exact line and column. <strong>Drawer &rarr; STAGE</strong> paints maps: brushes are the legend entries; pencil, rectangle, room (walls around a floor), fill, eraser (the first non-solid tile), eyedropper; objects (tap to place, drag to move, long press to edit or delete); two fingers zoom and pan; undo / redo; <em>&#9654; try it</em> walks a hero square around with the arrow keys or the stick. It reads and writes the block itself &mdash; the program text is the only place a map is kept.</p>
+
+<h2>Controls</h2>
+<p>A <strong>controls</strong> block describes on-screen controls for phones: <code>controls pad: stick left, buttons A "jump" B, size 1.0, opacity 0.5</code>. Settings, separated by commas: <code>stick left|right|none</code> or <code>dpad left|right</code> (8 directions, values -1, 0 or 1); <code>buttons A B C</code> (up to three, each with an optional label in quotes; <code>buttons left A B</code> puts them on a side, by default the side opposite the stick); <code>size</code> 0.5&ndash;2; <code>opacity</code> 0.1&ndash;1; <code>deadzone</code> 0&ndash;0.9 (default 0.15); <code>keys off</code> turns the keyboard off.</p>
+<div class="sig">useControls(c) &mdash; show the controls at the bottom of the output area, over the canvas</div>
+<div class="sig">stickX(), stickY() &rarr; num &mdash; -1 &hellip; 1 (y grows downwards, like the canvas)</div>
+<div class="sig">pressed(btn: str) &rarr; bool &mdash; "A", "B" or "C" is held</div>
+<div class="sig">justPressed(btn: str) &rarr; bool &mdash; true in one frame per press (outside frame(): once per press)</div>
+<p>Several fingers work at once (stick and buttons). Only the stick and the buttons take touches, so the page still scrolls everywhere else. The keyboard works too: arrows or WASD move the stick, Z or Space is A, X is B, C is C (not while you type in a text field). A tap on the canvas outside the controls is seen by runtime code as <code>_ctlState().tapX / tapY</code> (canvas pixels). <strong>Drawer &rarr; CONTROLS</strong> shows them at phone size: drag the stick or the buttons to a side, set size, opacity and labels, and <em>&#9654; test</em> shows live stickX / stickY / pressed values. The Example menu&rsquo;s <em>Stage</em> uses a map, its objects, <code>setTile</code> and a controls block.</p>
+
 <h2>Library Panel &mdash; 📚 button</h2>
 <p>Click the 📚 button in the header to browse libraries. Each library has a one-click <strong>+ Add</strong> button that inserts <code>use &lt;name&gt;</code> at the top. The panel groups libraries by category (3d, audio, physics, anim, etc.) and lists each library's main names exactly as you write them: <code>dayjs()</code>, <code>new ApexCharts(element, options)</code>, <code>L.map(element)</code>, <code>new BABYLON.Scene(engine)</code>, wrapper builtins such as <code>scene3d(w, h)</code>, and methods of the object a library hands back on a suggested variable (<code>chart.render()</code>). Tap a line to insert it at the cursor, then replace the argument names with your values. <strong>Example</strong> puts a small working program for that library in the editor.</p>
 <p><strong>Member autocomplete.</strong> Once a library has been loaded by a Run, the editor reads its real names: type <code>THREE.Sc</code> or <code>BABYLON.MeshBuilder.Cre</code> and pick from the popup (<code>class</code>, <code>fn(2)</code> = takes 2 arguments, <code>obj</code>, <code>value</code>). Library globals such as <code>confetti</code> are also suggested as you type, marked <code>lib</code>. After <code>let s = THREE.Scene()</code>, typing <code>s.</code> lists the class's methods (not fields set at run time). Before the first Run nothing is loaded yet, so the popup says &ldquo;Run once to load&rdquo;; the 📚 panel shows what is loaded and how many members each global has.</p>
@@ -9610,10 +9639,10 @@ if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools|
     +'.stg button.on{border-color:var(--cyan);color:var(--cyan);background:rgba(45,212,191,.12)}'
     +'.stg button:disabled{opacity:.4}'
     +'.stg-brush{display:inline-flex;align-items:center;gap:5px}.stg-chip{width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.3);display:inline-block;flex:none}'
-    +'.stg-view{position:relative;width:100%;height:min(52vh,420px);min-height:180px;background:#05060a;border:1px solid var(--bg5);border-radius:8px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}'
+    +'.stg-view{position:relative;width:100%;height:min(52vh,420px);background:#05060a;border:1px solid var(--bg5);border-radius:8px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}'
     +'.stg-view canvas{position:absolute;left:0;top:0;width:100%;height:100%}'
     +'.stg-panel{background:var(--bg2);border:1px solid var(--bg5);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}'
-    +'.stg-lg{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.stg-lg input.ch{width:34px;text-align:center}.stg-lg input.nm{width:92px}'
+    +'.stg-lg{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.stg-lg input.ch{width:32px;text-align:center}.stg-lg input.nm{width:72px}.stg-lg select{max-width:80px}'
     +'.stg-msg{font:11px var(--mono);color:var(--fg2);white-space:pre-wrap;word-break:break-word}.stg-msg .bad{color:var(--red)}'
     +'.stg-phone{position:relative;width:100%;max-width:360px;height:220px;margin:0 auto;border-radius:14px;border:2px solid var(--bg5);overflow:hidden;background:linear-gradient(#1b1b2a,#0b0c14);touch-action:none}'
     +'.stg-shield{position:absolute;inset:0;z-index:30;cursor:grab}'
@@ -9836,6 +9865,9 @@ function _stageOpen(ctx){
   function origin(){var r=view.getBoundingClientRect(),c=cellPx();return{x:((r.width||300)-c*M().w)/2+S.panX,y:((r.height||200)-c*M().h)/2+S.panY,c:c}}
   function draw(){
     if(!M())return;
+    /* the view takes the map's shape: as tall as the map at full width, between 180 px and 55% of the screen */
+    var vw=view.clientWidth||300,want=Math.round(Math.max(180,Math.min(window.innerHeight*0.55,vw*M().h/M().w)));
+    if(Math.abs(view.clientHeight-want)>1)view.style.height=want+'px';
     var r=view.getBoundingClientRect(),dpr=window.devicePixelRatio||1,W=Math.max(1,Math.round((r.width||300)*dpr)),H=Math.max(1,Math.round((r.height||200)*dpr));
     if(cv.width!==W)cv.width=W;if(cv.height!==H)cv.height=H;
     var g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
