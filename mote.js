@@ -555,11 +555,18 @@ const EVENTS = { [ADD]: '__add', [SUB]: '__sub', [MUL]: '__mul', [DIV]: '__div',
 
 // ═════════════════════════════════════════ compiler ══════════════════════════════════════════════
 
+/** A compiled function: bytecode, constants, nested protos, upvalue descriptors, debug info. */
+class Proto {
+  constructor(name, line, chunk) {
+    this.code = []; this.lines = []; this.k = []; this.kmap = new Map(); this.protos = []; this.ups = [];
+    this.nparams = 0; this.vararg = false; this.nslots = 0; this.name = name; this.line = line; this.chunk = chunk;
+    this.dbg = []; this.isMain = false; this.tramp = false;
+  }
+}
 class FuncState {
   constructor(parent, name, line, chunk) {
     this.parent = parent;
-    this.p = { code: [], lines: [], k: [], kmap: new Map(), protos: [], ups: [], nparams: 0, vararg: false,
-      nslots: 0, name, line, chunk, dbg: [], isMain: false, tramp: false };
+    this.p = new Proto(name, line, chunk);
     this.actives = [];   // {name, slot, captured, isConst}, innermost last
     this.upnames = []; this.upvars = [];
     this.block = null;
@@ -910,14 +917,13 @@ class Compiler {
     }
   }
 }
-function finishProto(p) { delete p.kmap; p.code = Int32Array.from(p.code); }
+function finishProto(p) { p.kmap = null; p.code = Int32Array.from(p.code); }
 
 // A hand-assembled function used to call any value (host function, table with __call) as a frame:
 // varargs are (f, args...); it calls f and returns all results. pcall, coroutines and nested calls
 // use it so every protected region and coroutine bottom is a Mote frame.
-const TRAMP = new LClosure({ code: Int32Array.from([VARARG, -1, 0, 0, CALL, -1, -1, 1, RET, 0, 0, 1]), lines: [0, 0, 0],
-  k: [], protos: [], ups: [], nparams: 0, vararg: true, nslots: 0, name: '?', line: 0, chunk: '[host]', dbg: [],
-  isMain: false, tramp: true }, []);
+const TRAMP = new LClosure(Object.assign(new Proto('?', 0, '[host]'), { code: Int32Array.from([VARARG, -1, 0, 0, CALL, -1, -1, 1, RET, 0, 0, 1]),
+  lines: [0, 0, 0], kmap: null, vararg: true, tramp: true }), []);
 
 // ═══════════════════════════════════════════════ VM ══════════════════════════════════════════════
 
@@ -1034,7 +1040,7 @@ class VM {
   // ── calls ──
   pushFrame(co, cl, src, start, n, nres, post) {
     if (co.frames.length >= this.maxDepth) throw rt('stack overflow');
-    const p = cl.p, np = p.nparams, R = new Array(p.nslots);
+    const p = cl.p, np = p.nparams, R = new Array(p.nslots + 12);
     for (let i = 0; i < np; i++) R[i] = i < n ? src[start + i] : undefined;
     const va = p.vararg && n > np ? src.slice(start + np, start + n) : EMPTY;
     const f = new Frame(cl, R, va, nres, post);
@@ -1257,6 +1263,7 @@ class VM {
   /** Runs this.cur until a nested boundary frame returns ({vals}), or a host-resumed coroutine
    *  yields ({yielded, vals}) or finishes ({done, vals}). Errors not caught by pcall propagate as MoteError. */
   execute() {
+    // The case labels are numeric literals (opcode names in comments) so V8 compiles a jump table.
     const vm = this;
     let co, fr, R, code, K, pc = 0, sp = 0, ex;
     outer: for (;;) {
@@ -1268,89 +1275,99 @@ class VM {
           pc += 4;
           if (--vm.budget < 0) { fr.pc = pc; vm.outOfSteps(); }
           switch (op) {
-            case NIL: for (let i = 0; i < a; i++) R[sp++] = undefined; break;
-            case LOADK: R[sp++] = K[a]; break;
-            case TRUE: R[sp++] = true; break;
-            case FALSE: R[sp++] = false; break;
-            case GETL: R[sp++] = R[a]; break;
-            case SETL: R[a] = R[--sp]; break;
-            case GETU: { const u = fr.cl.up[a]; R[sp++] = u.R[u.i]; break; }
-            case SETU: { const u = fr.cl.up[a]; u.R[u.i] = R[--sp]; break; }
-            case GETG: {
+            case 0 /* NIL */: for (let i = 0; i < a; i++) R[sp++] = undefined; break;
+            case 1 /* LOADK */: R[sp++] = K[a]; break;
+            case 2 /* TRUE */: R[sp++] = true; break;
+            case 3 /* FALSE */: R[sp++] = false; break;
+            case 4 /* GETL */: R[sp++] = R[a]; break;
+            case 5 /* SETL */: R[a] = R[--sp]; break;
+            case 6 /* GETU */: { const u = fr.cl.up[a]; R[sp++] = u.R[u.i]; break; }
+            case 7 /* SETU */: { const u = fr.cl.up[a]; u.R[u.i] = R[--sp]; break; }
+            case 8 /* GETG */: {
               const G = vm.G, v = G.get(K[a]);
               if (v !== undefined || G.mt === null) { R[sp++] = v; break; }
               fr.pc = pc; fr.sp = sp; if ((ex = vm.index(G, K[a])) !== undefined) return ex; continue outer;
             }
-            case SETG: {
+            case 9 /* SETG */: {
               const G = vm.G, v = R[--sp];
               if (G.mt === null) { vm.rawset(G, K[a], v); break; }
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(G, K[a], v)) !== undefined) return ex; continue outer;
             }
-            case GETI: {
+            case 10 /* GETI */: {
               const k = R[--sp], t = R[sp - 1];
               if (t instanceof LTable) { const v = t.get(k); if (v !== undefined || t.mt === null) { R[sp - 1] = v; break; } }
               fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, k)) !== undefined) return ex; continue outer;
             }
-            case GETF: {
+            case 11 /* GETF */: {
               const t = R[sp - 1];
-              if (t instanceof LTable) { const v = t.get(K[a]); if (v !== undefined || t.mt === null) { R[sp - 1] = v; break; } }
+              if (t instanceof LTable) {
+                let v = t.get(K[a]);
+                if (v !== undefined || t.mt === null) { R[sp - 1] = v; break; }
+                const h = t.mt.get('__index');   // one level of class-style __index tables inline
+                if (h instanceof LTable && ((v = h.get(K[a])) !== undefined || h.mt === null)) { R[sp - 1] = v; break; }
+              }
               fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(t, K[a])) !== undefined) return ex; continue outer;
             }
-            case SETI: {
+            case 12 /* SETI */: {
               const v = R[--sp], k = R[--sp], t = R[--sp];
               if (t instanceof LTable && t.mt === null) { vm.rawset(t, k, v); break; }
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, k, v)) !== undefined) return ex; continue outer;
             }
-            case SETF: {
+            case 13 /* SETF */: {
               const v = R[--sp], t = R[--sp];
               if (t instanceof LTable && t.mt === null) { vm.rawset(t, K[a], v); break; }
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, K[a], v)) !== undefined) return ex; continue outer;
             }
-            case SETIL: {
+            case 14 /* SETIL */: {
               const v = R[--sp], t = R[a], k = R[code[pc - 2]];
               if (t instanceof LTable && t.mt === null) { vm.rawset(t, k, v); break; }
               fr.pc = pc; fr.sp = sp; if ((ex = vm.setindex(t, k, v)) !== undefined) return ex; continue outer;
             }
-            case SELF: {
+            case 15 /* SELF */: {
               const o = R[sp - 1], key = K[a];
               let f;
-              if (o instanceof LTable) { f = o.get(key); if (f !== undefined || o.mt === null) { R[sp - 1] = f; R[sp++] = o; break; } }
+              if (o instanceof LTable) {
+                f = o.get(key);
+                if (f !== undefined || o.mt === null) { R[sp - 1] = f; R[sp++] = o; break; }
+                const h = o.mt.get('__index');
+                if (h instanceof LTable && ((f = h.get(key)) !== undefined || h.mt === null)) { R[sp - 1] = f; R[sp++] = o; break; }
+              }
               else if (typeof o === 'string' && vm.strmt !== null) {
                 const s = vm.strmt.get('__index');
                 if (s instanceof LTable && (f = s.get(key)) !== undefined) { R[sp - 1] = f; R[sp++] = o; break; }
               }
               fr.pc = pc; fr.sp = sp - 1; if ((ex = vm.index(o, key, P_SELF, o)) !== undefined) return ex; continue outer;
             }
-            case NEWT: R[sp++] = vm.newTable(); break;
-            case TSETI: { const v = R[--sp]; vm.rawset(R[sp - 1], a, v); break; }
-            case TSETF: { const v = R[--sp]; vm.rawset(R[sp - 1], K[a], v); break; }
-            case TSETK: { const v = R[--sp], k = R[--sp]; vm.rawset(R[sp - 1], k, v); break; }
-            case SETLIST: {
+            case 16 /* NEWT */: R[sp++] = vm.newTable(); break;
+            case 17 /* TSETI */: { const v = R[--sp]; vm.rawset(R[sp - 1], a, v); break; }
+            case 18 /* TSETF */: { const v = R[--sp]; vm.rawset(R[sp - 1], K[a], v); break; }
+            case 19 /* TSETK */: { const v = R[--sp], k = R[--sp]; vm.rawset(R[sp - 1], k, v); break; }
+            case 20 /* SETLIST */: {
               const n = fr.vn, t = R[sp - n - 1];
               for (let i = 0; i < n; i++) vm.rawset(t, a + i, R[sp - n + i]);
               sp -= n;
               break;
             }
-            case ADD: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x + y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
-            case SUB: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x - y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
-            case MUL: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x * y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
-            case DIV: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x / y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
-            case MOD: case IDIV: case POW: {
+            case 21 /* ADD */: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x + y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
+            case 22 /* SUB */: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x - y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
+            case 23 /* MUL */: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x * y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
+            case 24 /* DIV */: { const y = R[--sp], x = R[sp - 1]; if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = x / y; break; } fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer; }
+            case 25 /* MOD */: case 26 /* IDIV */: case 27 /* POW */: {
               const y = R[--sp], x = R[sp - 1];
               if (typeof x === 'number' && typeof y === 'number') { R[sp - 1] = arithNum(op, x, y); break; }
               fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer;
             }
-            case CONCAT: {
+            case 28 /* CONCAT */: {
               const y = R[--sp], x = R[sp - 1];
               if ((typeof x === 'string' || typeof x === 'number') && (typeof y === 'string' || typeof y === 'number')) { fr.pc = pc; R[sp - 1] = vm.concat(x, y); break; }
               fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, y)) !== undefined) return ex; continue outer;
             }
-            case UNM: {
+            case 35 /* UNM */: {
               const x = R[sp - 1];
               if (typeof x === 'number') { R[sp - 1] = -x; break; }
               fr.pc = pc; fr.sp = --sp; if ((ex = vm.arith(op, x, x)) !== undefined) return ex; continue outer;
             }
-            case EQ: case NE: {
+            case 29 /* EQ */: case 30 /* NE */: {
               const y = R[--sp], x = R[sp - 1];
               let r = x === y;
               if (!r && x instanceof LTable && y instanceof LTable && (x.mt !== null || y.mt !== null)) {
@@ -1360,7 +1377,7 @@ class VM {
               R[sp - 1] = op === EQ ? r : !r;
               break;
             }
-            case LT: case LE: case GT: case GE: {
+            case 31 /* LT */: case 32 /* LE */: case 33 /* GT */: case 34 /* GE */: {
               let y = R[--sp], x = R[sp - 1];
               if (typeof x === 'number' && typeof y === 'number') {
                 R[sp - 1] = op === LT ? x < y : op === LE ? x <= y : op === GT ? x > y : x >= y;
@@ -1373,20 +1390,20 @@ class VM {
               if (r) return r;
               continue outer;
             }
-            case NOT: { const v = R[sp - 1]; R[sp - 1] = v === undefined || v === false; break; }
-            case LEN: {
+            case 36 /* NOT */: { const v = R[sp - 1]; R[sp - 1] = v === undefined || v === false; break; }
+            case 37 /* LEN */: {
               const v = R[sp - 1];
               if (typeof v === 'string') { R[sp - 1] = v.length; break; }
               if (v instanceof LTable && v.mt === null) { R[sp - 1] = v.arr.length; break; }
               fr.pc = pc; fr.sp = --sp; if ((ex = vm.len(v)) !== undefined) return ex; continue outer;
             }
-            case JMP: pc = a; break;
-            case JMPF: { const v = R[--sp]; if (v === undefined || v === false) pc = a; break; }
-            case JMPT: { const v = R[--sp]; if (v !== undefined && v !== false) pc = a; break; }
-            case AND: { const v = R[sp - 1]; if (v === undefined || v === false) pc = a; else sp--; break; }
-            case OR: { const v = R[sp - 1]; if (v !== undefined && v !== false) pc = a; else sp--; break; }
-            case POP: sp -= a; break;
-            case TAILCALL: {
+            case 38 /* JMP */: pc = a; break;
+            case 39 /* JMPF */: { const v = R[--sp]; if (v === undefined || v === false) pc = a; break; }
+            case 40 /* JMPT */: { const v = R[--sp]; if (v !== undefined && v !== false) pc = a; break; }
+            case 41 /* AND */: { const v = R[sp - 1]; if (v === undefined || v === false) pc = a; else sp--; break; }
+            case 42 /* OR */: { const v = R[sp - 1]; if (v !== undefined && v !== false) pc = a; else sp--; break; }
+            case 43 /* POP */: sp -= a; break;
+            case 45 /* TAILCALL */: {
               const nargs = code[pc - 1] ? a + fr.vn : a, fpos = sp - nargs - 1, f = R[fpos];
               if (f instanceof LClosure) {
                 if (fr.open !== null) vm.close(fr, 0);
@@ -1397,10 +1414,14 @@ class VM {
               }
             }
             // falls through: other callables are called normally, then RET returns their results
-            case CALL: {
+            case 44 /* CALL */: {
               const nres = code[pc - 2], nargs = code[pc - 1] ? a + fr.vn : a, fpos = sp - nargs - 1, f = R[fpos];
               fr.pc = pc; fr.sp = fpos;
-              if (f instanceof LClosure) { vm.pushFrame(co, f, R, fpos + 1, nargs, nres, P_NONE); continue outer; }
+              if (f instanceof LClosure) {
+                fr = vm.pushFrame(co, f, R, fpos + 1, nargs, nres, P_NONE);
+                R = fr.R; code = fr.p.code; K = fr.p.k; pc = 0; sp = fr.sp;
+                break;
+              }
               const args = R.slice(fpos + 1, sp);
               if (f instanceof HostFn && f.special === 0) {
                 const r = f.fn(args, vm);
@@ -1414,7 +1435,7 @@ class VM {
               if (x) return x;
               continue outer;
             }
-            case RET: {
+            case 46 /* RET */: {
               const n = code[pc - 1] ? a + fr.vn : a;
               if (fr.open !== null) vm.close(fr, 0);
               co.frames.pop();
@@ -1431,13 +1452,13 @@ class VM {
               if (x) return x;
               continue outer;
             }
-            case VARARG: {
+            case 47 /* VARARG */: {
               const va = fr.va;
               if (a < 0) { for (let i = 0; i < va.length; i++) R[sp++] = va[i]; fr.vn = va.length; }
               else for (let i = 0; i < a; i++) R[sp++] = va[i];
               break;
             }
-            case CLOSURE: {
+            case 48 /* CLOSURE */: {
               const p = fr.p.protos[a], ups = p.ups, up = new Array(ups.length >> 1);
               for (let i = 0; i < ups.length; i += 2) up[i >> 1] = ups[i] ? vm.findUp(fr, ups[i + 1]) : fr.cl.up[ups[i + 1]];
               fr.pc = pc;
@@ -1445,8 +1466,8 @@ class VM {
               R[sp++] = new LClosure(p, up);
               break;
             }
-            case CLOSE: if (fr.open !== null) vm.close(fr, a); break;
-            case FORPREP: {
+            case 49 /* CLOSE */: if (fr.open !== null) vm.close(fr, a); break;
+            case 50 /* FORPREP */: {
               const i0 = R[a], lim = R[a + 1], st = R[a + 2];
               fr.pc = pc;
               if (typeof i0 !== 'number') throw rt("'for' initial value must be a number");
@@ -1456,12 +1477,12 @@ class VM {
               if (st > 0 ? i0 <= lim : i0 >= lim) R[a + 3] = i0; else pc = code[pc - 2];
               break;
             }
-            case FORLOOP: {
+            case 51 /* FORLOOP */: {
               const st = R[a + 2], i = R[a] + st;
               if (st > 0 ? i <= R[a + 1] : i >= R[a + 1]) { R[a] = i; R[a + 3] = i; pc = code[pc - 2]; }
               break;
             }
-            case TFORLOOP: {
+            case 52 /* TFORLOOP */: {
               const nv = code[pc - 2];
               sp -= nv;
               const v = R[sp];
