@@ -28,7 +28,9 @@
 //                    globals, arr variables and JS objects read back correctly although collections ran while
 //                    the call was suspended; await loops at any call depth (helpers 1–3 calls deep, recursion,
 //                    try/catch/finally, two suspended calls at once, async callbacks called from a frame) stay
-//                    bounded, and the runtime reports the suspended calls as parked
+//                    bounded, and the runtime reports the suspended calls as parked; a call whose frames do not
+//                    fit on the shadow stack is not parked (and still reads its values back intact); between
+//                    calls the shadow stack is empty
 //   Output tab       the number of nodes stays bounded (trace lines are capped), program output is kept
 //   scope API        _scopeEnter/_scopeExit/_scopeRun: nested and suspended invocations keep their handles,
 //                    a released handle id reads as null with one warning line (never as another object)
@@ -911,6 +913,59 @@ fn doCheck() {
   print(done)
 }`, guard: f => ['> ' + f, '> 0', '> ' + 2 * f] },
 
+  // (v) the shadow stack overflows: every even iteration waits 150 calls deep, more frames than fit below 64 KB.
+  //     Such a suspension is not parked (nothing is released while it waits — safe; the batches end there, so
+  //     churn() runs and collects during it), every odd iteration waits 3 calls deep and is parked again (what
+  //     the deep ones made is released then); the values of every frame read back intact either way
+  { name: 'await-recursion-overflow', kind: 'steady', drive: 'gate', parked: 0, frames: 401, marks: [0, 41, 201, 401], src: `
+mut n = 0
+mut bad = 0
+mut deepSeen = 0
+fn rec(d: int, o: js, s: str) int {
+  let mine = memLib.tagged(d)
+  let mineS = "d" + intToStr(d)
+  let r = 0
+  if (d == 0) {
+    let junk = memLib.fresh()
+    let sp: int = _ssSP()
+    if (sp > 12280) { deepSeen++ }
+    r = await memLib.gate()
+  } else {
+    r = rec(d - 1, memLib.tagged(d * 100), "s" + intToStr(d))
+  }
+  let t: int = mine.tag
+  if (t != d) { bad++ }
+  if (!strEq(mineS, "d" + intToStr(d))) { bad++ }
+  let ot: int = o.tag
+  if (ot != (d + 1) * 100) { bad++ }
+  if (!strEq(s, "s" + intToStr(d + 1))) { bad++ }
+  return r
+}
+export fn run() {
+  while (true) {
+    n++
+    let depth = 3
+    if (n % 2 == 0) { depth = 150 }
+    let r = rec(depth, memLib.tagged((depth + 1) * 100), "s" + intToStr(depth + 1))
+    if (r != n) { bad++ }
+  }
+}
+export fn churn() {
+  let i = 0
+  while (i < 200) {
+    let o = memLib.fresh()
+    i++
+  }
+}
+export fn check() {
+  if (n > 1) { doCheck() }
+}
+fn doCheck() {
+  print(n)
+  print(bad)
+  print(deepSeen)
+}`, guard: f => ['> ' + (f + 1), '> 0', '> ' + (f + 1) / 2] },
+
   // (m) a button handler that awaits, clicked many times while run() is suspended in a long `await sleep`
   { name: 'await-button-during-sleep', kind: 'steady', drive: 'clicks', parked: 1, src: `
 mut clicks = 0
@@ -1078,6 +1133,8 @@ function sampleInPage() {
   s.memBytes = _wasmMem ? _wasmMem.buffer.byteLength : 0;
   s.out = document.getElementById('tab-output').getElementsByTagName('*').length;
   s.log = window._impLog ? window._impLog.length : 0;
+  // the shadow stack (await): between calls nothing is on it
+  s.ssSP = (typeof _ssSP === 'function' && typeof _ssOn === 'function' && _ssOn()) ? _ssSP() : 0;
   return s;
 }
 
@@ -1125,7 +1182,7 @@ async function runProgram(browser, fileUrl, prog) {
 
   const samples = [];
   const F = prog.frames || FRAMES;
-  const marks = prog.frames ? [0, 1, 1, F] : [0, Math.round(F / 10), Math.round(F / 2), F];
+  const marks = prog.marks || (prog.frames ? [0, 1, 1, F] : [0, Math.round(F / 10), Math.round(F / 2), F]);
   let done = 0;
   const t0 = Date.now();
   for (const mark of marks) {
@@ -1225,6 +1282,7 @@ function judge(r) {
     if (z.strWraps) fails.push('string allocator wrapped around ' + z.strWraps + ' times');
   }
   if (z.stale) fails.push('stale handle uses: ' + z.stale);
+  if (z.ssSP) fails.push('the shadow stack is not empty between calls: SP = ' + z.ssSP);
   if (r.prog.kind === 'exhaust') {
     if (!z.strErrors) fails.push('the string area was not reported as exhausted');
     if (r.exhausted !== 1) fails.push('expected exactly one "out of string memory" line, saw ' + r.exhausted);
