@@ -226,6 +226,7 @@ t('error in error position (multi-line)', `local t = nil
 local x = 1
 print(t.field)`, { err: /^main:3: attempt to index a nil value \(local 't'\)$/ });
 t('uncaught error object', `error({code = 1})`, { err: /^\(error object is a table value\)$/ });
+t('uncaught error object with __tostring', `error(setmetatable({}, {__tostring = function() return "custom error" end}))`, { err: /^custom error$/ });
 t('uncaught error string', `error("plain", 0)`, { err: /^plain$/ });
 
 // recursion depth

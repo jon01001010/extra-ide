@@ -1509,7 +1509,8 @@ class VM {
     return this.where(1) + (e && e.message !== undefined ? e.message : String(e));
   }
   mkError(v, tb, prev) {
-    const msg = typeof v === 'string' ? v : typeof v === 'number' ? num2str(v) : `(error object is a ${typeOf(v)} value)`;
+    let msg = typeof v === 'string' ? v : typeof v === 'number' ? num2str(v) : `(error object is a ${typeOf(v)} value)`;
+    if (this.metaOf(v, '__tostring') !== undefined && this.cur) { try { msg = this.tostr(v); } catch (_) { /* keep the generic message */ } }
     const m = typeof v === 'string' && /^([^\n]*?):(\d+): /.exec(v);
     if (prev instanceof MoteError && prev.traceback) tb = prev.traceback + '\n' + tb.replace(/^stack traceback:\n?/, '');
     const err = new MoteError(msg, { kind: 'runtime', chunk: m ? m[1] : undefined, line: m ? +m[2] : undefined, traceback: tb });
