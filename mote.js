@@ -87,13 +87,15 @@ class LTable {
   }
   nextHash(k) {
     const h = this.hash;
-    if (h === null) { if (k === undefined) return null; throw rt("invalid key to 'next'"); }
+    // an integer key past the array part: the array shrank during traversal (t[k] = nil), go on with the hash
+    const shrunk = typeof k === 'number' && k >= 1 && Number.isInteger(k);
+    if (h === null) { if (k === undefined || shrunk) return null; throw rt("invalid key to 'next'"); }
     if (this.keys === null) { this.keys = Array.from(h.keys()); this.ki = 0; }
     const keys = this.keys;
     let i = 0;
     if (k !== undefined) {
       i = keys[this.ki] === k ? this.ki + 1 : keys.indexOf(k) + 1;
-      if (i === 0) throw rt("invalid key to 'next'");
+      if (i === 0 && !shrunk) throw rt("invalid key to 'next'");
     }
     for (; i < keys.length; i++) {
       const v = h.get(keys[i]);
@@ -1106,8 +1108,8 @@ class VM {
     this.deliver(top(B), vals, B.yNres, B.yPost);
   }
   yieldCo(co, vals, nres, post) {
-    if (co.isMain) throw rt('attempt to yield from outside a coroutine');
-    if (co.nny > 0) throw rt('attempt to yield across a host call boundary');
+    if (co.isMain) throw new Throw('attempt to yield from outside a coroutine', false);
+    if (co.nny > 0) throw new Throw('attempt to yield across a host call boundary', false);
     co.status = 'suspended'; co.yNres = nres; co.yPost = post;
     const R = co.resumer;
     co.resumer = null;
@@ -2247,7 +2249,7 @@ function format(vm, a) {
       case 'q': {
         const v = a[n];
         if (typeof v === 'string') {
-          out += '"' + v.replace(/[\\"\n\r\0]|[\x01-\x1f\x7f]/g, ch => ch === '\n' ? '\\n' : ch === '\r' ? '\\r' :
+          out += '"' + v.replace(/[\\"\n\r\0]|[\x01-\x1f\x7f]/g, ch => ch === '\n' ? '\\\n' : ch === '\r' ? '\\r' :
             ch === '\\' || ch === '"' ? '\\' + ch : '\\' + ch.charCodeAt(0)) + '"';
         } else if (typeof v === 'number') out += v === Math.floor(v) || !Number.isFinite(v) ? (v !== v ? '(0/0)' : v === Infinity ? '1e9999' : v === -Infinity ? '-1e9999' : num2str(v)) : fmtG(v, 17);
         else if (v === undefined || typeof v === 'boolean') out += vm.tostr(v);
