@@ -1257,20 +1257,26 @@ const SPECIAL = [
     return p;
   } },
 
-  // A function with a statement-level await that no Emit function calls stores its locals before waiting
-  // (the "parked scopes" spill: i32.const 53248 …). A call from another module counts as a call.
+  // The await shadow stack (see _emitAwaitRoots) is found in the finished module, so calls across modules are
+  // seen like any other: every function on the way to an await stores its locals before each call that can
+  // suspend. Counted in the module: each such call has one `i32.const 53248; i32.load` (SP read) before it,
+  // and a call of an Emit function (not __await) one more after it (SP -= frame).
   { name: 'await-spill-sees-cross-module-calls', run: async page => page.evaluate(([called, notCalled]) => {
     const p = [];
-    const has = (text, name) => {
-      const f = compile(text, 'wasm32').functions.find(x => x.name === name);
-      if (!f) { p.push('no function ' + name); return null; }
-      const c = f.code;
-      for (let i = 0; i + 3 < c.length; i++) if (c[i] === 0x41 && c[i + 1] === 0x80 && c[i + 2] === 0xA0 && c[i + 3] === 0x03) return true;
-      return false;
+    const spills = text => {
+      const w = compile(text, 'wasm32').wasm;
+      if (!WebAssembly.validate(w)) p.push('the module does not validate');
+      if (!String.fromCharCode.apply(null, Array.from(w)).includes('__emitSS')) p.push('no "__emitSS" export: no shadow stack');
+      let n = 0;
+      for (let i = 0; i + 4 < w.length; i++) if (w[i] === 0x41 && w[i + 1] === 0x80 && w[i + 2] === 0xA0 && w[i + 3] === 0x03 && w[i + 4] === 0x28) n++;
+      return n;
     };
-    if (has(called, 'w.work') !== false) p.push('w.work is called from main: it must not spill its locals');
-    if (has(called, 'run') !== true) p.push('run is a root: it must spill its locals');
-    if (has(notCalled, 'w.work') !== true) p.push('w.work is exported and not called: it must spill its locals');
+    /* run: the call of w.work (spill + pop) and its own await; w.work: its await */
+    const a = spills(called);
+    if (a !== 4) p.push('run → w.work → await: expected 4 shadow-stack reads (3 suspending calls, one of them an Emit call), saw ' + a);
+    /* only w.work can suspend; run calls w.one, which cannot */
+    const b = spills(notCalled);
+    if (b !== 1) p.push('w.work alone awaits: expected 1 shadow-stack read, saw ' + b);
     return p;
   }, [join([F('main.emit', 'import w\nexport fn run() {\n  let a = emptyObj()\n  await w.work()\n  printStr(typeOf(a))\n}\n'), F('w.emit', 'public fn work() int {\n  let o = emptyObj()\n  await sleep(1)\n  printStr(typeOf(o))\n  return 1\n}\n')]),
     join([F('main.emit', 'import w\nexport fn run() {\n  print(w.one())\n}\n'), F('w.emit', 'public fn one() int { return 1 }\nexport fn work() {\n  let o = emptyObj()\n  await sleep(1)\n  printStr(typeOf(o))\n}\n')])]) },
