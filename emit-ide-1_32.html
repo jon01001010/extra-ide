@@ -15305,7 +15305,7 @@ function _tlBar(){
     else if(a==='rec')_tlToggle(!_tl.on);
   });
   var sl=b.querySelector('.tl-slider');
-  sl.addEventListener('input',function(){if(!_tl.on||!_tl.frames.length)return;_tlPause();_tlShow(+sl.value)});
+  sl.addEventListener('input',function(){if(!_tl.on||!_tl.frames.length)return;var k=+sl.value;_tlPause();_tlShow(k)});
   sl.addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();if(_tl.paused)_tlResume();else _tlPause()}});
   var tk=b.querySelector('.tl-track');
   tk.addEventListener('mousemove',function(e){

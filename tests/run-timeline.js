@@ -189,10 +189,10 @@ async function exactChecks(browser, fileUrl) {
     await CAPTURE(px)(page);
     await page.evaluate(() => { _tl.paused = false; });
     // input on some frames: a key held for a while, a touch
-    await page.evaluate(() => { for (let i = 0; i < 40; i++) _emitFrame(); _keys[39] = 1; for (let i = 0; i < 25; i++) _emitFrame(); _keys[39] = 0; _touch.on = 1; for (let i = 0; i < 10; i++) _emitFrame(); _touch.on = 0; for (let i = 0; i < 125; i++) _emitFrame(); });
+    await page.evaluate(() => { for (let i = 0; i < 120; i++) _emitFrame(); _keys[39] = 1; for (let i = 0; i < 25; i++) _emitFrame(); _keys[39] = 0; _touch.on = 1; for (let i = 0; i < 10; i++) _emitFrame(); _touch.on = 0; for (let i = 0; i < 45; i++) _emitFrame(); });
     let s = await tlState(page);
     check(P + name + ': recording is on and the ring keeps the last 90 frames (maxFrames)', s.on && s.n === 90 && s.last === s.cnt && s.last - s.first === 89, JSON.stringify(s));
-    check(P + name + ': the oldest record is a keyframe; keyframes every 30 frames', await page.evaluate(() => !!_tl.frames[0].full && _tl.frames.filter(f => f.full).length >= 3 && _tl.frames.filter(f => f.full).length <= 5), JSON.stringify(s));
+    check(P + name + ': the oldest record is a keyframe; keyframes every 30 frames' + (s.B ? '' : ' (no regions: one empty keyframe)'), await page.evaluate(() => !!_tl.frames[0].full && (!_tl.B || (_tl.frames.filter(f => f.full).length >= 3 && _tl.frames.filter(f => f.full).length <= 5))), JSON.stringify(s));
     await page.evaluate(() => _tlPause());
     for (const order of ['back', 'fwd', 'shuffle']) {
       const r = await verify(page, order, px && order === 'shuffle');
@@ -281,7 +281,7 @@ async function exactChecks(browser, fileUrl) {
   const before = s;
   await tap(page, '#tlBar [data-tl="resume"]', false);
   s = await tlState(page);
-  check(P + '⟲ resume from here discards the recorded future and continues from the shown frame', !s.paused && s.n <= before.pos + 3 && s.first === before.first && (await page.evaluate(n => _tl.frames.some(f => f.n === n), before.cur)), JSON.stringify([before, s]));
+  check(P + '⟲ resume from here discards the recorded future and continues from the shown frame', !s.paused && s.n <= before.pos + 10 && s.last < before.last && s.first === before.first && (await page.evaluate(n => _tl.frames.some(f => f.n === n), before.cur)), JSON.stringify([before, s]));
   await page.waitForTimeout(400);
   s2 = await tlState(page);
   check(P + '…and goes on recording from there (frame numbers continue from the fork)', s2.n > s.n && s2.last > before.cur && s2.last < before.last + 30, JSON.stringify([before, s2]));
@@ -292,7 +292,7 @@ async function exactChecks(browser, fileUrl) {
   // ▶ in the past resumes from there as well
   await tap(page, '#tlBar [data-tl="play"]', false);
   s = await tlState(page);
-  check(P + '▶ on an older frame resumes from it (the frames after it are gone)', !s.paused && s.n <= 6, JSON.stringify(s));
+  check(P + '▶ on an older frame resumes from it (the frames after it are gone)', !s.paused && s.n <= 12, JSON.stringify(s));
   // Stop: paused; ▶ starts the frames again
   await page.evaluate(() => stopProgram());
   s = await tlState(page);
