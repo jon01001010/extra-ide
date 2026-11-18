@@ -1,29 +1,41 @@
 #!/usr/bin/env node
-// Inlines mote.js (the source of truth) into mote.html between the MOTE:BEGIN / MOTE:END markers,
-// so the playground is one self-contained file. Everything else in mote.html is edited by hand.
+// Copies mote.js (the source of truth) into the pages that carry it, between their MOTE:BEGIN / MOTE:END markers:
+//   mote.html            the playground — an executing <script> (defines window.Mote when the page opens)
+//   emit-ide-1_32.html   the Emit IDE — a NON-executing <script type="text/plain" id="mote-src"> that `use mote`
+//                        runs on demand (once, as a classic script from a Blob URL; see _libBuiltinText in the IDE)
+// Everything else in those pages is edited by hand.
 //
-//   node tools/build-mote-html.js           rebuild mote.html
-//   node tools/build-mote-html.js --check   exit 1 when mote.html does not contain the current mote.js
+//   node tools/build-mote-html.js           rebuild both pages
+//   node tools/build-mote-html.js --check   exit 1 when a page does not contain the current mote.js
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const htmlPath = path.join(root, 'mote.html');
 const js = fs.readFileSync(path.join(root, 'mote.js'), 'utf8');
-const html = fs.readFileSync(htmlPath, 'utf8');
+// "</script" would end the script element early; "<\/script" means the same inside JS strings, comments and
+// regexps. "<!--" could switch the HTML parser into its "escaped" script state; "<\!--" means the same in JS.
+const body = js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
 
+const PAGES = [
+  { file: 'mote.html', open: '<script>\n' },
+  { file: 'emit-ide-1_32.html', open: '<script type="text/plain" id="mote-src" data-emit-builtin="emit:mote">\n' },
+];
 const BEGIN = /<!-- MOTE:BEGIN[^\n]*-->\n/, END = '<!-- MOTE:END -->';
-const b = BEGIN.exec(html), e = html.indexOf(END);
-if (!b || e < b.index) { console.error('mote.html: MOTE:BEGIN / MOTE:END markers not found'); process.exit(2); }
-// "</script" would end the inline script early; "<\/script" means the same inside JS strings, comments and regexps.
-const inline = '<script>\n' + js.replace(/<\/script/gi, '<\\/script') + '</script>\n';
-const out = html.slice(0, b.index + b[0].length) + inline + html.slice(e);
-
-if (process.argv.includes('--check')) {
-  if (out !== html) { console.error('mote.html is out of date: run node tools/build-mote-html.js'); process.exit(1); }
-  console.log('mote.html is up to date');
-} else {
-  fs.writeFileSync(htmlPath, out);
-  console.log(`mote.html: inlined mote.js (${js.length} bytes), page ${out.length} bytes`);
+const check = process.argv.includes('--check');
+let stale = 0;
+for (const p of PAGES) {
+  const htmlPath = path.join(root, p.file);
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const b = BEGIN.exec(html), e = html.indexOf(END);
+  if (!b || e < b.index) { console.error(p.file + ': MOTE:BEGIN / MOTE:END markers not found'); process.exit(2); }
+  const out = html.slice(0, b.index + b[0].length) + p.open + body + '</script>\n' + html.slice(e);
+  if (check) {
+    if (out !== html) { console.error(p.file + ' is out of date: run node tools/build-mote-html.js'); stale++; }
+    else console.log(p.file + ' is up to date');
+  } else {
+    if (out !== html) fs.writeFileSync(htmlPath, out);
+    console.log(`${p.file}: mote.js (${js.length} bytes) ${out === html ? 'already current' : 'inlined'}, page ${out.length} bytes`);
+  }
 }
+if (stale) process.exit(1);
