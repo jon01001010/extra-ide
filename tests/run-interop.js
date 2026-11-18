@@ -202,8 +202,8 @@ fn done(v: int) {
   print(v + 1)
 }
 export fn run() {
-  let P = __jsGlobal("Promise")
-  let p = P.resolve(42)
+  let Prom = __jsGlobal("Promise")
+  let p = Prom.resolve(42)
   p.then(fnRef(done))
   printStr("scheduled")
 }`, expect: ['> scheduled', '> 43'] },
