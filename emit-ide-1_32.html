@@ -9244,10 +9244,10 @@ function _stParseMap(b){
   var items=_stSplit(L[0].slice(hm[0].length),hm[0].length+1,',');
   items.forEach(function(it,k){
     var sm=/^(\d+)\s*x\s*(\d+)$/i.exec(it.text),tm=/^tile\s+(\S+)$/.exec(it.text);
+    if(k===0&&!sm){P(base,it.col,'Expected the size of map '+b.name+' first — map '+b.name+': 20x15, tile 16');if(!tm){M.headExtra.push(it.text);return}}
     if(sm&&k===0){M.w=+sm[1];M.h=+sm[2];M.locs.size={line:base,col:it.col};
       if(M.w<1||M.h<1||M.w>256||M.h>256)P(base,it.col,'The size of map '+b.name+' must be 1x1 to 256x256, not '+it.text)}
     else if(tm){var t=_stNum(tm[1]);M.tileSet=true;if(t===null||t!==Math.floor(t)||t<1||t>256)P(base,it.col+it.text.indexOf(tm[1]),'tile must be a whole number of pixels from 1 to 256, not '+tm[1]);else M.tile=t}
-    else if(k===0&&!sm){P(base,it.col,'Expected the size of map '+b.name+' first — map '+b.name+': 20x15, tile 16');M.headExtra.push(it.text)}
     else{P(base,it.col,'Unknown setting "'+it.text+'" in map '+b.name+' — the header is: map '+b.name+': 20x15, tile 16');M.headExtra.push(it.text)}
   });
   if(!items.length)P(base,L[0].length+1,'Expected the size of map '+b.name+' — map '+b.name+': 20x15, tile 16');
@@ -9314,8 +9314,8 @@ function _stParseMap(b){
     }
     M.objects.push(o);
   }
-  // whole-block checks
-  if(M.w&&M.h){
+  // whole-block checks (once every line reads)
+  if(M.w&&M.h&&!M.problems.length){
     var known={};M.legend.forEach(function(e){if(e.ch)known[e.ch]=true});
     if(!M.locs.rows)P(M.locs.name.line,M.locs.name.col,'map '+b.name+' has no rows — add "rows" and '+M.h+' quoted rows of '+M.w+' tiles');
     else if(M.rows.length!==M.h)P(M.locs.rows.line,M.locs.rows.col,'map '+b.name+' has '+M.rows.length+' row'+(M.rows.length===1?'':'s')+', but its size says '+M.h+' ('+M.w+'x'+M.h+')');
