@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Material</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#0c0b0f;--bg2:#15141a;--bg3:#1e1d25;--border:#2a2933;--fg:#e8e4df;--fg2:#9a958d;--fg3:#5a5650;--accent:#c9a227}
+html,body{height:100%;background:var(--bg);color:var(--fg);font-family:'DM Mono',monospace;overflow:hidden}
+.app{height:100vh;height:100dvh;display:flex;flex-direction:column}
+.hdr{padding:14px 20px;display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.logo{font-family:'Instrument Serif',serif;font-size:24px;color:var(--accent);letter-spacing:1px}
+.logo sub{font-size:10px;color:var(--fg3);font-weight:300;margin-left:4px;font-family:'DM Mono',monospace}
+
+/* Mode tabs */
+.modes{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.mode-tab{flex:1;text-align:center;padding:12px;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.mode-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Panels */
+.panel{display:none;flex:1;flex-direction:column;overflow:hidden}.panel.active{display:flex}
+.panel-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px}
+
+/* Ask mode */
+.ask-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:16px}
+.ask-input{width:100%;max-width:500px;background:var(--bg2);border:2px solid var(--border);border-radius:14px;padding:18px 20px;font-family:'DM Mono',monospace;font-size:16px;color:var(--fg);outline:none;transition:border-color .15s}
+.ask-input:focus{border-color:var(--accent)}
+.ask-input::placeholder{color:var(--fg3)}
+.ask-hint{font-size:11px;color:var(--fg3);text-align:center;line-height:1.8;max-width:400px}
+.ask-examples{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:500px}
+.ask-ex{padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;font-size:10px;color:var(--fg2);cursor:pointer;transition:all .15s}
+.ask-ex:active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+/* Do mode */
+.do-grid{display:flex;flex-direction:column;gap:8px}
+.do-card{padding:16px;background:var(--bg2);border:1.5px solid var(--border);border-radius:12px;cursor:pointer;transition:all .15s}
+.do-card:active{transform:scale(0.98)}
+.do-card.selected{border-color:var(--accent)}
+.do-title{font-size:13px;font-weight:500;margin-bottom:3px}.do-desc{font-size:10px;color:var(--fg3)}
+.do-options{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.do-label{font-size:10px;color:var(--fg3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.do-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--fg);outline:none}
+.do-row{display:flex;gap:8px;align-items:center}
+.do-chips{display:flex;flex-wrap:wrap;gap:6px}
+.do-chip{padding:6px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--fg2);cursor:pointer}.do-chip.sel{border-color:var(--accent);color:var(--accent)}
+
+/* Shared */
+.btn{padding:14px 20px;border-radius:10px;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:center;border:none;font-weight:500;width:100%;margin-top:16px}
+.btn-primary{background:var(--accent);color:var(--bg)}
+.btn-secondary{background:var(--bg3);color:var(--fg2);border:1px solid var(--border)}
+.section-title{font-family:'Instrument Serif',serif;font-size:22px;margin-bottom:4px}
+.section-desc{font-size:12px;color:var(--fg2);margin-bottom:20px}
+
+/* Result */
+.result-wrap{display:none;flex:1;flex-direction:column;overflow:hidden}.result-wrap.show{display:flex}
+.result-bar{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap}
+.result-bar .rn{font-family:'Instrument Serif',serif;font-size:16px;color:var(--accent)}
+.result-bar .rs{font-size:10px;color:var(--fg3);margin-left:8px}
+.result-preview{flex:1;overflow:hidden;background:#111}.result-preview iframe{width:100%;height:100%;border:none}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="hdr"><div class="logo">Material<sub>v2</sub></div><div style="margin-left:auto"><button class="hdr-btn" onclick="toggleKey()" id="keyBtn" style="font-size:10px">&#9881;</button></div></div>
+<div id="keyBar" style="display:none;padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border);display:none;gap:8px;align-items:center">
+  <span style="font-size:10px;color:var(--fg3);white-space:nowrap">API Key:</span>
+  <input type="password" id="apiKey" placeholder="sk-ant-... (optional, for standalone use)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:'DM Mono',monospace;font-size:10px;color:var(--fg);outline:none;min-width:0">
+  <button class="hdr-btn" onclick="saveKey()" style="font-size:10px;padding:4px 10px">Save</button>
+</div>
+<div class="modes">
+  <div class="mode-tab active" onclick="switchMode('ask')">Ask</div>
+  <div class="mode-tab" onclick="switchMode('do')">Do</div>
+  <div class="mode-tab" onclick="switchMode('make')">Make</div>
+</div>
+
+<!-- ASK MODE -->
+<div class="panel active" id="p-ask">
+  <div class="ask-wrap">
+    <div class="section-title">What do you need?</div>
+    <input class="ask-input" id="askInput" placeholder="resize images to 800px wide..." autofocus>
+    <div class="ask-examples" id="askExamples"></div>
+    <div class="ask-hint">Describe the tool in one line. Material builds it.</div>
+  </div>
+</div>
+
+<!-- DO MODE -->
+<div class="panel" id="p-do">
+  <div class="panel-scroll">
+    <div class="section-title">Build a tool</div>
+    <div class="section-desc">Pick a task, set options, generate.</div>
+    <div class="do-grid" id="doGrid"></div>
+    <div id="doOptions" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- MAKE MODE -->
+<div class="panel" id="p-make">
+  <div class="panel-scroll">
+    <div class="section-title">Build a language</div>
+    <div class="section-desc">Visual programming environment.</div>
+    <div id="makeSteps"></div>
+  </div>
+</div>
+
+<!-- RESULT -->
+<div class="result-wrap" id="resultWrap">
+  <div class="result-bar">
+    <span class="rn" id="rName"></span>
+    <span class="rs" id="rStats"></span>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:11px;margin:0" onclick="backToMain()">&#8592; Back</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:11px;margin:0" onclick="printResult()">&#128424; Print</button>
+      <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:11px;margin:0" onclick="downloadResult()">&#8595; Download</button>
+    </div>
+  </div>
+  <div class="result-preview"><iframe id="previewFrame"></iframe></div>
+</div>
+</div>
+
+<script>
+var genHTML='',genName='tool';
+
+// ═══ MODE SWITCHING ═══
+function switchMode(m){
+  document.querySelectorAll('.mode-tab').forEach(function(t,i){t.classList.toggle('active',['ask','do','make'][i]===m)});
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active')});
+  document.getElementById('p-'+m).classList.add('active');
+  document.getElementById('resultWrap').classList.remove('show');
+}
+function backToMain(){document.getElementById('resultWrap').classList.remove('show');document.querySelectorAll('.panel').forEach(function(p){if(p.id!=='resultWrap')p.style.display=''});}
+function showResult(name,html){
+  genHTML=html;genName=name;
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active')});
+  document.getElementById('resultWrap').classList.add('show');
+  document.getElementById('rName').textContent=name;
+  document.getElementById('rStats').textContent=(html.length/1024).toFixed(1)+'KB';
+  document.getElementById('previewFrame').srcdoc=html;
+}
+function downloadResult(){var b=new Blob([genHTML],{type:'text/html'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=genName.toLowerCase().replace(/\s+/g,'-')+'.html';a.click();}
+function printResult(){var f=document.getElementById('previewFrame');if(f&&f.contentWindow)f.contentWindow.print();}
+
+// API Key management
+function toggleKey(){var kb=document.getElementById('keyBar');kb.style.display=kb.style.display==='flex'?'none':'flex';}
+function saveKey(){var k=document.getElementById('apiKey').value.trim();try{if(k)localStorage.setItem('material_api_key',k);else localStorage.removeItem('material_api_key')}catch(e){}document.getElementById('keyBar').style.display='none';document.getElementById('keyBtn').style.color=k?'var(--accent)':'var(--fg2)';}
+function getKey(){try{var k=localStorage.getItem('material_api_key');if(k){document.getElementById('apiKey').value=k;document.getElementById('keyBtn').style.color='var(--accent)'}return k||''}catch(e){return ''}}
+
+// ═══ TRANSFORMS LIBRARY ═══
+var SHELL_HEAD='<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;background:#0f0f1a;color:#e0e0ff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;padding:20px;gap:16px}h2{font-size:16px;font-weight:600;color:#c9a227;margin-top:20px}.drop{width:90%;max-width:500px;min-height:200px;border:3px dashed #2a2a4a;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;padding:20px;transition:border-color .2s;text-align:center}.drop.over{border-color:#c9a227}.drop p{font-size:13px;color:#666}.drop small{font-size:10px;color:#444}input[type=file]{display:none}input[type=number],input[type=text],select{background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:10px 14px;border-radius:8px;font-size:13px;font-family:system-ui;outline:none;width:200px}button.go{background:#c9a227;color:#000;border:none;padding:12px 24px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px}.status{font-size:12px;color:#666;min-height:20px}a.dl{color:#c9a227;text-decoration:underline;font-size:13px}</style></head><body>';
+var SHELL_FOOT='</body></html>';
+
+function shellWrap(title,body){
+  return SHELL_HEAD+'<h2>'+title+'</h2>'+body+SHELL_FOOT;
+}
+
+// Drop zone snippet
+var DROP_HTML='<div class="drop" id="dz"><p>Drop files here</p><small>or tap to browse</small></div><input type="file" id="fi" multiple>';
+var DROP_JS='var dz=document.getElementById("dz"),fi=document.getElementById("fi");dz.onclick=function(){fi.click()};dz.ondragover=function(e){e.preventDefault();dz.classList.add("over")};dz.ondragleave=function(){dz.classList.remove("over")};dz.ondrop=function(e){e.preventDefault();dz.classList.remove("over");handleFiles(e.dataTransfer.files)};fi.onchange=function(){handleFiles(fi.files)};';
+
+var TASKS=[
+  {id:'img_resize',cat:'Image',title:'Resize Images',desc:'Scale images to a specific width or height',
+    opts:[{id:'w',label:'Width (px)',type:'number',def:800},{id:'h',label:'Height (0=auto)',type:'number',def:0}],
+    gen:function(o){
+      return shellWrap('Resize to '+o.w+'px',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){var st=document.getElementById("st");for(var i=0;i<files.length;i++){(function(f){var img=new Image();img.onload=function(){var w='+o.w+',h='+o.h+';if(!h)h=Math.round(img.height*(w/img.width));var c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="resized-"+f.name;a.click();st.textContent="Done: "+f.name},"image/png")};img.src=URL.createObjectURL(f)})(files[i])}}</scr'+'ipt>');}},
+
+  {id:'img_convert',cat:'Image',title:'Convert Format',desc:'PNG↔JPG↔WEBP conversion',
+    opts:[{id:'fmt',label:'Output format',type:'select',choices:['png','jpeg','webp'],def:'jpeg'}],
+    gen:function(o){
+      return shellWrap('Convert to '+o.fmt.toUpperCase(),DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){for(var i=0;i<files.length;i++){(function(f){var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width=img.width;c.height=img.height;c.getContext("2d").drawImage(img,0,0);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=f.name.replace(/\\.[^.]+$/,"."+"'+o.fmt+'");a.click();document.getElementById("st").textContent="Done: "+f.name},"image/'+o.fmt+'",0.92)};img.src=URL.createObjectURL(f)})(files[i])}}</scr'+'ipt>');}},
+
+  {id:'img_grayscale',cat:'Image',title:'Grayscale Images',desc:'Convert images to black and white',
+    opts:[],
+    gen:function(o){
+      return shellWrap('Grayscale',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){for(var i=0;i<files.length;i++){(function(f){var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width=img.width;c.height=img.height;var x=c.getContext("2d");x.drawImage(img,0,0);var d=x.getImageData(0,0,c.width,c.height);for(var j=0;j<d.data.length;j+=4){var g=d.data[j]*0.299+d.data[j+1]*0.587+d.data[j+2]*0.114;d.data[j]=d.data[j+1]=d.data[j+2]=g;}x.putImageData(d,0,0);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="gray-"+f.name;a.click();document.getElementById("st").textContent="Done: "+f.name},"image/png")};img.src=URL.createObjectURL(f)})(files[i])}}</scr'+'ipt>');}},
+
+  {id:'img_watermark',cat:'Image',title:'Watermark Images',desc:'Add text overlay to images',
+    opts:[{id:'text',label:'Watermark text',type:'text',def:'DRAFT'},{id:'size',label:'Font size',type:'number',def:48}],
+    gen:function(o){
+      return shellWrap('Watermark: '+o.text,DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){for(var i=0;i<files.length;i++){(function(f){var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width=img.width;c.height=img.height;var x=c.getContext("2d");x.drawImage(img,0,0);x.globalAlpha=0.3;x.fillStyle="#fff";x.font="'+o.size+'px sans-serif";x.textAlign="center";x.fillText("'+o.text+'",c.width/2,c.height/2);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="wm-"+f.name;a.click();document.getElementById("st").textContent="Done: "+f.name},"image/png")};img.src=URL.createObjectURL(f)})(files[i])}}</scr'+'ipt>');}},
+
+  {id:'img_to_pdf',cat:'Convert',title:'Image to PDF',desc:'Convert PNG/JPG to PDF',
+    opts:[],
+    gen:function(){
+      return shellWrap('Image \u2192 PDF',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){(function(f){var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width=img.width;c.height=img.height;c.getContext("2d").drawImage(img,0,0);var j=c.toDataURL("image/jpeg",0.92).split(",")[1];var bytes=atob(j);var w=img.width,h=img.height;var s="q "+w+" 0 0 "+h+" 0 0 cm /I0 Do Q";var p="%PDF-1.4\\n",o=[];o.push(p.length);p+="1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\\n";o.push(p.length);p+="2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\\n";o.push(p.length);p+="3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 "+w+" "+h+"]/Contents 4 0 R/Resources<</XObject<</I0 5 0 R>>>>>>endobj\\n";o.push(p.length);p+="4 0 obj<</Length "+s.length+">>stream\\n"+s+"\\nendstream\\nendobj\\n";o.push(p.length);p+="5 0 obj<</Type/XObject/Subtype/Image/Width "+w+"/Height "+h+"/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length "+bytes.length+">>stream\\n";var pre=p,post="\\nendstream\\nendobj\\n";var xo=pre.length+bytes.length+post.length;var xr="xref\\n0 6\\n0000000000 65535 f \\n";for(var i=0;i<5;i++)xr+=(o[i]+"").padStart(10,"0")+" 00000 n \\n";xr+="trailer<</Size 6/Root 1 0 R>>\\nstartxref\\n"+xo+"\\n%%EOF";var ar=new Uint8Array(pre.length+bytes.length+post.length+xr.length);for(var i=0;i<pre.length;i++)ar[i]=pre.charCodeAt(i);for(var i=0;i<bytes.length;i++)ar[pre.length+i]=bytes.charCodeAt(i);var ps=post+xr;for(var i=0;i<ps.length;i++)ar[pre.length+bytes.length+i]=ps.charCodeAt(i);var bl=new Blob([ar],{type:"application/pdf"});var a=document.createElement("a");a.href=URL.createObjectURL(bl);a.download=f.name.replace(/\\.[^.]+$/,"")+".pdf";a.click();document.getElementById("st").textContent="Done!"};img.src=URL.createObjectURL(f)})(files[0])}</scr'+'ipt>');}},
+
+  // ═══ BATCH 11: Math & Finance ═══
+  {id:'date_calc',cat:'Productivity',title:'Date Calculator',desc:'Days between dates, add/subtract days',
+    opts:[],
+    gen:function(){
+      return shellWrap('Date Calculator','<div style="max-width:400px;margin:0 auto"><div style="margin-bottom:16px"><div style="font-size:10px;color:#888;margin-bottom:4px">Days Between Dates</div><div style="display:flex;gap:8px"><input type="date" id="d1" style="flex:1;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:8px;border-radius:8px" onchange="calc1()"><input type="date" id="d2" style="flex:1;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:8px;border-radius:8px" onchange="calc1()"></div><div id="r1" style="text-align:center;font-size:24px;color:#c9a227;padding:12px"></div></div><div><div style="font-size:10px;color:#888;margin-bottom:4px">Add/Subtract Days</div><div style="display:flex;gap:8px;align-items:center"><input type="date" id="d3" style="flex:1;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:8px;border-radius:8px" onchange="calc2()"><span style="color:#888">+</span><input type="number" id="dn" value="30" style="width:70px;text-align:center" onchange="calc2()"><span style="color:#888">days</span></div><div id="r2" style="text-align:center;font-size:18px;color:#c9a227;padding:12px"></div></div></div><scr'+'ipt>var now=new Date().toISOString().slice(0,10);document.getElementById("d1").value=now;document.getElementById("d2").value=now;document.getElementById("d3").value=now;function calc1(){var a=new Date(document.getElementById("d1").value),b=new Date(document.getElementById("d2").value);var diff=Math.round((b-a)/(1000*60*60*24));document.getElementById("r1").textContent=Math.abs(diff)+" days"+(diff<0?" (past)":"")}function calc2(){var d=new Date(document.getElementById("d3").value);var n=parseInt(document.getElementById("dn").value)||0;d.setDate(d.getDate()+n);document.getElementById("r2").textContent=d.toDateString()}calc1();calc2()</scr'+'ipt>');}},
+
+  {id:'percentage',cat:'Productivity',title:'Percentage Calculator',desc:'What % of X is Y, X% of Y, % change',
+    opts:[],
+    gen:function(){
+      return shellWrap('Percentage','<div style="max-width:400px;margin:0 auto;display:flex;flex-direction:column;gap:16px"><div style="padding:14px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px"><div style="font-size:10px;color:#888;margin-bottom:8px">What is X% of Y?</div><div style="display:flex;gap:6px;align-items:center"><input type="number" id="a1" value="15" style="width:70px;text-align:center" oninput="c1()"><span style="color:#888">% of</span><input type="number" id="a2" value="200" style="width:70px;text-align:center" oninput="c1()"><span style="color:#888">=</span><span id="r1" style="color:#c9a227;font-weight:700;font-size:18px"></span></div></div><div style="padding:14px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px"><div style="font-size:10px;color:#888;margin-bottom:8px">X is what % of Y?</div><div style="display:flex;gap:6px;align-items:center"><input type="number" id="b1" value="30" style="width:70px;text-align:center" oninput="c2()"><span style="color:#888">is</span><span id="r2" style="color:#c9a227;font-weight:700;font-size:18px"></span><span style="color:#888">of</span><input type="number" id="b2" value="200" style="width:70px;text-align:center" oninput="c2()"></div></div><div style="padding:14px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px"><div style="font-size:10px;color:#888;margin-bottom:8px">% Change</div><div style="display:flex;gap:6px;align-items:center"><input type="number" id="c1v" value="80" style="width:70px;text-align:center" oninput="c3()"><span style="color:#888">\u2192</span><input type="number" id="c2v" value="100" style="width:70px;text-align:center" oninput="c3()"><span style="color:#888">=</span><span id="r3" style="color:#c9a227;font-weight:700;font-size:18px"></span></div></div></div><scr'+'ipt>function c1(){document.getElementById("r1").textContent=(parseFloat(document.getElementById("a1").value)*parseFloat(document.getElementById("a2").value)/100).toFixed(2)}function c2(){document.getElementById("r2").textContent=(parseFloat(document.getElementById("b1").value)/parseFloat(document.getElementById("b2").value)*100).toFixed(1)+"%"}function c3(){var a=parseFloat(document.getElementById("c1v").value),b=parseFloat(document.getElementById("c2v").value);var ch=((b-a)/Math.abs(a)*100).toFixed(1);document.getElementById("r3").textContent=(ch>0?"+":"")+ch+"%"}c1();c2();c3()</scr'+'ipt>');}},
+
+  {id:'tip_calc',cat:'Productivity',title:'Tip Calculator',desc:'Split bills with tip',
+    opts:[],
+    gen:function(){
+      return shellWrap('Tip Calculator','<div style="max-width:300px;margin:0 auto;text-align:center"><div style="font-size:10px;color:#888;margin-bottom:4px">Bill Amount</div><input type="number" id="bill" value="50" style="width:100%;text-align:center;font-size:24px;margin-bottom:12px" oninput="calc()"><div style="font-size:10px;color:#888;margin-bottom:4px">Tip %</div><div style="display:flex;gap:6px;justify-content:center;margin-bottom:12px"><button class="go" onclick="setTip(10)" style="padding:8px 14px;margin:0">10%</button><button class="go" onclick="setTip(15)" style="padding:8px 14px;margin:0">15%</button><button class="go" onclick="setTip(18)" style="padding:8px 14px;margin:0">18%</button><button class="go" onclick="setTip(20)" style="padding:8px 14px;margin:0">20%</button><button class="go" onclick="setTip(25)" style="padding:8px 14px;margin:0;background:#555">25%</button></div><input type="range" id="tip" min="0" max="40" value="18" style="width:100%" oninput="calc()"><div id="tipPct" style="font-size:12px;color:#888;margin:4px 0">18%</div><div style="font-size:10px;color:#888;margin:12px 0 4px">Split between</div><input type="number" id="ppl" value="1" min="1" style="width:60px;text-align:center" oninput="calc()"><div style="margin-top:16px;padding:16px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px"><div style="display:flex;justify-content:space-between;color:#888;font-size:12px"><span>Tip</span><span id="tipAmt" style="color:#e0e0ff"></span></div><div style="display:flex;justify-content:space-between;color:#888;font-size:12px;margin-top:6px"><span>Total</span><span id="total" style="color:#e0e0ff"></span></div><div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid #2a2a4a;font-size:16px;font-weight:700"><span style="color:#888">Per person</span><span id="pp" style="color:#c9a227"></span></div></div></div><scr'+'ipt>function setTip(v){document.getElementById("tip").value=v;calc()}function calc(){var b=parseFloat(document.getElementById("bill").value)||0;var t=parseInt(document.getElementById("tip").value)||0;var p=parseInt(document.getElementById("ppl").value)||1;var tipAmt=b*t/100;var total=b+tipAmt;document.getElementById("tipPct").textContent=t+"%";document.getElementById("tipAmt").textContent="$"+tipAmt.toFixed(2);document.getElementById("total").textContent="$"+total.toFixed(2);document.getElementById("pp").textContent="$"+(total/p).toFixed(2)}calc()</scr'+'ipt>');}},
+
+  {id:'loan_calc',cat:'Productivity',title:'Loan Calculator',desc:'Monthly payment, total interest',
+    opts:[],
+    gen:function(){
+      return shellWrap('Loan Calculator','<div style="max-width:350px;margin:0 auto"><div style="display:flex;flex-direction:column;gap:12px"><div><div style="font-size:10px;color:#888;margin-bottom:2px">Loan Amount ($)</div><input type="number" id="amt" value="250000" style="width:100%" oninput="calc()"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">Interest Rate (%)</div><input type="number" id="rate" value="6.5" step="0.1" style="width:100%" oninput="calc()"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">Term (years)</div><input type="number" id="term" value="30" style="width:100%" oninput="calc()"></div></div><div style="margin-top:20px;padding:16px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px"><div style="text-align:center;font-size:10px;color:#888;margin-bottom:4px">Monthly Payment</div><div id="monthly" style="text-align:center;font-size:36px;font-weight:200;color:#c9a227"></div><div style="display:flex;justify-content:space-between;margin-top:12px;font-size:11px;color:#888"><span>Total paid: <span id="totalPaid" style="color:#e0e0ff"></span></span><span>Interest: <span id="totalInt" style="color:#e0e0ff"></span></span></div></div></div><scr'+'ipt>function calc(){var p=parseFloat(document.getElementById("amt").value)||0;var r=parseFloat(document.getElementById("rate").value)/100/12;var n=parseInt(document.getElementById("term").value)*12;if(r===0){var m=p/n}else{var m=p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)}var total=m*n;document.getElementById("monthly").textContent="$"+m.toFixed(2);document.getElementById("totalPaid").textContent="$"+Math.round(total).toLocaleString();document.getElementById("totalInt").textContent="$"+Math.round(total-p).toLocaleString()}calc()</scr'+'ipt>');}},
+
+  // ═══ BATCH 12: Random & Fun ═══
+  {id:'random_pick',cat:'Generate',title:'Random Picker',desc:'Pick from a list, roll dice, flip coins',
+    opts:[],
+    gen:function(){
+      return shellWrap('Random Picker','<div style="max-width:400px;margin:0 auto;text-align:center"><div id="result" style="font-size:min(15vw,80px);font-weight:200;color:#c9a227;padding:20px;min-height:100px;display:flex;align-items:center;justify-content:center"></div><div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:16px"><button class="go" onclick="coin()" style="margin:0;padding:10px 16px">Coin</button><button class="go" onclick="dice()" style="margin:0;padding:10px 16px">Dice</button><button class="go" onclick="d20()" style="margin:0;padding:10px 16px;background:#555">D20</button><button class="go" onclick="yn()" style="margin:0;padding:10px 16px;background:#555">Yes/No</button><button class="go" onclick="num()" style="margin:0;padding:10px 16px;background:#555">1-100</button></div><div style="margin-top:12px"><div style="font-size:10px;color:#888;margin-bottom:4px">Pick from list (one per line)</div><textarea id="lst" style="width:100%;height:80px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:10px;border-radius:8px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Pizza\nBurgers\nSushi\nTacos"></textarea><button class="go" onclick="pick()" style="margin-top:6px">Pick One</button></div></div><scr'+'ipt>var el=document.getElementById("result");function anim(val){el.style.transform="scale(1.3)";el.style.transition="transform 0.15s";el.textContent=val;setTimeout(function(){el.style.transform="scale(1)"},150)}function coin(){anim(Math.random()<0.5?"Heads":"Tails")}function dice(){anim(["\u2680","\u2681","\u2682","\u2683","\u2684","\u2685"][Math.floor(Math.random()*6)])}function d20(){anim(Math.floor(Math.random()*20)+1)}function yn(){anim(Math.random()<0.5?"Yes":"No")}function num(){anim(Math.floor(Math.random()*100)+1)}function pick(){var items=document.getElementById("lst").value.split("\n").filter(function(l){return l.trim()});if(items.length)anim(items[Math.floor(Math.random()*items.length)])}coin()</scr'+'ipt>');}},
+
+  {id:'pixel_art',cat:'Generate',title:'Pixel Art',desc:'Simple pixel drawing canvas',
+    opts:[{id:'size',label:'Grid size',type:'number',def:16}],
+    gen:function(o){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0f0f1a;font-family:system-ui}.pal{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:300px}.sw{width:28px;height:28px;border-radius:6px;cursor:pointer;border:2px solid transparent}.sw.active{border-color:#fff}canvas{border-radius:8px;cursor:crosshair;image-rendering:pixelated}button{background:#c9a227;color:#000;border:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px}.sec{background:#333;color:#888}</style></head><body><canvas id="cv"></canvas><div class="pal" id="pal"></div><div><button onclick="dl()">Download PNG</button><button class="sec" onclick="clr()">Clear</button></div><scr'+'ipt>var SZ='+o.size+',PX=Math.min(Math.floor((Math.min(window.innerWidth,window.innerHeight)-100)/SZ),32);var cv=document.getElementById("cv"),x=cv.getContext("2d");cv.width=cv.height=SZ*PX;var grid=[];for(var i=0;i<SZ*SZ;i++)grid.push("#0f0f1a");var color="#c9a227";var colors=["#000000","#ffffff","#c9a227","#d4384a","#22b06a","#1a8fd6","#e06020","#d44090","#8b6ce0","#55a040","#e050a0","#2db5a0","#888888","#444444","#1a1a2e","#0f0f1a"];var pal=document.getElementById("pal");colors.forEach(function(c){var d=document.createElement("div");d.className="sw"+(c===color?" active":"");d.style.background=c;d.onclick=function(){document.querySelectorAll(".sw").forEach(function(s){s.classList.remove("active")});d.classList.add("active");color=c};pal.appendChild(d)});function draw(){for(var i=0;i<SZ*SZ;i++){x.fillStyle=grid[i];x.fillRect((i%SZ)*PX,Math.floor(i/SZ)*PX,PX,PX)}x.strokeStyle="#1a1a2e";for(var i=0;i<=SZ;i++){x.beginPath();x.moveTo(i*PX,0);x.lineTo(i*PX,SZ*PX);x.stroke();x.beginPath();x.moveTo(0,i*PX);x.lineTo(SZ*PX,i*PX);x.stroke()}}var painting=false;function paint(e){var r=cv.getBoundingClientRect();var cx=Math.floor((e.clientX-r.left)/PX),cy=Math.floor((e.clientY-r.top)/PX);if(cx>=0&&cx<SZ&&cy>=0&&cy<SZ){grid[cy*SZ+cx]=color;draw()}}cv.onmousedown=function(e){painting=true;paint(e)};cv.onmousemove=function(e){if(painting)paint(e)};document.onmouseup=function(){painting=false};cv.ontouchstart=function(e){e.preventDefault();paint(e.touches[0])};cv.ontouchmove=function(e){e.preventDefault();paint(e.touches[0])};function clr(){for(var i=0;i<SZ*SZ;i++)grid[i]="#0f0f1a";draw()}function dl(){var ec=document.createElement("canvas");ec.width=ec.height=SZ;var ex=ec.getContext("2d");for(var i=0;i<SZ*SZ;i++){ex.fillStyle=grid[i];ex.fillRect(i%SZ,Math.floor(i/SZ),1,1)}ec.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="pixel-art-"+SZ+"x"+SZ+".png";a.click()})}draw()</scr'+'ipt></body></html>';}},
+
+  {id:'text_encode',cat:'Text',title:'Text Encoder',desc:'ROT13, reverse, binary, morse',
+    opts:[],
+    gen:function(){
+      return shellWrap('Text Encoder','<textarea id="inp" style="width:90%;max-width:500px;height:100px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Type text..."></textarea><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px"><button class="go" onclick="enc(0)">ROT13</button><button class="go" onclick="enc(1)" style="background:#555">Reverse</button><button class="go" onclick="enc(2)" style="background:#555">Binary</button><button class="go" onclick="enc(3)" style="background:#555">Morse</button><button class="go" onclick="enc(4)" style="background:#555">Upside Down</button></div><textarea id="out" style="width:90%;max-width:500px;height:100px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical;margin-top:12px" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>var MORSE={A:".-",B:"-...",C:"-.-.",D:"-..",E:".",F:"..-.",G:"--.",H:"....",I:"..",J:".---",K:"-.-",L:".-..",M:"--",N:"-.",O:"---",P:".--.",Q:"--.-",R:".-.",S:"...",T:"-",U:"..-",V:"...-",W:".--",X:"-..-",Y:"-.--",Z:"--..",0:"-----",1:".----",2:"..---",3:"...--",4:"....-",5:".....",6:"-....",7:"--...",8:"---..",9:"----."};var FLIP={a:"\u0250",b:"q",c:"\u0254",d:"p",e:"\u01dd",f:"\u025f",g:"\u0253",h:"\u0265",i:"\u0131",j:"\u027e",k:"\u029e",l:"l",m:"\u026f",n:"u",o:"o",p:"d",q:"b",r:"\u0279",s:"s",t:"\u0287",u:"n",v:"\u028c",w:"\u028d",x:"x",y:"\u028e",z:"z"};function enc(m){var t=document.getElementById("inp").value;var r;switch(m){case 0:r=t.replace(/[a-zA-Z]/g,function(c){var b=c<="Z"?65:97;return String.fromCharCode((c.charCodeAt(0)-b+13)%26+b)});break;case 1:r=t.split("").reverse().join("");break;case 2:r=t.split("").map(function(c){return c.charCodeAt(0).toString(2).padStart(8,"0")}).join(" ");break;case 3:r=t.toUpperCase().split("").map(function(c){return MORSE[c]||c}).join(" ");break;case 4:r=t.toLowerCase().split("").map(function(c){return FLIP[c]||c}).reverse().join("");break}document.getElementById("out").value=r}</scr'+'ipt>');}},
+
+  {id:'file_size',cat:'Dev',title:'File Size Converter',desc:'Convert between B, KB, MB, GB, TB',
+    opts:[],
+    gen:function(){
+      return shellWrap('File Size','<div style="max-width:350px;margin:0 auto"><div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="number" id="v" value="1" style="flex:1;text-align:center;font-size:20px" oninput="calc()"><select id="u" onchange="calc()" style="width:80px"><option value="0">B</option><option value="1">KB</option><option value="2" selected>MB</option><option value="3">GB</option><option value="4">TB</option></select></div><div id="out" style="padding:16px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;font-family:monospace;font-size:13px;line-height:2.2"></div></div><scr'+'ipt>var units=["B","KB","MB","GB","TB"];function calc(){var v=parseFloat(document.getElementById("v").value)||0;var u=parseInt(document.getElementById("u").value);var bytes=v*Math.pow(1024,u);var html="";units.forEach(function(name,i){var val=bytes/Math.pow(1024,i);var display=val>=1?val.toLocaleString(undefined,{maximumFractionDigits:2}):val.toPrecision(4);var color=i===u?"#c9a227":"#e0e0ff";html+="<div style=\"display:flex;justify-content:space-between;color:"+color+"\"><span>"+name+"</span><span>"+display+"</span></div>"});document.getElementById("out").innerHTML=html}calc()</scr'+'ipt>');}},
+
+  {id:'cron_build',cat:'Dev',title:'Cron Builder',desc:'Build and explain cron expressions',
+    opts:[],
+    gen:function(){
+      return shellWrap('Cron Builder','<div style="max-width:500px;margin:0 auto"><div style="display:flex;gap:4px;justify-content:center;margin-bottom:8px"><input type="text" id="f0" value="*" style="width:50px;text-align:center;font-size:16px" oninput="explain()"><input type="text" id="f1" value="*" style="width:50px;text-align:center;font-size:16px" oninput="explain()"><input type="text" id="f2" value="*" style="width:50px;text-align:center;font-size:16px" oninput="explain()"><input type="text" id="f3" value="*" style="width:50px;text-align:center;font-size:16px" oninput="explain()"><input type="text" id="f4" value="*" style="width:50px;text-align:center;font-size:16px" oninput="explain()"></div><div style="display:flex;gap:4px;justify-content:center;font-size:9px;color:#888;margin-bottom:16px"><span style="width:50px;text-align:center">min</span><span style="width:50px;text-align:center">hour</span><span style="width:50px;text-align:center">day</span><span style="width:50px;text-align:center">month</span><span style="width:50px;text-align:center">weekday</span></div><div id="expr" style="text-align:center;font-family:monospace;font-size:18px;color:#c9a227;padding:8px;background:#1a1a2e;border-radius:8px;margin-bottom:12px;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent)"></div><div id="desc" style="text-align:center;font-size:13px;color:#e0e0ff;line-height:1.6;padding:12px"></div><div style="font-size:10px;color:#888;margin-top:16px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center"><span class="go" style="padding:4px 8px;font-size:10px;cursor:pointer;margin:0" onclick="pre(0)">Every min</span><span class="go" style="padding:4px 8px;font-size:10px;cursor:pointer;margin:0;background:#555" onclick="pre(1)">Hourly</span><span class="go" style="padding:4px 8px;font-size:10px;cursor:pointer;margin:0;background:#555" onclick="pre(2)">Daily 9am</span><span class="go" style="padding:4px 8px;font-size:10px;cursor:pointer;margin:0;background:#555" onclick="pre(3)">Weekly Mon</span><span class="go" style="padding:4px 8px;font-size:10px;cursor:pointer;margin:0;background:#555" onclick="pre(4)">Monthly 1st</span></div></div><scr'+'ipt>var presets=[["*","*","*","*","*"],["0","*","*","*","*"],["0","9","*","*","*"],["0","9","*","*","1"],["0","0","1","*","*"]];function pre(i){var p=presets[i];for(var j=0;j<5;j++)document.getElementById("f"+j).value=p[j];explain()}function explain(){var f=[];for(var i=0;i<5;i++)f.push(document.getElementById("f"+i).value);document.getElementById("expr").textContent=f.join(" ");var names=["minute","hour","day of month","month","day of week"];var weekdays=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];var months=["","January","February","March","April","May","June","July","August","September","October","November","December"];var parts=[];for(var i=0;i<5;i++){var v=f[i];if(v==="*")continue;if(v.indexOf("/")>=0){parts.push("every "+v.split("/")[1]+" "+names[i]+"s")}else if(v.indexOf(",")>=0){parts.push(names[i]+" "+v)}else if(i===4&&!isNaN(v)){parts.push("on "+weekdays[parseInt(v)%7])}else if(i===3&&!isNaN(v)){parts.push("in "+months[parseInt(v)])}else{parts.push("at "+names[i]+" "+v)}}document.getElementById("desc").textContent=parts.length?parts.join(", "):"Every minute"}explain()</scr'+'ipt>');}},
+
+  {id:'md_table',cat:'Generate',title:'Markdown Table',desc:'Visual markdown table builder',
+    opts:[{id:'cols',label:'Columns',type:'number',def:3},{id:'rows',label:'Rows',type:'number',def:4}],
+    gen:function(o){
+      return shellWrap('Markdown Table','<div style="width:95%;max-width:600px;overflow-x:auto"><table id="tbl" style="border-collapse:collapse;width:100%"></table></div><div style="display:flex;gap:8px;justify-content:center;margin-top:12px"><button class="go" onclick="gen()">Generate Markdown</button><button class="go" onclick="addRow()" style="background:#555">+ Row</button><button class="go" onclick="addCol()" style="background:#555">+ Col</button></div><textarea id="out" style="width:90%;max-width:600px;height:120px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical;margin-top:12px" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><div class="status">Click output to copy</div><scr'+'ipt>var cols='+o.cols+',rows='+o.rows+';function render(){var html="";for(var r=0;r<=rows;r++){html+="<tr>";for(var c=0;c<cols;c++){var tag=r===0?"th":"td";html+="<"+tag+" style=\"border:1px solid #2a2a4a;padding:0\"><input style=\"width:100%;background:transparent;border:none;color:#e0e0ff;padding:8px;font-family:monospace;font-size:12px\" data-r=\""+r+"\" data-c=\""+c+"\" value=\""+(r===0?"Col "+(c+1):"")+"\" placeholder=\"...\"></"+tag+">";}html+="</tr>";}document.getElementById("tbl").innerHTML=html}function gen(){var inputs=document.querySelectorAll("#tbl input");var data=[];for(var r=0;r<=rows;r++){data[r]=[];for(var c=0;c<cols;c++){var inp=document.querySelector("[data-r=\""+r+"\"][data-c=\""+c+"\"]");data[r].push(inp?inp.value.trim()||" ":" ")}}var widths=[];for(var c=0;c<cols;c++){widths[c]=0;data.forEach(function(row){widths[c]=Math.max(widths[c],row[c].length)})}var md="| "+data[0].map(function(v,i){return v.padEnd(widths[i])}).join(" | ")+" |\n";md+="| "+widths.map(function(w){return "-".repeat(Math.max(w,3))}).join(" | ")+" |\n";for(var r=1;r<=rows;r++){md+="| "+data[r].map(function(v,i){return v.padEnd(widths[i])}).join(" | ")+" |\n";}document.getElementById("out").value=md}function addRow(){rows++;render()}function addCol(){cols++;render()}render()</scr'+'ipt>');}},
+
+
+  {id:'csv_json',cat:'Convert',title:'CSV to JSON',desc:'Convert CSV file to JSON',
+    opts:[],
+    gen:function(){
+      return shellWrap('CSV \u2192 JSON',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){var r=new FileReader();r.onload=function(){var lines=r.result.split("\\n").filter(function(l){return l.trim()});var hdr=lines[0].split(",").map(function(h){return h.trim().replace(/^"|"$/g,"")});var out=[];for(var i=1;i<lines.length;i++){var vals=lines[i].split(",");var obj={};for(var j=0;j<hdr.length;j++)obj[hdr[j]]=vals[j]?vals[j].trim().replace(/^"|"$/g,""):"";out.push(obj)}var json=JSON.stringify(out,null,2);var b=new Blob([json],{type:"application/json"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=files[0].name.replace(/\\.csv$/i,"")+".json";a.click();document.getElementById("st").textContent="Converted "+out.length+" rows"};r.readAsText(files[0])}</scr'+'ipt>');}},
+
+  {id:'json_csv',cat:'Convert',title:'JSON to CSV',desc:'Convert JSON array to CSV',
+    opts:[],
+    gen:function(){
+      return shellWrap('JSON \u2192 CSV',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){var r=new FileReader();r.onload=function(){var data=JSON.parse(r.result);if(!Array.isArray(data)){document.getElementById("st").textContent="Need JSON array";return}var keys=Object.keys(data[0]);var lines=[keys.join(",")];data.forEach(function(row){lines.push(keys.map(function(k){return String(row[k]||"")}).join(","))});var b=new Blob([lines.join("\\n")],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=files[0].name.replace(/\\.json$/i,"")+".csv";a.click();document.getElementById("st").textContent="Converted "+data.length+" rows"};r.readAsText(files[0])}</scr'+'ipt>');}},
+
+  {id:'text_dedup',cat:'Text',title:'Remove Duplicates',desc:'Remove duplicate lines from text',
+    opts:[],
+    gen:function(){
+      return shellWrap('Remove Duplicate Lines','<textarea id="inp" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Paste text here..."></textarea><button class="go" onclick="go()">Remove Duplicates</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function go(){var lines=document.getElementById("inp").value.split("\\n");var seen={},out=[];lines.forEach(function(l){if(!seen[l]){seen[l]=1;out.push(l)}});document.getElementById("out").value=out.join("\\n");document.getElementById("st").textContent="Removed "+(lines.length-out.length)+" duplicates"}</scr'+'ipt>');}},
+
+  {id:'text_count',cat:'Text',title:'Word Counter',desc:'Count words, characters, lines',
+    opts:[],
+    gen:function(){
+      return shellWrap('Word Counter','<textarea id="inp" style="width:90%;max-width:500px;height:250px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Paste or type text..." oninput="go()"></textarea><div id="st" style="font-size:14px;color:#c9a227;text-align:center;line-height:2"></div><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var w=t.trim()?t.trim().split(/\\s+/).length:0;var c=t.length;var l=t?t.split("\\n").length:0;document.getElementById("st").innerHTML=w+" words<br>"+c+" characters<br>"+l+" lines"}</scr'+'ipt>');}},
+
+  {id:'text_find',cat:'Text',title:'Find & Replace',desc:'Search and replace text in files',
+    opts:[{id:'find',label:'Find',type:'text',def:''},{id:'replace',label:'Replace with',type:'text',def:''}],
+    gen:function(o){
+      return shellWrap('Find & Replace','<textarea id="inp" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Paste text..."></textarea><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center"><input type="text" id="fi" value="'+o.find+'" placeholder="Find..."><input type="text" id="ri" value="'+o.replace+'" placeholder="Replace..."><button class="go" onclick="go()" style="margin:0">Go</button></div><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var f=document.getElementById("fi").value;var r=document.getElementById("ri").value;var re=new RegExp(f.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&"),"g");var n=0;var out=t.replace(re,function(){n++;return r});document.getElementById("out").value=out;document.getElementById("st").textContent=n+" replacements"}</scr'+'ipt>');}},
+
+  {id:'color_palette',cat:'Generate',title:'Color Palette',desc:'Generate harmonious color palettes',
+    opts:[{id:'base',label:'Base color',type:'text',def:'#c9a227'}],
+    gen:function(o){
+      return shellWrap('Color Palette','<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center"><input type="color" id="bc" value="'+o.base+'" style="width:60px;height:40px;border:none;cursor:pointer"><button class="go" onclick="go()" style="margin:0">Generate</button></div><div id="pal" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px"></div><scr'+'ipt>function hsl(h,s,l){return"hsl("+h+","+s+"%,"+l+"%)";}function hexToHSL(hex){var r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;var max=Math.max(r,g,b),min=Math.min(r,g,b);var h,s,l=(max+min)/2;if(max===min)h=s=0;else{var d=max-min;s=l>.5?d/(2-max-min):d/(max+min);switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;case b:h=((r-g)/d+4)/6;break}}return[Math.round(h*360),Math.round(s*100),Math.round(l*100)]}function go(){var hex=document.getElementById("bc").value;var h=hexToHSL(hex);var colors=[];for(var i=0;i<5;i++)colors.push(hsl((h[0]+i*72)%360,h[1],h[2]));for(var i=0;i<3;i++)colors.push(hsl(h[0],h[1],20+i*25));var p=document.getElementById("pal");p.innerHTML=colors.map(function(c){return\'<div onclick="navigator.clipboard.writeText(this.title)" title="\'+c+\'" style="width:80px;height:80px;border-radius:12px;background:\'+c+\';cursor:pointer;display:flex;align-items:flex-end;justify-content:center;padding:6px"><span style="font-size:8px;color:#fff;text-shadow:0 1px 3px #000">\'+c+\'</span></div>\'}).join("")}go()</scr'+'ipt>');}},
+
+  {id:'timer',cat:'Generate',title:'Countdown Timer',desc:'Full-screen countdown timer',
+    opts:[{id:'min',label:'Minutes',type:'number',def:5}],
+    gen:function(o){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;background:#0f0f1a;color:#e0e0ff;font-family:system-ui}.t{font-size:min(25vw,150px);font-weight:200;font-variant-numeric:tabular-nums;letter-spacing:-4px}button{background:#c9a227;color:#000;border:none;padding:12px 30px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer}</style></head><body><div class="t" id="d">'+String(o.min).padStart(2,'0')+':00</div><button onclick="go()" id="b">Start</button><scr'+'ipt>var total='+o.min+'*60,left=total,run=false,iv;function go(){if(!run){run=true;document.getElementById("b").textContent="Stop";iv=setInterval(tick,1000)}else{run=false;clearInterval(iv);document.getElementById("b").textContent="Start"}}function tick(){left--;if(left<=0){clearInterval(iv);left=0;run=false;document.getElementById("b").textContent="Done";document.body.style.background="#2a0a0a"}var m=Math.floor(left/60),s=left%60;document.getElementById("d").textContent=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}</scr'+'ipt></body></html>';}},
+
+  {id:'qr_gen',cat:'Generate',title:'QR Code Text',desc:'Generate a QR code from text (opens API)',
+    opts:[{id:'text',label:'Text or URL',type:'text',def:'https://example.com'}],
+    gen:function(o){
+      return shellWrap('QR Code','<div style="text-align:center"><img id="qr" src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data='+encodeURIComponent(o.text)+'" style="border-radius:12px;max-width:300px"><br><input type="text" id="qi" value="'+o.text+'" style="margin-top:16px;width:300px" placeholder="Enter text or URL..."><br><button class="go" onclick="document.getElementById(\'qr\').src=\'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=\'+encodeURIComponent(document.getElementById(\'qi\').value)" style="margin-top:8px">Generate</button></div>');}},
+
+  // ═══ BATCH 2: Dev Tools ═══
+  {id:'json_format',cat:'Dev',title:'JSON Formatter',desc:'Pretty-print or minify JSON',
+    opts:[],
+    gen:function(){
+      return shellWrap('JSON Formatter','<textarea id="inp" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste JSON..."></textarea><div style="display:flex;gap:8px;justify-content:center"><button class="go" onclick="fmt(2)">Prettify</button><button class="go" onclick="fmt(0)" style="background:#555">Minify</button></div><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function fmt(sp){try{var d=JSON.parse(document.getElementById("inp").value);document.getElementById("out").value=JSON.stringify(d,null,sp||undefined);document.getElementById("st").textContent="OK"}catch(e){document.getElementById("st").textContent="Invalid JSON: "+e.message;document.getElementById("st").style.color="#f44"}}</scr'+'ipt>');}},
+
+  {id:'base64',cat:'Dev',title:'Base64 Encode/Decode',desc:'Convert text to/from Base64',
+    opts:[],
+    gen:function(){
+      return shellWrap('Base64','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste text..."></textarea><div style="display:flex;gap:8px;justify-content:center"><button class="go" onclick="go(1)">Encode</button><button class="go" onclick="go(0)" style="background:#555">Decode</button></div><textarea id="out" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function go(enc){var t=document.getElementById("inp").value;document.getElementById("out").value=enc?btoa(unescape(encodeURIComponent(t))):decodeURIComponent(escape(atob(t)))}</scr'+'ipt>');}},
+
+  {id:'url_encode',cat:'Dev',title:'URL Encode/Decode',desc:'Encode or decode URL components',
+    opts:[],
+    gen:function(){
+      return shellWrap('URL Encode/Decode','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste URL or text..."></textarea><div style="display:flex;gap:8px;justify-content:center"><button class="go" onclick="go(1)">Encode</button><button class="go" onclick="go(0)" style="background:#555">Decode</button></div><textarea id="out" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function go(enc){var t=document.getElementById("inp").value;document.getElementById("out").value=enc?encodeURIComponent(t):decodeURIComponent(t)}</scr'+'ipt>');}},
+
+  {id:'regex_test',cat:'Dev',title:'Regex Tester',desc:'Test regular expressions live',
+    opts:[],
+    gen:function(){
+      return shellWrap('Regex Tester','<input type="text" id="rx" placeholder="Regular expression..." style="width:90%;max-width:500px" oninput="go()"><input type="text" id="fl" value="gi" placeholder="Flags" style="width:80px;margin-top:8px" oninput="go()"><textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical;margin-top:8px" placeholder="Test string..." oninput="go()"></textarea><div class="status" id="st"></div><div id="out" style="width:90%;max-width:500px;padding:12px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px;font-family:monospace;font-size:12px;color:#c9a227;min-height:40px;word-break:break-all"></div><scr'+'ipt>function go(){try{var r=new RegExp(document.getElementById("rx").value,document.getElementById("fl").value);var t=document.getElementById("inp").value;var m=t.match(r);document.getElementById("st").textContent=m?m.length+" matches":"No matches";document.getElementById("st").style.color=m?"#4a4":"#888";document.getElementById("out").innerHTML=m?m.map(function(x){return"<span style=\\"background:#c9a22733;padding:2px 4px;border-radius:3px;margin:2px;display:inline-block\\">"+x+"</span>"}).join(""):""}catch(e){document.getElementById("st").textContent=e.message;document.getElementById("st").style.color="#f44"}}</scr'+'ipt>');}},
+
+  {id:'minify',cat:'Dev',title:'Minify Code',desc:'Compress HTML/CSS/JS by removing whitespace',
+    opts:[],
+    gen:function(){
+      return shellWrap('Minify','<textarea id="inp" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste code..."></textarea><button class="go" onclick="go()">Minify</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:100px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var m=t.replace(/\\/\\/[^\\n]*/g,"").replace(/\\/\\*[\\s\\S]*?\\*\\//g,"").replace(/\\s+/g," ").replace(/\\s*([{}:;,>+~])\\s*/g,"$1").trim();document.getElementById("out").value=m;var pct=Math.round((1-m.length/t.length)*100);document.getElementById("st").textContent=t.length+" → "+m.length+" chars ("+pct+"% smaller)"}</scr'+'ipt>');}},
+
+  {id:'jwt_decode',cat:'Dev',title:'JWT Decoder',desc:'Decode JWT tokens into readable JSON',
+    opts:[],
+    gen:function(){
+      return shellWrap('JWT Decoder','<textarea id="inp" style="width:90%;max-width:500px;height:100px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste JWT token..." oninput="go()"></textarea><div id="out" style="width:90%;max-width:500px;font-family:monospace;font-size:11px"></div><scr'+'ipt>function go(){try{var t=document.getElementById("inp").value.trim();var parts=t.split(".");var hdr=JSON.parse(atob(parts[0]));var pay=JSON.parse(atob(parts[1].replace(/-/g,"+").replace(/_/g,"/")));document.getElementById("out").innerHTML="<div style=\\"margin:8px 0;padding:10px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px\\"><div style=\\"color:#888;font-size:9px;margin-bottom:4px\\">HEADER</div><pre style=\\"color:#c9a227;margin:0\\">"+JSON.stringify(hdr,null,2)+"</pre></div><div style=\\"padding:10px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px\\"><div style=\\"color:#888;font-size:9px;margin-bottom:4px\\">PAYLOAD</div><pre style=\\"color:#4ade80;margin:0\\">"+JSON.stringify(pay,null,2)+"</pre></div>"}catch(e){document.getElementById("out").innerHTML="<p style=\\"color:#f44;padding:20px\\">Invalid JWT</p>"}}</scr'+'ipt>');}},
+
+  // ═══ BATCH 3: Generators ═══
+  {id:'password',cat:'Generate',title:'Password Generator',desc:'Generate secure random passwords',
+    opts:[{id:'len',label:'Length',type:'number',def:16}],
+    gen:function(o){
+      return shellWrap('Password Generator','<div style="text-align:center"><div id="pw" style="font-family:monospace;font-size:24px;color:#c9a227;padding:20px;background:#1a1a2e;border-radius:12px;margin:16px auto;max-width:400px;word-break:break-all;cursor:pointer;border:1px solid #2a2a4a" onclick="navigator.clipboard.writeText(this.textContent)"></div><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="go" onclick="gen()">Generate</button><button class="go" onclick="navigator.clipboard.writeText(document.getElementById(\'pw\').textContent)" style="background:#555">Copy</button></div><div class="status" id="st" style="margin-top:8px">Click password to copy</div></div><scr'+'ipt>function gen(){var c="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*_-+=";var a=new Uint32Array('+o.len+');crypto.getRandomValues(a);var p="";for(var i=0;i<'+o.len+';i++)p+=c[a[i]%c.length];document.getElementById("pw").textContent=p}gen()</scr'+'ipt>');}},
+
+  {id:'uuid',cat:'Generate',title:'UUID Generator',desc:'Generate UUIDs (v4)',
+    opts:[{id:'count',label:'How many',type:'number',def:5}],
+    gen:function(o){
+      return shellWrap('UUID Generator','<div id="out" style="width:90%;max-width:500px;padding:16px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;font-family:monospace;font-size:13px;color:#c9a227;line-height:2;word-break:break-all"></div><div style="display:flex;gap:8px;justify-content:center;margin-top:12px"><button class="go" onclick="gen()">Generate</button><button class="go" onclick="navigator.clipboard.writeText(document.getElementById(\'out\').textContent)" style="background:#555">Copy All</button></div><scr'+'ipt>function uuid(){return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==="x"?r:r&3|8).toString(16)})}function gen(){var s="";for(var i=0;i<'+o.count+';i++)s+=uuid()+"\\n";document.getElementById("out").textContent=s.trim()}gen()</scr'+'ipt>');}},
+
+  {id:'lorem',cat:'Generate',title:'Lorem Ipsum',desc:'Generate placeholder text',
+    opts:[{id:'p',label:'Paragraphs',type:'number',def:3}],
+    gen:function(o){
+      return shellWrap('Lorem Ipsum','<div id="out" style="width:90%;max-width:500px;padding:16px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;font-size:13px;color:#e0e0ff;line-height:1.8;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent)"></div><button class="go" onclick="gen()" style="margin-top:12px">Regenerate</button><div class="status">Click text to copy</div><scr'+'ipt>var W="lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit voluptate velit esse cillum fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum".split(" ");function gen(){var out="";for(var p=0;p<'+o.p+';p++){var s="";var len=40+Math.floor(Math.random()*40);for(var i=0;i<len;i++)s+=W[Math.floor(Math.random()*W.length)]+" ";s=s.charAt(0).toUpperCase()+s.slice(1).trim()+".";out+="<p style=\\"margin-bottom:12px\\">"+s+"</p>"}document.getElementById("out").innerHTML=out}gen()</scr'+'ipt>');}},
+
+  {id:'gradient',cat:'Generate',title:'CSS Gradient',desc:'Visual gradient builder',
+    opts:[],
+    gen:function(){
+      return shellWrap('CSS Gradient','<div id="prev" style="width:90%;max-width:500px;height:120px;border-radius:12px;margin:0 auto"></div><div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap;align-items:center"><input type="color" id="c1" value="#c9a227" oninput="upd()"><input type="color" id="c2" value="#8b6ce0" oninput="upd()"><select id="dir" onchange="upd()" style="width:120px"><option value="to right">→ Right</option><option value="to bottom">↓ Down</option><option value="to bottom right">↘ Diagonal</option><option value="135deg">↗ Diagonal</option><option value="circle">◎ Radial</option></select></div><div id="code" style="width:90%;max-width:500px;padding:12px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px;font-family:monospace;font-size:11px;color:#c9a227;margin-top:12px;cursor:pointer;text-align:center" onclick="navigator.clipboard.writeText(this.textContent)"></div><div class="status">Click code to copy</div><scr'+'ipt>function upd(){var c1=document.getElementById("c1").value,c2=document.getElementById("c2").value,d=document.getElementById("dir").value;var css=d==="circle"?"radial-gradient(circle, "+c1+", "+c2+")":"linear-gradient("+d+", "+c1+", "+c2+")";document.getElementById("prev").style.background=css;document.getElementById("code").textContent="background: "+css+";"}upd()</scr'+'ipt>');}},
+
+  // ═══ BATCH 4: Productivity ═══
+  {id:'pomodoro',cat:'Productivity',title:'Pomodoro Timer',desc:'25min work / 5min break cycles',
+    opts:[],
+    gen:function(){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#0f0f1a;color:#e0e0ff;font-family:system-ui}.t{font-size:min(22vw,120px);font-weight:200;font-variant-numeric:tabular-nums}.label{font-size:14px;color:#888;letter-spacing:2px;text-transform:uppercase}button{background:#c9a227;color:#000;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin:4px}.skip{background:#333;color:#888}</style></head><body><div class="label" id="lb">Work</div><div class="t" id="d">25:00</div><div><button onclick="toggle()" id="b">Start</button><button class="skip" onclick="skip()">Skip</button></div><scr'+'ipt>var work=25*60,brk=5*60,left=work,run=false,isWork=true,iv;function toggle(){run=!run;document.getElementById("b").textContent=run?"Pause":"Start";if(run)iv=setInterval(tick,1000);else clearInterval(iv)}function tick(){left--;if(left<=0){clearInterval(iv);run=false;isWork=!isWork;left=isWork?work:brk;document.getElementById("lb").textContent=isWork?"Work":"Break";document.getElementById("b").textContent="Start";document.body.style.background=isWork?"#0f0f1a":"#0a1a0f";try{new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"+btoa(String.fromCharCode.apply(null,new Uint8Array(2000).map(function(_,i){return 128+100*Math.sin(i*0.1)})))).play()}catch(e){}}show()}function skip(){clearInterval(iv);run=false;isWork=!isWork;left=isWork?work:brk;document.getElementById("lb").textContent=isWork?"Work":"Break";document.getElementById("b").textContent="Start";document.body.style.background=isWork?"#0f0f1a":"#0a1a0f";show()}function show(){var m=Math.floor(left/60),s=left%60;document.getElementById("d").textContent=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}</scr'+'ipt></body></html>';}},
+
+  {id:'meeting_cost',cat:'Productivity',title:'Meeting Cost Calculator',desc:'How much is this meeting costing?',
+    opts:[],
+    gen:function(){
+      return shellWrap('Meeting Cost','<div style="text-align:center;max-width:400px;margin:0 auto"><div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:16px"><div><div style="font-size:10px;color:#888;margin-bottom:4px">People</div><input type="number" id="ppl" value="5" min="1" style="width:80px;text-align:center" oninput="upd()"></div><div><div style="font-size:10px;color:#888;margin-bottom:4px">Avg $/hr</div><input type="number" id="rate" value="75" min="1" style="width:80px;text-align:center" oninput="upd()"></div></div><div style="font-size:min(15vw,80px);font-weight:200;color:#c9a227;font-variant-numeric:tabular-nums" id="cost">$0</div><div style="font-size:12px;color:#888" id="tm">0:00</div><div style="margin-top:16px"><button class="go" onclick="toggle()" id="b">Start Meeting</button></div></div><scr'+'ipt>var run=false,start=0,iv;function toggle(){if(!run){run=true;start=Date.now();document.getElementById("b").textContent="End Meeting";document.getElementById("b").style.background="#c44";iv=setInterval(upd,1000)}else{run=false;clearInterval(iv);document.getElementById("b").textContent="Start Meeting";document.getElementById("b").style.background="#c9a227"}}function upd(){if(!run)return;var sec=(Date.now()-start)/1000;var ppl=parseInt(document.getElementById("ppl").value)||1;var rate=parseInt(document.getElementById("rate").value)||50;var cost=(ppl*rate*sec/3600);document.getElementById("cost").textContent="$"+cost.toFixed(2);var m=Math.floor(sec/60),s=Math.floor(sec%60);document.getElementById("tm").textContent=m+":"+String(s).padStart(2,"0")}</scr'+'ipt>');}},
+
+  {id:'checklist',cat:'Productivity',title:'Quick Checklist',desc:'Disposable todo list',
+    opts:[],
+    gen:function(){
+      return shellWrap('Checklist','<div style="width:90%;max-width:400px"><div style="display:flex;gap:8px"><input type="text" id="ni" placeholder="Add item..." style="flex:1" onkeydown="if(event.key===\'Enter\')add()"><button class="go" onclick="add()" style="margin:0;padding:10px 16px">+</button></div><div id="list" style="margin-top:12px"></div><div class="status" id="st"></div></div><scr'+'ipt>var items=[];function add(){var v=document.getElementById("ni").value.trim();if(!v)return;items.push({text:v,done:false});document.getElementById("ni").value="";render()}function toggle(i){items[i].done=!items[i].done;render()}function del(i){items.splice(i,1);render()}function render(){var done=items.filter(function(x){return x.done}).length;document.getElementById("st").textContent=done+"/"+items.length+" done";document.getElementById("list").innerHTML=items.map(function(it,i){return"<div style=\\"display:flex;align-items:center;gap:10px;padding:10px;background:#1a1a2e;border-radius:8px;margin-bottom:4px;cursor:pointer\\" onclick=\\"toggle("+i+")\\"><span style=\\"font-size:18px\\">"+(it.done?"\u2611":"\u2610")+"</span><span style=\\"flex:1;"+(it.done?"text-decoration:line-through;color:#555":"")+"\\">"+it.text+"</span><span onclick=\\"event.stopPropagation();del("+i+")\\" style=\\"color:#555;cursor:pointer\\">\u00d7</span></div>"}).join("")}</scr'+'ipt>');}},
+
+  {id:'unit_convert',cat:'Productivity',title:'Unit Converter',desc:'Length, weight, temperature',
+    opts:[],
+    gen:function(){
+      return shellWrap('Unit Converter','<div style="width:90%;max-width:400px;margin:0 auto"><select id="cat" onchange="upd()" style="width:100%;margin-bottom:12px"><option value="length">Length</option><option value="weight">Weight</option><option value="temp">Temperature</option></select><div style="display:flex;gap:8px;align-items:center"><input type="number" id="v" value="1" oninput="upd()" style="flex:1;text-align:center;font-size:18px"><select id="from" onchange="upd()" style="flex:1"></select></div><div style="text-align:center;font-size:20px;color:#888;padding:8px">\u2193</div><div style="display:flex;gap:8px;align-items:center"><div id="res" style="flex:1;text-align:center;font-size:18px;color:#c9a227;padding:10px;background:#1a1a2e;border-radius:8px"></div><select id="to" onchange="upd()" style="flex:1"></select></div></div><scr'+'ipt>var U={length:{m:1,km:1000,cm:0.01,mm:0.001,in:0.0254,ft:0.3048,yd:0.9144,mi:1609.344},weight:{kg:1,g:0.001,mg:0.000001,lb:0.453592,oz:0.028349,ton:1000},temp:{C:1,F:1,K:1}};function setOpts(){var c=document.getElementById("cat").value;var keys=Object.keys(U[c]);["from","to"].forEach(function(id){var s=document.getElementById(id);s.innerHTML=keys.map(function(k){return"<option>"+k+"</option>"}).join("")});document.getElementById("to").selectedIndex=1;upd()}function upd(){var c=document.getElementById("cat").value;var v=parseFloat(document.getElementById("v").value)||0;var f=document.getElementById("from").value;var t=document.getElementById("to").value;var r;if(c==="temp"){if(f==="C"&&t==="F")r=v*9/5+32;else if(f==="F"&&t==="C")r=(v-32)*5/9;else if(f==="C"&&t==="K")r=v+273.15;else if(f==="K"&&t==="C")r=v-273.15;else if(f==="F"&&t==="K")r=(v-32)*5/9+273.15;else if(f==="K"&&t==="F")r=(v-273.15)*9/5+32;else r=v}else{r=v*U[c][f]/U[c][t]}document.getElementById("res").textContent=parseFloat(r.toPrecision(8))}setOpts()</scr'+'ipt>');}},
+
+  {id:'img_crop',cat:'Image',title:'Crop to Ratio',desc:'Crop images to standard aspect ratios',
+    opts:[{id:'ratio',label:'Ratio',type:'select',choices:['1:1','16:9','4:3','3:2','9:16'],def:'1:1'}],
+    gen:function(o){
+      var parts=o.ratio.split(':');var rw=parseInt(parts[0]),rh=parseInt(parts[1]);
+      return shellWrap('Crop '+o.ratio,DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){for(var i=0;i<files.length;i++){(function(f){var img=new Image();img.onload=function(){var rw='+rw+',rh='+rh+';var ratio=rw/rh;var cw,ch;if(img.width/img.height>ratio){ch=img.height;cw=ch*ratio}else{cw=img.width;ch=cw/ratio}var cx=(img.width-cw)/2,cy=(img.height-ch)/2;var c=document.createElement("canvas");c.width=cw;c.height=ch;c.getContext("2d").drawImage(img,cx,cy,cw,ch,0,0,cw,ch);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="crop-"+f.name;a.click();document.getElementById("st").textContent="Done: "+f.name},"image/png")};img.src=URL.createObjectURL(f)})(files[i])}}</scr'+'ipt>');}},
+
+  // ═══ BATCH 5: Creator Tools ═══
+  {id:'markdown',cat:'Convert',title:'Markdown Preview',desc:'Live markdown to HTML preview',
+    opts:[],
+    gen:function(){
+      return shellWrap('Markdown','<div style="display:flex;gap:8px;width:95%;max-width:800px;height:60vh"><textarea id="inp" style="flex:1;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:none" placeholder="# Type markdown here..." oninput="go()"></textarea><div id="out" style="flex:1;background:#1a1a2e;border:1px solid #2a2a4a;padding:12px;border-radius:10px;font-size:13px;color:#e0e0ff;overflow-y:auto;line-height:1.6"></div></div><scr'+'ipt>function go(){var t=document.getElementById("inp").value;t=t.replace(/^### (.+)$/gm,"<h3>$1</h3>");t=t.replace(/^## (.+)$/gm,"<h2>$1</h2>");t=t.replace(/^# (.+)$/gm,"<h1 style=\\"color:#c9a227\\">$1</h1>");t=t.replace(/\\*\\*(.+?)\\*\\*/g,"<b>$1</b>");t=t.replace(/\\*(.+?)\\*/g,"<i>$1</i>");t=t.replace(/`(.+?)`/g,"<code style=\\"background:#2a2a4a;padding:2px 6px;border-radius:4px\\">$1</code>");t=t.replace(/^- (.+)$/gm,"<li>$1</li>");t=t.replace(/^\\d+\\. (.+)$/gm,"<li>$1</li>");t=t.replace(/\\n\\n/g,"<br><br>");t=t.replace(/\\[(.+?)\\]\\((.+?)\\)/g,"<a href=\\"$2\\" style=\\"color:#c9a227\\">$1</a>");document.getElementById("out").innerHTML=t}</scr'+'ipt>');}},
+
+  {id:'svg_png',cat:'Convert',title:'SVG to PNG',desc:'Convert SVG files to PNG images',
+    opts:[{id:'scale',label:'Scale (1-4x)',type:'number',def:2}],
+    gen:function(o){
+      return shellWrap('SVG \u2192 PNG',DROP_HTML+'<div class="status" id="st"></div><scr'+'ipt>'+DROP_JS+
+      'function handleFiles(files){var r=new FileReader();r.onload=function(){var svg=r.result;var img=new Image();img.onload=function(){var c=document.createElement("canvas");c.width=img.width*'+o.scale+';c.height=img.height*'+o.scale+';var x=c.getContext("2d");x.scale('+o.scale+','+o.scale+');x.drawImage(img,0,0);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=files[0].name.replace(/\\.svg$/i,"")+".png";a.click();document.getElementById("st").textContent="Done!"},"image/png")};img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(svg)))};r.readAsText(files[0])}</scr'+'ipt>');}},
+
+  {id:'favicon',cat:'Generate',title:'Favicon Generator',desc:'Generate a favicon from text/emoji',
+    opts:[{id:'char',label:'Character or emoji',type:'text',def:'\u26a1'},{id:'bg',label:'Background color',type:'text',def:'#c9a227'}],
+    gen:function(o){
+      return shellWrap('Favicon','<div style="text-align:center"><canvas id="cv" width="256" height="256" style="border-radius:20px;width:128px;height:128px;image-rendering:pixelated"></canvas><br><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap;align-items:center"><input type="text" id="ch" value="'+o.char+'" style="width:60px;text-align:center;font-size:20px" oninput="draw()"><input type="color" id="bg" value="'+o.bg+'" oninput="draw()"></div><div style="display:flex;gap:8px;justify-content:center;margin-top:12px"><button class="go" onclick="dl(32)">32px .ico</button><button class="go" onclick="dl(180)" style="background:#555">180px .png</button></div></div><scr'+'ipt>function draw(){var c=document.getElementById("cv"),x=c.getContext("2d");x.fillStyle=document.getElementById("bg").value;x.fillRect(0,0,256,256);x.fillStyle="#fff";x.font="bold 180px sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(document.getElementById("ch").value,128,140)}function dl(sz){var c=document.createElement("canvas");c.width=sz;c.height=sz;var x=c.getContext("2d");x.drawImage(document.getElementById("cv"),0,0,sz,sz);c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="favicon"+(sz>32?".png":".ico");a.click()})}draw()</scr'+'ipt>');}},
+
+  {id:'box_shadow',cat:'Generate',title:'Box Shadow CSS',desc:'Visual box shadow builder',
+    opts:[],
+    gen:function(){
+      return shellWrap('Box Shadow','<div style="text-align:center;max-width:400px;margin:0 auto"><div id="prev" style="width:200px;height:120px;background:#2a2a4a;border-radius:12px;margin:20px auto"></div><div style="display:flex;flex-direction:column;gap:8px;text-align:left"><label style="font-size:10px;color:#888">X offset<input type="range" id="sx" min="-40" max="40" value="4" oninput="upd()" style="width:100%"></label><label style="font-size:10px;color:#888">Y offset<input type="range" id="sy" min="-40" max="40" value="8" oninput="upd()" style="width:100%"></label><label style="font-size:10px;color:#888">Blur<input type="range" id="sb" min="0" max="80" value="24" oninput="upd()" style="width:100%"></label><label style="font-size:10px;color:#888">Spread<input type="range" id="ss" min="-20" max="40" value="0" oninput="upd()" style="width:100%"></label><label style="font-size:10px;color:#888">Color<input type="color" id="sc" value="#000000" oninput="upd()"></label></div><div id="code" style="padding:10px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px;font-family:monospace;font-size:11px;color:#c9a227;margin-top:12px;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent)"></div><div class="status">Click to copy</div></div><scr'+'ipt>function upd(){var x=document.getElementById("sx").value,y=document.getElementById("sy").value,b=document.getElementById("sb").value,s=document.getElementById("ss").value,c=document.getElementById("sc").value;var hex=c;var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),bl=parseInt(hex.slice(5,7),16);var css=x+"px "+y+"px "+b+"px "+s+"px rgba("+r+","+g+","+bl+",0.3)";document.getElementById("prev").style.boxShadow=css;document.getElementById("code").textContent="box-shadow: "+css+";"}upd()</scr'+'ipt>');}},
+
+  // ═══ BATCH 6: Comparison & Analysis ═══
+  {id:'diff',cat:'Text',title:'Text Diff',desc:'Compare two texts side by side',
+    opts:[],
+    gen:function(){
+      return shellWrap('Text Diff','<div style="display:flex;gap:8px;width:95%;max-width:800px"><textarea id="a" style="flex:1;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Original..."></textarea><textarea id="b" style="flex:1;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Changed..."></textarea></div><button class="go" onclick="go()">Compare</button><div id="out" style="width:95%;max-width:800px;padding:12px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px;font-family:monospace;font-size:12px;margin-top:8px;line-height:1.8"></div><scr'+'ipt>function go(){var a=document.getElementById("a").value.split("\\n"),b=document.getElementById("b").value.split("\\n");var max=Math.max(a.length,b.length);var html="";for(var i=0;i<max;i++){var la=a[i]||"",lb=b[i]||"";if(la===lb)html+="<div style=\\"color:#888\\">  "+esc(la)+"</div>";else{if(la)html+="<div style=\\"color:#f44;background:#f4441a;padding:0 4px;border-radius:3px\\">- "+esc(la)+"</div>";if(lb)html+="<div style=\\"color:#4f4;background:#4f41a;padding:0 4px;border-radius:3px\\">+ "+esc(lb)+"</div>"}}document.getElementById("out").innerHTML=html}function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</scr'+'ipt>');}},
+
+  {id:'img_compare',cat:'Image',title:'Image Compare',desc:'Side-by-side image comparison slider',
+    opts:[],
+    gen:function(){
+      return shellWrap('Image Compare','<div style="text-align:center"><p style="color:#888;font-size:12px;margin-bottom:12px">Drop or pick two images</p><input type="file" id="f1" accept="image/*" style="display:none"><input type="file" id="f2" accept="image/*" style="display:none"><div style="display:flex;gap:8px;justify-content:center"><button class="go" onclick="document.getElementById(\'f1\').click()">Image A</button><button class="go" onclick="document.getElementById(\'f2\').click()" style="background:#555">Image B</button></div><div id="comp" style="position:relative;margin:16px auto;max-width:500px;overflow:hidden;border-radius:12px;display:none"><canvas id="ca" style="width:100%;display:block"></canvas><input type="range" id="sl" min="0" max="100" value="50" style="width:100%;margin-top:8px" oninput="draw()"></div></div><scr'+'ipt>var imgA,imgB;document.getElementById("f1").onchange=function(e){var r=new FileReader();r.onload=function(){imgA=new Image();imgA.onload=function(){tryDraw()};imgA.src=r.result};r.readAsDataURL(e.target.files[0])};document.getElementById("f2").onchange=function(e){var r=new FileReader();r.onload=function(){imgB=new Image();imgB.onload=function(){tryDraw()};imgB.src=r.result};r.readAsDataURL(e.target.files[0])};function tryDraw(){if(imgA&&imgB){document.getElementById("comp").style.display="block";draw()}}function draw(){var c=document.getElementById("ca"),x=c.getContext("2d");var w=Math.max(imgA.width,imgB.width),h=Math.max(imgA.height,imgB.height);c.width=w;c.height=h;var split=w*document.getElementById("sl").value/100;x.drawImage(imgB,0,0,w,h);x.save();x.beginPath();x.rect(0,0,split,h);x.clip();x.drawImage(imgA,0,0,w,h);x.restore();x.strokeStyle="#c9a227";x.lineWidth=2;x.beginPath();x.moveTo(split,0);x.lineTo(split,h);x.stroke()}</scr'+'ipt>');}},
+
+  // ═══ BATCH 7: Daily Utilities ═══
+  {id:'timestamp',cat:'Dev',title:'Timestamp Converter',desc:'Unix timestamp \u2194 human date',
+    opts:[],
+    gen:function(){
+      return shellWrap('Timestamp','<div style="text-align:center;max-width:400px;margin:0 auto"><div style="margin-bottom:16px"><div style="font-size:10px;color:#888;margin-bottom:4px">Unix Timestamp</div><input type="number" id="ts" style="width:100%;text-align:center;font-size:18px" oninput="fromTS()"></div><div style="font-size:20px;color:#888;margin-bottom:16px">\u21c5</div><div><div style="font-size:10px;color:#888;margin-bottom:4px">Human Date</div><input type="datetime-local" id="dt" style="width:100%;text-align:center;font-size:14px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:10px;border-radius:8px" onchange="fromDT()"></div><div style="margin-top:16px"><button class="go" onclick="now()">Now</button></div><div id="info" style="font-size:11px;color:#888;margin-top:12px"></div></div><scr'+'ipt>function now(){var t=Math.floor(Date.now()/1000);document.getElementById("ts").value=t;fromTS()}function fromTS(){var t=parseInt(document.getElementById("ts").value);var d=new Date(t*1000);document.getElementById("dt").value=d.toISOString().slice(0,16);document.getElementById("info").textContent=d.toUTCString()}function fromDT(){var d=new Date(document.getElementById("dt").value);document.getElementById("ts").value=Math.floor(d.getTime()/1000);document.getElementById("info").textContent=d.toUTCString()}now()</scr'+'ipt>');}},
+
+  {id:'calc',cat:'Productivity',title:'Calculator',desc:'Quick calculation pad',
+    opts:[],
+    gen:function(){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;flex-direction:column;background:#0f0f1a;font-family:system-ui}.d{padding:24px 16px;text-align:right;flex-shrink:0}.expr{font-size:14px;color:#888;min-height:20px}.res{font-size:min(12vw,48px);color:#e0e0ff;font-weight:200;font-variant-numeric:tabular-nums}.g{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding:1px}button{background:#1a1a2e;border:none;color:#e0e0ff;font-size:20px;font-family:system-ui;cursor:pointer;transition:background .1s}button:active{background:#2a2a4a}.op{color:#c9a227;font-weight:600}.fn{background:#0f0f1a;color:#888;font-size:16px}.eq{background:#c9a227;color:#000;font-weight:700}</style></head><body><div class="d"><div class="expr" id="ex"></div><div class="res" id="rs">0</div></div><div class="g"><button class="fn" onclick="cl()">C</button><button class="fn" onclick="ap(\'(\')">(</button><button class="fn" onclick="ap(\')\')">)</button><button class="op" onclick="ap(\'/\')">\u00f7</button><button onclick="ap(\'7\')">7</button><button onclick="ap(\'8\')">8</button><button onclick="ap(\'9\')">9</button><button class="op" onclick="ap(\'*\')">\u00d7</button><button onclick="ap(\'4\')">4</button><button onclick="ap(\'5\')">5</button><button onclick="ap(\'6\')">6</button><button class="op" onclick="ap(\'-\')">-</button><button onclick="ap(\'1\')">1</button><button onclick="ap(\'2\')">2</button><button onclick="ap(\'3\')">3</button><button class="op" onclick="ap(\'+\')">+</button><button onclick="ap(\'0\')">0</button><button onclick="ap(\'.\')">.</button><button class="fn" onclick="bs()">\u232b</button><button class="eq" onclick="ev()">=</button></div><scr'+'ipt>var expr="";function ap(c){expr+=c;document.getElementById("ex").textContent=expr;try{document.getElementById("rs").textContent=eval(expr)}catch(e){}}function cl(){expr="";document.getElementById("ex").textContent="";document.getElementById("rs").textContent="0"}function bs(){expr=expr.slice(0,-1);document.getElementById("ex").textContent=expr;try{document.getElementById("rs").textContent=expr?eval(expr):"0"}catch(e){}}function ev(){try{var r=eval(expr);document.getElementById("rs").textContent=r;expr=String(r);document.getElementById("ex").textContent=""}catch(e){document.getElementById("rs").textContent="Error"}}</scr'+'ipt></body></html>';}},
+
+  {id:'stopwatch',cat:'Productivity',title:'Stopwatch',desc:'Stopwatch with lap times',
+    opts:[],
+    gen:function(){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0f0f1a;color:#e0e0ff;font-family:system-ui}.t{font-size:min(18vw,100px);font-weight:200;font-variant-numeric:tabular-nums;letter-spacing:-2px}.btns{display:flex;gap:12px}button{padding:14px 28px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer}.start{background:#c9a227;color:#000}.lap{background:#333;color:#888}.laps{width:80%;max-width:300px;max-height:30vh;overflow-y:auto;font-family:monospace;font-size:13px;color:#888;text-align:center;line-height:2}</style></head><body><div class="t" id="d">00:00.00</div><div class="btns"><button class="start" onclick="toggle()" id="b">Start</button><button class="lap" onclick="lap()">Lap</button><button class="lap" onclick="reset()">Reset</button></div><div class="laps" id="laps"></div><scr'+'ipt>var run=false,start=0,elapsed=0,iv,laps=[];function toggle(){if(!run){run=true;start=Date.now()-elapsed;document.getElementById("b").textContent="Stop";document.getElementById("b").style.background="#c44";iv=setInterval(upd,10)}else{run=false;elapsed=Date.now()-start;clearInterval(iv);document.getElementById("b").textContent="Start";document.getElementById("b").style.background="#c9a227"}}function upd(){elapsed=Date.now()-start;show(elapsed)}function show(ms){var m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);document.getElementById("d").textContent=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"."+String(cs).padStart(2,"0")}function lap(){if(!run)return;laps.push(elapsed);var html="";for(var i=laps.length-1;i>=0;i--){var ms=laps[i];var m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);html+="Lap "+(i+1)+": "+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"."+String(cs).padStart(2,"0")+"<br>"}document.getElementById("laps").innerHTML=html}function reset(){run=false;elapsed=0;clearInterval(iv);laps=[];document.getElementById("d").textContent="00:00.00";document.getElementById("laps").innerHTML="";document.getElementById("b").textContent="Start";document.getElementById("b").style.background="#c9a227"}</scr'+'ipt></body></html>';}},
+
+  {id:'notes',cat:'Productivity',title:'Scratchpad',desc:'Quick notes, saves locally',
+    opts:[],
+    gen:function(){
+      return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>*{margin:0}body{height:100vh;display:flex;flex-direction:column;background:#0f0f1a}textarea{flex:1;background:#0f0f1a;color:#e0e0ff;border:none;padding:20px;font-family:monospace;font-size:14px;line-height:1.8;resize:none;outline:none}textarea::placeholder{color:#333}.bar{padding:8px 16px;background:#1a1a2e;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#555;font-family:monospace}</style></head><body><div class="bar"><span>scratchpad</span><span id="st">saved</span></div><textarea id="n" placeholder="Start typing..." oninput="save()"></textarea><scr'+'ipt>var t;function save(){clearTimeout(t);document.getElementById("st").textContent="...";t=setTimeout(function(){try{localStorage.setItem("material_scratch",document.getElementById("n").value);document.getElementById("st").textContent="saved"}catch(e){}},500)}try{var s=localStorage.getItem("material_scratch");if(s)document.getElementById("n").value=s}catch(e){}document.getElementById("n").focus()</scr'+'ipt></body></html>';}},
+
+  {id:'charmap',cat:'Generate',title:'Special Characters',desc:'Copy special characters and symbols',
+    opts:[],
+    gen:function(){
+      return shellWrap('Special Characters','<div id="out" style="width:90%;max-width:500px;display:flex;flex-wrap:wrap;gap:4px;justify-content:center"></div><div class="status" id="st">Tap to copy</div><scr'+'ipt>var chars="\u2190\u2191\u2192\u2193\u2194\u2195\u21bb\u21ba\u2713\u2717\u2022\u25cf\u25cb\u25a0\u25a1\u25b2\u25b3\u25c0\u25b6\u2605\u2606\u2665\u2666\u2663\u2660\u266a\u266b\u2600\u2601\u2602\u2603\u26a1\u2744\u2764\u270e\u270f\u2702\u2709\u260e\u231a\u231b\u2328\u23f0\u23f1\u2615\u2708\u2693\u2699\u26bd\u26be\u265b\u265c\u2654\u2655\u00b1\u00d7\u00f7\u221a\u221e\u2248\u2260\u2264\u2265\u2203\u2200\u2208\u2209\u222a\u2229\u2282\u2283\u03b1\u03b2\u03b3\u03b4\u03b5\u03c0\u03c3\u03c9\u2211\u220f\u222b\u2206\u2207\u00a9\u00ae\u2122\u00b0\u00b5\u00b6\u00a7\u2020\u2021\u2026";chars.split("").forEach(function(c){var d=document.createElement("div");d.textContent=c;d.style.cssText="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#1a1a2e;border-radius:8px;font-size:20px;cursor:pointer;border:1px solid #2a2a4a";d.onclick=function(){navigator.clipboard.writeText(c);document.getElementById("st").textContent="Copied: "+c+" (U+"+c.codePointAt(0).toString(16).toUpperCase()+")"};document.getElementById("out").appendChild(d)})</scr'+'ipt>');}},
+
+  {id:'aspect',cat:'Image',title:'Aspect Ratio Calculator',desc:'Calculate dimensions from ratio',
+    opts:[],
+    gen:function(){
+      return shellWrap('Aspect Ratio','<div style="max-width:400px;margin:0 auto;text-align:center"><div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center"><div><div style="font-size:10px;color:#888;margin-bottom:4px">Width</div><input type="number" id="w" value="1920" style="width:100%;text-align:center" oninput="fromWH()"></div><div style="color:#888;font-size:18px;padding-top:14px">:</div><div><div style="font-size:10px;color:#888;margin-bottom:4px">Height</div><input type="number" id="h" value="1080" style="width:100%;text-align:center" oninput="fromWH()"></div></div><div style="font-size:28px;color:#c9a227;margin:16px 0" id="ratio">16:9</div><div style="font-size:11px;color:#888;line-height:2" id="info"></div></div><scr'+'ipt>function gcd(a,b){return b?gcd(b,a%b):a}function fromWH(){var w=parseInt(document.getElementById("w").value)||1,h=parseInt(document.getElementById("h").value)||1;var d=gcd(w,h);document.getElementById("ratio").textContent=(w/d)+":"+(h/d);var common=[[3840,2160,"4K"],[2560,1440,"QHD"],[1920,1080,"Full HD"],[1280,720,"HD"],[1024,768,"XGA"],[800,600,"SVGA"],[640,480,"VGA"]];var info="Megapixels: "+(w*h/1000000).toFixed(1)+"MP";common.forEach(function(c){if(c[0]===w&&c[1]===h)info+="<br>Standard: "+c[2]});document.getElementById("info").innerHTML=info}fromWH()</scr'+'ipt>');}}
+
+  // ═══ BATCH 8: Text Power Tools ═══
+  ,{id:'case_convert',cat:'Text',title:'Case Converter',desc:'UPPER, lower, Title, camelCase, snake_case',
+    opts:[],
+    gen:function(){
+      return shellWrap('Case Converter','<textarea id="inp" style="width:90%;max-width:500px;height:120px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Paste text..."></textarea><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px"><button class="go" onclick="cv(0)">UPPER</button><button class="go" onclick="cv(1)" style="background:#555">lower</button><button class="go" onclick="cv(2)" style="background:#555">Title Case</button><button class="go" onclick="cv(3)" style="background:#555">camelCase</button><button class="go" onclick="cv(4)" style="background:#555">snake_case</button><button class="go" onclick="cv(5)" style="background:#555">kebab-case</button></div><textarea id="out" style="width:90%;max-width:500px;height:120px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:13px;font-family:monospace;resize:vertical;margin-top:12px" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><div class="status">Click output to copy</div><scr'+'ipt>function cv(m){var t=document.getElementById("inp").value;var r;switch(m){case 0:r=t.toUpperCase();break;case 1:r=t.toLowerCase();break;case 2:r=t.toLowerCase().replace(/\\b\\w/g,function(c){return c.toUpperCase()});break;case 3:var w=t.toLowerCase().replace(/[^a-zA-Z0-9]+/g," ").trim().split(/\\s+/);r=w[0]+w.slice(1).map(function(s){return s.charAt(0).toUpperCase()+s.slice(1)}).join("");break;case 4:r=t.toLowerCase().replace(/[^a-zA-Z0-9]+/g,"_").replace(/^_|_$/g,"");break;case 5:r=t.toLowerCase().replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-|-$/g,"");break}document.getElementById("out").value=r}</scr'+'ipt>');}},
+
+  {id:'line_sort',cat:'Text',title:'Sort Lines',desc:'Alphabetical, reverse, shuffle, unique',
+    opts:[],
+    gen:function(){
+      return shellWrap('Sort Lines','<textarea id="inp" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste lines..."></textarea><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px"><button class="go" onclick="go(0)">A\u2192Z</button><button class="go" onclick="go(1)" style="background:#555">Z\u2192A</button><button class="go" onclick="go(2)" style="background:#555">Shuffle</button><button class="go" onclick="go(3)" style="background:#555">Unique</button><button class="go" onclick="go(4)" style="background:#555">Reverse</button><button class="go" onclick="go(5)" style="background:#555">By Length</button></div><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical;margin-top:8px" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>function go(m){var l=document.getElementById("inp").value.split("\\n");switch(m){case 0:l.sort();break;case 1:l.sort().reverse();break;case 2:for(var i=l.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=l[i];l[i]=l[j];l[j]=t}break;case 3:l=l.filter(function(v,i,a){return a.indexOf(v)===i});break;case 4:l.reverse();break;case 5:l.sort(function(a,b){return a.length-b.length});break}document.getElementById("out").value=l.join("\\n");document.getElementById("st").textContent=l.length+" lines"}</scr'+'ipt>');}},
+
+  {id:'whitespace',cat:'Text',title:'Whitespace Cleaner',desc:'Trim, collapse, remove blank lines',
+    opts:[],
+    gen:function(){
+      return shellWrap('Whitespace Cleaner','<textarea id="inp" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste messy text..."></textarea><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px"><button class="go" onclick="go(0)">Trim Lines</button><button class="go" onclick="go(1)" style="background:#555">Collapse Spaces</button><button class="go" onclick="go(2)" style="background:#555">Remove Blanks</button><button class="go" onclick="go(3)" style="background:#555">All Three</button></div><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical;margin-top:8px" readonly></textarea><scr'+'ipt>function go(m){var t=document.getElementById("inp").value;if(m===0||m===3)t=t.split("\\n").map(function(l){return l.trim()}).join("\\n");if(m===1||m===3)t=t.replace(/[^\\S\\n]+/g," ");if(m===2||m===3)t=t.replace(/\\n{2,}/g,"\\n").replace(/^\\n|\\n$/g,"");document.getElementById("out").value=t;document.getElementById("st").textContent="Before: "+document.getElementById("inp").value.length+" \u2192 After: "+t.length}</scr'+'ipt>');}},
+
+  // ═══ BATCH 9: Dev Converters ═══
+  {id:'number_base',cat:'Dev',title:'Number Base Converter',desc:'Decimal \u2194 Hex \u2194 Binary \u2194 Octal',
+    opts:[],
+    gen:function(){
+      return shellWrap('Number Base','<div style="max-width:400px;margin:0 auto"><div style="display:flex;flex-direction:column;gap:10px"><div><div style="font-size:10px;color:#888;margin-bottom:2px">Decimal</div><input type="text" id="dec" value="255" oninput="from(10)" style="width:100%"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">Hexadecimal</div><input type="text" id="hex" value="FF" oninput="from(16)" style="width:100%"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">Binary</div><input type="text" id="bin" value="11111111" oninput="from(2)" style="width:100%"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">Octal</div><input type="text" id="oct" value="377" oninput="from(8)" style="width:100%"></div></div></div><scr'+'ipt>function from(base){var el={10:"dec",16:"hex",2:"bin",8:"oct"};var v=parseInt(document.getElementById(el[base]).value,base);if(isNaN(v))return;if(base!==10)document.getElementById("dec").value=v;if(base!==16)document.getElementById("hex").value=v.toString(16).toUpperCase();if(base!==2)document.getElementById("bin").value=v.toString(2);if(base!==8)document.getElementById("oct").value=v.toString(8)}</scr'+'ipt>');}},
+
+  {id:'html_entities',cat:'Dev',title:'HTML Entities',desc:'Encode/decode HTML special characters',
+    opts:[],
+    gen:function(){
+      return shellWrap('HTML Entities','<textarea id="inp" style="width:90%;max-width:500px;height:120px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste HTML or text..."></textarea><div style="display:flex;gap:8px;justify-content:center;margin-top:12px"><button class="go" onclick="go(1)">Encode</button><button class="go" onclick="go(0)" style="background:#555">Decode</button></div><textarea id="out" style="width:90%;max-width:500px;height:120px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical;margin-top:8px" readonly></textarea><scr'+'ipt>function go(enc){var t=document.getElementById("inp").value;if(enc){t=t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;")}else{var d=document.createElement("div");d.innerHTML=t;t=d.textContent}document.getElementById("out").value=t}</scr'+'ipt>');}},
+
+  {id:'color_convert',cat:'Dev',title:'Color Converter',desc:'HEX \u2194 RGB \u2194 HSL',
+    opts:[],
+    gen:function(){
+      return shellWrap('Color Converter','<div style="max-width:400px;margin:0 auto;text-align:center"><div id="prev" style="width:120px;height:120px;border-radius:50%;margin:0 auto 16px;background:#c9a227;border:3px solid #2a2a4a"></div><div style="display:flex;flex-direction:column;gap:10px"><div><div style="font-size:10px;color:#888;margin-bottom:2px">HEX</div><input type="text" id="hx" value="#c9a227" oninput="fromHex()" style="width:100%;text-align:center"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">RGB</div><input type="text" id="rgb" value="201, 162, 39" oninput="fromRGB()" style="width:100%;text-align:center"></div><div><div style="font-size:10px;color:#888;margin-bottom:2px">HSL</div><input type="text" id="hsl" value="46, 68%, 47%" oninput="fromHSL()" style="width:100%;text-align:center"></div></div><input type="color" id="pk" value="#c9a227" oninput="document.getElementById(\'hx\').value=this.value;fromHex()" style="width:60px;height:40px;border:none;cursor:pointer;margin-top:12px"></div><scr'+'ipt>function fromHex(){var h=document.getElementById("hx").value.replace("#","");if(h.length===3)h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];var r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);document.getElementById("rgb").value=r+", "+g+", "+b;document.getElementById("prev").style.background="#"+h;document.getElementById("pk").value="#"+h;var hsl=rgbToHSL(r,g,b);document.getElementById("hsl").value=hsl[0]+", "+hsl[1]+"%, "+hsl[2]+"%"}function fromRGB(){var p=document.getElementById("rgb").value.split(",").map(function(s){return parseInt(s.trim())});if(p.length<3)return;var hex="#"+p.map(function(v){return(v<16?"0":"")+v.toString(16)}).join("");document.getElementById("hx").value=hex;document.getElementById("prev").style.background=hex;document.getElementById("pk").value=hex;var hsl=rgbToHSL(p[0],p[1],p[2]);document.getElementById("hsl").value=hsl[0]+", "+hsl[1]+"%, "+hsl[2]+"%"}function fromHSL(){var p=document.getElementById("hsl").value.replace(/%/g,"").split(",").map(function(s){return parseFloat(s.trim())});if(p.length<3)return;var rgb=hslToRGB(p[0],p[1],p[2]);document.getElementById("rgb").value=rgb.join(", ");var hex="#"+rgb.map(function(v){return(v<16?"0":"")+v.toString(16)}).join("");document.getElementById("hx").value=hex;document.getElementById("prev").style.background=hex;document.getElementById("pk").value=hex}function rgbToHSL(r,g,b){r/=255;g/=255;b/=255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b);var h,s,l=(mx+mn)/2;if(mx===mn)h=s=0;else{var d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);switch(mx){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;case b:h=((r-g)/d+4)/6}}return[Math.round(h*360),Math.round(s*100),Math.round(l*100)]}function hslToRGB(h,s,l){h/=360;s/=100;l/=100;var r,g,b;if(s===0)r=g=b=l;else{function hue(p,q,t){if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p}var q=l<.5?l*(1+s):l+s-l*s;var p=2*l-q;r=hue(p,q,h+1/3);g=hue(p,q,h);b=hue(p,q,h-1/3)}return[Math.round(r*255),Math.round(g*255),Math.round(b*255)]}</scr'+'ipt>');}},
+
+  // ═══ BATCH 10: Fun & Misc ═══
+  {id:'placeholder_img',cat:'Generate',title:'Placeholder Image',desc:'Generate solid color placeholder images',
+    opts:[{id:'w',label:'Width',type:'number',def:800},{id:'h',label:'Height',type:'number',def:600},{id:'color',label:'Color',type:'text',def:'#2a2a4a'}],
+    gen:function(o){
+      return shellWrap('Placeholder Image','<div style="text-align:center"><canvas id="cv" style="max-width:90%;border-radius:8px;border:1px solid #2a2a4a"></canvas><br><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap;align-items:center"><input type="number" id="w" value="'+o.w+'" style="width:70px;text-align:center" oninput="draw()"><span style="color:#888">\u00d7</span><input type="number" id="h" value="'+o.h+'" style="width:70px;text-align:center" oninput="draw()"><input type="color" id="bg" value="'+o.color+'" oninput="draw()"><button class="go" onclick="dl()" style="margin:0">Download</button></div></div><scr'+'ipt>function draw(){var c=document.getElementById("cv"),x=c.getContext("2d");var w=parseInt(document.getElementById("w").value)||100,h=parseInt(document.getElementById("h").value)||100;c.width=w;c.height=h;x.fillStyle=document.getElementById("bg").value;x.fillRect(0,0,w,h);x.fillStyle="rgba(255,255,255,0.15)";x.font="bold "+Math.min(w,h)/6+"px sans-serif";x.textAlign="center";x.textBaseline="middle";x.fillText(w+" \u00d7 "+h,w/2,h/2)}function dl(){var c=document.getElementById("cv");c.toBlob(function(b){var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="placeholder-"+c.width+"x"+c.height+".png";a.click()})}draw()</scr'+'ipt>');}},
+
+  {id:'mock_data',cat:'Generate',title:'Mock Data',desc:'Generate fake names, emails, numbers',
+    opts:[{id:'rows',label:'Rows',type:'number',def:10}],
+    gen:function(o){
+      return shellWrap('Mock Data','<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:12px"><button class="go" onclick="gen()">Generate</button><button class="go" onclick="dl()" style="background:#555">Download CSV</button></div><div style="width:95%;max-width:700px;overflow-x:auto"><table id="tbl" style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px"></table></div><scr'+'ipt>var FN=["James","Mary","John","Emma","Robert","Sarah","David","Lisa","Michael","Anna","Chris","Kate","Alex","Jane","Sam","Olivia"];var LN=["Smith","Johnson","Brown","Taylor","Anderson","Thomas","Wilson","Moore","Martin","Clark","Lee","Harris","King","Young","Hall","Green"];var DOMS=["gmail.com","outlook.com","company.com","mail.com"];function gen(){var rows='+o.rows+';var html="<tr style=\\"color:#c9a227\\"><th style=\\"padding:6px 8px;text-align:left;border-bottom:1px solid #2a2a4a\\">ID</th><th style=\\"padding:6px 8px;text-align:left;border-bottom:1px solid #2a2a4a\\">Name</th><th style=\\"padding:6px 8px;text-align:left;border-bottom:1px solid #2a2a4a\\">Email</th><th style=\\"padding:6px 8px;text-align:left;border-bottom:1px solid #2a2a4a\\">Age</th><th style=\\"padding:6px 8px;text-align:left;border-bottom:1px solid #2a2a4a\\">Score</th></tr>";window._data=[];for(var i=0;i<rows;i++){var fn=FN[Math.floor(Math.random()*FN.length)];var ln=LN[Math.floor(Math.random()*LN.length)];var em=fn.toLowerCase()+"."+ln.toLowerCase()+"@"+DOMS[Math.floor(Math.random()*DOMS.length)];var age=18+Math.floor(Math.random()*50);var score=Math.floor(Math.random()*100);window._data.push({id:i+1,name:fn+" "+ln,email:em,age:age,score:score});html+="<tr><td style=\\"padding:6px 8px;border-bottom:1px solid #1a1a2e;color:#888\\">"+(i+1)+"</td><td style=\\"padding:6px 8px;border-bottom:1px solid #1a1a2e\\">"+fn+" "+ln+"</td><td style=\\"padding:6px 8px;border-bottom:1px solid #1a1a2e;color:#888\\">"+em+"</td><td style=\\"padding:6px 8px;border-bottom:1px solid #1a1a2e\\">"+age+"</td><td style=\\"padding:6px 8px;border-bottom:1px solid #1a1a2e\\">"+score+"</td></tr>"}document.getElementById("tbl").innerHTML=html}function dl(){if(!window._data)return;var csv="id,name,email,age,score\\n";window._data.forEach(function(r){csv+=r.id+","+r.name+","+r.email+","+r.age+","+r.score+"\\n"});var b=new Blob([csv],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="mock-data.csv";a.click()}gen()</scr'+'ipt>');}},
+
+  // ═══ SCRAPE — paste HTML, extract data ═══
+  {id:'extract_links',cat:'Scrape',title:'Extract Links',desc:'Pull all URLs from pasted HTML',
+    opts:[],
+    gen:function(){
+      return shellWrap('Extract Links','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste HTML source or any text with URLs..."></textarea><button class="go" onclick="go()">Extract</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var links=[];var re1=/href=["\']([^"\']+)["\']/gi;var re2=/https?:\\/\\/[^\\s<>"\'\\)]+/gi;var m;while(m=re1.exec(t))if(links.indexOf(m[1])<0)links.push(m[1]);while(m=re2.exec(t))if(links.indexOf(m[0])<0)links.push(m[0]);document.getElementById("out").value=links.join("\\n");document.getElementById("st").textContent=links.length+" links found"}</scr'+'ipt>');}},
+
+  {id:'extract_emails',cat:'Scrape',title:'Extract Emails',desc:'Find all email addresses in text',
+    opts:[],
+    gen:function(){
+      return shellWrap('Extract Emails','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste any text with emails..."></textarea><button class="go" onclick="go()">Extract</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var re=/[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}/g;var emails=[];var m;while(m=re.exec(t))if(emails.indexOf(m[0])<0)emails.push(m[0]);document.getElementById("out").value=emails.join("\\n");document.getElementById("st").textContent=emails.length+" emails found"}</scr'+'ipt>');}},
+
+  {id:'extract_images',cat:'Scrape',title:'Extract Image URLs',desc:'Find all image sources in HTML',
+    opts:[],
+    gen:function(){
+      return shellWrap('Extract Images','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste HTML source..."></textarea><button class="go" onclick="go()">Extract</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var d=document.createElement("div");d.innerHTML=t;var imgs=[];d.querySelectorAll("img").forEach(function(im){var s=im.getAttribute("src");if(s&&imgs.indexOf(s)<0)imgs.push(s)});var re=/(?:src)=["\']([^"\']+\\.(?:png|jpg|jpeg|gif|webp|svg|ico)[^"\']*)/gi;var m;while(m=re.exec(t))if(imgs.indexOf(m[1])<0)imgs.push(m[1]);document.getElementById("out").value=imgs.join("\\n");document.getElementById("st").textContent=imgs.length+" images found"}</scr'+'ipt>');}},
+
+  {id:'extract_tables',cat:'Scrape',title:'Extract Tables',desc:'Convert HTML tables to CSV',
+    opts:[],
+    gen:function(){
+      return shellWrap('Extract Tables','<textarea id="inp" style="width:90%;max-width:500px;height:150px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste HTML with tables..."></textarea><button class="go" onclick="go()">Extract</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:200px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly></textarea><div style="text-align:center;margin-top:8px"><button class="go" onclick="dl()" style="background:#555">Download CSV</button></div><scr'+'ipt>function go(){var d=document.createElement("div");d.innerHTML=document.getElementById("inp").value;var tables=d.querySelectorAll("table");if(!tables.length){document.getElementById("st").textContent="No tables found";return}var lines=[];var totalRows=0;tables.forEach(function(tbl){tbl.querySelectorAll("tr").forEach(function(tr){var cells=[];tr.querySelectorAll("td,th").forEach(function(c){cells.push(c.textContent.trim().replace(/,/g," "))});lines.push(cells.join(","));totalRows++})});document.getElementById("out").value=lines.join("\n");document.getElementById("st").textContent=tables.length+" table(s), "+totalRows+" rows"}function dl(){var csv=document.getElementById("out").value;if(!csv)return;var b=new Blob([csv],{type:"text/csv"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="extracted-table.csv";a.click()}</scr'+'ipt>');}},
+
+  {id:'strip_html',cat:'Scrape',title:'Strip HTML Tags',desc:'Extract plain text from HTML',
+    opts:[],
+    gen:function(){
+      return shellWrap('Strip HTML','<textarea id="inp" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#e0e0ff;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" placeholder="Paste HTML..."></textarea><button class="go" onclick="go()">Strip Tags</button><div class="status" id="st"></div><textarea id="out" style="width:90%;max-width:500px;height:180px;background:#1a1a2e;border:1px solid #2a2a4a;color:#c9a227;padding:12px;border-radius:10px;font-size:12px;font-family:monospace;resize:vertical" readonly onclick="navigator.clipboard.writeText(this.value)"></textarea><scr'+'ipt>function go(){var t=document.getElementById("inp").value;var d=document.createElement("div");d.innerHTML=t;var scripts=d.querySelectorAll("script,style,noscript");scripts.forEach(function(s){s.remove()});var text=d.textContent||d.innerText||"";text=text.replace(/\\n{3,}/g,"\\n\\n").trim();document.getElementById("out").value=text;document.getElementById("st").textContent=text.split(/\\s+/).length+" words extracted"}</scr'+'ipt>');}},
+
+  // ═══ FILL — generate form/test data ═══
+  {id:'form_fill',cat:'Fill',title:'Form Data Generator',desc:'Random names, addresses, phones, cards',
+    opts:[{id:'count',label:'How many sets',type:'number',def:5}],
+    gen:function(o){
+      return shellWrap('Form Data','<div style="display:flex;gap:8px;justify-content:center;margin-bottom:12px"><button class="go" onclick="gen()">Generate</button><button class="go" onclick="dl()" style="background:#555">Download JSON</button></div><div style="width:95%;max-width:700px;overflow-x:auto"><div id="out" style="font-family:monospace;font-size:11px"></div></div><scr'+'ipt>var FN=["James","Mary","John","Emma","Robert","Sarah","David","Lisa","Michael","Anna","Chris","Kate","Alex","Jane"];var LN=["Smith","Johnson","Brown","Taylor","Anderson","Thomas","Wilson","Moore","Martin","Clark"];var ST=["Oak","Elm","Main","Park","Cedar","Maple","Pine","Lake","Hill","River"];var CT=["Springfield","Portland","Salem","Madison","Franklin","Clinton","Georgetown","Arlington"];var STS=["AL","AK","AZ","CA","CO","FL","GA","IL","IN","MA","MI","MN","NY","OH","OR","PA","TX","WA"];function rn(a){return a[Math.floor(Math.random()*a.length)]}function ri(min,max){return min+Math.floor(Math.random()*(max-min))}function gen(){window._data=[];for(var i=0;i<'+o.count+';i++){var fn=rn(FN),ln=rn(LN);window._data.push({name:fn+" "+ln,email:fn.toLowerCase()+"."+ln.toLowerCase()+"@"+rn(["gmail.com","outlook.com","yahoo.com"]),phone:"("+ri(200,999)+") "+ri(200,999)+"-"+ri(1000,9999),address:ri(100,9999)+" "+rn(ST)+" "+rn(["St","Ave","Blvd","Dr","Ln"]),city:rn(CT),state:rn(STS),zip:String(ri(10000,99999)),dob:ri(1960,2003)+"-"+String(ri(1,12)).padStart(2,"0")+"-"+String(ri(1,28)).padStart(2,"0"),company:rn(["Acme","Globex","Initech","Umbrella","Stark","Wayne"])+" "+rn(["Corp","Inc","LLC","Ltd","Co"])})}var html=window._data.map(function(d,i){return"<div style=\\"padding:12px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px;margin-bottom:8px\\"><div style=\\"color:#c9a227;font-weight:700;margin-bottom:6px\\">"+d.name+"</div><div style=\\"color:#888;line-height:1.8;font-size:10px\\">"+d.email+"<br>"+d.phone+"<br>"+d.address+"<br>"+d.city+", "+d.state+" "+d.zip+"<br>DOB: "+d.dob+"<br>"+d.company+"</div></div>"}).join("");document.getElementById("out").innerHTML=html}function dl(){if(!window._data)return;var b=new Blob([JSON.stringify(window._data,null,2)],{type:"application/json"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="form-data.json";a.click()}gen()</scr'+'ipt>');}}
+];
+
+// ═══ ASK MODE — pattern matching ═══
+var PATTERNS=[
+  {re:/resize.*?(\d+)/i, task:'img_resize', extract:function(m){return{w:parseInt(m[1])}}},
+  {re:/grayscale|gray|black.?and.?white|b\/?w/i, task:'img_grayscale', extract:function(){return{}}},
+  {re:/watermark/i, task:'img_watermark', extract:function(m){return{text:'DRAFT',size:48}}},
+  {re:/(?:convert|change).*?(?:to|into)\s*(png|jpg|jpeg|webp|pdf)/i, task:null, extract:function(m){
+    var fmt=m[1].toLowerCase();if(fmt==='pdf')return{_task:'img_to_pdf'};
+    if(fmt==='jpg')fmt='jpeg';return{_task:'img_convert',fmt:fmt};}},
+  {re:/(?:png|jpg|jpeg|image).*?(?:to|into)\s*pdf/i, task:'img_to_pdf', extract:function(){return{}}},
+  {re:/csv.*?json/i, task:'csv_json', extract:function(){return{}}},
+  {re:/json.*?csv/i, task:'json_csv', extract:function(){return{}}},
+  {re:/dedup|duplicat/i, task:'text_dedup', extract:function(){return{}}},
+  {re:/count.*?word|word.*?count/i, task:'text_count', extract:function(){return{}}},
+  {re:/find.?(?:and|&)?.?replace|search.?replace/i, task:'text_find', extract:function(){return{find:'',replace:''}}},
+  {re:/color.*?palette|palette/i, task:'color_palette', extract:function(){return{base:'#c9a227'}}},
+  {re:/timer|countdown/i, task:'timer', extract:function(m){var n=m.input.match(/(\d+)/);return{min:n?parseInt(n[1]):5}}},
+  {re:/qr/i, task:'qr_gen', extract:function(){return{text:'https://example.com'}}},
+  {re:/json.*?form|form.*?json|prettif|pretty.*?json/i, task:'json_format', extract:function(){return{}}},
+  {re:/base.?64/i, task:'base64', extract:function(){return{}}},
+  {re:/url.*?encode|encode.*?url|url.*?decode|decode.*?url/i, task:'url_encode', extract:function(){return{}}},
+  {re:/regex|regular.*?exp/i, task:'regex_test', extract:function(){return{}}},
+  {re:/minif/i, task:'minify', extract:function(){return{}}},
+  {re:/jwt|token.*?decode/i, task:'jwt_decode', extract:function(){return{}}},
+  {re:/password/i, task:'password', extract:function(m){var n=m.input.match(/(\d+)/);return{len:n?parseInt(n[1]):16}}},
+  {re:/uuid|guid/i, task:'uuid', extract:function(m){var n=m.input.match(/(\d+)/);return{count:n?parseInt(n[1]):5}}},
+  {re:/lorem|placeholder.*?text|dummy.*?text/i, task:'lorem', extract:function(m){var n=m.input.match(/(\d+)/);return{p:n?parseInt(n[1]):3}}},
+  {re:/gradient|css.*?gradient/i, task:'gradient', extract:function(){return{}}},
+  {re:/pomodoro/i, task:'pomodoro', extract:function(){return{}}},
+  {re:/meeting.*?cost|cost.*?meeting/i, task:'meeting_cost', extract:function(){return{}}},
+  {re:/checklist|todo|to.?do/i, task:'checklist', extract:function(){return{}}},
+  {re:/unit.*?convert|convert.*?unit|celsius|fahrenheit|meters|feet|pounds|kg/i, task:'unit_convert', extract:function(){return{}}},
+  {re:/crop.*?(\d+:\d+)|(\d+:\d+).*?crop/i, task:'img_crop', extract:function(m){return{ratio:m[1]||m[2]||'1:1'}}},
+  {re:/markdown|md.*?html|md.*?preview/i, task:'markdown', extract:function(){return{}}},
+  {re:/svg.*?png/i, task:'svg_png', extract:function(){return{scale:2}}},
+  {re:/favicon|fav.*?icon/i, task:'favicon', extract:function(){return{char:'\u26a1',bg:'#c9a227'}}},
+  {re:/box.?shadow/i, task:'box_shadow', extract:function(){return{}}},
+  {re:/diff|compar.*?text/i, task:'diff', extract:function(){return{}}},
+  {re:/compar.*?image|image.*?compar|side.*?by.*?side/i, task:'img_compare', extract:function(){return{}}},
+  {re:/timestamp|unix.*?time|epoch/i, task:'timestamp', extract:function(){return{}}},
+  {re:/calc(?!ulat)|calculator/i, task:'calc', extract:function(){return{}}},
+  {re:/stopwatch|lap/i, task:'stopwatch', extract:function(){return{}}},
+  {re:/note|scratch|scratchpad/i, task:'notes', extract:function(){return{}}},
+  {re:/special.*?char|char.*?map|symbol|emoji.*?pick/i, task:'charmap', extract:function(){return{}}},
+  {re:/aspect.*?ratio/i, task:'aspect', extract:function(){return{}}},
+  {re:/svg.*?png/i, task:'svg_png', extract:function(){return{scale:2}}},
+  {re:/favicon/i, task:'favicon', extract:function(){return{char:'\u26a1',bg:'#c9a227'}}},
+  {re:/markdown/i, task:'markdown', extract:function(){return{}}},
+  {re:/case.*?convert|upper.*?case|lower.*?case|camel.*?case|snake.*?case|kebab/i, task:'case_convert', extract:function(){return{}}},
+  {re:/sort.*?line|line.*?sort|alphabeti/i, task:'line_sort', extract:function(){return{}}},
+  {re:/whitespace|clean.*?space|trim|collapse/i, task:'whitespace', extract:function(){return{}}},
+  {re:/number.*?base|hex.*?dec|dec.*?hex|bin.*?dec|dec.*?bin|octal|binary.*?convert/i, task:'number_base', extract:function(){return{}}},
+  {re:/html.*?entit|entit.*?encode|entit.*?decode/i, task:'html_entities', extract:function(){return{}}},
+  {re:/color.*?convert|hex.*?rgb|rgb.*?hex|rgb.*?hsl|hsl.*?rgb|color.*?pick/i, task:'color_convert', extract:function(){return{}}},
+  {re:/placeholder.*?image|dummy.*?image/i, task:'placeholder_img', extract:function(m){var w=m.input.match(/(\d+)\s*[x\u00d7]\s*(\d+)/);return w?{w:parseInt(w[1]),h:parseInt(w[2]),color:'#2a2a4a'}:{w:800,h:600,color:'#2a2a4a'}}},
+  {re:/mock.*?data|fake.*?data|sample.*?data|test.*?data/i, task:'mock_data', extract:function(m){var n=m.input.match(/(\d+)/);return{rows:n?parseInt(n[1]):10}}},
+  {re:/extract.*?link|pull.*?link|scrape.*?link|get.*?url/i, task:'extract_links', extract:function(){return{}}},
+  {re:/extract.*?email|scrape.*?email|find.*?email|pull.*?email/i, task:'extract_emails', extract:function(){return{}}},
+  {re:/extract.*?imag|scrape.*?imag|find.*?imag|pull.*?imag/i, task:'extract_images', extract:function(){return{}}},
+  {re:/extract.*?table|scrape.*?table|table.*?csv|html.*?table/i, task:'extract_tables', extract:function(){return{}}},
+  {re:/strip.*?html|strip.*?tag|remove.*?tag|html.*?text|clean.*?html/i, task:'strip_html', extract:function(){return{}}},
+  {re:/form.*?fill|form.*?data|fill.*?form|fake.*?form|test.*?form|generate.*?address|fake.*?name|fake.*?person/i, task:'form_fill', extract:function(m){var n=m.input.match(/(\d+)/);return{count:n?parseInt(n[1]):5}}},
+  {re:/date.*?calc|days.*?between|add.*?days/i, task:'date_calc', extract:function(){return{}}},
+  {re:/percent/i, task:'percentage', extract:function(){return{}}},
+  {re:/tip.*?calc|split.*?bill/i, task:'tip_calc', extract:function(){return{}}},
+  {re:/loan|mortgage|monthly.*?payment/i, task:'loan_calc', extract:function(){return{}}},
+  {re:/random|pick.*?random|coin.*?flip|dice.*?roll|yes.*?no/i, task:'random_pick', extract:function(){return{}}},
+  {re:/pixel.*?art|pixel.*?draw/i, task:'pixel_art', extract:function(m){var n=m.input.match(/(\d+)/);return{size:n?parseInt(n[1]):16}}},
+  {re:/rot13|morse|reverse.*?text|binary.*?text|upside.*?down|encode.*?text/i, task:'text_encode', extract:function(){return{}}},
+  {re:/file.*?size|byte.*?convert|kb.*?mb|mb.*?gb/i, task:'file_size', extract:function(){return{}}},
+  {re:/cron/i, task:'cron_build', extract:function(){return{}}},
+  {re:/markdown.*?table|md.*?table|table.*?markdown/i, task:'md_table', extract:function(){return{cols:3,rows:4}}},
+];
+
+function askGo(){
+  var q=document.getElementById('askInput').value.trim();
+  if(!q)return;
+  for(var i=0;i<PATTERNS.length;i++){
+    var m=q.match(PATTERNS[i].re);
+    if(m){
+      var opts=PATTERNS[i].extract(m);
+      var taskId=opts._task||PATTERNS[i].task;
+      var task=TASKS.find(function(t){return t.id===taskId});
+      if(task){
+        var html=task.gen(opts);
+        showResult(task.title,html);
+        return;
+      }
+    }
+  }
+  // No built-in match — ask Claude to build it
+  askAI(q);
+}
+
+async function askAI(query){
+  // Show loading state
+  showResult('Building...', shellWrap('Building your tool...','<p style="color:#c9a227;text-align:center;padding:40px;font-size:14px">Generating code for:<br><br><b style="color:#fff">"'+query.replace(/</g,'&lt;')+'"</b><br><br><span style="color:#666">This takes a few seconds...</span></p>'));
+
+  var prompt='You are a tool generator. The user needs a single-purpose HTML tool.\n\n'
+    +'User request: "'+query+'"\n\n'
+    +'Generate a COMPLETE, standalone HTML page that does exactly what they asked.\n'
+    +'Requirements:\n'
+    +'- Single HTML file with inline CSS and JS\n'
+    +'- Dark theme: background #0f0f1a, text #e0e0ff, accent #c9a227\n'
+    +'- Clean, minimal UI — only what is needed\n'
+    +'- Use drag-and-drop file input if the task involves files\n'
+    +'- Mobile-friendly\n'
+    +'- No external dependencies\n'
+    +'- No comments in code, keep it compact\n\n'
+    +'Return ONLY the HTML. No markdown, no explanation, no backticks. Just the raw HTML starting with <!DOCTYPE html>';
+
+  try{
+    var headers={"Content-Type": "application/json","anthropic-version":"2023-06-01"};
+    var key=getKey();
+    if(key){headers["x-api-key"]=key;headers["anthropic-dangerous-direct-browser-access"]="true";}
+    var response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4000,
+        messages: [{role: "user", content: prompt}]
+      })
+    });
+
+    var data = await response.json();
+    var html = '';
+
+    // Extract text from response
+    if(data.content){
+      for(var i=0;i<data.content.length;i++){
+        if(data.content[i].type==='text') html+=data.content[i].text;
+      }
+    }
+
+    // Clean up — strip markdown fences if present
+    html=html.replace(/^```html?\n?/,'').replace(/\n?```$/,'').trim();
+
+    if(html.indexOf('<!DOCTYPE')>=0 || html.indexOf('<html')>=0 || html.indexOf('<head')>=0){
+      // Extract a title for the result bar
+      var titleMatch=html.match(/<title>([^<]*)<\/title>/);
+      var title=titleMatch?titleMatch[1]:query.slice(0,30);
+      showResult(title,html);
+    }else{
+      // Response wasn't HTML — wrap it
+      showResult(query.slice(0,30),shellWrap('Result','<pre style="color:#e0e0ff;white-space:pre-wrap;padding:20px;font-size:12px">'+html.replace(/</g,'&lt;')+'</pre>'));
+    }
+  }catch(err){
+    // API not available (running outside Claude.ai) — show fallback
+    showResult('AI not available',shellWrap('AI not available','<p style="color:#888;text-align:center;padding:40px">AI generation requires either:<br><br><b style="color:#c9a227">1.</b> Running inside Claude.ai (free)<br><b style="color:#c9a227">2.</b> Adding your API key via \u2699 button<br><br>Built-in tools (Do tab) always work offline.<br><br><span style="color:#c9a227">'+ASK_EXAMPLES.slice(0,10).join(' \u00b7 ')+'</span></p>'));
+  }
+}
+
+// Ask input listener
+document.getElementById('askInput').addEventListener('keydown',function(e){if(e.key==='Enter')askGo()});
+
+// Ask examples
+var ASK_EXAMPLES=['resize images to 800px','convert png to pdf','csv to json','grayscale images','format json','base64','regex tester','password','pomodoro','timer 10 min','word count','remove duplicates','uuid','unit converter','crop 16:9','gradient','calculator','stopwatch','markdown preview','text diff','scratchpad','special characters','favicon','aspect ratio','svg to png','box shadow','timestamp','image compare','meeting cost','checklist'];
+document.getElementById('askExamples').innerHTML=ASK_EXAMPLES.map(function(ex){return'<div class="ask-ex" onclick="document.getElementById(\'askInput\').value=\''+ex+'\';askGo()">'+ex+'</div>'}).join('');
+
+// ═══ DO MODE — guided task builder ═══
+var doSel=null;
+function renderDo(){
+  var cats={};TASKS.forEach(function(t){if(!cats[t.cat])cats[t.cat]=[];cats[t.cat].push(t)});
+  var html='';
+  for(var cat in cats){
+    html+='<div style="font-size:9px;color:var(--fg3);letter-spacing:1.5px;text-transform:uppercase;margin:12px 0 6px">'+cat+'</div>';
+    cats[cat].forEach(function(t){
+      html+='<div class="do-card '+(doSel===t.id?'selected':'')+'" onclick="selectTask(\''+t.id+'\')"><div class="do-title">'+t.title+'</div><div class="do-desc">'+t.desc+'</div></div>';
+    });
+  }
+  document.getElementById('doGrid').innerHTML=html;
+  renderDoOpts();
+}
+function selectTask(id){doSel=id;renderDo();}
+function renderDoOpts(){
+  var el=document.getElementById('doOptions');
+  if(!doSel){el.innerHTML='';return;}
+  var task=TASKS.find(function(t){return t.id===doSel});
+  if(!task){el.innerHTML='';return;}
+  var html='<div class="section-title" style="font-size:16px">'+task.title+'</div>';
+  if(task.opts&&task.opts.length){
+    html+='<div class="do-options">';
+    task.opts.forEach(function(o){
+      html+='<div><div class="do-label">'+o.label+'</div>';
+      if(o.type==='select'){
+        html+='<div class="do-chips">';
+        o.choices.forEach(function(c){html+='<div class="do-chip" data-opt="'+o.id+'" data-val="'+c+'" onclick="this.parentNode.querySelectorAll(\'.do-chip\').forEach(function(x){x.classList.remove(\'sel\')});this.classList.add(\'sel\')">'+c+'</div>';});
+        html+='</div>';
+      }else{
+        html+='<input class="do-input" type="'+(o.type||'text')+'" data-opt="'+o.id+'" value="'+(o.def||'')+'">';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='<button class="btn btn-primary" onclick="doGenerate()">&#9889; Generate Tool</button>';
+  el.innerHTML=html;
+  // Select defaults for chips
+  el.querySelectorAll('.do-chips').forEach(function(g){var first=g.querySelector('.do-chip');if(first)first.classList.add('sel')});
+}
+function doGenerate(){
+  var task=TASKS.find(function(t){return t.id===doSel});
+  if(!task)return;
+  var opts={};
+  document.querySelectorAll('#doOptions [data-opt]').forEach(function(el){
+    if(el.classList.contains('do-chip')){if(el.classList.contains('sel'))opts[el.dataset.opt]=el.dataset.val;}
+    else opts[el.dataset.opt]=el.type==='number'?parseInt(el.value)||0:el.value;
+  });
+  // Fill defaults
+  if(task.opts)task.opts.forEach(function(o){if(opts[o.id]===undefined)opts[o.id]=o.def});
+  var html=task.gen(opts);
+  showResult(task.title,html);
+}
+renderDo();
+
+// ═══ MAKE MODE — language builder (simplified) ═══
+var MCFG={name:'My Language',cats:['structure','data','flow','output']};
+function renderMake(){
+  var allCats=['structure','data','flow','output','draw','sound','physics','interactive'];
+  var html='<div class="do-label">Language Name</div><input class="do-input" value="'+MCFG.name+'" oninput="MCFG.name=this.value" style="margin-bottom:16px">';
+  html+='<div class="do-label">Categories</div><div class="do-chips">';
+  allCats.forEach(function(c){html+='<div class="do-chip '+(MCFG.cats.indexOf(c)>=0?'sel':'')+'" onclick="var i=MCFG.cats.indexOf(\''+c+'\');if(i>=0)MCFG.cats.splice(i,1);else MCFG.cats.push(\''+c+'\');renderMake()">'+c+'</div>';});
+  html+='</div>';
+  html+='<button class="btn btn-primary" onclick="makeGenerate()">&#9889; Generate Language</button>';
+  document.getElementById('makeSteps').innerHTML=html;
+}
+function makeGenerate(){
+  // Reuse the simplified language generator from Material v1
+  var CAT_TYPES={structure:[{id:'queen',name:'Entry',color:'#c9a227',icon:'\u265b',isEntry:1,def:'main'},{id:'worker',name:'Group',color:'#b47832',icon:'\u2b21',def:'MyGroup'},{id:'call',name:'Call',color:'#dca03c',icon:'\u2197',def:'MyGroup'}],data:[{id:'var',name:'Variable',color:'#1a8fd6',def:'x = 0'},{id:'array',name:'Array',color:'#1a6fb0',icon:'[]',def:'arr = [1,2,3]'},{id:'math',name:'Math',color:'#2db5a0',icon:'\u03a3',def:'x + 1'}],flow:[{id:'cond',name:'If',color:'#d4384a',icon:'?',def:'x > 0'},{id:'loop_start',name:'Loop',color:'#d48a15',icon:'\u21bb',def:'3',isWall:1},{id:'loop_end',name:'End',color:'#b07212',icon:'\u21ba',def:'',isWall:1},{id:'while',name:'While',color:'#c47a10',icon:'\u27f3',def:'x < 10'}],output:[{id:'print',name:'Print',color:'#22b06a',icon:'\u25b8',def:'"Hello"'},{id:'comment',name:'Comment',color:'#7a7e8a',icon:'#',def:'note',isInert:1}],draw:[{id:'canvas',name:'Canvas',color:'#e06020',icon:'\ud83c\udfa8',def:'400 300'},{id:'draw',name:'Draw',color:'#e08030',icon:'\u270f',def:'circle 200 150 50'},{id:'style',name:'Style',color:'#d07028',icon:'\ud83d\udd8c',def:'fill #ff6600'}],sound:[{id:'synth',name:'Synth',color:'#d44090',icon:'\u266a',def:'sine'},{id:'note',name:'Note',color:'#e050a0',icon:'\u266b',def:'C4 8n'}],physics:[{id:'world',name:'World',color:'#55a040',icon:'\ud83c\udf0d',def:'400 300 1'},{id:'pbody',name:'Body',color:'#60b050',icon:'\u25cf',def:'circle 200 50 25'}],interactive:[{id:'input',name:'Input',color:'#17a88f',icon:'\u2328',def:'name'},{id:'slider',name:'Slider',color:'#9966dd',icon:'\u25c9',def:'val 0 100 50'}]};
+  var types=[];MCFG.cats.forEach(function(c){if(CAT_TYPES[c])types=types.concat(CAT_TYPES[c].map(function(t){return Object.assign({cat:c},t)}))});
+  types.push({id:'space',name:'Spacer',color:'#8a8e9a',icon:'',def:'',isInert:1,cat:'layout'});
+  var ec=(types.find(function(t){return t.isEntry})||{color:'#c9a227'}).color;
+  var tj=JSON.stringify(types);
+  // Generate (same as Material v1 buildLang)
+  var st={bg:'#ddd8d0',grid:'#b8a898',surface:'#fff',text:'#1a1c20',muted:'#888d9b'};
+  var html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"><title>${MCFG.name}</title><link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Outfit:wght@300;500;700&display=swap" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box}:root{--bg:${st.bg};--surface:${st.surface};--border:${st.grid};--text:${st.text};--muted:${st.muted}}body{background:var(--bg);color:var(--text);font-family:Outfit,sans-serif;height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column;touch-action:none;user-select:none}header{display:flex;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;gap:8px}.logo{font-family:Space Mono,monospace;font-size:14px;font-weight:700;color:${ec};letter-spacing:1px}.hb{margin-left:auto;display:flex;gap:6px}.hb button{font-family:Space Mono,monospace;font-size:11px;padding:6px 12px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;cursor:pointer}.run-btn{background:${ec}!important;color:#fff!important;border:none!important;font-weight:700}.fb{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);height:44px;z-index:99}.fb-t{padding:0 12px;font-family:Space Mono,monospace;font-size:12px;font-weight:700;cursor:pointer;height:100%;display:flex;align-items:center;gap:6px;border-right:1px solid var(--border)}.fb-i{flex:1;border:none;background:transparent;padding:0 12px;height:100%;font-family:Space Mono,monospace;font-size:14px;color:var(--text);outline:none}.cw{flex:1;position:relative;overflow:hidden;background:var(--bg)}svg.gs{width:100%;height:100%;position:absolute}.sh{position:absolute;bottom:0;left:0;right:0;background:var(--surface);border-radius:16px 16px 0 0;z-index:200;transform:translateY(100%);transition:transform .3s;max-height:85vh;display:flex;flex-direction:column}.sh.open{transform:translateY(0)}.shh{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}.shb{flex:1;overflow-y:auto;padding:12px 18px}.ol{font-family:Space Mono,monospace;font-size:12px;padding:3px 0}.ol.info{color:var(--muted)}.ol.err{color:#d44}.dd{position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.15);z-index:300;max-height:60vh;overflow-y:auto;display:none;min-width:180px}.dd.open{display:block}.dc{padding:8px 14px;font-size:9px;font-weight:700;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}.di{padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:12px}.ddt{width:10px;height:10px;border-radius:50%;flex-shrink:0}.zi{position:absolute;bottom:12px;right:12px;font-family:Space Mono,monospace;font-size:10px;color:var(--muted);background:var(--surface);padding:4px 10px;border-radius:6px;border:1px solid var(--border);z-index:50;pointer-events:none}</style></head><body><header><div class="logo">${MCFG.name.toUpperCase()}</div><div class="hb"><button onclick="clearAll()">Clear</button><button class="run-btn" onclick="runProgram()">&#9654; Run</button></div></header><div class="fb"><div class="fb-t" id="fbT" onclick="openDD()"><span id="fbD" style="width:8px;height:8px;border-radius:50%;display:none"></span><span id="fbN">tap a tile</span> &#9662;</div><input class="fb-i" id="fbI" placeholder="tap to edit" autocomplete="off"/></div><div class="cw" id="cw"><svg class="gs" id="svg"><g id="gL"></g><g id="eL"></g><g id="hL"></g></svg><div class="zi" id="zi">100%</div></div><div class="sh" id="oS"><div class="shh"><span>Output</span><button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="closeS('oS')">&times;</button></div><div class="shb" id="oB"></div></div><div class="dd" id="tDD"></div><`+`script>var SZ=30,HW=Math.sqrt(3)*SZ,HH=2*SZ,GR=20;var TYPES=${tj};var TM={};TYPES.forEach(function(t){TM[t.id]=t});var nodes=[],nid=0,sel=null,panX=0,panY=0,zm=1;var gL=document.getElementById('gL'),eL=document.getElementById('eL'),hL=document.getElementById('hL'),fbI=document.getElementById('fbI');function hv(cx,cy,s){var a=[];for(var i=0;i<6;i++){var an=Math.PI/180*(60*i-30);a.push({x:cx+s*Math.cos(an),y:cy+s*Math.sin(an)})}return a}function hp(cx,cy,s){return hv(cx,cy,s).map(function(v){return v.x+','+v.y}).join(' ')}function a2p(q,r){return{x:HW*(q+r*0.5),y:HH*r*0.75}}function p2a(x,y){var r=y/(HH*0.75);return{q:Math.round(x/HW-r*0.5),r:Math.round(r)}}var CW=[{dq:0,dr:-1},{dq:1,dr:-1},{dq:1,dr:0},{dq:0,dr:1},{dq:-1,dr:1},{dq:-1,dr:0}];function dk(c,f){var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),b=parseInt(c.slice(5,7),16);return'#'+[r,g,b].map(function(v){return Math.round(v*f).toString(16).padStart(2,'0')}).join('')}function lt(c,f){var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),b=parseInt(c.slice(5,7),16);return'#'+[r,g,b].map(function(v){return Math.min(255,Math.round(v*(1+f))).toString(16).padStart(2,'0')}).join('')}function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}function dGrid(){var sv=document.getElementById('svg'),w=sv.clientWidth,h=sv.clientHeight;sv.setAttribute('viewBox',(panX-w/(2*zm))+' '+(panY-h/(2*zm))+' '+w/zm+' '+h/zm);var s='';for(var q=-GR;q<=GR;q++)for(var r=-GR;r<=GR;r++){if(Math.abs(q+r)>GR)continue;var p=a2p(q,r);s+='<polygon points="'+hp(p.x,p.y,SZ-1)+'" fill="none" stroke="${st.grid}" stroke-width="0.7" opacity="0.5"/>';}gL.innerHTML=s}function dHex(){var s='';for(var i=0;i<nodes.length;i++){var n=nodes[i],p=a2p(n.q,n.r),t=TM[n.type];if(!t)continue;var isE=!!t.isEntry,isSel=sel&&sel.id===n.id,isIn=!!t.isInert;s+='<g data-id="'+n.id+'">';if(isSel){s+='<polygon points="'+hp(p.x,p.y,SZ+3)+'" fill="none" stroke="#fff" stroke-width="2.5" opacity="0.8"/>';s+='<polygon points="'+hp(p.x,p.y,SZ+5)+'" fill="none" stroke="'+t.color+'" stroke-width="1" opacity="0.4"/>';}if(isIn){s+='<polygon points="'+hp(p.x,p.y,SZ-1)+'" fill="#c8ccd4" opacity="0.2" stroke="#b0b4bc" stroke-width="1"/>';}else{s+='<polygon points="'+hp(p.x,p.y,SZ-1)+'" fill="'+lt(t.color,0.15)+'" opacity="'+(isE?.85:.75)+'" stroke="'+lt(t.color,0.3)+'" stroke-width="'+(isE?2.5:2)+'"/>';s+='<polygon points="'+hp(p.x,p.y,SZ-5)+'" fill="'+dk(t.color,0.55)+'" opacity="'+(isE?.95:.9)+'" stroke="none"/>';}if(t.icon&&isE)s+='<text x="'+p.x+'" y="'+(p.y-10)+'" text-anchor="middle" font-size="11" fill="'+t.color+'">'+t.icon+'</text>';else if(t.icon&&!isIn)s+='<text x="'+(p.x+13)+'" y="'+(p.y-9)+'" text-anchor="middle" font-size="7" fill="#fff" opacity="0.5">'+t.icon+'</text>';if(!isIn){var lb=n.label.length>8?n.label.slice(0,7)+'\\u2026':n.label;s+='<text x="'+p.x+'" y="'+(isE?p.y+5:p.y+1)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-family="Space Mono,monospace" font-size="8" font-weight="700">'+esc(lb)+'</text>';}s+='</g>';}hL.innerHTML=s}function dEdge(){var s='';for(var i=0;i<nodes.length;i++){var a=nodes[i],pa=a2p(a.q,a.r),ta=TM[a.type];if(!ta||ta.isInert)continue;for(var j=i+1;j<nodes.length;j++){var b=nodes[j],tb=TM[b.type];if(!tb||tb.isInert)continue;for(var d=0;d<CW.length;d++){if(a.q+CW[d].dq===b.q&&a.r+CW[d].dr===b.r){var pb=a2p(b.q,b.r);s+='<line x1="'+pa.x+'" y1="'+pa.y+'" x2="'+pb.x+'" y2="'+pb.y+'" stroke="'+ta.color+'" stroke-width="3" opacity="0.8" stroke-linecap="round"/>';s+='<line x1="'+pa.x+'" y1="'+pa.y+'" x2="'+pb.x+'" y2="'+pb.y+'" stroke="'+ta.color+'" stroke-width="8" opacity="0.12" stroke-linecap="round"/>';}}}}eL.innerHTML=s}function redraw(){dGrid();dHex();dEdge()}document.getElementById('cw').addEventListener('click',function(e){var sv=document.getElementById('svg'),rc=sv.getBoundingClientRect(),vb=sv.viewBox.baseVal;var sx=(e.clientX-rc.left)/rc.width*vb.width+vb.x,sy=(e.clientY-rc.top)/rc.height*vb.height+vb.y;var ax=p2a(sx,sy),ex=nodes.find(function(n){return n.q===ax.q&&n.r===ax.r});if(ex){sel=ex;upFB();redraw()}else{var n={id:nid++,type:'space',q:ax.q,r:ax.r,label:''};nodes.push(n);sel=n;upFB();openDD();redraw()}});function upFB(){var d=document.getElementById('fbD'),nm=document.getElementById('fbN');if(!sel){d.style.display='none';nm.textContent='tap a tile';fbI.value='';return}var t=TM[sel.type];if(t){d.style.display='inline-block';d.style.background=t.color;nm.textContent=t.name}else{d.style.display='none';nm.textContent='Spacer'}fbI.value=sel.label}fbI.addEventListener('input',function(){if(sel){sel.label=this.value;redraw()}});function openDD(){var dd=document.getElementById('tDD'),s='',lc='';for(var i=0;i<TYPES.length;i++){var t=TYPES[i];if(t.cat!==lc){lc=t.cat;s+='<div class="dc">'+t.cat+'</div>';}s+='<div class="di" onclick="pickT(\\x27'+t.id+'\\x27)"><div class="ddt" style="background:'+t.color+'"></div>'+(t.icon||'')+' '+t.name+'</div>';}dd.innerHTML=s;dd.classList.add('open');dd.style.left='8px';dd.style.top='88px'}function closeDD(){document.getElementById('tDD').classList.remove('open')}function pickT(id){if(!sel)return;sel.type=id;var t=TM[id];if(t&&!sel.label)sel.label=t.def||'';closeDD();upFB();redraw()}document.addEventListener('click',function(e){if(!e.target.closest('.dd')&&!e.target.closest('.fb-t'))closeDD()});function runProgram(){var vars={},lines=[];var entry=nodes.find(function(n){return TM[n.type]&&TM[n.type].isEntry});if(!entry){lines.push({text:'No entry tile.',type:'err'});openO(lines);return}lines.push({text:'\\u265b Running '+entry.label,type:'info'});var visited={},queue=[entry],order=[];visited[entry.id]=1;while(queue.length){var cur=queue.shift();order.push(cur);for(var d=0;d<CW.length;d++){var nb=nodes.find(function(n){return n.q===cur.q+CW[d].dq&&n.r===cur.r+CW[d].dr});if(nb&&!visited[nb.id]){visited[nb.id]=1;if(!TM[nb.type]||!TM[nb.type].isInert)queue.push(nb)}}}function rv(str){var o=str;for(var k in vars){var v=vars[k];o=o.replace(new RegExp('\\\\b'+k+'\\\\b','g'),typeof v==='string'?v:JSON.stringify(v))}return o}for(var i=0;i<order.length;i++){var nd=order[i],tp=nd.type;if(tp==='queen')lines.push({text:'\\u265b '+nd.label,type:'info'});else if(tp==='print'){var v=nd.label.replace(/^["']/,'').replace(/["']$/,'');v=rv(v);lines.push({text:'\\u25b8 '+v,type:''})}else if(tp==='var'||tp==='array'){var m=nd.label.match(/(\\w+)\\s*=\\s*(.+)/);if(m){var val=m[2].trim();val=rv(val);try{val=eval(val)}catch(e){}vars[m[1]]=val;lines.push({text:'  '+m[1]+' = '+JSON.stringify(val),type:'info'})}}else if(tp==='math'){try{var m=nd.label.match(/^(\\w+)\\s*=\\s*(.+)/);if(m){var r=eval(rv(m[2]));vars[m[1]]=r;lines.push({text:'  \\u03a3 '+m[1]+' = '+r,type:'info'})}else{lines.push({text:'  \\u03a3 '+eval(rv(nd.label)),type:'info'})}}catch(e){lines.push({text:'  Math error',type:'err'})}}else if(tp==='comment'){}else if(nd.label)lines.push({text:'  '+nd.label,type:'info'})}if(lines.length<=1)lines.push({text:'No output.',type:'info'});openO(lines)}function openO(lines){document.getElementById('oB').innerHTML=lines.map(function(l){return'<div class="ol '+l.type+'">'+l.text+'</div>'}).join('');document.getElementById('oS').classList.add('open')}function closeS(id){document.getElementById(id).classList.remove('open')}function clearAll(){nodes=[];nid=0;sel=null;closeDD();upFB();redraw();closeS('oS')}document.getElementById('cw').addEventListener('wheel',function(e){e.preventDefault();if(e.ctrlKey||e.metaKey){zm*=e.deltaY>0?0.9:1.1;zm=Math.max(0.3,Math.min(3,zm))}else{panX+=e.deltaX/zm;panY+=e.deltaY/zm}document.getElementById('zi').textContent=Math.round(zm*100)+'%';redraw()},{passive:false});redraw();<`+`/script></body></html>`;
+  showResult(MCFG.name,html);
+}
+renderMake();
+getKey();
+</script>
+</body>
+</html>
