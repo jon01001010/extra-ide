@@ -56,6 +56,8 @@ button.primary kbd { color: inherit; opacity: 0.75; }
 #src:focus-visible { outline: none; }
 #out { flex: 1; overflow: auto; padding: 12px; font: 13px/20px var(--mono); }
 #out pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+#screen { display: none; width: 100%; height: auto; image-rendering: pixelated; background: #000; border-bottom: 1px solid var(--border); }
+#screen.on { display: block; }
 .status { font: 12px var(--sans); padding: 3px 9px; border-radius: 99px; }
 .status.ok { background: var(--ok-soft); color: var(--ok); }
 .status.bad { background: var(--err-soft); color: var(--err); }
@@ -125,6 +127,7 @@ tr:last-child td { border-bottom: 0; }
       </div>
       <div class="card">
         <div class="bar"><span class="title">Output</span><span class="status idle" id="status">not run</span></div>
+        <canvas id="screen" width="240" height="150" aria-label="Frames"></canvas>
         <div id="out"><span class="muted">Run the program to see show output, checks and errors.</span></div>
       </div>
     </div>
@@ -175,7 +178,8 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 (rec Pair [a ?a b ?b])
 (sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])
 (rec Sh [code Num out Str err Str])
-(rec Http [status Num body Str])`;
+(rec Http [status Num body Str])
+(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str]])`;
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -230,7 +234,11 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        effects live in io.* only. args evaluate left to right, forms top to bottom.
        a regex written as a literal is checked before anything runs (E12).
 
-HOSTS  node: files, shell, http, stdin, args, env.  browser: memory files, http.
+DRAW   a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
+       x right, y down, color is css text or (rgb r g b). (io.frame w h shapes) adds one frame.
+       the host shows the frames as a loop. a program makes them all, then ends.
+
+HOSTS  node: files, shell, http, stdin, args, env.  browser: memory files, http, frames.
        what a host lacks = E13. what a host tried and could not do = E19.
 
 ERRORS check phase  E1-E8 E12 E18   every error reported at once, each with its line. nothing runs.
@@ -275,6 +283,7 @@ Pair type 2 @A,@B ! Pair.a Pair.b
 Json type ! ! ! JNull JBool JNum JStr JArr JObj
 Sh type ! ! ! Sh.code Sh.out Sh.err
 Http type ! ! ! Http.status Http.body
+Draw type ! ! ! Line x1 y1 x2 y2 color. Box x y w h color. Dot x y color
 pi num ! ! Num a value. not a call
 neg num 1 Num Num !
 abs num 1 Num Num !
@@ -401,6 +410,7 @@ fix str 2 Num,Num Str x with d decimals
 radix str 2 Num,Num Str whole n in base 2..36
 pradix str 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
+rgb str 3 Num,Num,Num Str css color. each clamped to 0..255
 utf8 str 1 Str @Vec.Num bytes
 unutf8 str 1 @Vec.Num Str E15 bad bytes
 b64.enc str 1 Str Str utf8 then base64
@@ -453,6 +463,7 @@ io.http io 4 Str,Str,@Map,Str Http method url headers body. status is data
 io.now io 0 ! Num ms since 1970
 io.rand io 0 ! Num 0..1. not seeded
 io.sleep io 1 Num Num ms
+io.frame io 3 Num,Num,@Vec.Draw Num width height shapes. frames so far
 E1 err ! ! ! check. unknown name. nearest known
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -1446,6 +1457,7 @@ def("date.iso", "Num -> Str", ([ms]) => { const d = new Date(ms); return Number.
 def("date.parse", "Str -> Num", ([s]) => { const v = Date.parse(s); return Number.isNaN(v) ? R("E15", `date.parse cannot read ${quote(s)}`) : v; });
 
 /* ---- v2: io. every effect goes through the host, so a host decides what a program may touch */
+def("rgb", "Num Num Num -> Str", (v) => "#" + v.map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0")).join(""));
 let HOST = null, EMIT = null;
 function io(name, ...a) {
   const h = HOST && HOST[name];
@@ -1476,6 +1488,10 @@ def("io.http", "Str Str (Map Str Str) Str -> Http", ([method, url, hs, body]) =>
   const r = io("http", method.toUpperCase(), url, tnodes(hs.root).map(n => [n.key, n.val]), body);
   return RV("Http", [r.status, String(r.body)]);
 });
+def("io.frame", "Num Num (Vec Draw) -> Num", ([w, h, v]) => {
+  if (!(w >= 1 && h >= 1 && w <= 4096 && h <= 4096)) R("E17", `io.frame: size ${fmtNum(w)} x ${fmtNum(h)} outside 1..4096`);
+  return io("frame", w, h, v.map(s => [s.name, ...s.vals]));
+});
 def("io.now", "-> Num", () => io("now"));
 def("io.rand", "-> Num", () => io("rand"));
 def("io.sleep", "Num -> Num", ([ms]) => { if (!(ms >= 0)) R("E17", "io.sleep: ms must be >= 0"); io("sleep", ms); return ms; });
@@ -1484,6 +1500,7 @@ function memHost(files = {}) {       // files live in memory. the browser host, 
   const F = new Map(Object.entries(files)), norm = p => p.replace(/^\.\//, "").replace(/\/+$/, "");
   const get = p => { p = norm(p); if (!F.has(p)) throw new Error(`no such file ${p}`); return F.get(p); };
   const text = v => typeof v === "string" ? v : new TextDecoder().decode(v);
+  const frames = [];
   const inDir = d => { d = norm(d); const pre = d === "" || d === "." ? "" : d + "/"; return [...F.keys()].filter(k => k.startsWith(pre)).map(k => k.slice(pre.length)); };
   return {
     name: "memory",
@@ -1498,6 +1515,7 @@ function memHost(files = {}) {       // files live in memory. the browser host, 
     readb: p => { const v = get(p); return typeof v === "string" ? new TextEncoder().encode(v) : v; },
     writeb: (p, u8) => { F.set(norm(p), u8); },
     stdin: () => "", args: () => [], env: () => null,
+    frames, frame: (w, h, shapes) => { if (frames.length >= 2000) throw new Error("over the 2000 frame cap"); return frames.push({ w, h, shapes }); },
     now: () => Date.now(), rand: () => Math.random(),
   };
 }
@@ -2057,7 +2075,7 @@ const TESTS = [
   ["all check errors at once", '(show (lenn 1))\n(show (+ 1 "a"))\n(show (if true 1 "b"))', "!E1,E4,E5"],
   ["nothing runs after a check error", '(show 1)\n(show (+ 1 "a"))', "!E4"],
   ["run stops at first error", "(show 1)\n(show (/ 1 0))\n(show (get [] 0))", "!E17"],
-  ["sum + match", "(sum Shape [Circle [Num] Rect [Num Num] Dot []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Dot 0))\n(show (map area [(Circle 2) (Rect 2 3) Dot]))\n(show Dot)\n(show (Circle 1))", "[4 6 0]\nDot\n(Circle 1)"],
+  ["sum + match", "(sum Shape [Circle [Num] Rect [Num Num] Point []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Point 0))\n(show (map area [(Circle 2) (Rect 2 3) Point]))\n(show Point)\n(show (Circle 1))", "[4 6 0]\nPoint\n(Circle 1)"],
   ["match literals", '(fn nm [n Num] Str (match n 0 "zero" 1 "one" _ "many"))\n(show (map nm [0 1 5]))\n(show (match true true 1 false 0))\n(show (match "b" "a" 1 _ 2))', '["zero" "one" "many"]\n1\n2'],
   ["match rec", "(rec P [x Num y Num])\n(show (match (P 1 2) (P a _) a))", "1"],
   ["match is a tail call", "(fn cnt [n Num] Num (match (= n 0) true 0 false (cnt (- n 1))))\n(show (cnt 50000))", "0"],
@@ -2071,9 +2089,9 @@ const TESTS = [
   ["E5 match arms", '(show (match (Some 1) (Some x) x None "a"))', "!E5"],
   ["E3 pattern shadows", "(let x 1)\n(show (match (Some 1) (Some x) x None 0))", "!E3"],
   ["E12 nested pattern", "(show (match (Some (Some 1)) (Some (Some x)) x _ 0))", "!E12"],
-  ["generic rec", '(rec Box [v ?a])\n(fn unbox [b (Box ?a)] ?a (Box.v b))\n(show (unbox (Box "s")))\n(show (Box.v (Box 2)))', "s\n2"],
+  ["generic rec", '(rec Cell [v ?a])\n(fn uncell [b (Cell ?a)] ?a (Cell.v b))\n(show (uncell (Cell "s")))\n(show (Cell.v (Cell 2)))', "s\n2"],
   ["generic sum", "(sum Tree [Leaf [] Node [(Tree ?a) ?a (Tree ?a)]])\n(fn size [t (Tree ?a)] Num (match t Leaf 0 (Node l _ r) (+ 1 (+ (size l) (size r)))))\n(show (size (Node Leaf 1 (Node Leaf 2 Leaf))))", "2"],
-  ["E4 type args", "(rec Box [v ?a])\n(fn f [b Box] Num 1)\n(fn g [b (Box Num Num)] Num 1)", "!E4,E4"],
+  ["E4 type args", "(rec Cell [v ?a])\n(fn f [b Cell] Num 1)\n(fn g [b (Cell Num Num)] Num 1)", "!E4,E4"],
   ["E3 ctor and type names", "(sum A [B []])\n(let B 1)\n(let A 2)\n(sum C [B []])", "!E3,E3,E3"],
   ["E4 nullary ctor called", "(show (None))", "!E4"],
   ["Opt", '(show (first [1 2]))\n(show (first []))\n(show (else (last [1 2]) 0))\n(show (else (mget {} "k") 7))\n(show (map Some [1]))', "(Some 1)\nNone\n2\n7\n[(Some 1)]"],
@@ -2119,6 +2137,9 @@ const TESTS = [
   ["use reports the file", '(use "bad.tact")\n(show 1)', "!E4@bad.tact:2", { "bad.tact": '(let p 1)\n(let q (+ 1 "a"))' }],
   ["E12 use unreadable", '(use "nope.tact")\n(show 1)', "!E12"],
   ["E8 top form inside", "(show (sum X [A []]))", "!E8"],
+  ["frames", '(show (rgb 255 0 300.4))\n(show (for [t (range 3)] (io.frame 8 8 [(Box 0 0 8 8 "black") (Line 0 0 t t (rgb 9 9 9)) (Dot t 1 "red")])))', "#ff00ff\n[1 2 3]"],
+  ["E4 frame takes shapes", "(show (io.frame 8 8 [1 2]))", "!E4"],
+  ["E17 frame size", "(show (io.frame 0 8 []))", "!E17"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
@@ -2256,15 +2277,15 @@ const EXAMPLES = {
           vsum))
 `,
   "Sums + match": `; a sum lists every shape a value can take. match must cover them all.
-(sum Shape [Circle [Num]  Rect [Num Num]  Dot []])
+(sum Shape [Circle [Num]  Rect [Num Num]  Point []])
 
 (fn area [s Shape] Num
   (match s
     (Circle r) (* pi (* r r))
     (Rect w h) (* w h)
-    Dot        0))
+    Point      0))
 
-(show (map area [(Circle 1) (Rect 2 3) Dot]))
+(show (map area [(Circle 1) (Rect 2 3) Point]))
 
 ; Opt and Res are built in. nothing is ever null, nothing throws past a try.
 (fn safe-div [a Num b Num] (Opt Num)
@@ -2330,6 +2351,84 @@ const EXAMPLES = {
 ; the browser has no shell: E13 as a value
 (show (try (io.sh "ls")))
 ; tact lib/stats.tact in the box below runs a memory file. (use ..) imports one.
+`,
+  "3D: raycast": `; a frame is a value: a vector of Draw. io.frame hands one to the host, which loops them.
+(let W 240) (let H 150) (let cols 120) (let frames 48)
+(let world ["############"
+            "#..........#"
+            "#.#......#.#"
+            "#..........#"
+            "#..........#"
+            "#.....#....#"
+            "#..........#"
+            "#.#......#.#"
+            "#..........#"
+            "############"])
+(let grid (for [row world] (for [c (split row "")] (if (same c "#") 1 0))))
+
+(rec Hit [dist Num side Num])
+
+; walk the grid one cell edge at a time until a wall. a tail call, so no depth cost.
+(fn dda [mx Num my Num sx Num sy Num dx Num dy Num ix Num iy Num side Num] Hit
+  (if (= (get (get grid my) mx) 1)
+    (Hit (if (= side 0) (- sx dx) (- sy dy)) side)
+    (if (< sx sy)
+      (dda (+ mx ix) my (+ sx dx) sy dx dy ix iy 0)
+      (dda mx (+ my iy) sx (+ sy dy) dx dy ix iy 1))))
+
+(fn cast [px Num py Num ang Num] Hit
+  (with [rx (cos ang)  ry (sin ang)
+         dx (/ 1 (max 1e-9 (abs rx)))  dy (/ 1 (max 1e-9 (abs ry)))
+         mx (floor px)  my (floor py)
+         sx (* dx (if (< rx 0) (- px mx) (- (+ mx 1) px)))
+         sy (* dy (if (< ry 0) (- py my) (- (+ my 1) py)))]
+    (dda mx my sx sy dx dy (if (< rx 0) -1 1) (if (< ry 0) -1 1) 0)))
+
+(fn column [i Num px Num py Num dir Num] Draw
+  (with [off (- (/ i cols) 0.5)
+         hit (cast px py (+ dir off))
+         d (max 0.05 (* (Hit.dist hit) (cos off)))
+         tall (min H (/ H d))
+         lum (/ (if (= (Hit.side hit) 0) 235 165) (+ 1 (* d 0.22)))]
+    (Box (* i (/ W cols)) (/ (- H tall) 2) (/ W cols) tall (rgb lum (* lum 0.82) (* lum 0.62)))))
+
+(fn frame [t Num] (Vec Draw)
+  (with [a (* t (/ (* 2 pi) frames))
+         px (+ 6 (* 2.5 (cos a)))  py (+ 5 (* 1.5 (sin a)))]
+    (concat [(Box 0 0 W (/ H 2) "#1b2430") (Box 0 (/ H 2) W (/ H 2) "#3a3128")]
+            (for [i (range cols)] (column i px py (+ a 2.1))))))
+
+(do (for [t (range frames)] (io.frame W H (frame t))))
+(show (cat frames " frames, " cols " rays each"))
+`,
+  "3D: wire cube": `; lines only: 8 corners, 12 edges, turned and projected, 60 frames on a loop
+(let W 240) (let H 180) (let n 60)
+(let verts (for [x [-1 1] y [-1 1] z [-1 1]] [x y z]))
+(let edges (for [p (pairs 0 8)]
+             (= 1 (vsum (map2 (fun [a b] (if (= a b) 0 1)) (get verts (get p 0)) (get verts (get p 1)))))
+             p))
+(check (len edges) 12)
+
+(fn spin [v (Vec Num) a Num b Num] (Vec Num)
+  (with [x (get v 0)  y (get v 1)  z (get v 2)
+         x1 (- (* x (cos a)) (* z (sin a)))   z1 (+ (* x (sin a)) (* z (cos a)))
+         y1 (- (* y (cos b)) (* z1 (sin b)))  z2 (+ (* y (sin b)) (* z1 (cos b)))]
+    [x1 y1 z2]))
+
+(fn project [v (Vec Num)] (Vec Num)
+  (with [k (/ 150 (+ 4 (get v 2)))]
+    [(+ (/ W 2) (* k (get v 0))) (+ (/ H 2) (* k (get v 1)))]))
+
+(fn frame [t Num] (Vec Draw)
+  (with [a (* t (/ (* 2 pi) n))
+         ps (map (fun [v] (project (spin v a (* 2 a)))) verts)]
+    (concat [(Box 0 0 W H "#10141a")]
+            (for [e edges]
+              (with [p (get ps (get e 0))  q (get ps (get e 1))]
+                (Line (get p 0) (get p 1) (get q 0) (get q 1) "#7fe0c0"))))))
+
+(do (for [t (range n)] (io.frame W H (frame t))))
+(show (cat n " frames, " (len edges) " lines each"))
 `,
   "Generics + records": `(rec Tree [v Num kids (Vec Tree)])
 
@@ -2443,6 +2542,32 @@ sel.append(el("option", null, "Examples…"));
 for (const k of Object.keys(EXAMPLES)) { const o = el("option", null, k); o.value = k; sel.append(o); }
 sel.addEventListener("change", () => { if (EXAMPLES[sel.value]) { src.value = EXAMPLES[sel.value]; gutter(); store.set("tact.src", src.value); runEditor(); } sel.selectedIndex = 0; });
 
+/* ---------- frames: whatever io.frame collected, looped at 24 a second */
+const screen = $("#screen"), g2 = screen.getContext("2d");
+let playing = 0;
+function paint(f) {
+  if (screen.width !== f.w || screen.height !== f.h) { screen.width = f.w; screen.height = f.h; }
+  g2.clearRect(0, 0, f.w, f.h);
+  for (const s of f.shapes) {
+    if (s[0] === "Line") { g2.strokeStyle = s[5]; g2.beginPath(); g2.moveTo(s[1], s[2]); g2.lineTo(s[3], s[4]); g2.stroke(); }
+    else if (s[0] === "Box") { g2.fillStyle = s[5]; g2.fillRect(s[1], s[2], s[3], s[4]); }
+    else { g2.fillStyle = s[3]; g2.fillRect(s[1], s[2], 1, 1); }
+  }
+}
+function play() {
+  const frames = host.frames.slice(), id = ++playing;
+  screen.classList.toggle("on", frames.length > 0);
+  if (!frames.length) return;
+  const t0 = performance.now(); let last = -1;
+  const tick = now => {
+    if (id !== playing) return;
+    const i = Math.floor(Math.max(0, now - t0) / (1000 / 24)) % frames.length;
+    if (i !== last) { paint(frames[i]); last = i; }
+    if (frames.length > 1) requestAnimationFrame(tick);
+  };
+  paint(frames[0]); requestAnimationFrame(tick);
+}
+
 /* ---------- run + render */
 function setStatus(kind, text) { status.className = "status " + kind; status.textContent = text; }
 function renderResult(r, ms) {
@@ -2466,8 +2591,9 @@ function renderResult(r, ms) {
   }
 }
 function runEditor() {
+  host.frames.length = 0;
   const t0 = performance.now(); const r = T.run(src.value, { io: host });
-  renderResult(r, performance.now() - t0);
+  renderResult(r, performance.now() - t0); play();
 }
 function showText(text, isErr) { out.replaceChildren(el("pre", null, text)); }
 $("#runbtn").addEventListener("click", runEditor);
@@ -2482,7 +2608,8 @@ function splitArgs(s) {
 }
 function cliRun(args) {
   const t0 = performance.now();
-  const r = T.cli(args, cliHost);
+  host.frames.length = 0;
+  const r = T.cli(args, cliHost); play();
   if (r.result && args[0] !== "--show") { renderResult(r.result, performance.now() - t0); return; }
   out.replaceChildren();
   if (r.out) out.append(el("pre", null, r.out));
