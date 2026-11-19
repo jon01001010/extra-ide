@@ -58,6 +58,9 @@ button.primary kbd { color: inherit; opacity: 0.75; }
 #out pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 #screen { display: none; width: 100%; height: auto; image-rendering: pixelated; background: #000; border-bottom: 1px solid var(--border); }
 #screen.on { display: block; }
+#files { display: none; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); flex-wrap: wrap; align-items: center; font: 12px var(--sans); color: var(--muted); }
+#files.on { display: flex; }
+#files a { color: var(--accent); font: 12px var(--mono); padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; }
 .status { font: 12px var(--sans); padding: 3px 9px; border-radius: 99px; }
 .status.ok { background: var(--ok-soft); color: var(--ok); }
 .status.bad { background: var(--err-soft); color: var(--err); }
@@ -129,6 +132,7 @@ tr:last-child td { border-bottom: 0; }
         <div class="bar"><span class="title">Output</span><span class="status idle" id="status">not run</span></div>
         <canvas id="screen" width="240" height="150" aria-label="Frames"></canvas>
         <div id="out"><span class="muted">Run the program to see show output, checks and errors.</span></div>
+        <div id="files"></div>
       </div>
     </div>
     <form class="cli" id="cliform" autocomplete="off">
@@ -1504,21 +1508,36 @@ function asciiArt(w, h, px, cols) {
   }
   return out.join("\n");
 }
-function png(w, h, rgb) {            // 8 bit rgb. zlib when the host has it, stored blocks when not
-  const raw = new Uint8Array(h * (w * 3 + 1));
-  for (let y = 0; y < h; y++) raw.set(rgb.subarray(y * w * 3, (y + 1) * w * 3), y * (w * 3 + 1) + 1);
-  let z;
-  if (typeof require === "function") z = require("zlib").deflateSync(raw);
-  else {
-    const parts = [Uint8Array.of(0x78, 0x01)]; let a = 1, b = 0;
-    for (const x of raw) { a = (a + x) % 65521; b = (b + a) % 65521; }
-    for (let i = 0; i < raw.length || i === 0; i += 65535) {
-      const n = Math.min(65535, raw.length - i);
-      parts.push(Uint8Array.of(i + n >= raw.length ? 1 : 0, n & 255, n >> 8, ~n & 255, ~n >> 8 & 255), raw.subarray(i, i + n));
+function deflate(raw) {              // small deflate for hosts without zlib: fixed codes, runs of one byte only. enough for flat pictures
+  const out = new Uint8Array(Math.ceil(raw.length * 9 / 8) + 16); let o = 2, acc = 0, nb = 0;
+  out[0] = 0x78; out[1] = 0x01;
+  const bits = (v, n) => { acc |= v << nb; nb += n; while (nb >= 8) { out[o++] = acc & 255; acc >>>= 8; nb -= 8; } };          // lsb first
+  const code = (c, n) => { let r = 0; for (let i = 0; i < n; i++) r |= (c >> i & 1) << n - 1 - i; bits(r, n); };                // huffman codes go msb first
+  const sym = s => s < 144 ? code(0x30 + s, 8) : s < 256 ? code(0x190 + s - 144, 9) : s < 280 ? code(s - 256, 7) : code(0xC0 + s - 280, 8);
+  const LB = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258], LX = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+  bits(1, 1); bits(1, 2);
+  for (let i = 0; i < raw.length;) {
+    let r = 0;
+    if (i > 0) while (i + r < raw.length && raw[i + r] === raw[i - 1]) r++;
+    if (r < 3) { sym(raw[i++]); continue; }
+    while (r >= 3) {
+      const L = Math.min(r, 258); let k = 28; while (LB[k] > L) k--;
+      sym(257 + k); bits(L - LB[k], LX[k]); code(0, 5);
+      i += L; r -= L;
     }
-    parts.push(Uint8Array.of(b >> 8, b & 255, a >> 8, a & 255));
-    z = join8(parts);
   }
+  sym(256); if (nb) bits(0, 8 - nb);
+  let a = 1, b = 0; for (const x of raw) { a = (a + x) % 65521; b = (b + a) % 65521; }
+  out.set([b >> 8, b & 255, a >> 8, a & 255], o);
+  return out.subarray(0, o + 4);
+}
+function png(w, h, rgb, plain) {     // 8 bit rgb, each row stored as differences from the pixel to its left
+  const raw = new Uint8Array(h * (w * 3 + 1));
+  for (let y = 0; y < h; y++) {
+    const r = y * (w * 3 + 1), s = y * w * 3; raw[r] = 1;
+    for (let x = 0; x < w * 3; x++) raw[r + 1 + x] = rgb[s + x] - (x >= 3 ? rgb[s + x - 3] : 0);
+  }
+  const z = !plain && typeof require === "function" ? require("zlib").deflateSync(raw) : deflate(raw);
   const be = n => Uint8Array.of(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255);
   const chunk = (type, data) => {
     const td = join8([Uint8Array.from(type, c => c.charCodeAt(0)), data]); let c = -1;
@@ -1593,7 +1612,7 @@ function memHost(files = {}) {       // files live in memory. the browser host, 
   const frames = [];
   const inDir = d => { d = norm(d); const pre = d === "" || d === "." ? "" : d + "/"; return [...F.keys()].filter(k => k.startsWith(pre)).map(k => k.slice(pre.length)); };
   return {
-    name: "memory",
+    name: "memory", files: F,
     read: p => text(get(p)),
     write: (p, s) => { F.set(norm(p), s); },
     append: (p, s) => { p = norm(p); F.set(p, (F.has(p) ? text(F.get(p)) : "") + s); },
@@ -2324,7 +2343,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
   } catch (x) { return { out: "", err: String(x.message || x), code: 2 }; }
 }
 
-const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost };
+const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png };
 if (typeof module === "object" && module.exports) {
   module.exports = TACT;
   if (typeof require === "function" && require.main === module) {
@@ -2647,7 +2666,19 @@ function paint(f) {
   for (let i = 0, j = 0; i < f.px.length; i += 3, j += 4) { d[j] = f.px[i]; d[j + 1] = f.px[i + 1]; d[j + 2] = f.px[i + 2]; d[j + 3] = 255; }
   g2.putImageData(im, 0, 0);
 }
+function listFiles() {            // every file the program wrote, as a download
+  const box = $("#files"); box.replaceChildren();
+  box.classList.toggle("on", host.files.size > 0);
+  if (!host.files.size) return;
+  box.append(el("span", null, "files · click to download"));
+  for (const [name, v] of host.files) {
+    const a = el("a", null, name); a.href = "#"; a.download = name.split("/").pop();
+    a.addEventListener("click", () => { a.href = URL.createObjectURL(new Blob([v], { type: name.endsWith(".png") ? "image/png" : "text/plain" })); setTimeout(() => URL.revokeObjectURL(a.href), 5000); });
+    box.append(a);
+  }
+}
 function play() {
+  listFiles();
   const frames = host.frames.slice(), id = ++playing;
   screen.classList.toggle("on", frames.length > 0);
   if (!frames.length) return;
