@@ -183,7 +183,7 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
-  re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12)." },
+  re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
   json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
   time: { say: "dates to and from ms", types: "", notes: "" },
   bit: { say: "whole number bit ops", types: "", notes: "" },
@@ -226,11 +226,11 @@ EXPRESSIONS
   (match x (A p q) e1  B e2  _ e3) arm = (Ctor names ..), Ctor, a literal, or _. patterns are flat.
                                    every ctor covered or a last _ arm, else E18. recs match too.
   (with [x e1  y e2] body)         sequential binds. no shadowing
-  (fun [x y] body)                 lambda. types inferred
+  (fun [x y] body)                 lambda. types inferred. _ = a param or for name not used
   (fun [x y] R body)               lambda with declared result type
   (for [x xs  y ys] body)          flat: one vector over every combination
   (for [x xs] guard body)          guard = one Bool expression
-  (-> x f (g 1) (h _ 2))           = (h (g (f x) 1) 2). bare name = call. _ = slot.
+  (-> x f (g 1) (h _ 2))           = (h (g (f x) 1) 2). bare name = call. _ = slot, one a step.
                                    no _ = insert as first arg. expands before check.
   (do a b c)                       in order. value of the last
   (cat a b c)                      one Str. a Str goes in as is, anything else as show prints it
@@ -257,8 +257,9 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        io.print is the one effect in the core. the rest live in packs.
 
 ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with its line. nothing runs.
-       names never change, so a run error that literals, lets and pure builtins make certain
-       is reported in the check phase too, with its own code. not inside try.
+       names never change, so once names and types are clean, a run error that literals, lets and
+       pure builtins make certain is reported in the check phase too. only on code that must run:
+       not in a branch, a fun, a for body, a fn body or a try.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
 CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
@@ -405,8 +406,8 @@ slen str 1 Str Num !
 sget str 2 Str,Num Str by char. E10
 ssub str 3 Str,Num,Num Str by char. 0<=a<=b<=len
 scat str 2 Str,Str Str !
-slt str 2 Str,Str Bool order
-code str 1 Str Num !
+slt str 2 Str,Str Bool by code point
+code str 1 Str Num first char. E10 empty
 chr str 1 Num Str !
 split str 2 Str,Str @Vec.Str sep "" = chars
 lines str 1 Str @Vec.Str \\n or \\r\\n. no empty last
@@ -437,13 +438,13 @@ b64.dec bytes 1 Str Str E15
 re.test re 2 Str,Str Bool pattern s. js unicode regex
 re.find re 2 Str,Str @Vec.@Vec.Str every match. [whole g1 g2 ..]
 re.replace re 3 Str,Str,Str Str pattern s new. every match. $1 = group
-re.split re 2 Str,Str @Vec.Str pattern s
+re.split re 2 Str,Str @Vec.Str pattern s. groups stay in the result
 json.parse json 1 Str Json E15
 json.str json 1 Json Str compact. keys in cmp order
 json.pretty json 1 Json Str 2 space indent
 json.get json 2 Json,Str @Opt.Json field of a JObj
 date.iso time 1 Num Str ms since 1970 to iso utc
-date.parse time 1 Str Num E15
+date.parse time 1 Str Num iso only. a time needs Z or +hh:mm. E15
 bxor bit 2 Num,Num Num ints
 band bit 2 Num,Num Num ints
 bor bit 2 Num,Num Num ints
@@ -528,14 +529,17 @@ function fmtNum(v) {
 function quote(s) {
   return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\t/g, "\\t").replace(/\r/g, "\\r") + '"';
 }
-function fmt(v, top) {
+let FMTN = 0;
+function fmt(v, top) { FMTN = 0; return fmt1(v, top); }
+function fmt1(v, top) {
+  if (++FMTN > 2e6) R("E17", "value too large to print");
   if (typeof v === "number") return fmtNum(v);
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "string") return top ? v : quote(v);
-  if (Array.isArray(v)) return "[" + v.map(x => fmt(x, false)).join(" ") + "]";
+  if (Array.isArray(v)) return "[" + v.map(x => fmt1(x, false)).join(" ") + "]";
   switch (v.k) {
-    case "rv": return v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => fmt(x, false))].join(" ") + ")";
-    case "map": return "{" + tnodes(v.root).map(n => fmt(n.key, false) + " " + fmt(n.val, false)).join(" ") + "}";
+    case "rv": return v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => fmt1(x, false))].join(" ") + ")";
+    case "map": return "{" + tnodes(v.root).map(n => fmt1(n.key, false) + " " + fmt1(n.val, false)).join(" ") + "}";
     case "clo": return v.name ? `<fn ${v.name}>` : "<fun>";
     case "bi": return `<builtin ${v.name}>`;
     case "ctor": return `<ctor ${v.name}>`;
@@ -591,17 +595,18 @@ function lex(src, errs, base = 0) {
     if (NUMRE.test(w)) {
       const v = Number(w);
       if (!Number.isFinite(v)) errs.push(E("E12", `number literal ${w} is too big`, line));
-      toks.push({ k: "num", v: Number.isFinite(v) ? v : 0, line });
+      toks.push({ k: "num", v: Number.isFinite(v) && v !== 0 ? v : 0, line });
     } else toks.push({ k: "sym", v: w, line });
   }
   return toks;
 }
 function parse(toks, errs) {
-  let p = 0; const out = [];
+  let p = 0, depth = 0, deep = false; const out = [];
   function item() {
     const t = toks[p++];
     if (own(OPEN, t.k)) {
       const close = OPEN[t.k], items = [];
+      if (++depth > 200 && !deep) { deep = true; errs.push(E("E12", "nested more than 200 deep. name the inner parts with let, with or fn", t.line)); }
       while (p < toks.length && toks[p].k !== close) {
         if (isClose(toks[p].k)) {
           errs.push(E("E12", `${toks[p].k} does not match ${t.k} opened on line ${LN(t.line)}`, toks[p].line)); p++; continue;
@@ -609,6 +614,7 @@ function parse(toks, errs) {
         items.push(item());
       }
       if (p >= toks.length) errs.push(E("E12", `${t.k} opened here is never closed`, t.line)); else p++;
+      depth--;
       return { t: KIND[t.k], items, line: t.line };
     }
     if (t.k === "num") return { t: "num", v: t.v, line: t.line };
@@ -767,12 +773,14 @@ function lowerForm(k, a, L, errs) {
 }
 function thread(a, errs) {
   let acc = a[0];
+  if (a.length > 201) { errs.push(E("E12", "-> has more than 200 steps. split it with a let", a[0].line)); return { t: "errx", line: a[0].line }; }
   for (const st of a.slice(1)) {
     if (isSym(st)) acc = { t: "list", items: [st, acc], line: st.line };
     else if (st.t === "list" && st.items.length) {
-      const slot = x => isSym(x) && x.v === "_";
-      acc = st.items.some(slot)
-        ? { t: "list", items: st.items.map(x => slot(x) ? acc : x), line: st.line }
+      const slot = x => isSym(x) && x.v === "_", isMatch = isSym(st.items[0]) && st.items[0].v === "match";
+      const n = isMatch ? 0 : st.items.filter(slot).length;      // in a match step _ is the wildcard arm
+      if (n > 1) { errs.push(E("E8", "-> step has more than one _. the value would be computed twice: bind it with (with [x ..] ..)", st.line)); return { t: "errx", line: st.line }; }
+      acc = n ? { t: "list", items: st.items.map(x => slot(x) ? acc : x), line: st.line }
         : { t: "list", items: [st.items[0], acc, ...st.items.slice(1)], line: st.line };
     } else { errs.push(E("E8", `-> step must be a name or (call ..), got ${sx(st)}`, st.line)); return { t: "errx", line: st.line }; }
   }
@@ -827,7 +835,7 @@ const fnT = (ps, r) => ({ k: "fn", ps, r });
 const recT = (name, args) => ({ k: "rec", name, args });      // rec, sum and Map types
 function prune(t) { while (t.k === "var" && t.ref) t = t.ref; return t; }
 function occurs(v, t) {
-  t = prune(t); if (t === v) return true;
+  t = prune(t); tick(); if (t === v) return true;
   if (t.k === "vec") return occurs(v, t.e);
   if (t.k === "rec") return t.args.some(a => occurs(v, a));
   if (t.k === "fn") return t.ps.some(p => occurs(v, p)) || occurs(v, t.r);
@@ -855,7 +863,7 @@ function unify(a, b) {
   return false;
 }
 function showT(t, nm = new Map()) {
-  t = prune(t);
+  t = prune(t); tick();
   switch (t.k) {
     case "num": return "Num"; case "bool": return "Bool"; case "str": return "Str";
     case "vec": return `(Vec ${showT(t.e, nm)})`;
@@ -868,8 +876,11 @@ function showT(t, nm = new Map()) {
   }
   return "?";
 }
+class TooBig extends Error {}
+let TWORK = 0, CURLINE = 0;
+const tick = () => { if (++TWORK > 3e6) throw new TooBig(); };
 function mapT(t, f) {                // rebuild a type, f decides the leaves
-  t = prune(t);
+  t = prune(t); tick();
   switch (t.k) {
     case "vec": return vecT(mapT(t.e, f));
     case "fn": return fnT(t.ps.map(p => mapT(p, f)), mapT(t.r, f));
@@ -969,6 +980,11 @@ const RV = (name, vals) => ({ k: "rv", name, vals });
 const NONE = { k: "rv", name: "None", vals: [], nul: true };
 const SOME = x => RV("Some", [x]);
 const opt = x => x === undefined || x === null ? NONE : SOME(x);
+const ASTRAL = /[\uD800-\uDFFF]/;
+function scmp(a, b) {                // by code point, the same unit slen sget and code count in
+  if (ASTRAL.test(a) || ASTRAL.test(b)) { const x = Array.from(a, c => c.codePointAt(0)), y = Array.from(b, c => c.codePointAt(0)); for (let i = 0; i < x.length && i < y.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1; return x.length < y.length ? -1 : x.length > y.length ? 1 : 0; }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 function rank(v) {
   if (typeof v === "number") return 0; if (typeof v === "string") return 1; if (typeof v === "boolean") return 2;
   if (Array.isArray(v)) return 3; if (v.k === "rv") return 4; if (v.k === "map") return 5;
@@ -978,7 +994,8 @@ function cmp(a, b) {
   const ra = rank(a), rb = rank(b);
   if (ra !== rb) return ra < rb ? -1 : 1;
   switch (ra) {
-    case 0: case 1: return a < b ? -1 : a > b ? 1 : 0;
+    case 0: return a < b ? -1 : a > b ? 1 : 0;
+    case 1: return scmp(a, b);
     case 2: return a === b ? 0 : a ? 1 : -1;
     case 3: {
       const n = Math.min(a.length, b.length);
@@ -1030,6 +1047,7 @@ function mput(m, k, v) {
 }
 
 function same(a, b, tol) {
+  if (a === b) return true;
   if (typeof a === "number") return typeof b === "number" && (a === b || (tol && Math.abs(a - b) <= TOL * Math.max(1, Math.abs(a), Math.abs(b))));
   if (typeof a !== "object") return a === b;
   if (Array.isArray(a)) {
@@ -1054,6 +1072,7 @@ function mshape(A, op) {
 function matmul(A, B, op) {
   const [n, m] = mshape(A, op), [p, q] = mshape(B, op);
   if (m !== p) R("E11", `${op}: ${n}x${m} times ${p}x${q}`);
+  if (n * q > MAXLEN || n * m * q > 2e8) R("E17", `${op}: ${n}x${m} times ${p}x${q} is too large`);
   const C = [];
   for (let i = 0; i < n; i++) {
     const row = new Array(q).fill(0);
@@ -1084,6 +1103,7 @@ const ident = n => Array.from({ length: n }, (_, i) => Array.from({ length: n },
 function svd(A, op) {              // one-sided Jacobi on A itself: A = U diag(s) V^T, thin, s desc. no AtA, so small values stay exact
   const [n, m] = mshape(A, op);
   if (!n || !m) return { U: [], s: [], V: [] };
+  if (n * m * Math.min(n, m) > 3e7) R("E17", `${op}: ${n}x${m} is too large for the js backend`);
   if (n < m) { const r = svd(A[0].map((_, j) => A.map(row => row[j])), op); return { U: r.V, s: r.s, V: r.U }; }
   let big = 0; for (const r of A) for (const x of r) big = Math.max(big, Math.abs(x));
   if (big === 0) return { U: A.map(() => new Array(m).fill(0)), s: new Array(m).fill(0), V: ident(m) };
@@ -1103,7 +1123,11 @@ function svd(A, op) {              // one-sided Jacobi on A itself: A = U diag(s
     if (!rot) break;
   }
   const cols = [];
-  for (let j = 0; j < m; j++) { let s = 0; for (let k = 0; k < n; k++) s += U[k][j] * U[k][j]; cols.push({ j, s: Math.sqrt(s) }); }
+  for (let j = 0; j < m; j++) {
+    let top = 0, s = 0; for (let k = 0; k < n; k++) top = Math.max(top, Math.abs(U[k][j]));
+    if (top) for (let k = 0; k < n; k++) { const x = U[k][j] / top; s += x * x; }
+    cols.push({ j, s: top * Math.sqrt(s) });
+  }
   cols.sort((a, b) => b.s - a.s);
   return { U: U.map(r => cols.map(c => c.s ? r[c.j] / c.s : 0)), s: cols.map(c => fin(c.s * big, op)), V: V.map(r => cols.map(c => r[c.j])) };
 }
@@ -1119,12 +1143,28 @@ function pinv(A) {
 }
 function eig(A) {                  // eigenvalues of a real square matrix: [[re ..] [im ..]], re desc
   const [n, m] = mshape(A, "k.eig"); if (n !== m) R("E14", `k.eig needs a square matrix, got ${n}x${m}`);
-  let sym = true;
+  let sym = true, big = 0;
   for (let i = 0; i < n && sym; i++) for (let j = 0; j < i; j++) if (A[i][j] !== A[j][i]) { sym = false; break; }
+  for (const r of A) for (const x of r) big = Math.max(big, Math.abs(x));
+  if (big === 0) return [new Array(n).fill(0), new Array(n).fill(0)];
+  A = A.map(r => r.map(x => x / big));                             // work near 1: squares cannot overflow or vanish
   let wr, wi;
   if (sym) { wr = jacobi(A); wi = wr.map(() => 0); }
   else {
     const a = [null]; for (const r of A) a.push([0, ...r]);       // 1-based from here on
+    for (let again = true; again;) {                               // balance: rows and columns to like size, by powers of 2
+      again = false;
+      for (let i = 1; i <= n; i++) {
+        let r = 0, c = 0;
+        for (let j = 1; j <= n; j++) if (j !== i) { c += Math.abs(a[j][i]); r += Math.abs(a[i][j]); }
+        if (c === 0 || r === 0) continue;
+        let g = r / 2, f = 1; const s = c + r;
+        while (c < g) { f *= 2; c *= 4; }
+        g = r * 2;
+        while (c > g) { f /= 2; c /= 4; }
+        if ((c + r) / f < 0.95 * s) { again = true; for (let j = 1; j <= n; j++) a[i][j] /= f; for (let j = 1; j <= n; j++) a[j][i] *= f; }
+      }
+    }
     for (let mm = 2; mm < n; mm++) {                               // to Hessenberg form by elimination
       let x = 0, i = mm;
       for (let j = mm; j <= n; j++) if (Math.abs(a[j][mm - 1]) > Math.abs(x)) { x = a[j][mm - 1]; i = j; }
@@ -1207,7 +1247,7 @@ function eig(A) {                  // eigenvalues of a real square matrix: [[re 
     wr.shift(); wi.shift();
   }
   const ord = wr.map((_, i) => i).sort((i, j) => wr[j] - wr[i] || wi[j] - wi[i]);
-  return [ord.map(i => fin(wr[i], "k.eig")), ord.map(i => fin(wi[i], "k.eig"))];
+  return [ord.map(i => fin(wr[i] * big, "k.eig")), ord.map(i => fin(wi[i] * big, "k.eig"))];
 }
 function det(A) {
   const [n, m] = mshape(A, "k.det"); if (n !== m) R("E14", `k.det needs a square matrix, got ${n}x${m}`);
@@ -1224,12 +1264,12 @@ function det(A) {
 function solve(A, B) {
   const [n, m] = mshape(A, "k.solve"), [p, q] = mshape(B, "k.solve");
   if (n !== m || p !== n) R("E14", `k.solve needs n x n and n x k, got ${n}x${m} and ${p}x${q}`);
-  const M = A.map((r, i) => r.concat(B[i])); let scale = 0;
-  for (const r of A) for (const x of r) scale = Math.max(scale, Math.abs(x));
-  for (let i = 0; i < n; i++) {
-    let piv = i; for (let r = i + 1; r < n; r++) if (Math.abs(M[r][i]) > Math.abs(M[piv][i])) piv = r;
-    if (!(Math.abs(M[piv][i]) > 1e-12 * scale)) R("E14", "k.solve: matrix is singular");
-    if (piv !== i) [M[piv], M[i]] = [M[i], M[piv]];
+  const M = A.map((r, i) => r.concat(B[i])), sc = A.map(r => r.reduce((a, x) => Math.max(a, Math.abs(x)), 0));
+  if (sc.some(s => s === 0)) R("E14", "k.solve: matrix is singular");
+  for (let i = 0; i < n; i++) {                                    // a pivot is small only next to the size of its own row
+    let piv = i; for (let r = i + 1; r < n; r++) if (Math.abs(M[r][i]) / sc[r] > Math.abs(M[piv][i]) / sc[piv]) piv = r;
+    if (!(Math.abs(M[piv][i]) / sc[piv] > 1e-13)) R("E14", "k.solve: matrix is singular");
+    if (piv !== i) { [M[piv], M[i]] = [M[i], M[piv]]; [sc[piv], sc[i]] = [sc[i], sc[piv]]; }
     for (let r = 0; r < n; r++) if (r !== i) {
       const f = M[r][i] / M[i][i]; if (f !== 0) for (let c = i; c < n + q; c++) M[r][c] -= f * M[i][c];
     }
@@ -1249,11 +1289,9 @@ function iroot(v, k) {
   if (v < 0) R("E17", `iroot of negative ${fmtNum(v)}`);
   if (k > 1100) return v >= 1 ? 1 : 0;
   const fv = BigInt(Math.floor(v)), K = BigInt(k);
-  const le = r => r ** K <= fv;                    // all in BigInt: doubles cannot step past 2^53
-  let r = BigInt(Math.floor(Math.pow(v, 1 / k)));
-  while (r > 0n && !le(r)) r--;
-  while (le(r + 1n)) r++;
-  return Number(r);
+  let lo = 0n, hi = 1n << BigInt(Math.ceil(fv.toString(2).length / k) + 1);      // all in BigInt: doubles cannot step past 2^53
+  while (lo < hi) { const mid = (lo + hi + 1n) >> 1n; if (mid ** K <= fv) lo = mid; else hi = mid - 1n; }
+  return Number(lo);
 }
 const bit = (op, f) => ([a, b]) => { ints(op, a, b); return fin(Number(f(BigInt(a), BigInt(b))), op); };
 
@@ -1297,7 +1335,7 @@ def("vadd", "(Vec Num) (Vec Num) -> (Vec Num)", ([a, b]) => { sameLen(a, b, "vad
 def("vsub", "(Vec Num) (Vec Num) -> (Vec Num)", ([a, b]) => { sameLen(a, b, "vsub"); return a.map((x, i) => fin(x - b[i], "vsub")); });
 def("scale", "(Vec Num) Num -> (Vec Num)", ([a, k]) => a.map(x => fin(x * k, "scale")));
 def("vsum", "(Vec Num) -> Num", ([a]) => { let s = 0; for (const x of a) s += x; return fin(s, "vsum"); });
-def("vnorm", "(Vec Num) -> Num", ([a]) => { let s = 0; for (const x of a) s += x * x; return fin(Math.sqrt(s), "vnorm"); });
+def("vnorm", "(Vec Num) -> Num", ([a]) => { let top = 0, s = 0; for (const x of a) top = Math.max(top, Math.abs(x)); if (!top) return 0; for (const x of a) s += (x / top) * (x / top); return fin(top * Math.sqrt(s), "vnorm"); });
 def("dot", "(Vec Num) (Vec Num) -> Num", ([a, b]) => { sameLen(a, b, "dot"); let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return fin(s, "dot"); });
 def("sort", "(Vec Num) -> (Vec Num)", ([a]) => a.slice().sort((x, y) => x - y));
 def("map", "(Fn a b) (Vec a) -> (Vec b)", ([f, v], cx) => v.map(x => cx.apply(f, [x])));
@@ -1311,10 +1349,11 @@ def("slen", "Str -> Num", ([s]) => chars(s).length);
 def("sget", "Str Num -> Str", ([s, i]) => { const c = chars(s); return c[idx(i, c.length, "sget")]; });
 def("ssub", "Str Num Num -> Str", ([s, a, b]) => { const c = chars(s); span(a, b, c.length, "ssub"); return c.slice(a, b).join(""); });
 def("scat", "Str Str -> Str", ([a, b]) => a + b);
-def("slt", "Str Str -> Bool", ([a, b]) => a < b);
+def("slt", "Str Str -> Bool", ([a, b]) => scmp(a, b) < 0);
 def("code", "Str -> Num", ([s]) => { if (!s.length) R("E10", "code of empty string"); return s.codePointAt(0); });
-def("chr", "Num -> Str", ([n]) => { if (!isInt(n) || n < 0 || n > 0x10FFFF) R("E17", `chr: ${fmtNum(n)} is not a code point`); return String.fromCodePoint(n); });
-def("split", "Str Str -> (Vec Str)", ([s, sep]) => sep === "" ? chars(s) : s.split(sep));
+def("chr", "Num -> Str", ([n]) => { if (!isInt(n) || n < 0 || n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF)) R("E17", `chr: ${fmtNum(n)} is not a code point`); return String.fromCodePoint(n); });
+const capped = (v, op) => v.length > MAXLEN ? R("E17", `${op}: over the item cap`) : v;
+def("split", "Str Str -> (Vec Str)", ([s, sep]) => { if (s.length > MAXLEN * 8) R("E17", "split: text too long"); return capped(sep === "" ? chars(s) : s.split(sep), "split"); });
 def("join", "(Vec Str) Str -> Str", ([v, sep]) => v.join(sep));
 def("snum", "Str -> Num", ([s]) => {
   const t = s.trim();
@@ -1330,8 +1369,11 @@ def("pairs", `Num Num -> ${M_}`, ([lo, hi]) => {
   for (let i = lo; i < hi; i++) for (let j = i + 1; j < hi; j++) { out.push([i, j]); if (out.length > MAXLEN) R("E17", "pairs: over the item cap"); }
   return out;
 });
-def("uniq", "(Vec a) -> (Vec a)", ([v]) => { const out = []; for (const x of v) if (!out.some(y => same(x, y, false))) out.push(x); return out; });
-def("flat", "(Vec (Vec a)) -> (Vec a)", ([v]) => [].concat(...v));
+def("uniq", "(Vec a) -> (Vec a)", ([v]) => {
+  try { let t = null; const out = []; for (const x of v) if (!tget(t, x)) { t = tput(t, x, 1); out.push(x); } return out; }
+  catch (e) { const out = []; for (const x of v) if (!out.some(y => same(x, y, false))) out.push(x); return out; }      // functions have no order: compare one by one
+});
+def("flat", "(Vec (Vec a)) -> (Vec a)", ([v]) => { let n = 0; for (const x of v) n += x.length; if (n > MAXLEN) R("E17", "flat: over the item cap"); const out = []; for (const x of v) for (const y of x) out.push(y); return out; });
 def("same", "a a -> Bool", ([a, b]) => same(a, b, false));
 def("k.svd", `${M_} -> (Vec Num)`, ([a]) => svals(a, "k.svd"));
 def("k.matmul", `${M_} ${M_} -> ${M_}`, ([a, b]) => matmul(a, b, "k.matmul"));
@@ -1369,7 +1411,7 @@ def("ceil", N1, ([a]) => fin(Math.ceil(a), "ceil"));
 def("round", N1, ([a]) => fin(Math.round(a), "round"));
 def("trunc", N1, ([a]) => fin(Math.trunc(a), "trunc"));
 def("isint", "Num -> Bool", ([a]) => isInt(a));
-def("mod", N2, ([a, b]) => b === 0 ? R("E17", "mod by zero") : fin(a - b * Math.floor(a / b), "mod"));
+def("mod", N2, ([a, b]) => b === 0 ? R("E17", "mod by zero") : fin(((a % b) + b) % b, "mod"));
 def("idiv", N2, ([a, b]) => b === 0 ? R("E17", "idiv by zero") : fin(Math.floor(a / b), "idiv"));
 def("rand", "Num Num -> (Vec Num)", ([seed, n]) => { ints("rand", seed); const r = mulberry32(seed); return Array.from({ length: count(n, "rand") }, () => r()); });
 def(">", "Num Num -> Bool", ([a, b]) => a > b);
@@ -1384,8 +1426,9 @@ const nonEmpty = (v, op) => { if (!v.length) R("E10", `${op} of an empty vector`
 const sortBy = (keys, v) => v.map((_, i) => i).sort((i, j) => cmp(keys[i], keys[j])).map(i => v[i]);
 def("first", "(Vec a) -> (Opt a)", ([v]) => opt(v[0]));
 def("last", "(Vec a) -> (Opt a)", ([v]) => opt(v[v.length - 1]));
-def("take", "(Vec a) Num -> (Vec a)", ([v, n]) => v.slice(0, count(n, "take")));
-def("drop", "(Vec a) Num -> (Vec a)", ([v, n]) => v.slice(count(n, "drop")));
+const whole = (n, op) => { if (!isInt(n) || n < 0) R("E17", `${op}: count ${fmtNum(n)} must be a whole number >= 0`); return n; };
+def("take", "(Vec a) Num -> (Vec a)", ([v, n]) => v.slice(0, whole(n, "take")));
+def("drop", "(Vec a) Num -> (Vec a)", ([v, n]) => v.slice(whole(n, "drop")));
 def("push", "(Vec a) a -> (Vec a)", ([v, x]) => { if (v.length >= MAXLEN) R("E17", "push: over the item cap"); const r = v.slice(); r.push(x); return r; });
 def("has", "(Vec a) a -> Bool", ([v, x]) => v.some(y => same(x, y, false)));
 def("index", "(Vec a) a -> (Opt Num)", ([v, x]) => { const i = v.findIndex(y => same(x, y, false)); return i < 0 ? NONE : SOME(i); });
@@ -1447,7 +1490,7 @@ def("srep", "Str Num -> Str", ([s, n]) => { if (count(n, "srep") * s.length > 1e
 def("padl", "Str Num Str -> Str", ([s, n, f]) => padFill(s, n, f, "padl") + s);
 def("padr", "Str Num Str -> Str", ([s, n, f]) => s + padFill(s, n, f, "padr"));
 def("pnum", "Str -> (Opt Num)", ([s]) => { const t = s.trim(); if (!NUMRE.test(t)) return NONE; const v = Number(t); return Number.isFinite(v) ? SOME(v === 0 ? 0 : v) : NONE; });
-def("fix", "Num Num -> Str", ([x, d]) => { if (!isInt(d) || d < 0 || d > 100) R("E17", `fix: ${fmtNum(d)} decimals outside 0..100`); return x.toFixed(d); });
+def("fix", "Num Num -> Str", ([x, d]) => { if (!isInt(d) || d < 0 || d > 100) R("E17", `fix: ${fmtNum(d)} decimals outside 0..100`); if (Math.abs(x) >= 1e21) R("E17", `fix: ${fmtNum(x)} is too big to write out`); return x.toFixed(d); });
 const base = (b, op) => { if (!isInt(b) || b < 2 || b > 36) R("E17", `${op}: base ${fmtNum(b)} outside 2..36`); return b; };
 def("radix", "Num Num -> Str", ([n, b]) => { ints("radix", n); return BigInt(n).toString(base(b, "radix")); });
 def("pradix", "Str Num -> (Opt Num)", ([s, b]) => {
@@ -1455,10 +1498,10 @@ def("pradix", "Str Num -> (Opt Num)", ([s, b]) => {
   let v = 0; for (const c of m[2].toLowerCase()) { const d = parseInt(c, 36); if (d >= b) return NONE; v = v * b + d; }
   return Number.isFinite(v) ? SOME(m[1] && v !== 0 ? -v : v) : NONE;
 });
-const bytes = (v, op) => { for (const x of v) if (!isInt(x) || x < 0 || x > 255) R("E17", `${op}: ${fmtNum(x)} is not a byte 0..255`); return Uint8Array.from(v); };
-const decode = (u8, op) => { try { return new TextDecoder("utf-8", { fatal: true }).decode(u8); } catch (x) { return R("E15", `${op}: bytes are not utf8 text`); } };
+const bytes = (v, op, code = "E17") => { for (const x of v) if (!isInt(x) || x < 0 || x > 255) R(code, `${op}: ${fmtNum(x)} is not a byte 0..255`); return Uint8Array.from(v); };
+const decode = (u8, op) => { try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(u8); } catch (x) { return R("E15", `${op}: bytes are not utf8 text`); } };
 def("utf8", "Str -> (Vec Num)", ([s]) => Array.from(new TextEncoder().encode(s)));
-def("unutf8", "(Vec Num) -> Str", ([v]) => decode(bytes(v, "unutf8"), "unutf8"));
+def("unutf8", "(Vec Num) -> Str", ([v]) => decode(bytes(v, "unutf8", "E15"), "unutf8"));
 def("b64.enc", "Str -> Str", ([s]) => { let b = ""; for (const x of new TextEncoder().encode(s)) b += String.fromCharCode(x); return btoa(b); });
 def("b64.dec", "Str -> Str", ([s]) => { let b; try { b = atob(s.trim()); } catch (x) { R("E15", "b64.dec: not base64"); } return decode(Uint8Array.from(b, c => c.charCodeAt(0)), "b64.dec"); });
 
@@ -1468,7 +1511,7 @@ const strs = a => Array.from(a, x => x === undefined ? "" : x);
 def("re.test", "Str Str -> Bool", ([p, s]) => regex(p, "").test(s));
 def("re.find", "Str Str -> (Vec (Vec Str))", ([p, s]) => { const out = []; for (const m of s.matchAll(regex(p, "g"))) { out.push(strs(m)); if (out.length > MAXLEN) R("E17", "re.find: over the item cap"); } return out; });
 def("re.replace", "Str Str Str -> Str", ([p, s, r]) => s.replace(regex(p, "g"), r));
-def("re.split", "Str Str -> (Vec Str)", ([p, s]) => strs(s.split(regex(p, ""))));
+def("re.split", "Str Str -> (Vec Str)", ([p, s]) => { if (s.length > MAXLEN * 8) R("E17", "re.split: text too long"); return capped(strs(s.split(regex(p, ""))), "re.split"); });
 
 /* ---- v2: json and dates */
 const JNULL = { k: "rv", name: "JNull", vals: [], nul: true };
@@ -1490,11 +1533,27 @@ function fromJson(j) {
   return j.vals[0];
 }
 def("json.parse", "Str -> Json", ([s]) => { let v; try { v = JSON.parse(s); } catch (x) { R("E15", `json.parse: ${x.message}`); } return toJson(v); });
-def("json.str", "Json -> Str", ([j]) => JSON.stringify(fromJson(j)));
-def("json.pretty", "Json -> Str", ([j]) => JSON.stringify(fromJson(j), null, 2));
+function jser(j, pad, at) {
+  const nl = pad ? "\n" + at + pad : "", end = pad ? "\n" + at : "", sep = pad ? ": " : ":";
+  switch (j.name) {
+    case "JNull": return "null";
+    case "JArr": return j.vals[0].length ? "[" + j.vals[0].map(x => nl + jser(x, pad, at + pad)).join(",") + end + "]" : "[]";
+    case "JObj": return j.vals[0].n ? "{" + tnodes(j.vals[0].root).map(n => nl + JSON.stringify(n.key) + sep + jser(n.val, pad, at + pad)).join(",") + end + "}" : "{}";
+  }
+  return JSON.stringify(j.vals[0]);
+}
+def("json.str", "Json -> Str", ([j]) => jser(j, "", ""));
+def("json.pretty", "Json -> Str", ([j]) => jser(j, "  ", ""));
 def("json.get", "Json Str -> (Opt Json)", ([j, k]) => { const n = j.name === "JObj" ? tget(j.vals[0].root, k) : null; return n ? SOME(n.val) : NONE; });
 def("date.iso", "Num -> Str", ([ms]) => { const d = new Date(ms); return Number.isNaN(d.getTime()) ? R("E17", `date.iso: ${fmtNum(ms)} is outside the calendar`) : d.toISOString(); });
-def("date.parse", "Str -> Num", ([s]) => { const v = Date.parse(s); return Number.isNaN(v) ? R("E15", `date.parse cannot read ${quote(s)}`) : v; });
+def("date.parse", "Str -> Num", ([s]) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/.exec(s.trim());
+  const bad = () => R("E15", `date.parse cannot read ${quote(s)}. write 2020-01-31 or 2020-01-31T12:00:00Z (Z or +hh:mm is needed with a time)`);
+  if (!m) return bad();
+  const day = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (day.getUTCMonth() !== +m[2] - 1 || day.getUTCDate() !== +m[3]) return bad();
+  const v = Date.parse(s.trim()); return Number.isNaN(v) ? bad() : v;
+});
 
 /* ---- v2: io. every effect goes through the host, so a host decides what a program may touch */
 /* ---- drawing: shapes become pixels here, in the core, so every host and every reader gets the same picture */
@@ -1515,8 +1574,14 @@ function raster(w, h, shapes, op) {
       const x0 = Math.max(0, Math.round(v[0])), y0 = Math.max(0, Math.round(v[1])), x1 = Math.min(w, Math.round(v[0] + v[2])), y1 = Math.min(h, Math.round(v[1] + v[3]));
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
     } else {
-      const n = Math.min(16384, Math.ceil(Math.max(Math.abs(v[2] - v[0]), Math.abs(v[3] - v[1]))));
-      for (let i = 0; i <= n; i++) { const t = n ? i / n : 0; dot(Math.floor(v[0] + (v[2] - v[0]) * t), Math.floor(v[1] + (v[3] - v[1]) * t), c); }
+      let t0 = 0, t1 = 1, ok = true; const dx = v[2] - v[0], dy = v[3] - v[1];
+      for (const [p, q] of [[-dx, v[0] + 1], [dx, w - v[0]], [-dy, v[1] + 1], [dy, h - v[1]]]) {       // keep only the part on the canvas
+        if (p === 0) { if (q < 0) ok = false; } else { const r = q / p; if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r); }
+      }
+      if (!ok || t0 > t1) continue;
+      const ax = v[0] + dx * t0, ay = v[1] + dy * t0, bx = v[0] + dx * t1, by = v[1] + dy * t1;
+      const n = Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay)));
+      for (let i = 0; i <= n; i++) dot(Math.floor(n ? (ax * (n - i) + bx * i) / n : ax), Math.floor(n ? (ay * (n - i) + by * i) / n : ay), c);      // exact at whole steps
     }
   }
   return px;
@@ -1524,6 +1589,7 @@ function raster(w, h, shapes, op) {
 function asciiArt(w, h, px, cols) {
   if (!isInt(cols) || cols < 1 || cols > 400) R("E17", `ascii: ${fmtNum(cols)} columns outside 1..400`);
   const RAMP = " .:-=+*#%@", rows = Math.max(1, Math.round(cols * h / w / 2)), cells = [];
+  if (rows > 400) R("E17", `ascii: ${rows} rows is over 400. use fewer columns`);
   let lo = 255, hi = 0;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {     // brightest pixel in the cell, so a thin line still shows
     const x0 = Math.floor(c * w / cols), x1 = Math.max(x0 + 1, Math.floor((c + 1) * w / cols)), y0 = Math.floor(r * h / rows), y1 = Math.max(y0 + 1, Math.floor((r + 1) * h / rows));
@@ -1613,7 +1679,7 @@ def("io.http", "Str Str (Map Str Str) Str -> Http", ([method, url, hs, body]) =>
 });
 def("io.frame", "Num Num (Vec Draw) -> Num", ([w, h, v]) => {
   const px = raster(w, h, v, "io.frame");
-  if (FRAMES.length >= 2000) R("E17", "io.frame: over the 2000 frame cap");
+  if (FRAMES.length >= 2000 || FRAMES.reduce((a, f) => a + f.px.length, px.length) > 3e8) R("E17", "io.frame: over the frame cap (2000 frames, 100 million pixels)");
   FRAMES.push({ w, h, px });
   if (HOST && typeof HOST.frame === "function") HOST.frame(w, h, px);
   return FRAMES.length;
@@ -1623,7 +1689,7 @@ def("io.sheet", "Str Num -> Num", ([path, cols]) => {
   if (!isInt(cols) || cols < 1) R("E17", `io.sheet: ${fmtNum(cols)} columns must be a whole number >= 1`);
   const n = FRAMES.length, cw = Math.max(...FRAMES.map(f => f.w)), ch = Math.max(...FRAMES.map(f => f.h));
   const gx = Math.min(cols, n), gy = Math.ceil(n / cols), W = gx * (cw + 1) - 1, Ht = gy * (ch + 1) - 1;
-  if (W > 16384 || Ht > 16384) R("E17", `io.sheet: ${W} x ${Ht} pixels is over 16384 a side. use more or fewer columns, or fewer frames`);
+  if (W > 16384 || Ht > 16384 || W * Ht > 5e7) R("E17", `io.sheet: ${W} x ${Ht} pixels is over 16384 a side or 50 million pixels. change the columns, or make fewer frames`);
   const img = new Uint8Array(W * Ht * 3).fill(255);
   FRAMES.forEach((f, k) => {
     const ox = (k % cols) * (cw + 1), oy = Math.floor(k / cols) * (ch + 1);
@@ -1637,7 +1703,7 @@ def("io.rand", "-> Num", () => io("rand"));
 def("io.sleep", "Num -> Num", ([ms]) => { if (!(ms >= 0)) R("E17", "io.sleep: ms must be >= 0"); io("sleep", ms); return ms; });
 
 function memHost(files = {}) {       // files live in memory. the browser host, and the default when no host is given
-  const F = new Map(Object.entries(files)), norm = p => p.replace(/^\.\//, "").replace(/\/+$/, "");
+  const F = new Map(Object.entries(files)), D = new Set(), norm = p => normPath(p.replace(/\/+$/, ""));
   const get = p => { p = norm(p); if (!F.has(p)) throw new Error(`no such file ${p}`); return F.get(p); };
   const text = v => typeof v === "string" ? v : new TextDecoder().decode(v);
   const frames = [];
@@ -1647,11 +1713,11 @@ function memHost(files = {}) {       // files live in memory. the browser host, 
     read: p => text(get(p)),
     write: (p, s) => { F.set(norm(p), s); },
     append: (p, s) => { p = norm(p); F.set(p, (F.has(p) ? text(F.get(p)) : "") + s); },
-    exists: p => F.has(norm(p)) || inDir(p).length > 0,
-    isdir: p => !F.has(norm(p)) && inDir(p).length > 0,
+    exists: p => F.has(norm(p)) || D.has(norm(p)) || inDir(p).length > 0,
+    isdir: p => !F.has(norm(p)) && (D.has(norm(p)) || inDir(p).length > 0),
     ls: d => [...new Set(inDir(d).map(k => k.split("/")[0]))].sort(),
     rm: p => F.delete(norm(p)),
-    mkdir: () => true,
+    mkdir: p => { D.add(norm(p)); },
     readb: p => { const v = get(p); return typeof v === "string" ? new TextEncoder().encode(v) : v; },
     writeb: (p, u8) => { F.set(norm(p), u8); },
     stdin: () => "", args: () => [], env: () => null,
@@ -1725,11 +1791,11 @@ function where(en) { return en ? en.line ? ` (line ${LN(en.line)})` : " (builtin
 function declare(name, type, sc, line, C) {
   if (RESERVED.has(name)) C.errs.push(E("E3", `${name} is reserved`, line));
   else if (C.decls.has(name)) C.errs.push(E("E3", `${name} is a type name${where(C.decls.get(name))}; no shadowing`, line));
-  else { const en = lookup(name, sc, C); if (en) C.errs.push(E("E3", `${name} is already bound${where(en)}; no shadowing`, line)); }
+  else { const en = lookup(name, sc, C); if (en) C.errs.push(E("E3", `${name} is already bound${where(en)}; no shadowing`, line)); else if (C.letLines.has(name)) C.errs.push(E("E3", `${name} is a let on line ${LN(C.letLines.get(name))}; no shadowing`, line)); }
   sc.m.set(name, { kind: "local", type, line });
 }
 function unknown(name, line, sc, C) {
-  if (name === "_") return C.errs.push(E("E1", "_ is a slot only inside (-> ..) and a wildcard only in match patterns", line));
+  if (name === "_") return C.errs.push(E("E1", "_ is a slot only at the top of a -> step, a wildcard in match patterns, and an unused name in fun and for", line));
   if (C.letLines.has(name) && !C.g.has(name)) return C.errs.push(E("E1", `${name} is not defined yet: its let is on line ${LN(C.letLines.get(name))}`, line));
   const hint = packHint(name, C) || foreign(name); if (hint) return C.errs.push(E("E1", hint, line));
   const names = new Set([...C.g.keys(), "true", "false"]);
@@ -1744,7 +1810,10 @@ function inferMatch(e, sc, C) {
   for (const arm of e.arms) {
     const p = arm.p, s2 = new Scope(sc);
     if (sawAny) errs.push(E("E18", "this arm comes after _ and can never match", arm.line));
-    if (p.k === "any") sawAny = true;
+    if (p.k === "any") {
+      if ((decl && decl.ctors.every(c => seen.has(c.name))) || (seen.has("boolean:true") && seen.has("boolean:false"))) errs.push(E("E18", "every case is already covered: this _ can never match", arm.line));
+      sawAny = true;
+    }
     else if (p.k === "lit") {
       const lt = typeof p.v === "number" ? NUM : typeof p.v === "string" ? STR : BOOL, got = showT(ts);
       if (!unify(ts, lt)) errs.push(E("E4", `pattern ${unPat(p)} is ${showT(lt)}, the matched value is ${got}`, arm.line));
@@ -1847,7 +1916,7 @@ function infer(e, sc, C) {
     }
     case "fun": {
       const s2 = new Scope(sc), ps = e.params.map(() => fresh());
-      e.params.forEach((n, i) => declare(n, ps[i], s2, e.pline, C));
+      e.params.forEach((n, i) => { if (n !== "_") declare(n, ps[i], s2, e.pline, C); });
       const r = infer(e.body, s2, C);
       if (e.ret) {
         const rt = parseType(e.ret, { recs: C.decls, rigid: null, packs: C.packs }, errs), a = showT(r), b = showT(rt);
@@ -1860,7 +1929,7 @@ function infer(e, sc, C) {
       for (const [n, x, l] of e.binds) {
         const t = infer(x, s2, C), el = fresh(), ts = showT(t);
         if (!unify(t, vecT(el))) errs.push(E("E4", `for binds ${n} to ${ts}, needs a Vec`, l));
-        declare(n, el, s2, l, C);
+        if (n !== "_") declare(n, el, s2, l, C);
       }
       if (e.guard) { const g = infer(e.guard, s2, C), gs = showT(g); if (!unify(g, BOOL)) errs.push(E("E7", `for guard is ${gs}, needs Bool`, e.guard.line)); }
       return vecT(infer(e.body, s2, C));
@@ -1909,7 +1978,7 @@ function infer(e, sc, C) {
   return fresh();
 }
 function checkProgram(tops, errs, packs) {
-  TV = 0;
+  TV = 0; TWORK = 0;
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
   for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
   decls.set("Map", { name: "Map", params: ["?k", "?v"], ctors: [], line: 0 });
@@ -1933,11 +2002,11 @@ function checkProgram(tops, errs, packs) {
     if (d.isRec) { const seen = new Set(); for (const [f, , l] of d.top.fields) { if (seen.has(f)) errs.push(E("E3", `field ${f} appears twice in ${name}`, l)); seen.add(f); } }
     for (const c of d.ctors) {
       const fts = c.tys.map(ty => parseType(ty, ctx, errs));
-      if (!d.isRec && taken(c.name)) { dup(c.name, c.line); c.dead = true; continue; }
+      if (d.isRec ? g.has(c.name) : taken(c.name)) { dup(c.name, c.line); c.dead = true; continue; }
       const nul = !d.isRec && !fts.length, ty = rigidToGen(nul ? rt : fnT(fts, rt));
       g.set(c.name, { kind: "ctor", type: ty, line: c.line, decl: name, nul });
       sigs.push(d.isRec ? showT(ty) : `${c.name} ${showT(ty)}`);
-      if (d.isRec) c.fields.forEach((f, i) => { const rn = name + "." + f; if (!g.has(rn)) g.set(rn, { kind: "reader", type: rigidToGen(fnT([rt], fts[i])), line: d.line, idx: i }); });
+      if (d.isRec) c.fields.forEach((f, i) => { const rn = name + "." + f; if (taken(rn)) dup(rn, d.line); else g.set(rn, { kind: "reader", type: rigidToGen(fnT([rt], fts[i])), line: d.line, idx: i }); });
     }
     d.ctors = d.ctors.filter(c => !c.dead);
     d.top.sig = sigs.join("  |  ");
@@ -1953,6 +2022,7 @@ function checkProgram(tops, errs, packs) {
   for (const t of tops) {
     const C = { g, decls, errs, letLines, packs, deps: { fns: new Set(), lets: new Set() } };
     const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
+    CURLINE = t.line;
     t.deps = C.deps;
     switch (t.t) {
       case "let": {
@@ -2009,9 +2079,10 @@ class Env {
   get(n) { let e = this; do { const v = e.m.get(n); if (v !== undefined) return v; e = e.p; } while (e); }
 }
 let steps = 0, budget = 0;
+const hostLimit = x => /call stack/i.test(x.message) ? new TErr("E9", "too deep for the host stack") : new TErr("E17", `too large for the host (${x.message})`);
 function ev(e, env, depth, inFn) {
   for (;;) {
-    if (++steps > budget) { const x = new TErr("E9", `step budget of ${budget} spent: endless tail recursion?`, e.line); x.fatal = true; throw x; }
+    if (++steps > budget) { const x = new TErr("E9", `step budget of ${budget} spent: endless recursion, or too much data?`, e.line); x.fatal = true; throw x; }
     switch (e.t) {
       case "num": case "str": case "bool": return e.v;
       case "var": return env.get(e.name);
@@ -2023,7 +2094,11 @@ function ev(e, env, depth, inFn) {
       case "up": { const v = ev(e.x, env, depth, false), vals = v.vals.slice(); for (const s of e.sets) vals[s.idx] = ev(s.e, env, depth, false); return { k: "rv", name: v.name, vals }; }
       case "try":
         try { return RV("Ok", [ev(e.e, env, depth, false)]); }
-        catch (x) { if (x instanceof TErr && !x.fatal) return RV("Err", [x.ucode || x.code, x.umsg !== undefined ? x.umsg : x.message]); throw x; }
+        catch (x) {
+          if (x instanceof RangeError) x = hostLimit(x);
+          if (x instanceof TErr && !x.fatal) return RV("Err", [x.ucode !== undefined ? x.ucode : x.code, x.umsg !== undefined ? x.umsg : x.message]);
+          throw x;
+        }
       case "match": {
         const v = ev(e.x, env, depth, false); let arm = null;
         for (const a of e.arms) { const p = a.p; if (p.k === "any" || (p.k === "lit" ? v === p.v : v.name === p.name)) { arm = a; break; } }
@@ -2080,7 +2155,11 @@ function applyFn(f, args, depth) {
 }
 function callPrim(f, args, depth) {
   switch (f.k) {
-    case "bi": return f.fn(args, { apply: (g, a) => applyFn(g, a, depth) });
+    case "bi": {                      // what a builtin makes counts against the step budget
+      const r = f.fn(args, { apply: (g, a) => applyFn(g, a, depth) });
+      if (Array.isArray(r)) steps += r.length * 4; else if (typeof r === "string") steps += r.length >> 3;
+      return r;
+    }
     case "ctor": return { k: "rv", name: f.name, vals: args };
     case "rd": return args[0].vals[f.idx];
   }
@@ -2111,7 +2190,7 @@ function runProgram(tops, emit, st, opts) {
       }
     } catch (x) {
       if (x instanceof TErr) { if (x.line == null) x.line = t.line; throw x; }
-      if (x instanceof RangeError) throw new TErr("E9", `too deep for the host stack (${x.message})`, t.line);
+      if (x instanceof RangeError) { const y = hostLimit(x); y.line = t.line; throw y; }
       throw x;
     }
   }
@@ -2134,26 +2213,28 @@ function foldProgram(tops, errs) {
   const look = (name, sc) => { for (let s = sc; s; s = s.p) if (s.m.has(name)) return s.m.get(name); return consts.has(name) ? consts.get(name) : fns.has(name) ? undefined : base.get(name); };
   const sub = sc => ({ m: new Map(), p: sc });
   const all = xs => xs.every(x => x !== undefined);
-  const sure = (line, f) => { try { return small(f()); } catch (x) { if (x instanceof TErr) errs.push(E(x.code, x.message + ". known before running", line)); return undefined; } };
+  const live = true;                 // fold only walks code that must run, so an error it meets is certain
+  const weigh = v => { let n = 0; const go = x => { if (++n > 5000) return; if (Array.isArray(x)) x.forEach(go); else if (x && x.k === "rv") x.vals.forEach(go); else if (x && x.k === "map") n += x.n * 2; }; go(v); return n; };
+  const sure = (line, f) => { try { return small(f()); } catch (x) { if (x instanceof TErr && live) errs.push(E(x.code, x.message + ". known before running", line)); return undefined; } };
   function fold(e, sc) {
     switch (e.t) {
       case "num": case "str": case "bool": return e.v;
       case "var": return look(e.name, sc);
       case "vec": { const xs = e.items.map(x => fold(x, sc)); return all(xs) ? small(xs) : undefined; }
       case "map": { const ps = e.pairs.map(([k, v]) => [fold(k, sc), fold(v, sc)]); return ps.every(all) ? sure(e.line, () => ps.reduce((m, [k, v]) => mput(m, k, v), EMPTY)) : undefined; }
-      case "if": { const c = fold(e.c, sc); if (c === true) return fold(e.a, sc); if (c === false) return fold(e.b, sc); fold(e.a, sc); fold(e.b, sc); return undefined; }
+      case "if": { const c = fold(e.c, sc); if (c === true) return fold(e.a, sc); if (c === false) return fold(e.b, sc); return undefined; }
       case "do": { let v; for (const x of e.items) v = fold(x, sc); return v; }
       case "cat": { const xs = e.items.map(x => fold(x, sc)); return all(xs) && !xs.some(isFn) ? small(xs.map(x => fmt(x, true)).join("")) : undefined; }
       case "try": return undefined;                        // inside try an error is a value, not a mistake
       case "fail": fold(e.a, sc); fold(e.b, sc); return undefined;
       case "with": { const s2 = sub(sc); for (const [n, x] of e.binds) s2.m.set(n, fold(x, s2)); return fold(e.body, s2); }
-      case "fun": { const s2 = sub(sc); for (const n of e.params) s2.m.set(n, undefined); fold(e.body, s2); return undefined; }
-      case "for": { const s2 = sub(sc); for (const [n, x] of e.binds) { fold(x, s2); s2.m.set(n, undefined); } if (e.guard) fold(e.guard, s2); fold(e.body, s2); return undefined; }
+      case "fun": return undefined;
+      case "for": { const s2 = sub(sc); for (const [n, x] of e.binds) { fold(x, s2); s2.m.set(n, undefined); } return undefined; }
       case "up": { const v = fold(e.x, sc), xs = e.sets.map(s => fold(s.e, sc)); if (v === undefined || !all(xs)) return undefined; const vals = v.vals.slice(); e.sets.forEach((s, i) => { vals[s.idx] = xs[i]; }); return RV(v.name, vals); }
       case "match": {
         const v = fold(e.x, sc);
         const bind = (a, on) => { const s2 = sub(sc); (a.p.binds || []).forEach((b, i) => { if (b !== null) s2.m.set(b, on ? v.vals[i] : undefined); }); return fold(a.body, s2); };
-        if (v === undefined || isFn(v)) { for (const a of e.arms) bind(a, false); return undefined; }
+        if (v === undefined || isFn(v)) return undefined;
         const arm = e.arms.find(a => a.p.k === "any" || (a.p.k === "lit" ? v === a.p.v : v.name === a.p.name));
         return arm ? bind(arm, arm.p.k === "ctor") : undefined;
       }
@@ -2164,6 +2245,7 @@ function foldProgram(tops, errs) {
         if (f.k === "rd") return args[0].vals[f.idx];
         if (f.k !== "bi" || f.name.startsWith("io.") || args.some(isFn)) return undefined;
         if (GEN.has(f.name) && args.some(a => typeof a === "number" && a > BIG)) return undefined;
+        if (f.name.startsWith("re.") || args.some(a => weigh(a) > 5000)) return undefined;      // a regex has no time bound. big data waits for the run
         return sure(e.line, () => f.fn(args, {}));
       }
     }
@@ -2178,7 +2260,6 @@ function foldProgram(tops, errs) {
       if (a !== undefined && b !== undefined && !isFn(a) && !isFn(b) && !same(a, b, true)) errs.push(E("ECHECK", `check slipped: got ${fmt(a, false)}, expected ${fmt(b, false)}. known before running`, t.line));
     }
   }
-  for (const t of tops) if (t.t === "fn" && !t.skip) { const sc = sub(null); for (const [n] of t.params) sc.m.set(n, undefined); fold(t.body, sc); }
 }
 
 /* names a model brings from other languages. the E1 says what tact writes instead. */
@@ -2228,13 +2309,18 @@ for (const [names, say] of [
 ]) for (const n of names.split(" ")) FOREIGN.set(n, say);
 const foreign = name => FOREIGN.has(name) ? `${name} is not tact: ${FOREIGN.get(name)}` : null;
 
+function normPath(p) {              // a/./b and a/x/../b are a/b, so one file has one name
+  const out = [];
+  for (const part of p.split("/")) { if (part === "." || (part === "" && out.length)) continue; if (part === ".." && out.length && out[out.length - 1] !== ".." && out[out.length - 1] !== "") out.pop(); else out.push(part); }
+  return out.join("/");
+}
 const dirOf = p => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i + 1); };
 const headOf = s => s.t === "list" && s.items.length && isSym(s.items[0]) ? s.items[0].v : null;
 function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn rec sum check forms, in place, once
   const out = [];
   for (const s of sxs) {
     if (headOf(s) !== "use" || s.items.length !== 2 || s.items[1].t !== "str") { out.push(s); continue; }
-    const rel = s.items[1].v, path = (rel[0] === "/" ? rel : dirOf(file) + rel).replace(/^\.\//, "");
+    const rel = s.items[1].v, path = normPath(rel[0] === "/" ? rel : dirOf(file) + rel);
     if (U.seen.has(path)) continue;
     U.seen.add(path);
     let text;
@@ -2264,7 +2350,7 @@ function run(src, opts = {}) {
     const toks = lex(src, errs);
     const before = errs.length;
     let sxs = parse(toks, errs);
-    if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([file.replace(/^\.\//, "")]) });
+    if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([normPath(file)]) });
     if (errs.length === before) {       // structure is sound: lower and check everything, report all
       const mine = [], packs = new Set();
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
@@ -2282,6 +2368,8 @@ function run(src, opts = {}) {
     return { phase: "check", errors: [...keyed.values()].sort((a, b) => a.line - b.line).map(place), output: [], checks: 0, info };
   } catch (x) {
     if (x instanceof TErr) return { phase: "run", errors: [place({ code: x.code, msg: x.message, line: x.line })], output: out, checks: st.checks, info };
+    if (x instanceof TooBig) return { phase: "check", errors: [place({ code: "E4", msg: "the types here grow too large to check. give the pieces fn signatures", line: CURLINE })], output: [], checks: 0, info };
+    if (x instanceof RangeError) return { phase: "check", errors: [{ code: "E12", msg: "too deep or too large to check. name the inner parts with let, with or fn", line: 0 }], output: [], checks: 0, info };
     return { phase: "internal", errors: [{ code: "BUG", msg: String(x && x.stack || x), line: 0 }], output: out, checks: st.checks, info };
   }
 }
@@ -2431,7 +2519,7 @@ const TESTS = [
   ["a used file brings its packs","(use \"j.tact\")\n(show (size \"[1,2]\"))","2",{"j.tact":"(use json)\n(fn size [s Str] Num (match (json.parse s) (JArr v) (len v) _ 0))"}],
   ["known before running: let + index","(let xs [1 2 3])\n(show 1)\n(show (get xs 5))","check!E10"],
   ["known before running: every one at once","(use mat)\n(use json)\n(show (matmul [[1 2]] [[1 2]]))\n(show (snum \"12x\"))\n(show (json.parse \"{\"))\n(show (with [v [1] i 3] (get v i)))\n(show (sqrt (- 1 2)))","check!E11,E15,E15,E10,E17"],
-  ["known before running: inside a fn","(let zero (- 2 2))\n(fn f [x Num] Num (+ x (/ 1 zero)))\n(show 1)","check!E17"],
+  ["what may never run is left to the run","(let zero (- 2 2))\n(fn f [x Num] Num (+ x (/ 1 zero)))\n(fn g [] Num (get [1] 5))\n(show (try (g)))\n(show (map (fun [x] (if (> x 9) (need None \"big\") x)) [1 2]))\n(show (for [_ []] (/ 1 0)))","(Err \"E10\" \"get: index 5 outside 0..0\")\n[1 2]\n[]"],
   ["known before running: check","(let n (len [1 2 3]))\n(check n 4)\n(show 1)","check!ECHECK"],
   ["known before running: rec and match","(rec P [x Num v (Vec Num)])\n(let p (up (P 1 [5]) P.x 0))\n(show (match (first (P.v p)) (Some a) (/ a (P.x p)) None 0))","check!E17"],
   ["a branch not taken is not an error","(show (if true 1 (/ 1 0)))\n(show (match (first []) (Some x) x None (get [7] 0)))\n(let n 0)\n(show (if (= n 0) 0 (/ 1 n)))\n(show (try (/ 1 0)))","1\n7\n0\n(Err \"E17\" \"division by zero\")"],
@@ -2443,6 +2531,27 @@ const TESTS = [
   ["a bind used by a later bind is used","(show (with [a 1 b (+ a 1)] b))","2"],
   ["foreign words name the tact","(define x 1)\n(show (lambda [y] y))\n(show (length [1]))\n(show (if (== 1 1) nil 2))\n(show (let [a 1] a))\n(show (sum [1 2]))\n(show (println \"x\"))","!E8,E1,E1,E1,E1,E1,E8,E8,E1"],
   ["swapped args are named","(show (map [1 2] (fun [x] x)))","!E4,E4"],
+  ["E3 reader names collide","(rec io [print Num])\n(sum S [P.x [Str]])\n(rec P [x Num])\n(rec A [x Num])\n(rec A.x [y Num])","!E3,E3,E3"],
+  ["E3 a local may not shadow a later let","(fn f [x Num] Num (with [y 1] (+ x y)))\n(let y 5)","!E3"],
+  ["E12 nested too deep","(show (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg (neg 1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))","check!E12"],
+  ["E12 far too deep is still a tact error","(show [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])","check!E12"],
+  ["E12 -> too long","(show (-> 1 neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg neg ))","check!E12"],
+  ["E8 -> one slot a step","(show (-> 2 (+ _ _)))","!E8"],
+  ["-> match step keeps its _","(show (-> (Some 1) (match (Some a) a _ 0)))\n(show (-> 5 (- 10 _)))","1\n5"],
+  ["E4 types that explode","(let f0 (fun [x] (Pair x x)))\n(let f1 (fun [x] (f0 (f0 x))))\n(let f2 (fun [x] (f1 (f1 x))))\n(let f3 (fun [x] (f2 (f2 x))))\n(let f4 (fun [x] (f3 (f3 x))))\n(let f5 (fun [x] (f4 (f4 x))))\n(show 1)","check!E4"],
+  ["E18 _ after every case","(show (match (Some 1) (Some x) x None 0 _ 9))\n(show (match true true 1 false 2 _ 3))","!E18,E18"],
+  ["_ is an unused name in fun and for","(show (map (fun [_] 1) [1 2]))\n(show (for [_ (range 3)] 0))\n(show (fold (fun [acc _] (+ acc 1)) 0 [5 5]))","[1 1]\n[0 0 0]\n2"],
+  ["iroot large","(show (iroot 1e60 2))\n(show (iroot 1e300 3))\n(show (iroot 0 5))","1e+30\n1e+100\n0"],
+  ["sizes are capped","(use mat)\n(use re)\n(use draw)\n(fn id [x ?a] ?a x)\n(show (try (len (matmul (id (rep 1000000 [1])) [(range 1000)]))))\n(show (try (len (flat (id (rep 1000 (rep 2000 0)))))))\n(show (try (slen (str (id (rep 1000000 (rep 1000000 0)))))))\n(show (try (k.rank (id (k.randn 1000 1000 1)))))\n(show (try (slen (ascii 1 (id 4096) [] 400))))\n(show (len (uniq (range 200000))))\n(show (take [1 2] 2000000))","(Err \"E17\" \"matmul: 1000000x1 times 1x1000 is too large\")\n(Err \"E17\" \"flat: over the item cap\")\n(Err \"E17\" \"value too large to print\")\n(Err \"E17\" \"k.rank: 1000x1000 is too large for the js backend\")\n(Err \"E17\" \"ascii: 819200 rows is over 400. use fewer columns\")\n200000\n[1 2]"],
+  ["E9 data counts against the budget","(show (len (map (fun [_] (range 1000000)) (range 1000000))))","run!E9",null,20000000],
+  ["try catches host limits","(rec L [v Num next (Opt L)])\n(fn build [n Num acc (Opt L)] (Opt L) (if (= n 0) acc (build (- n 1) (Some (L n acc)))))\n(show (match (try (slen (str (build 20000 None)))) (Ok _) \"ok\" (Err c _) c))\n(show (try (fail \"\" \"m\")))","E9\n(Err \"\" \"m\")"],
+  ["eig at the edges of scale","(use mat)\n(check (k.eig [[0 1e200] [1e200 0]]) [[1e200 -1e200] [0 0]])\n(check (k.eig [[1e160 2e160] [2e160 4e160]]) [[5e160 0] [0 0]])\n(check (get (k.eig [[1 1e9 0] [1e-9 1 1e9] [0 1e-9 1]]) 0) [(+ 1 (sqrt 2)) 1 (- 1 (sqrt 2))])\n(check (get (k.eig [[1 1e12 0] [1e-12 1 1e12] [0 1e-12 1]]) 0) [(+ 1 (sqrt 2)) 1 (- 1 (sqrt 2))])\n(show (get (k.eig [[1e-170 2e-170] [2e-170 1e-170]]) 0))","[3e-170 -1e-170]"],
+  ["solve and svd at the edges of scale","(use mat)\n(check (k.solve [[1e-20 0] [0 1]] [[1] [1]]) [[1e20] [1]])\n(check (k.solve [[1 0] [0 1e-13]] [[1] [1]]) [[1] [1e13]])\n(show (svdvals [[1e200 0] [0 1]]))\n(show (svdvals [[1 0] [0 1e-170]]))\n(show (vnorm [3e200 4e200]))","[1e+200 1]\n[1 1e-170]\n5e+200"],
+  ["dates are iso and never the host zone","(use time)\n(show (date.parse \"2020-01-01T00:00:00Z\"))\n(show (date.parse \"2020-01-01\"))\n(show (date.parse \"2020-01-01T01:00:00+01:00\"))\n(show (map (fun [s] (match (try (date.parse s)) (Ok _) \"ok\" (Err c _) c)) [\"2020-01-01T00:00\" \"Jan 1 2020\" \"2\" \"2020-02-30\"]))","1577836800000\n1577836800000\n1577836800000\n[\"E15\" \"E15\" \"E15\" \"E15\"]"],
+  ["json keys come out in cmp order","(use json)\n(show (json.str (JObj {\"10\" (JNum 1) \"9\" (JNum 2) \"a\" (JArr [])})))\n(check (json.parse (json.pretty (JObj {\"k\" (JArr [(JNum 1) JNull (JObj {})])}))) (JObj {\"k\" (JArr [(JNum 1) JNull (JObj {})])}))","{\"10\":1,\"9\":2,\"a\":[]}"],
+  ["rows that were wrong","(use bytes)\n(show [(mod -1 3) (mod 1 -3) (mod -1e-20 3)])\n(show (try (unutf8 [300])))\n(show (utf8 (unutf8 [239 187 191 97])))\n(show (try (fix 1e21 2)))\n(show (atan2 0 -0))\n(show (slt \"😀\" \"ｚ\"))\n(show (order [\"ｚ\" \"😀\" \"a\"]))\n(show (try (chr 55357)))","[2 -2 0]\n(Err \"E15\" \"unutf8: 300 is not a byte 0..255\")\n[239 187 191 97]\n(Err \"E17\" \"fix: 1e+21 is too big to write out\")\n0\nfalse\n[\"a\" \"ｚ\" \"😀\"]\n(Err \"E17\" \"chr: 55357 is not a code point\")"],
+  ["a line longer than the canvas is solid","(use draw)\n(check (ascii 60 2 [(Line 0 0 100000 0 \"white\")] 60) (ascii 60 2 [(Line 0 0 59 0 \"white\")] 60))\n(show (ascii 8 8 [(Line -500 -500 500 500 \"white\")] 8))\n(show (ascii 8 8 [(Line 20 0 30 5 \"white\")] 8))","@@\n  @@\n    @@\n      @@\n\n\n\n"],
+  ["memory host: made dirs exist, .. resolves","(use io)\n(use \"lib/a.tact\")\n(use \"lib/../lib/a.tact\")\n(do (io.mkdir \"d\") (io.write \"d/../e.txt\" \"x\"))\n(show [(io.isdir \"d\") (io.exists \"e.txt\")])\n(show z)","[true true]\n1",{"lib/a.tact":"(use \"../z.tact\")","z.tact":"(let z 1)"}],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
@@ -2769,9 +2878,9 @@ const EXAMPLES = {
 (fn depth [t Tree] Num
   (+ 1 (fold max 0 (map depth (Tree.kids t)))))
 
-(let t (Tree 1 [(Tree 2 []) (Tree 3 [(Tree 4 [])])]))
-(show (total t))
-(show (depth t))
+(let tree (Tree 1 [(Tree 2 []) (Tree 3 [(Tree 4 [])])]))
+(show (total tree))
+(show (depth tree))
 
 ; ?a is rigid inside the body and fresh at every call
 (fn twice [f (Fn ?a ?a) x ?a] ?a (f (f x)))
