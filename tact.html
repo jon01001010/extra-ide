@@ -235,10 +235,13 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        a regex written as a literal is checked before anything runs (E12).
 
 DRAW   a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
-       x right, y down, color is css text or (rgb r g b). (io.frame w h shapes) adds one frame.
-       the host shows the frames as a loop. a program makes them all, then ends.
+       x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
+       shapes become pixels in the core: the same picture on every host.
+       to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
+       to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
+       as one png grid, left to right, top to bottom: a whole animation in one image.
 
-HOSTS  node: files, shell, http, stdin, args, env.  browser: memory files, http, frames.
+HOSTS  node: files, shell, http, stdin, args, env.  browser: memory files, http. also loops the frames.
        what a host lacks = E13. what a host tried and could not do = E19.
 
 ERRORS check phase  E1-E8 E12 E18   every error reported at once, each with its line. nothing runs.
@@ -410,7 +413,8 @@ fix str 2 Num,Num Str x with d decimals
 radix str 2 Num,Num Str whole n in base 2..36
 pradix str 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
-rgb str 3 Num,Num,Num Str css color. each clamped to 0..255
+rgb draw 3 Num,Num,Num Str #rrggbb. each clamped to 0..255
+ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. darkest = space. brightest = @
 utf8 str 1 Str @Vec.Num bytes
 unutf8 str 1 @Vec.Num Str E15 bad bytes
 b64.enc str 1 Str Str utf8 then base64
@@ -463,7 +467,8 @@ io.http io 4 Str,Str,@Map,Str Http method url headers body. status is data
 io.now io 0 ! Num ms since 1970
 io.rand io 0 ! Num 0..1. not seeded
 io.sleep io 1 Num Num ms
-io.frame io 3 Num,Num,@Vec.Draw Num width height shapes. frames so far
+io.frame io 3 Num,Num,@Vec.Draw Num width height shapes. frames so far. E14 bad color
+io.sheet io 2 Str,Num Num path cols. every frame so far as one png grid
 E1 err ! ! ! check. unknown name. nearest known
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -1457,7 +1462,75 @@ def("date.iso", "Num -> Str", ([ms]) => { const d = new Date(ms); return Number.
 def("date.parse", "Str -> Num", ([s]) => { const v = Date.parse(s); return Number.isNaN(v) ? R("E15", `date.parse cannot read ${quote(s)}`) : v; });
 
 /* ---- v2: io. every effect goes through the host, so a host decides what a program may touch */
+/* ---- drawing: shapes become pixels here, in the core, so every host and every reader gets the same picture */
+const NAMED = { black: "000000", white: "ffffff", red: "ff0000", green: "00a000", blue: "0000ff", yellow: "ffff00", cyan: "00ffff", magenta: "ff00ff", gray: "808080", orange: "ff8000" };
+function color(s) {
+  const h = own(NAMED, s) ? NAMED[s] : /^#[0-9a-f]{6}$/i.test(s) ? s.slice(1) : /^#[0-9a-f]{3}$/i.test(s) ? s[1] + s[1] + s[2] + s[2] + s[3] + s[3] : null;
+  if (h === null) R("E14", `color ${quote(s)}: write #rgb, #rrggbb, (rgb r g b) or one of ${Object.keys(NAMED).join(" ")}`);
+  const n = parseInt(h, 16); return [n >> 16, n >> 8 & 255, n & 255];
+}
+function raster(w, h, shapes, op) {
+  if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w > 4096 || h > 4096) R("E17", `${op}: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 1..4096`);
+  const px = new Uint8Array(w * h * 3);
+  const dot = (x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; } };
+  for (const s of shapes) {
+    const v = s.vals, c = color(v[v.length - 1]);
+    if (s.name === "Dot") dot(Math.floor(v[0]), Math.floor(v[1]), c);
+    else if (s.name === "Box") {
+      const x0 = Math.max(0, Math.round(v[0])), y0 = Math.max(0, Math.round(v[1])), x1 = Math.min(w, Math.round(v[0] + v[2])), y1 = Math.min(h, Math.round(v[1] + v[3]));
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
+    } else {
+      const n = Math.min(16384, Math.ceil(Math.max(Math.abs(v[2] - v[0]), Math.abs(v[3] - v[1]))));
+      for (let i = 0; i <= n; i++) { const t = n ? i / n : 0; dot(Math.floor(v[0] + (v[2] - v[0]) * t), Math.floor(v[1] + (v[3] - v[1]) * t), c); }
+    }
+  }
+  return px;
+}
+function asciiArt(w, h, px, cols) {
+  if (!isInt(cols) || cols < 1 || cols > 400) R("E17", `ascii: ${fmtNum(cols)} columns outside 1..400`);
+  const RAMP = " .:-=+*#%@", rows = Math.max(1, Math.round(cols * h / w / 2)), cells = [];
+  let lo = 255, hi = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {     // brightest pixel in the cell, so a thin line still shows
+    const x0 = Math.floor(c * w / cols), x1 = Math.max(x0 + 1, Math.floor((c + 1) * w / cols)), y0 = Math.floor(r * h / rows), y1 = Math.max(y0 + 1, Math.floor((r + 1) * h / rows));
+    let top = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3, l = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; if (l > top) top = l; }
+    cells.push(top); if (top < lo) lo = top; if (top > hi) hi = top;
+  }
+  const out = [];                                                      // darkest cell = space, brightest = @: contrast is stretched to fit
+  for (let r = 0; r < rows; r++) {
+    let line = "";
+    for (let c = 0; c < cols; c++) line += RAMP[hi > lo ? Math.min(9, Math.floor((cells[r * cols + c] - lo) / (hi - lo) * 10)) : hi > 0 ? 9 : 0];
+    out.push(line.replace(/ +$/, ""));
+  }
+  return out.join("\n");
+}
+function png(w, h, rgb) {            // 8 bit rgb. zlib when the host has it, stored blocks when not
+  const raw = new Uint8Array(h * (w * 3 + 1));
+  for (let y = 0; y < h; y++) raw.set(rgb.subarray(y * w * 3, (y + 1) * w * 3), y * (w * 3 + 1) + 1);
+  let z;
+  if (typeof require === "function") z = require("zlib").deflateSync(raw);
+  else {
+    const parts = [Uint8Array.of(0x78, 0x01)]; let a = 1, b = 0;
+    for (const x of raw) { a = (a + x) % 65521; b = (b + a) % 65521; }
+    for (let i = 0; i < raw.length || i === 0; i += 65535) {
+      const n = Math.min(65535, raw.length - i);
+      parts.push(Uint8Array.of(i + n >= raw.length ? 1 : 0, n & 255, n >> 8, ~n & 255, ~n >> 8 & 255), raw.subarray(i, i + n));
+    }
+    parts.push(Uint8Array.of(b >> 8, b & 255, a >> 8, a & 255));
+    z = join8(parts);
+  }
+  const be = n => Uint8Array.of(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255);
+  const chunk = (type, data) => {
+    const td = join8([Uint8Array.from(type, c => c.charCodeAt(0)), data]); let c = -1;
+    for (const x of td) { c ^= x; for (let k = 0; k < 8; k++) c = c >>> 1 ^ (c & 1 ? 0xEDB88320 : 0); }
+    return join8([be(data.length), td, be(~c >>> 0)]);
+  };
+  return join8([Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), chunk("IHDR", join8([be(w), be(h), Uint8Array.of(8, 2, 0, 0, 0)])), chunk("IDAT", z), chunk("IEND", new Uint8Array(0))]);
+}
+function join8(parts) { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; }
+let FRAMES = [];
 def("rgb", "Num Num Num -> Str", (v) => "#" + v.map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0")).join(""));
+def("ascii", "Num Num (Vec Draw) Num -> Str", ([w, h, v, cols]) => asciiArt(w, h, raster(w, h, v, "ascii"), cols));
 let HOST = null, EMIT = null;
 function io(name, ...a) {
   const h = HOST && HOST[name];
@@ -1489,8 +1562,25 @@ def("io.http", "Str Str (Map Str Str) Str -> Http", ([method, url, hs, body]) =>
   return RV("Http", [r.status, String(r.body)]);
 });
 def("io.frame", "Num Num (Vec Draw) -> Num", ([w, h, v]) => {
-  if (!(w >= 1 && h >= 1 && w <= 4096 && h <= 4096)) R("E17", `io.frame: size ${fmtNum(w)} x ${fmtNum(h)} outside 1..4096`);
-  return io("frame", w, h, v.map(s => [s.name, ...s.vals]));
+  const px = raster(w, h, v, "io.frame");
+  if (FRAMES.length >= 2000) R("E17", "io.frame: over the 2000 frame cap");
+  FRAMES.push({ w, h, px });
+  if (HOST && typeof HOST.frame === "function") HOST.frame(w, h, px);
+  return FRAMES.length;
+});
+def("io.sheet", "Str Num -> Num", ([path, cols]) => {
+  if (!FRAMES.length) R("E14", "io.sheet: no frames yet. io.frame makes them");
+  if (!isInt(cols) || cols < 1) R("E17", `io.sheet: ${fmtNum(cols)} columns must be a whole number >= 1`);
+  const n = FRAMES.length, cw = Math.max(...FRAMES.map(f => f.w)), ch = Math.max(...FRAMES.map(f => f.h));
+  const gx = Math.min(cols, n), gy = Math.ceil(n / cols), W = gx * (cw + 1) - 1, Ht = gy * (ch + 1) - 1;
+  if (W > 16384 || Ht > 16384) R("E17", `io.sheet: ${W} x ${Ht} pixels is over 16384 a side. use more or fewer columns, or fewer frames`);
+  const img = new Uint8Array(W * Ht * 3).fill(255);
+  FRAMES.forEach((f, k) => {
+    const ox = (k % cols) * (cw + 1), oy = Math.floor(k / cols) * (ch + 1);
+    for (let y = 0; y < f.h; y++) img.set(f.px.subarray(y * f.w * 3, (y + 1) * f.w * 3), ((oy + y) * W + ox) * 3);
+  });
+  io("writeb", path, png(W, Ht, img));
+  return n;
 });
 def("io.now", "-> Num", () => io("now"));
 def("io.rand", "-> Num", () => io("rand"));
@@ -1515,7 +1605,7 @@ function memHost(files = {}) {       // files live in memory. the browser host, 
     readb: p => { const v = get(p); return typeof v === "string" ? new TextEncoder().encode(v) : v; },
     writeb: (p, u8) => { F.set(norm(p), u8); },
     stdin: () => "", args: () => [], env: () => null,
-    frames, frame: (w, h, shapes) => { if (frames.length >= 2000) throw new Error("over the 2000 frame cap"); return frames.push({ w, h, shapes }); },
+    frames, frame: (w, h, px) => { frames.push({ w, h, px }); },
     now: () => Date.now(), rand: () => Math.random(),
   };
 }
@@ -1911,7 +2001,7 @@ function callPrim(f, args, depth) {
   throw new Error("not callable");
 }
 function runProgram(tops, emit, st, opts) {
-  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit;
+  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = [];
   const G = new Env(null);
   for (const n of Object.keys(B)) G.m.set(n, B[n].fn ? { k: "bi", name: n, fn: B[n].fn } : B[n].val);
   for (const t of tops) {
@@ -2137,7 +2227,10 @@ const TESTS = [
   ["use reports the file", '(use "bad.tact")\n(show 1)', "!E4@bad.tact:2", { "bad.tact": '(let p 1)\n(let q (+ 1 "a"))' }],
   ["E12 use unreadable", '(use "nope.tact")\n(show 1)', "!E12"],
   ["E8 top form inside", "(show (sum X [A []]))", "!E8"],
-  ["frames", '(show (rgb 255 0 300.4))\n(show (for [t (range 3)] (io.frame 8 8 [(Box 0 0 8 8 "black") (Line 0 0 t t (rgb 9 9 9)) (Dot t 1 "red")])))', "#ff00ff\n[1 2 3]"],
+  ["frames", '(show (rgb 255 0 300.4))\n(show (for [t (range 3)] (io.frame 8 8 [(Box 0 0 8 8 "black") (Line 0 0 t t (rgb 9 9 9)) (Dot t 1 "red")])))\n(show (io.sheet "s.png" 2))\n(show (take (io.readb "s.png") 4))\n(show (try (io.sheet "s.png" 0)))', '#ff00ff\n[1 2 3]\n3\n[137 80 78 71]\n(Err "E17" "io.sheet: 0 columns must be a whole number >= 1")'],
+  ["ascii is a value", '(show (ascii 8 8 [(Box 0 0 8 8 "#222") (Line 0 0 7 7 "white") (Box 4 0 4 2 "gray")] 8))\n(check (ascii 4 2 [(Dot 0 0 "white")] 4) "@")', "@@  ====\n  @@\n    @@\n      @@"],
+  ["E14 color", '(show (ascii 4 4 [(Dot 0 0 "rebeccapurple")] 4))', "!E14"],
+  ["E14 sheet without frames", '(show (io.sheet "s.png" 4))', "!E14"],
   ["E4 frame takes shapes", "(show (io.frame 8 8 [1 2]))", "!E4"],
   ["E17 frame size", "(show (io.frame 0 8 []))", "!E17"],
 ];
@@ -2153,7 +2246,7 @@ function runTests() {
   // the spec must describe the language as built: every builtin and every form has a matrix row
   const rows = new Set(MATRIX.split("\n").slice(1).map(l => l.split(" ")[0]));
   const lost = [...Object.keys(B), ...Object.keys(FORMS), ...Object.keys(TOPS)].filter(n => !rows.has(n));
-  const kinds = { num: 1, str: 1, cmp: 1, bool: 1, vec: 1, vnum: 1, hof: 1, mat: 1, bit: 1, build: 1, kern: 1, opt: 1, map: 1, re: 1, json: 1, time: 1, io: 1 };
+  const kinds = { draw: 1, num: 1, str: 1, cmp: 1, bool: 1, vec: 1, vnum: 1, hof: 1, mat: 1, bit: 1, build: 1, kern: 1, opt: 1, map: 1, re: 1, json: 1, time: 1, io: 1 };
   const ghost = MATRIX.split("\n").slice(1).map(l => l.split(" ")).filter(p => kinds[p[1]] && !own(B, p[0])).map(p => p[0]);
   const got = [...lost.map(n => "no row: " + n), ...ghost.map(n => "no builtin: " + n)].join(", ");
   rs.push({ name: "matrix = builtins", ok: got === "", got, want: "", src: "; compares the matrix with the builtin table", errors: [] });
@@ -2399,7 +2492,9 @@ const EXAMPLES = {
             (for [i (range cols)] (column i px py (+ a 2.1))))))
 
 (do (for [t (range frames)] (io.frame W H (frame t))))
-(show (cat frames " frames, " cols " rays each"))
+; one frame as text, and every frame as one image
+(show (ascii W H (frame 0) 72))
+(show (cat (io.sheet "raycast.png" 8) " frames in raycast.png"))
 `,
   "3D: wire cube": `; lines only: 8 corners, 12 edges, turned and projected, 60 frames on a loop
 (let W 240) (let H 180) (let n 60)
@@ -2428,7 +2523,8 @@ const EXAMPLES = {
                 (Line (get p 0) (get p 1) (get q 0) (get q 1) "#7fe0c0"))))))
 
 (do (for [t (range n)] (io.frame W H (frame t))))
-(show (cat n " frames, " (len edges) " lines each"))
+(show (ascii W H (frame 5) 64))
+(show (cat (io.sheet "cube.png" 10) " frames in cube.png"))
 `,
   "Generics + records": `(rec Tree [v Num kids (Vec Tree)])
 
@@ -2547,12 +2643,9 @@ const screen = $("#screen"), g2 = screen.getContext("2d");
 let playing = 0;
 function paint(f) {
   if (screen.width !== f.w || screen.height !== f.h) { screen.width = f.w; screen.height = f.h; }
-  g2.clearRect(0, 0, f.w, f.h);
-  for (const s of f.shapes) {
-    if (s[0] === "Line") { g2.strokeStyle = s[5]; g2.beginPath(); g2.moveTo(s[1], s[2]); g2.lineTo(s[3], s[4]); g2.stroke(); }
-    else if (s[0] === "Box") { g2.fillStyle = s[5]; g2.fillRect(s[1], s[2], s[3], s[4]); }
-    else { g2.fillStyle = s[3]; g2.fillRect(s[1], s[2], 1, 1); }
-  }
+  const im = g2.createImageData(f.w, f.h), d = im.data;
+  for (let i = 0, j = 0; i < f.px.length; i += 3, j += 4) { d[j] = f.px[i]; d[j + 1] = f.px[i + 1]; d[j + 2] = f.px[i + 2]; d[j + 3] = 255; }
+  g2.putImageData(im, 0, 0);
 }
 function play() {
   const frames = host.frames.slice(), id = ++playing;
