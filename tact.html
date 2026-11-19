@@ -2493,7 +2493,7 @@ const EXAMPLES = {
 `,
   "IO + modules": `(use io)
 ; effects live in the io pack. here files are in memory; under node they are real.
-(do (io.write "lib/stats.tact" "(fn spread [xs (Vec Num)] Num (- (vmax xs) (vmin xs)))\\n(check (spread [1 5 2]) 4)"))
+(do (io.mkdir "lib") (io.write "lib/stats.tact" "(fn spread [xs (Vec Num)] Num (- (vmax xs) (vmin xs)))\\n(check (spread [1 5 2]) 4)"))
 (do (io.write "data.csv" "day,temp\\nmon,12.5\\ntue,14\\nwed,9.5\\n"))
 
 (rec Row [day Str temp Num])
