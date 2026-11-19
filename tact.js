@@ -65,6 +65,7 @@ EXPRESSIONS
                                    no _ = insert as first arg. expands before check.
   (do a b c)                       in order. value of the last
   (cat a b c)                      one Str. a Str goes in as is, anything else as show prints it
+  (up r Name.field v ..)           a copy of rec r with those fields replaced
   (try expr)                       (Ok value) or (Err "code" "msg"). catches any run error
   (fail "code" "msg")              E16. fits any type. try gives (Err "code" "msg")
   ; comment to end of line         string escapes: \\n \\t \\r \\" \\\\
@@ -86,10 +87,12 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        vectors, maps and repeats are capped at ${MAXLEN} items (E17).
        io.print is the one effect in the core. the rest live in packs.
 
-ERRORS check phase  E1-E8 E12 E18   every error reported at once, each with its line. nothing runs.
+ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with its line. nothing runs.
+       names never change, so a run error that literals, lets and pure builtins make certain
+       is reported in the check phase too, with its own code. not inside try.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
-CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
+CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -101,6 +104,7 @@ for form 2|3 binds,[when],body @Vec.@T flat. guard total
 do form 1+ exprs @T in order. last value
 cat form 1+ any Str Str as is. rest as shown
 try form 1 @T @Res.@T Ok value or Err code msg
+up form 3+ r,field,value.. @T copy of a rec. fields replaced
 fail form 2 Str,Str @T E16. fits any position
 ( form ! f,args @T call
 [ form ! @T... @Vec.@T one type
@@ -311,7 +315,7 @@ io.rand io 0 ! Num 0..1. not seeded
 io.sleep io 1 Num Num ms
 io.frame draw 3 Num,Num,@Vec.Draw Num width height shapes. frames so far. E14 bad color
 io.sheet draw 2 Str,Num Num path cols. every frame so far as one png grid
-E1 err ! ! ! check. unknown name. nearest known. or the pack to use
+E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
 E4 err ! ! ! check. type mismatch. arg named
@@ -330,6 +334,7 @@ E16 err ! ! ! run. fail on purpose
 E17 err ! ! ! run. domain. nonfinite
 E18 err ! ! ! check. match not exhaustive or arm unreachable
 E19 err ! ! ! run. io failed
+E20 err ! ! ! check. bound and never used. with and match
 ECHECK err ! ! ! run. check sides differ`;
 
 /* ------------------------------------------------------------------ errors */
@@ -339,7 +344,7 @@ const R = (code, msg) => { throw new TErr(code, msg); };
 let FILES = [""];                    // a line from a used file is fileIndex * LINEBASE + line
 const LN = n => n < LINEBASE ? String(n) : `${n % LINEBASE} of ${FILES[Math.floor(n / LINEBASE)]}`;
 
-const FORMS = { "if": 3, "with": 2, "fun": [2, 3], "for": [2, 3], "->": "2+", "fail": 2, "match": "3+odd", "try": 1, "do": "1+", "cat": "1+" };
+const FORMS = { "if": 3, "with": 2, "fun": [2, 3], "for": [2, 3], "->": "2+", "fail": 2, "match": "3+odd", "try": 1, "do": "1+", "cat": "1+", "up": "3+odd" };
 const TOPS = { "let": 2, "fn": 4, "show": 1, "check": 2, "rec": 2, "sum": 2, "do": "1+", "use": 1 };
 const TYPENAMES = ["Num", "Bool", "Str", "Vec", "Fn", "Map"];
 const RESERVED = new Set([...Object.keys(FORMS), ...Object.keys(TOPS), ...TYPENAMES, "true", "false", "_"]);
@@ -451,7 +456,7 @@ function parse(toks, errs) {
 /* ------------------------------------------------------------------ lower (s-expr -> AST). -> expands here */
 const isSym = s => s && s.t === "sym";
 const arityOk = (spec, n) => Array.isArray(spec) ? spec.includes(n) : spec === "2+" ? n >= 2 : spec === "1+" ? n >= 1 : spec === "3+odd" ? n >= 3 && n % 2 === 1 : n === spec;
-const arityTxt = spec => Array.isArray(spec) ? spec.join(" or ") : spec === "2+" ? "2 or more" : spec === "1+" ? "1 or more" : spec === "3+odd" ? "a value then pattern body pairs:" : String(spec);
+const arityTxt = spec => Array.isArray(spec) ? spec.join(" or ") : spec === "2+" ? "2 or more" : spec === "1+" ? "1 or more" : spec === "3+odd" ? "a value then pairs:" : String(spec);
 
 function pairs(v, what, kind, errs, L) {
   if (!v || v.t !== "vec") { errs.push(E("E12", `${what}: expected [name ${kind} ..]`, v ? v.line : L)); return null; }
@@ -469,6 +474,7 @@ function lowerTop(s, errs) {
   if (!head || !own(TOPS, head)) {
     errs.push(E("E8", head && own(FORMS, head)
       ? `(${head} ..) is an expression; at top level wrap it in (show ..) or (let name ..)`
+      : head && foreign(head) ? foreign(head)
       : `top level takes only (let ..) (fn ..) (rec ..) (sum ..) (show ..) (check ..) (do ..) (use ..); got ${sx(s).slice(0, 40)}`, s.line));
     return null;
   }
@@ -526,7 +532,10 @@ function lowerExpr(s, errs) {
       if (!s.items.length) { errs.push(E("E12", "empty () is not an expression", L)); return { t: "err", line: L }; }
       const h = s.items[0], a = s.items.slice(1);
       if (isSym(h) && own(FORMS, h.v)) return lowerForm(h.v, a, L, errs);
-      if (isSym(h) && own(TOPS, h.v)) { errs.push(E("E8", `(${h.v} ..) is a top form; not allowed inside an expression`, L)); return { t: "err", line: L }; }
+      if (isSym(h) && own(TOPS, h.v)) {
+        const INSIDE = { let: "use (with [name expr] body)", fn: "use (fun [x] body), or move the fn to top level", sum: "to add numbers use (vsum v)", show: "use (io.print (str x)) or move it to top level", check: "move it to top level", rec: "move it to top level", use: "move it to top level" };
+        errs.push(E("E8", `(${h.v} ..) is a top form; not allowed inside an expression. ${INSIDE[h.v]}`, L)); return { t: "err", line: L };
+      }
       return { t: "call", f: lowerExpr(h, errs), args: a.map(x => lowerExpr(x, errs)), line: L };
     }
   }
@@ -549,13 +558,21 @@ function lowerPat(p, errs) {
 }
 function lowerForm(k, a, L, errs) {
   const bad = { t: "err", line: L };
-  if (!arityOk(FORMS[k], a.length)) { errs.push(E("E2", `${k} takes ${arityTxt(FORMS[k])} parts, got ${a.length}`, L)); return bad; }
+  if (!arityOk(FORMS[k], a.length)) { errs.push(E("E2", `${k} takes ${arityTxt(FORMS[k])} parts, got ${a.length}` + (k === "if" && a.length === 2 ? ". if needs both branches" : ""), L)); return bad; }
   const X = s => lowerExpr(s, errs);
   switch (k) {
     case "if": return { t: "if", c: X(a[0]), a: X(a[1]), b: X(a[2]), line: L };
     case "do": return { t: "do", items: a.map(X), line: L };
     case "cat": return { t: "cat", items: a.map(X), line: L };
     case "try": return { t: "try", e: X(a[0]), line: L };
+    case "up": {
+      const sets = [];
+      for (let i = 1; i < a.length; i += 2) {
+        if (!isSym(a[i])) { errs.push(E("E12", `up: ${sx(a[i])} is not a field. write Name.field then its new value`, a[i].line)); return bad; }
+        sets.push({ field: a[i].v, e: X(a[i + 1]), line: a[i].line });
+      }
+      return { t: "up", x: X(a[0]), sets, line: L };
+    }
     case "match": {
       const arms = []; let ok = true;
       for (let i = 1; i < a.length; i += 2) { const p = lowerPat(a[i], errs); if (!p) ok = false; else arms.push({ p, body: X(a[i + 1]), line: a[i].line }); }
@@ -607,6 +624,7 @@ function un(e) {
     case "map": return "{" + e.pairs.map(([k, v]) => un(k) + " " + un(v)).join(" ") + "}";
     case "do": case "cat": return "(" + [e.t, ...e.items.map(un)].join(" ") + ")";
     case "try": return `(try ${un(e.e)})`;
+    case "up": return "(" + ["up", un(e.x), ...e.sets.map(s => s.field + " " + un(s.e))].join(" ") + ")";
     case "match": return "(" + ["match", un(e.x), ...e.arms.map(a => unPat(a.p) + " " + un(a.body))].join(" ") + ")";
     case "if": return `(if ${un(e.c)} ${un(e.a)} ${un(e.b)})`;
     case "with": return `(with [${e.binds.map(([n, x]) => n + " " + un(x)).join(" ")}] ${un(e.body)})`;
@@ -1544,7 +1562,7 @@ function declare(name, type, sc, line, C) {
 function unknown(name, line, sc, C) {
   if (name === "_") return C.errs.push(E("E1", "_ is a slot only inside (-> ..) and a wildcard only in match patterns", line));
   if (C.letLines.has(name) && !C.g.has(name)) return C.errs.push(E("E1", `${name} is not defined yet: its let is on line ${LN(C.letLines.get(name))}`, line));
-  const hint = packHint(name, C); if (hint) return C.errs.push(E("E1", hint, line));
+  const hint = packHint(name, C) || foreign(name); if (hint) return C.errs.push(E("E1", hint, line));
   const names = new Set([...C.g.keys(), "true", "false"]);
   for (let s = sc; s; s = s.p) for (const k of s.m.keys()) names.add(k);
   const near = nearest(name, names);
@@ -1574,7 +1592,7 @@ function inferMatch(e, sc, C) {
         const ct = prune(inst(en.type)), fields = en.nul ? [] : ct.ps, built = en.nul ? ct : ct.r, got = showT(ts);
         if (p.binds === null && !en.nul) errs.push(E("E2", `${p.name} has ${fields.length} field${fields.length === 1 ? "" : "s"}: write (${[p.name, ...fields.map(() => "_")].join(" ")})`, arm.line));
         else if (p.binds !== null && en.nul) errs.push(E("E2", `${p.name} has no fields: write ${p.name} without ( )`, arm.line));
-        else if (p.binds !== null && p.binds.length !== fields.length) errs.push(E("E2", `${p.name} has ${fields.length} field${fields.length === 1 ? "" : "s"}, pattern names ${p.binds.length}`, arm.line));
+        else if (p.binds !== null && p.binds.length !== fields.length) { errs.push(E("E2", `${p.name} has ${fields.length} field${fields.length === 1 ? "" : "s"}, pattern names ${p.binds.length}`, arm.line)); arm.broken = true; }
         if (!unify(ts, built)) errs.push(E("E4", `pattern ${p.name} is a ${showT(built)}, the matched value is ${got}`, arm.line));
         (p.binds || []).forEach((b, i) => { if (b !== null) declare(b, fields[i] || fresh(), s2, arm.line, C); });
         if (seen.has(p.name)) errs.push(E("E18", `${p.name} appears twice`, arm.line));
@@ -1582,6 +1600,7 @@ function inferMatch(e, sc, C) {
       }
     }
     const bt = infer(arm.body, s2, C);
+    if (!arm.broken) for (const [n, en] of s2.m) if (!en.used) errs.push(E("E20", `${n} is bound and never used. write _ in its place`, arm.line));
     if (!rt) rt = bt;
     else { const a = showT(rt), b = showT(bt); if (!unify(rt, bt)) errs.push(E("E5", `match arms differ: ${a} vs ${b}`, arm.line)); }
   }
@@ -1604,6 +1623,7 @@ function infer(e, sc, C) {
     case "var": {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
+      en.used = true;
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
     }
@@ -1628,6 +1648,19 @@ function infer(e, sc, C) {
     case "do": { let t = null; for (const x of e.items) t = infer(x, sc, C); return t; }
     case "cat": for (const x of e.items) infer(x, sc, C); return STR;
     case "try": return recT("Res", [infer(e.e, sc, C)]);
+    case "up": {
+      const tx = infer(e.x, sc, C), seen = new Set();
+      for (const s of e.sets) {
+        const en = C.g.get(s.field), tv = infer(s.e, sc, C);
+        if (!en || en.kind !== "reader") { errs.push(E("E1", `${s.field} is not a field. write Name.field` + (nearest(s.field, [...C.g].filter(([, v]) => v.kind === "reader").map(([k]) => k)) ? `. nearest known: ${nearest(s.field, [...C.g].filter(([, v]) => v.kind === "reader").map(([k]) => k))}` : ""), s.line)); continue; }
+        const rt = prune(inst(en.type)), a = showT(tx), b = showT(tv), want = showT(rt.r);
+        if (!unify(rt.ps[0], tx)) errs.push(E("E4", `${s.field} is a field of ${showT(rt.ps[0])}, the value is ${a}`, s.line));
+        else if (!unify(rt.r, tv)) errs.push(E("E4", `${s.field} holds ${want}, got ${b}`, s.e.line));
+        if (seen.has(s.field)) errs.push(E("E2", `${s.field} is set twice`, s.line));
+        seen.add(s.field); s.idx = en.idx;
+      }
+      return tx;
+    }
     case "match": return inferMatch(e, sc, C);
     case "if": {
       const c = infer(e.c, sc, C), cs = showT(c);
@@ -1639,7 +1672,9 @@ function infer(e, sc, C) {
     case "with": {
       const s2 = new Scope(sc);
       for (const [n, x, l] of e.binds) declare(n, infer(x, s2, C), s2, l, C);
-      return infer(e.body, s2, C);
+      const bt = infer(e.body, s2, C);
+      for (const [n, , l] of e.binds) if (!s2.m.get(n).used) errs.push(E("E20", `${n} is bound and never used. use it, delete it, or run it for effect with (do ..)`, l));
+      return bt;
     }
     case "fun": {
       const s2 = new Scope(sc), ps = e.params.map(() => fresh());
@@ -1671,6 +1706,7 @@ function infer(e, sc, C) {
         label = e.f.name;
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
+        en.used = true;
         if (en.kind === "fn") C.deps.fns.add(label); else if (en.kind === "let") C.deps.lets.add(label);
         ft = inst(en.type);
         if (en.kind === "builtin" && label.startsWith("re.") && e.args.length && e.args[0].t === "str") {
@@ -1682,9 +1718,13 @@ function infer(e, sc, C) {
       const p = prune(ft);
       if (p.k === "fn") {
         if (p.ps.length !== ats.length) { errs.push(E("E2", `${label} takes ${p.ps.length} arg${p.ps.length === 1 ? "" : "s"}, got ${ats.length}`, e.line)); return p.r; }
+        const kd = t => { t = prune(t); return t.k === "rec" ? t.name : t.k; }, kp = p.ps.map(kd), ka = ats.map(kd), firm = k => k !== "var" && k !== "gen" && k !== "rigid";
+        let swap = "";
+        for (let i = 0; i < ats.length && !swap; i++) for (let j = i + 1; j < ats.length; j++)
+          if ([kp[i], kp[j], ka[i], ka[j]].every(firm) && kp[i] !== ka[i] && kp[i] === ka[j] && kp[j] === ka[i]) { swap = `. args ${i + 1} and ${j + 1} look swapped`; break; }
         for (let i = 0; i < ats.length; i++) {
           const nm = new Map(), want = showT(p.ps[i], nm), got = showT(ats[i], nm);
-          if (!unify(p.ps[i], ats[i])) errs.push(E("E4", `arg ${i + 1} of ${label}: expected ${want}, got ${got}`, e.args[i].line));
+          if (!unify(p.ps[i], ats[i])) errs.push(E("E4", `arg ${i + 1} of ${label}: expected ${want}, got ${got}` + swap, e.args[i].line));
         }
         return p.r;
       }
@@ -1728,7 +1768,7 @@ function checkProgram(tops, errs, packs) {
       const nul = !d.isRec && !fts.length, ty = rigidToGen(nul ? rt : fnT(fts, rt));
       g.set(c.name, { kind: "ctor", type: ty, line: c.line, decl: name, nul });
       sigs.push(d.isRec ? showT(ty) : `${c.name} ${showT(ty)}`);
-      if (d.isRec) c.fields.forEach((f, i) => { const rn = name + "." + f; if (!g.has(rn)) g.set(rn, { kind: "reader", type: rigidToGen(fnT([rt], fts[i])), line: d.line }); });
+      if (d.isRec) c.fields.forEach((f, i) => { const rn = name + "." + f; if (!g.has(rn)) g.set(rn, { kind: "reader", type: rigidToGen(fnT([rt], fts[i])), line: d.line, idx: i }); });
     }
     d.ctors = d.ctors.filter(c => !c.dead);
     d.top.sig = sigs.join("  |  ");
@@ -1811,6 +1851,7 @@ function ev(e, env, depth, inFn) {
       case "if": e = ev(e.c, env, depth, false) ? e.a : e.b; continue;
       case "do": { const n = e.items.length - 1; for (let i = 0; i < n; i++) ev(e.items[i], env, depth, false); e = e.items[n]; continue; }
       case "cat": { let s = ""; for (const x of e.items) s += fmt(ev(x, env, depth, false), true); return s; }
+      case "up": { const v = ev(e.x, env, depth, false), vals = v.vals.slice(); for (const s of e.sets) vals[s.idx] = ev(s.e, env, depth, false); return { k: "rv", name: v.name, vals }; }
       case "try":
         try { return RV("Ok", [ev(e.e, env, depth, false)]); }
         catch (x) { if (x instanceof TErr && !x.fatal) return RV("Err", [x.ucode || x.code, x.umsg !== undefined ? x.umsg : x.message]); throw x; }
@@ -1906,6 +1947,118 @@ function runProgram(tops, emit, st, opts) {
     }
   }
 }
+/* ------------------------------------------------------------------ known before running
+   names never change, so a value built from literals, lets and pure builtins is known at check time.
+   a run error that such a value makes certain is reported in the check phase, with its usual code. */
+function foldProgram(tops, errs) {
+  const base = new Map(), consts = new Map(), fns = new Set();
+  for (const n of Object.keys(B)) base.set(n, B[n].fn ? { k: "bi", name: n, fn: B[n].fn } : B[n].val);
+  for (const t of tops) {
+    if (t.t === "rec") { base.set(t.name, { k: "ctor", name: t.name }); t.fields.forEach(([f], i) => base.set(t.name + "." + f, { k: "rd", idx: i })); }
+    else if (t.t === "sum") for (const [c, v] of t.ctors) base.set(c, v.items.length ? { k: "ctor", name: c } : { k: "rv", name: c, vals: [], nul: true });
+    else if (t.t === "fn") fns.add(t.name);
+    else if (t.t === "let") consts.set(t.name, undefined);
+  }
+  const BIG = 2000, GEN = new Set(["range", "rep", "onehot", "srep", "rand", "pairs", "padl", "padr", "k.randn", "chunk", "shl"]);
+  const isFn = v => typeof v === "object" && !Array.isArray(v) && v.k !== "rv" && v.k !== "map";
+  const small = v => (Array.isArray(v) && v.length > BIG) || (typeof v === "string" && v.length > 1e5) || (v && v.k === "map" && v.n > BIG) ? undefined : v;
+  const look = (name, sc) => { for (let s = sc; s; s = s.p) if (s.m.has(name)) return s.m.get(name); return consts.has(name) ? consts.get(name) : fns.has(name) ? undefined : base.get(name); };
+  const sub = sc => ({ m: new Map(), p: sc });
+  const all = xs => xs.every(x => x !== undefined);
+  const sure = (line, f) => { try { return small(f()); } catch (x) { if (x instanceof TErr) errs.push(E(x.code, x.message + ". known before running", line)); return undefined; } };
+  function fold(e, sc) {
+    switch (e.t) {
+      case "num": case "str": case "bool": return e.v;
+      case "var": return look(e.name, sc);
+      case "vec": { const xs = e.items.map(x => fold(x, sc)); return all(xs) ? small(xs) : undefined; }
+      case "map": { const ps = e.pairs.map(([k, v]) => [fold(k, sc), fold(v, sc)]); return ps.every(all) ? sure(e.line, () => ps.reduce((m, [k, v]) => mput(m, k, v), EMPTY)) : undefined; }
+      case "if": { const c = fold(e.c, sc); if (c === true) return fold(e.a, sc); if (c === false) return fold(e.b, sc); fold(e.a, sc); fold(e.b, sc); return undefined; }
+      case "do": { let v; for (const x of e.items) v = fold(x, sc); return v; }
+      case "cat": { const xs = e.items.map(x => fold(x, sc)); return all(xs) && !xs.some(isFn) ? small(xs.map(x => fmt(x, true)).join("")) : undefined; }
+      case "try": return undefined;                        // inside try an error is a value, not a mistake
+      case "fail": fold(e.a, sc); fold(e.b, sc); return undefined;
+      case "with": { const s2 = sub(sc); for (const [n, x] of e.binds) s2.m.set(n, fold(x, s2)); return fold(e.body, s2); }
+      case "fun": { const s2 = sub(sc); for (const n of e.params) s2.m.set(n, undefined); fold(e.body, s2); return undefined; }
+      case "for": { const s2 = sub(sc); for (const [n, x] of e.binds) { fold(x, s2); s2.m.set(n, undefined); } if (e.guard) fold(e.guard, s2); fold(e.body, s2); return undefined; }
+      case "up": { const v = fold(e.x, sc), xs = e.sets.map(s => fold(s.e, sc)); if (v === undefined || !all(xs)) return undefined; const vals = v.vals.slice(); e.sets.forEach((s, i) => { vals[s.idx] = xs[i]; }); return RV(v.name, vals); }
+      case "match": {
+        const v = fold(e.x, sc);
+        const bind = (a, on) => { const s2 = sub(sc); (a.p.binds || []).forEach((b, i) => { if (b !== null) s2.m.set(b, on ? v.vals[i] : undefined); }); return fold(a.body, s2); };
+        if (v === undefined || isFn(v)) { for (const a of e.arms) bind(a, false); return undefined; }
+        const arm = e.arms.find(a => a.p.k === "any" || (a.p.k === "lit" ? v === a.p.v : v.name === a.p.name));
+        return arm ? bind(arm, arm.p.k === "ctor") : undefined;
+      }
+      case "call": {
+        const f = fold(e.f, sc), args = e.args.map(a => fold(a, sc));
+        if (f === undefined || typeof f !== "object" || !all(args)) return undefined;
+        if (f.k === "ctor") return RV(f.name, args);
+        if (f.k === "rd") return args[0].vals[f.idx];
+        if (f.k !== "bi" || f.name.startsWith("io.") || args.some(isFn)) return undefined;
+        if (GEN.has(f.name) && args.some(a => typeof a === "number" && a > BIG)) return undefined;
+        return sure(e.line, () => f.fn(args, {}));
+      }
+    }
+    return undefined;
+  }
+  for (const t of tops) {
+    if (t.t === "let") consts.set(t.name, fold(t.expr, null));
+    else if (t.t === "show") fold(t.expr, null);
+    else if (t.t === "dotop") for (const x of t.exprs) fold(x, null);
+    else if (t.t === "check") {
+      const a = fold(t.a, null), b = fold(t.b, null);
+      if (a !== undefined && b !== undefined && !isFn(a) && !isFn(b) && !same(a, b, true)) errs.push(E("ECHECK", `check slipped: got ${fmt(a, false)}, expected ${fmt(b, false)}. known before running`, t.line));
+    }
+  }
+  for (const t of tops) if (t.t === "fn" && !t.skip) { const sc = sub(null); for (const [n] of t.params) sc.m.set(n, undefined); fold(t.body, sc); }
+}
+
+/* names a model brings from other languages. the E1 says what tact writes instead. */
+const FOREIGN = new Map();
+for (const [names, say] of [
+  ["lambda λ", "(fun [x y] body)"],
+  ["def define defn defun defvar", "(let name expr) for a value, (fn name [p T ..] R body) for a function"],
+  ["var const val set set! setq setf", "nothing is reassigned: (let name expr) at top, (with [name expr] body) inside"],
+  ["let* letrec", "(with [a e1  b e2] body). binds are sequential"],
+  ["cond elif elsif", "nest (if c a b), or (match x ..)"],
+  ["when unless", "(if c a b). both branches are needed"],
+  ["begin progn block", "(do a b c)"],
+  ["while loop foreach for-each forEach dotimes doseq recur until repeat", "no loops: (for [x xs] body), fold, iter, or a fn whose last call is itself"],
+  ["return", "no return: the last expression is the value"],
+  ["throw raise error panic assert", '(fail "code" "msg")'],
+  ["catch except rescue finally", "(try expr) gives (Ok v) or (Err code msg). match on it"],
+  ["import require include load", '(use "file.tact") or (use pack)'],
+  ["struct class defrecord defstruct record type data enum union interface", "(rec Name [field T ..]) or (sum Name [A [T ..]  B []])"],
+  ["switch case", "(match x pattern body ..  _ body)"],
+  ["nil null NULL undefined none Nothing", "there is no null. None, in an (Opt T)"],
+  ["True False TRUE FALSE #t #f", "true false"],
+  ["== === eq eq? equal equal? equals", "= for Num. same for any two values"],
+  ["!= !== not= <> neq /=", "(not (= a b)) or (not (same a b))"],
+  ["&& ||", "and or. two args each"], ["!", "not"],
+  ["%", "rem (sign of a) or mod (sign of b)"], ["** ^ expt", "pow"], ["// quot div", "idiv"],
+  ["++", "concat for Vec. scat or cat for Str"], ["inc dec add1 sub1 1+ 1-", "(+ x 1) (- x 1)"],
+  ["length size strlen", "len for Vec, slen for Str, mlen for Map"],
+  ["nth elt at aref", "(get v i). (sget s i) for Str"],
+  ["car head hd", "(first v) gives an Opt. (get v 0) gives the item"],
+  ["cdr tail tl rest", "(drop v 1)"],
+  ["cons append conj snoc", "(push v x) or (concat a b)"],
+  ["list vector array vec tuple", "[a b c]. (Pair a b) for two types"],
+  ["reduce foldl foldr inject", "(fold f start v). f takes acc then item"],
+  ["mapcar each map-indexed", "map. enum gives (Pair i x)"],
+  ["reverse", "rev"], ["product", "(fold * 1 v)"], ["apply funcall call", "just call it: (f a b)"],
+  ["compose comp pipe |>", "(-> x f (g 1))"],
+  ["print println printf puts echo display console.log", "(show expr) at top level. (io.print str) inside"],
+  ["format sprintf string-append strcat str-join", "(cat a b c) makes one Str"],
+  ["substring substr subs", "(ssub s a b)"], ["to-string toString tostring string repr", "(str x)"],
+  ["parse-int parseInt parseFloat int float number to-number string->number", "(snum s). (pnum s) gives an Opt"],
+  ["dict hash-map hashmap hash table object make-hash", "{k v  k v}"],
+  ["assoc put insert", "(mput m k v)"], ["dissoc remove delete", "(mdel m k)"],
+  ["contains contains? member includes in has-key", "(has v x) for Vec, (mhas m k) for Map, (shas s part) for Str"],
+  ["keys values vals items entries", "mkeys mvals mitems"], ["lookup fetch", "(mget m k) gives an Opt"],
+  ["zero? empty? null? nil? even? odd? positive? negative?", "compare: (= x 0), (= (len v) 0), (= (rem x 2) 0)"],
+  ["number? string? list? typeof type-of instanceof", "types are checked before running. there are no type tests"],
+]) for (const n of names.split(" ")) FOREIGN.set(n, say);
+const foreign = name => FOREIGN.has(name) ? `${name} is not tact: ${FOREIGN.get(name)}` : null;
+
 const dirOf = p => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i + 1); };
 const headOf = s => s.t === "list" && s.items.length && isSym(s.items[0]) ? s.items[0].v : null;
 function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn rec sum check forms, in place, once
@@ -1948,6 +2101,7 @@ function run(src, opts = {}) {
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
       const tops = [...preludeTops(packs), ...mine];
       info = checkProgram(tops, errs, packs);
+      if (!errs.length) foldProgram(tops, errs);
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
         if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io });
@@ -2039,7 +2193,7 @@ const TESTS = [
   ["E17 overflow","(show (exp 1000))","!E17"],
   ["all check errors at once","(show (lenn 1))\n(show (+ 1 \"a\"))\n(show (if true 1 \"b\"))","!E1,E4,E5"],
   ["nothing runs after a check error","(show 1)\n(show (+ 1 \"a\"))","!E4"],
-  ["run stops at first error","(show 1)\n(show (/ 1 0))\n(show (get [] 0))","!E17"],
+  ["run stops at first error","(fn inv [x Num] Num (/ 1 x))\n(show 1)\n(show (inv 0))\n(show 2)","run!E17"],
   ["sum + match","(sum Shape [Circle [Num] Rect [Num Num] Point []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Point 0))\n(show (map area [(Circle 2) (Rect 2 3) Point]))\n(show Point)\n(show (Circle 1))","[4 6 0]\nPoint\n(Circle 1)"],
   ["match literals","(fn nm [n Num] Str (match n 0 \"zero\" 1 \"one\" _ \"many\"))\n(show (map nm [0 1 5]))\n(show (match true true 1 false 0))\n(show (match \"b\" \"a\" 1 _ 2))","[\"zero\" \"one\" \"many\"]\n1\n2"],
   ["match rec","(rec P [x Num y Num])\n(show (match (P 1 2) (P a _) a))","1"],
@@ -2061,7 +2215,7 @@ const TESTS = [
   ["E4 nullary ctor called","(show (None))","!E4"],
   ["Opt","(show (first [1 2]))\n(show (first []))\n(show (else (last [1 2]) 0))\n(show (else (mget {} \"k\") 7))\n(show (map Some [1]))","(Some 1)\nNone\n2\n7\n[(Some 1)]"],
   ["need = E16","(show (need (find (fun [x] (< 5 x)) [1 2]) \"nothing over 5\"))","!E16"],
-  ["try","(show (try (/ 1 0)))\n(show (try (+ 1 2)))\n(show (try (fail \"nope\" \"bad input\")))\n(show (unwrap (try (get [1] 0))))\n(show (match (try (get [1] 9)) (Ok v) \"ok\" (Err c m) c))","(Err \"E17\" \"division by zero\")\n(Ok 3)\n(Err \"nope\" \"bad input\")\n1\nE10"],
+  ["try","(show (try (/ 1 0)))\n(show (try (+ 1 2)))\n(show (try (fail \"nope\" \"bad input\")))\n(show (unwrap (try (get [1] 0))))\n(show (match (try (get [1] 9)) (Ok _) \"ok\" (Err c _) c))","(Err \"E17\" \"division by zero\")\n(Ok 3)\n(Err \"nope\" \"bad input\")\n1\nE10"],
   ["unwrap raises again","(show (unwrap (try (get [1] 3))))","!E10"],
   ["try cannot catch the step budget","(fn spin [n Num] Num (spin (+ n 1)))\n(show (try (spin 0)))","!E9",null,100000],
   ["do + cat","(show (do 1 2 \"x\"))\n(show (cat \"n=\" 3 \" v=\" [\"a\" \"b\"] \" \" true))","x\nn=3 v=[\"a\" \"b\"] true"],
@@ -2088,7 +2242,7 @@ const TESTS = [
   ["E14 eig not square","(use mat)\n(show (k.eig [[1 2 3]]))","!E14"],
   ["io memory files","(use io)\n(do (io.write \"a.txt\" \"hi\\nyo\"))\n(show (io.read \"a.txt\"))\n(show (io.exists \"a.txt\"))\n(show (io.ls \".\"))\n(do (io.append \"a.txt\" \"!\") (io.writeb \"d/b.bin\" [0 255]))\n(show (lines (io.read \"a.txt\")))\n(show (io.readb \"d/b.bin\"))\n(show (io.ls \".\"))\n(show (io.isdir \"d\"))\n(show (io.rm \"a.txt\"))\n(show (io.exists \"a.txt\"))\n(show (io.args))\n(show (io.env \"NOPE\"))\n(show (io.stdin))","hi\nyo\ntrue\n[\"a.txt\"]\n[\"hi\" \"yo!\"]\n[0 255]\n[\"a.txt\" \"d\"]\ntrue\ntrue\nfalse\n[]\nNone\n"],
   ["E19 io failed","(use io)\n(show (io.read \"missing.txt\"))","!E19"],
-  ["E19 is caught by try","(use io)\n(show (match (try (io.read \"nope\")) (Ok s) s (Err c m) c))","E19"],
+  ["E19 is caught by try","(use io)\n(show (match (try (io.read \"nope\")) (Ok s) s (Err c _) c))","E19"],
   ["E13 host lacks it","(use io)\n(show (Sh.code (io.sh \"true\")))","!E13"],
   ["E14 http url","(use io)\n(show (Http.status (io.http \"GET\" \"file:///etc/passwd\" {} \"\")))","!E14"],
   ["use","(use \"lib/a.tact\")\n(use \"lib/a.tact\")\n(show (double base))\n(show (Tag.n (Tag 1)))","20\n1",{"lib/a.tact":"(use \"b.tact\")\n(fn double [x Num] Num (* x 2))\n(show \"hidden\")\n(do (io.print \"hidden too\"))\n(check (double 2) 4)","lib/b.tact":"(use \"a.tact\")\n(let base 10)\n(rec Tag [n Num])"}],
@@ -2106,11 +2260,25 @@ const TESTS = [
   ["pack names are free until used","(rec Box [v Num])\n(fn rgb [x Num] Num x)\n(let Json 3)\n(show (+ (Box.v (Box 1)) (rgb Json)))","4"],
   ["E3 pack names are taken once used","(use draw)\n(rec Box [v Num])","!E3"],
   ["a used file brings its packs","(use \"j.tact\")\n(show (size \"[1,2]\"))","2",{"j.tact":"(use json)\n(fn size [s Str] Num (match (json.parse s) (JArr v) (len v) _ 0))"}],
+  ["known before running: let + index","(let xs [1 2 3])\n(show 1)\n(show (get xs 5))","check!E10"],
+  ["known before running: every one at once","(use mat)\n(use json)\n(show (matmul [[1 2]] [[1 2]]))\n(show (snum \"12x\"))\n(show (json.parse \"{\"))\n(show (with [v [1] i 3] (get v i)))\n(show (sqrt (- 1 2)))","check!E11,E15,E15,E10,E17"],
+  ["known before running: inside a fn","(let zero (- 2 2))\n(fn f [x Num] Num (+ x (/ 1 zero)))\n(show 1)","check!E17"],
+  ["known before running: check","(let n (len [1 2 3]))\n(check n 4)\n(show 1)","check!ECHECK"],
+  ["known before running: rec and match","(rec P [x Num v (Vec Num)])\n(let p (up (P 1 [5]) P.x 0))\n(show (match (first (P.v p)) (Some a) (/ a (P.x p)) None 0))","check!E17"],
+  ["a branch not taken is not an error","(show (if true 1 (/ 1 0)))\n(show (match (first []) (Some x) x None (get [7] 0)))\n(let n 0)\n(show (if (= n 0) 0 (/ 1 n)))\n(show (try (/ 1 0)))","1\n7\n0\n(Err \"E17\" \"division by zero\")"],
+  ["unknown values still fail at run","(fn at [v (Vec Num) i Num] Num (get v i))\n(show 1)\n(show (at [1] 4))","run!E10"],
+  ["up","(rec P [x Num y Num])\n(let p (P 1 2))\n(show (up p P.y 5))\n(show (up p P.x 9 P.y 8))\n(show p)\n(rec Cell [v ?a])\n(show (up (Cell 1) Cell.v 2))","(P 1 5)\n(P 9 8)\n(P 1 2)\n(Cell 2)"],
+  ["up is checked","(rec P [x Num y Num])\n(rec Q [z Num])\n(let p (P 1 2))\n(show (up p P.z 5))\n(show (up p P.x \"a\"))\n(show (up p Q.z 1))\n(show (up p P.x 1 P.x 2))\n(show (up 3 P.x 1))","!E1,E4,E4,E2,E4"],
+  ["E20 with bind never used","(show (with [a 1 b 2] a))","!E20"],
+  ["E20 match bind never used","(show (match (Some 1) (Some x) 0 None 1))","!E20"],
+  ["a bind used by a later bind is used","(show (with [a 1 b (+ a 1)] b))","2"],
+  ["foreign words name the tact","(define x 1)\n(show (lambda [y] y))\n(show (length [1]))\n(show (if (== 1 1) nil 2))\n(show (let [a 1] a))\n(show (sum [1 2]))\n(show (println \"x\"))","!E8,E1,E1,E1,E1,E1,E8,E8,E1"],
+  ["swapped args are named","(show (map [1 2] (fun [x] x)))","!E4,E4"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
     const r = run(src, { io: memHost(files || {}), maxSteps });
-    let got = r.errors.length ? "!" + r.errors.map(e => e.code).join(",") : r.output.join("\n");
+    let got = r.errors.length ? (/^(check|run)!/.test(want) ? r.phase : "") + "!" + r.errors.map(e => e.code).join(",") : r.output.join("\n");
     if (want.includes("@") && r.errors.length) got += "@" + r.errors.map(e => `${e.file}:${e.line}`).join(",");
     let ok = got === want;
     if (ok && r.phase === "check" && r.output.length) ok = false;
@@ -2167,7 +2335,7 @@ function specText(which) {
 }
 
 /* ------------------------------------------------------------------ cli */
-const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
+const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
 function errLines(r) { return r.errors.map(e => `${e.code} ${e.file ? e.file + " " : ""}line ${e.line}: ${e.msg}`).join("\n"); }
 function cli(args, host) {           // host = the io host. it also needs read and stdin to load the program itself
   const a = args.slice();
@@ -2187,6 +2355,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
     switch (a[0]) {
       case undefined: case "-h": case "--help": return { out: USAGE, err: "", code: a[0] ? 0 : 2 };
       case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t, err: "", code: 0 }; }
+      case "--check": { const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true }); return { out: r.errors.length ? "" : "ok", err: errLines(r), code: r.errors.length ? 1 : 0 }; }
       case "--sigs": {                 // what a side loaded tact file offers, without its source
         const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true });
         return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
