@@ -10,11 +10,29 @@ const MAXDEPTH = 600, TOL = 1e-9, MAXLEN = 1e6, LINEBASE = 1e6;
 /* ------------------------------------------------------------------ spec */
 const PRELUDE = `(sum Opt [Some [?a] None []])
 (sum Res [Ok [?a] Err [Str Str]])
-(rec Pair [a ?a b ?b])
-(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])
-(rec Sh [code Num out Str err Str])
-(rec Http [status Num body Str])
-(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str]])`;
+(rec Pair [a ?a b ?b])`;
+// packs: side loaded. the core spec stays short enough to sit in a model's context every time;
+// a pack costs context only in the programs that say (use name).
+const PACKS = {
+  re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12)." },
+  json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
+  time: { say: "dates to and from ms", types: "", notes: "" },
+  bit: { say: "whole number bit ops", types: "", notes: "" },
+  bytes: { say: "utf8 bytes, base64, other bases", types: "", notes: "" },
+  mat: { say: "matrices: multiply, svd, rank, det, solve, pinv, eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
+  draw: { say: "shapes to pixels: text pictures, frames, png sheets", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str]])",
+    notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
+x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
+shapes become pixels in the core: the same picture on every host.
+to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
+to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
+as one png grid, left to right, top to bottom: a whole animation in one image.` },
+  io: { say: "files, stdin, args, env, shell, http, clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
+    notes: `effects. args evaluate left to right, forms top to bottom.
+hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
+what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
+};
+const KINDPACK = { re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -29,6 +47,7 @@ PROGRAM = top forms only. anything else at top = E8.
   (do expr ..)                     run for effect. prints nothing.
   (use "lib.tact")                 take let fn rec sum check from a file. once per file.
                                    path is relative to the file that says use.
+  (use name)                       load a pack of builtins. see PACKS.
 
 EXPRESSIONS
   42  -1.5  2e3  "text"  true  false  name  [a b c]   vector items share one type
@@ -53,7 +72,6 @@ EXPRESSIONS
 TYPES  Num  Bool  Str  (Vec T)  (Map K V)  (Fn A B R)  Name  (Name T ..)  ?a
        ?a in fn, rec and sum signatures: rigid inside a fn body, fresh at every use.
        a rec or sum that mentions ?a ?b takes them in order of first mention: (Pair Num Str).
-       @Mat = (Vec (Vec Num)).
 
 BUILT IN TYPES
 ${PRELUDE.split("\n").map(l => "  " + l).join("\n")}
@@ -66,23 +84,12 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        functions compare by identity and have no order: two lambdas are never the same.
        and / or take exactly two args and evaluate both.
        vectors, maps and repeats are capped at ${MAXLEN} items (E17).
-       effects live in io.* only. args evaluate left to right, forms top to bottom.
-       a regex written as a literal is checked before anything runs (E12).
-
-DRAW   a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
-       x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
-       shapes become pixels in the core: the same picture on every host.
-       to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
-       to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
-       as one png grid, left to right, top to bottom: a whole animation in one image.
-
-HOSTS  node: files, shell, http, stdin, args, env.  browser: memory files, http. also loops the frames.
-       what a host lacks = E13. what a host tried and could not do = E19.
+       io.print is the one effect in the core. the rest live in packs.
 
 ERRORS check phase  E1-E8 E12 E18   every error reported at once, each with its line. nothing runs.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
-CLI    tact FILE [args ..] | -e SRC | - | --spec | --test | --fuzz N SEED | --list | --run FILE | --show FILE`;
+CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -107,7 +114,7 @@ check top 2 expr,expected ! tol 1e-9. ok or slip
 rec top 2 Name,fields ! ctor positional. Name.field reader. immutable. self ref ok
 sum top 2 Name,variants ! Ctor [T ..] pairs. no fields = a value
 do top 1+ exprs ! effects. prints nothing
-use top 1 Str ! let fn rec sum check from a file. once
+use top 1 Str|name ! a file: its let fn rec sum check, once. a name: that pack
 Num type ! ! ! finite
 Bool type ! ! ! !
 Str type ! ! ! !
@@ -118,10 +125,10 @@ Fn type 1+ @A..,@R ! !
 Opt type 1 @T ! Some x. None
 Res type 1 @T ! Ok x. Err code msg
 Pair type 2 @A,@B ! Pair.a Pair.b
-Json type ! ! ! JNull JBool JNum JStr JArr JObj
-Sh type ! ! ! Sh.code Sh.out Sh.err
-Http type ! ! ! Http.status Http.body
-Draw type ! ! ! Line x1 y1 x2 y2 color. Box x y w h color. Dot x y color
+Json json ! ! ! JNull JBool JNum JStr JArr JObj
+Sh io ! ! ! Sh.code Sh.out Sh.err
+Http io ! ! ! Http.status Http.body
+Draw draw ! ! ! Line x1 y1 x2 y2 color. Box x y w h color. Dot x y color
 pi num ! ! Num a value. not a call
 neg num 1 Num Num !
 abs num 1 Num Num !
@@ -245,15 +252,15 @@ padr str 3 Str,Num,Str Str to width. fill on the right
 snum str 1 Str Num E15
 pnum str 1 Str @Opt.Num snum that cannot fail
 fix str 2 Num,Num Str x with d decimals
-radix str 2 Num,Num Str whole n in base 2..36
-pradix str 2 Str,Num @Opt.Num read base 2..36
+radix bytes 2 Num,Num Str whole n in base 2..36
+pradix bytes 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
 rgb draw 3 Num,Num,Num Str #rrggbb. each clamped to 0..255
 ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. darkest = space. brightest = @
-utf8 str 1 Str @Vec.Num bytes
-unutf8 str 1 @Vec.Num Str E15 bad bytes
-b64.enc str 1 Str Str utf8 then base64
-b64.dec str 1 Str Str E15
+utf8 bytes 1 Str @Vec.Num bytes
+unutf8 bytes 1 @Vec.Num Str E15 bad bytes
+b64.enc bytes 1 Str Str utf8 then base64
+b64.dec bytes 1 Str Str E15
 re.test re 2 Str,Str Bool pattern s. js unicode regex
 re.find re 2 Str,Str @Vec.@Vec.Str every match. [whole g1 g2 ..]
 re.replace re 3 Str,Str,Str Str pattern s new. every match. $1 = group
@@ -282,7 +289,7 @@ k.pinv kern 1 @Mat @Mat !
 k.eig kern 1 @Mat @Mat [[re..] [im..]] re desc. E14 not square
 k.randn kern 3 Num,Num,Num @Mat rows cols seed. per backend
 k.backend kern 0 ! Str numpy or js
-io.print io 1 Str Str one line out. gives the Str back
+io.print str 1 Str Str one line out. gives the Str back
 io.read io 1 Str Str E19
 io.write io 2 Str,Str Num path text. chars written
 io.append io 2 Str,Str Num path text
@@ -302,9 +309,9 @@ io.http io 4 Str,Str,@Map,Str Http method url headers body. status is data
 io.now io 0 ! Num ms since 1970
 io.rand io 0 ! Num 0..1. not seeded
 io.sleep io 1 Num Num ms
-io.frame io 3 Num,Num,@Vec.Draw Num width height shapes. frames so far. E14 bad color
-io.sheet io 2 Str,Num Num path cols. every frame so far as one png grid
-E1 err ! ! ! check. unknown name. nearest known
+io.frame draw 3 Num,Num,@Vec.Draw Num width height shapes. frames so far. E14 bad color
+io.sheet draw 2 Str,Num Num path cols. every frame so far as one png grid
+E1 err ! ! ! check. unknown name. nearest known. or the pack to use
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
 E4 err ! ! ! check. type mismatch. arg named
@@ -490,7 +497,12 @@ function lowerTop(s, errs) {
       for (const [c, v, l] of cs) if (v.t !== "vec") { errs.push(E("E12", `sum ${n}: after ${c} write its field types as [T ..], or [] for none`, l)); return null; }
       return { t: "sum", name: n, ctors: cs, line: L };
     }
-    case "use": errs.push(E("E12", `use takes one "path" string`, L)); return null;
+    case "use": {
+      if (isSym(a[0]) && own(PACKS, a[0].v)) return { t: "use", pack: a[0].v, line: L };
+      if (isSym(a[0])) { const near = nearest(a[0].v, Object.keys(PACKS)); errs.push(E("E1", `unknown pack ${a[0].v}` + (near ? `. nearest known: ${near}` : "") + `. packs: ${Object.keys(PACKS).join(" ")}`, L)); }
+      else errs.push(E("E12", `use takes a "path" or a pack name`, L));
+      return null;
+    }
   }
 }
 function lowerExpr(s, errs) {
@@ -613,6 +625,7 @@ function unTop(t) {
     case "rec": return `(rec ${t.name} ${ps(t.fields)})`;
     case "sum": return `(sum ${t.name} ${ps(t.ctors)})`;
     case "dotop": return "(" + ["do", ...t.exprs.map(un)].join(" ") + ")";
+    case "use": return `(use ${t.pack})`;
     case "show": return `(show ${un(t.expr)})`;
     case "check": return `(check ${un(t.a)} ${un(t.b)})`;
   }
@@ -703,7 +716,7 @@ function parseType(s, ctx, errs) {
       return recT(v, d.params.map(fresh));
     }
     const near = nearest(v, [...TYPENAMES, ...ctx.recs.keys()]);
-    errs.push(E("E1", `unknown type ${v}` + (near ? `. nearest known: ${near}` : ""), s.line)); return fresh();
+    errs.push(E("E1", (ctx.packs && packHint(v, ctx)) || `unknown type ${v}` + (near ? `. nearest known: ${near}` : ""), s.line)); return fresh();
   }
   if (s.t === "list" && s.items.length && isSym(s.items[0])) {
     const h = s.items[0].v, r = s.items.slice(1);
@@ -1506,6 +1519,18 @@ function nodeHost() {                // the real machine: files, processes, netw
   };
 }
 
+/* ---- which pack owns which name: builtins by their matrix kind, pack types by their prelude */
+const PACKOF = new Map();
+{
+  const kindOf = new Map(MATRIX.split("\n").slice(1).map(l => l.split(" ")).map(p => [p[0], p[1]]));
+  for (const n of Object.keys(B)) { const p = KINDPACK[kindOf.get(n)]; if (p) { B[n].pack = p; PACKOF.set(n, p); } }
+  for (const [p, d] of Object.entries(PACKS)) for (const s of parse(lex(d.types, []), [])) {
+    const t = lowerTop(s, []); PACKOF.set(t.name, p);
+    if (t.t === "rec") for (const [f] of t.fields) PACKOF.set(t.name + "." + f, p); else for (const [c] of t.ctors) PACKOF.set(c, p);
+  }
+}
+const packHint = (name, C) => PACKOF.has(name) && !C.packs.has(PACKOF.get(name)) ? `${name} is in pack ${PACKOF.get(name)}: add (use ${PACKOF.get(name)})` : null;
+
 /* ------------------------------------------------------------------ checker */
 class Scope { constructor(p) { this.m = new Map(); this.p = p; } }
 function lookup(name, sc, C) { for (let s = sc; s; s = s.p) if (s.m.has(name)) return s.m.get(name); return C.g.get(name); }
@@ -1519,6 +1544,7 @@ function declare(name, type, sc, line, C) {
 function unknown(name, line, sc, C) {
   if (name === "_") return C.errs.push(E("E1", "_ is a slot only inside (-> ..) and a wildcard only in match patterns", line));
   if (C.letLines.has(name) && !C.g.has(name)) return C.errs.push(E("E1", `${name} is not defined yet: its let is on line ${LN(C.letLines.get(name))}`, line));
+  const hint = packHint(name, C); if (hint) return C.errs.push(E("E1", hint, line));
   const names = new Set([...C.g.keys(), "true", "false"]);
   for (let s = sc; s; s = s.p) for (const k of s.m.keys()) names.add(k);
   const near = nearest(name, names);
@@ -1542,7 +1568,7 @@ function inferMatch(e, sc, C) {
       const en = C.g.get(p.name);
       if (!en || en.kind !== "ctor") {
         const near = nearest(p.name, [...C.g].filter(([, v]) => v.kind === "ctor").map(([k]) => k));
-        errs.push(E("E1", `unknown constructor ${p.name} in pattern` + (near ? `. nearest known: ${near}` : ""), arm.line));
+        errs.push(E("E1", packHint(p.name, C) || `unknown constructor ${p.name} in pattern` + (near ? `. nearest known: ${near}` : ""), arm.line));
         for (const b of p.binds || []) if (b !== null) declare(b, fresh(), s2, arm.line, C);
       } else {
         const ct = prune(inst(en.type)), fields = en.nul ? [] : ct.ps, built = en.nul ? ct : ct.r, got = showT(ts);
@@ -1620,7 +1646,7 @@ function infer(e, sc, C) {
       e.params.forEach((n, i) => declare(n, ps[i], s2, e.pline, C));
       const r = infer(e.body, s2, C);
       if (e.ret) {
-        const rt = parseType(e.ret, { recs: C.decls, rigid: null }, errs), a = showT(r), b = showT(rt);
+        const rt = parseType(e.ret, { recs: C.decls, rigid: null, packs: C.packs }, errs), a = showT(r), b = showT(rt);
         if (!unify(r, rt)) errs.push(E("E4", `fun body is ${a}, declared ${b}`, e.line));
       }
       return fnT(ps, r);
@@ -1673,10 +1699,10 @@ function infer(e, sc, C) {
   }
   return fresh();
 }
-function checkProgram(tops, errs) {
+function checkProgram(tops, errs, packs) {
   TV = 0;
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
-  for (const [name, b] of Object.entries(B)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
+  for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
   decls.set("Map", { name: "Map", params: ["?k", "?v"], ctors: [], line: 0 });
   tops.forEach((t, i) => { t.pos = i; if (t.t === "let" && !letLines.has(t.name)) letLines.set(t.name, t.line); });
   const taken = n => RESERVED.has(n) || g.has(n) || decls.has(n);
@@ -1692,7 +1718,7 @@ function checkProgram(tops, errs) {
   }
   for (const [name, d] of decls) {
     if (!d.top) continue;
-    const ctx = { recs: decls, rigid: new Map(), owner: name }, sigs = [];
+    const ctx = { recs: decls, rigid: new Map(), owner: name, packs }, sigs = [];
     for (const p of d.params) ctx.rigid.set(p, { k: "rigid", name: p, owner: name });
     const rt = recT(name, d.params.map(p => ctx.rigid.get(p)));
     if (d.isRec) { const seen = new Set(); for (const [f, , l] of d.top.fields) { if (seen.has(f)) errs.push(E("E3", `field ${f} appears twice in ${name}`, l)); seen.add(f); } }
@@ -1709,14 +1735,14 @@ function checkProgram(tops, errs) {
   }
   for (const t of tops) if (t.t === "fn") {
     if (taken(t.name)) { dup(t.name, t.line); t.skip = true; continue; }
-    const ctx = { recs: decls, rigid: new Map(), owner: t.name };
+    const ctx = { recs: decls, rigid: new Map(), owner: t.name, packs };
     t.pts = t.params.map(([, ty]) => parseType(ty, ctx, errs));
     t.rt = parseType(t.ret, ctx, errs);
     t.sig = fnT(t.pts, t.rt);
     g.set(t.name, { kind: "fn", type: rigidToGen(t.sig), line: t.line });
   }
   for (const t of tops) {
-    const C = { g, decls, errs, letLines, deps: { fns: new Set(), lets: new Set() } };
+    const C = { g, decls, errs, letLines, packs, deps: { fns: new Set(), lets: new Set() } };
     const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
     t.deps = C.deps;
     switch (t.t) {
@@ -1899,8 +1925,8 @@ function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn
   }
   return out;
 }
-function preludeTops() {
-  const errs = [], tops = parse(lex(PRELUDE, errs), errs).map(s => lowerTop(s, errs));
+function preludeTops(packs) {
+  const errs = [], text = [PRELUDE, ...[...packs].map(p => PACKS[p].types)].join("\n"), tops = parse(lex(text, errs), errs).map(s => lowerTop(s, errs));
   if (errs.length) throw new Error("prelude: " + errs[0].msg);
   for (const t of tops) { t.prelude = true; t.line = 0; }
   return tops;
@@ -1918,9 +1944,10 @@ function run(src, opts = {}) {
     let sxs = parse(toks, errs);
     if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([file.replace(/^\.\//, "")]) });
     if (errs.length === before) {       // structure is sound: lower and check everything, report all
-      const tops = preludeTops();
-      for (const s of sxs) { const t = lowerTop(s, errs); if (t) tops.push(t); }
-      info = checkProgram(tops, errs);
+      const mine = [], packs = new Set();
+      for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
+      const tops = [...preludeTops(packs), ...mine];
+      info = checkProgram(tops, errs, packs);
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
         if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io });
@@ -1938,151 +1965,147 @@ function run(src, opts = {}) {
 
 /* ------------------------------------------------------------------ tests */
 const TESTS = [
-  ["arith", "(show (+ 1 2))\n(show (/ 1 4))\n(show (* 1.5 2))\n(show (neg 0))\n(show (rem 7 3))", "3\n0.25\n3\n0\n1"],
-  ["let", "(let x 5)\n(show (* x x))", "25"],
-  ["fn recursion", "(fn fact [n Num] Num (if (<= n 1) 1 (* n (fact (- n 1)))))\n(show (fact 10))", "3628800"],
-  ["tail call is free", "(fn loop [n Num acc Num] Num (if (= n 0) acc (loop (- n 1) (+ acc 1))))\n(show (loop 100000 0))", "100000"],
-  ["tail call through with", "(fn cnt [n Num] Num (if (= n 0) 0 (with [m (- n 1)] (cnt m))))\n(show (cnt 50000))", "0"],
-  ["depth 500 ok", "(fn down [n Num] Num (if (= n 0) 0 (+ 1 (down (- n 1)))))\n(show (down 500))", "500"],
-  ["depth 700 = E9", "(fn down [n Num] Num (if (= n 0) 0 (+ 1 (down (- n 1)))))\n(show (down 700))", "!E9"],
-  ["depth inside map = E9", "(fn d [n Num] Num (if (= n 0) 0 (vsum (map d [(- n 1)]))))\n(show (d 700))", "!E9"],
-  ["with", "(show (with [a 2 b (* a 3)] (+ a b)))", "8"],
-  ["map fun", "(show (map (fun [x] (* x x)) [1 2 3]))", "[1 4 9]"],
-  ["builtin as value", "(show (fold + 0 (range 5)))", "10"],
-  ["fold acc", "(show (fold (fun [acc x] (scat acc (str x))) \"\" [1 2 3]))", "123"],
-  ["filter", "(show (filter (fun [x] (< 2 x)) [1 5 2 7]))", "[5 7]"],
-  ["for flat + guard", "(show (for [i (range 3) j (range 3)] (< i j) [i j]))", "[[0 1] [0 2] [1 2]]"],
-  ["pairs", "(check (pairs 0 3) [[0 1] [0 2] [1 2]])\n(show (len (pairs 2 6)))", "6"],
-  ["-> slots", "(show (-> 3 (+ 1) (* 2) (- 100 _)))", "92"],
-  ["-> bare names", "(show (-> [3 1 2] sort rev))", "[3 2 1]"],
-  ["rec", "(rec P [x Num y Num])\n(let p (P 1 2))\n(show (P.x p))\n(show p)\n(show (map P.y [p (P 3 4)]))", "1\n(P 1 2)\n[2 4]"],
-  ["rec self ref", "(rec T [v Num kids (Vec T)])\n(fn total [t T] Num (+ (T.v t) (vsum (map total (T.kids t)))))\n(show (total (T 1 [(T 2 []) (T 3 [])])))", "6"],
-  ["generic fn", "(fn twice [f (Fn ?a ?a) x ?a] ?a (f (f x)))\n(show (twice (fun [n] (* n 3)) 2))\n(show (twice (fun [s] (scat s \"!\")) \"hi\"))", "18\nhi!!"],
-  ["?a rigid in body", "(fn bad [x ?a] ?a (+ x 1))", "!E4,E4"],
-  ["?a outside a signature", "(show ((fun [x] ?a x) 1))", "!E4"],
-  ["let is polymorphic", "(let id (fun [x] x))\n(show (id 3))\n(show (id \"a\"))", "3\na"],
-  ["mutual recursion", "(fn ev [n Num] Bool (if (= n 0) true (od (- n 1))))\n(fn od [n Num] Bool (if (= n 0) false (ev (- n 1))))\n(show (ev 10))\n(show (od 7))", "true\ntrue"],
-  ["strings", '(show (split "a,b,c" ","))\n(show (join ["a" "b"] "-"))\n(show (slen "héllo"))\n(show (sget "abc" 1))\n(show (ssub "hello" 1 3))\n(show (code "A"))\n(show (chr 66))\n(show (snum " 3.5 "))\n(show (str [1 2]))\n(show (slt "ab" "b"))\n(show (split "hi" ""))',
-    '["a" "b" "c"]\na-b\n5\nb\nel\n65\nB\n3.5\n[1 2]\ntrue\n["h" "i"]'],
-  ["escapes", '(show "a\\tb")\n(show (slen "a\\nb"))\n(show ["q\\""])', 'a\tb\n3\n["q\\""]'],
-  ["check tol 1e-9", "(check (+ 0.1 0.2) 0.3)\n(show (= (+ 0.1 0.2) 0.3))", "false"],
-  ["check slip", "(check (+ 1 1) 3)", "!ECHECK"],
-  ["fn compare by identity", "(let f (fun [x] x))\n(show (same f f))\n(show (same (fun [x] x) (fun [x] x)))", "true\nfalse"],
-  ["iroot exact", "(show (iroot 27 3))\n(show (iroot 26 3))\n(show (iroot 1000000000000 2))\n(show (iroot 9007199254740993 1))", "3\n2\n1000000\n9007199254740992"],
-  ["bits", "(show (bxor 5 3))\n(show (band 6 3))\n(show (bor 4 1))", "6\n2\n5"],
-  ["uniq flat", "(show (uniq [3 1 3 2 1]))\n(show (flat [[1] [] [2 3]]))\n(show (uniq [[1 2] [1 2] [2]]))", "[3 1 2]\n[1 2 3]\n[[1 2] [2]]"],
-  ["vector ops", '(show (rep 3 "x"))\n(show (onehot 3 1))\n(show (sort [3 -1 2]))\n(show (slice [1 2 3] 1 3))\n(show (concat [1] [2 3]))\n(show (dot [1 2] [3 4]))\n(show (vnorm [3 4]))\n(show (scale [1 2] 3))\n(show (vsub [5 5] [1 2]))',
-    '["x" "x" "x"]\n[0 1 0]\n[-1 2 3]\n[2 3]\n[1 2 3]\n11\n5\n[3 6]\n[4 3]'],
-  ["matrix", "(show (matmul [[1 2] [3 4]] [[0 1] [1 0]]))\n(show (tpose [[1 2 3]]))", "[[2 1] [4 3]]\n[[1] [2] [3]]"],
-  ["svdvals", "(check (svdvals [[3 0] [0 4]]) [4 3])\n(check (svdvals [[1 2] [3 4]]) [(sqrt (+ 15 (sqrt 221))) (sqrt (- 15 (sqrt 221)))])\n(show (len (svdvals [[1 2 3]])))", "1"],
-  ["kernels js", "(show (k.backend))\n(show (k.rank [[1 2] [2 4]]))\n(show (k.rank [[1 0] [0 1]]))\n(check (k.det [[1 2] [3 4]]) -2)\n(check (k.solve [[2 0] [0 4]] [[2] [8]]) [[1] [2]])\n(check (k.randn 2 3 7) (k.randn 2 3 7))\n(show (len (get (k.randn 2 3 7) 0)))", "js\n1\n2\n3"],
-  ["empty vec", "(show (len []))", "0"],
-  ["comments", "; hello\n(show 1) ; trailing", "1"],
-  ["fun declared result", "(show ((fun [x] Num (* x 2)) 4))", "8"],
-  ["show fn values", "(fn sq [x Num] Num (* x x))\n(show sq)\n(show (fun [x] x))\n(show len)", "<fn sq>\n<fun>\n<builtin len>"],
-  ["E1 typo", "(show (lenn [1]))", "!E1"],
-  ["E1 let later", "(fn f [x Num] Num (+ x c))\n(let c 2)", "!E1"],
-  ["E1 through fn", "(let a (f 1))\n(let c 2)\n(fn f [x Num] Num (+ x c))", "!E1"],
-  ["E1 _ outside ->", "(show (+ _ 1))", "!E1"],
-  ["E2 builtin", "(show (+ 1))", "!E2"],
-  ["E2 fun value", "(let f (fun [x] x))\n(show (f 1 2))", "!E2"],
-  ["E2 form", "(show (if true 1))", "!E2"],
-  ["E3 rebind", "(let x 1)\n(let x 2)", "!E3"],
-  ["E3 shadow builtin", "(show (with [len 3] len))", "!E3"],
-  ["E3 shadow param", "(fn f [x Num] Num (with [x 2] x))", "!E3"],
-  ["E4", '(show (+ 1 "a"))', "!E4"],
-  ["E4 self application", "(show (map (fun [x] (x x)) [1 2]))", "!E4"],
-  ["E4 fn result", "(fn f [x Num] Str (+ x 1))", "!E4"],
-  ["E5", '(show (if true 1 "a"))', "!E5"],
-  ["E6", '(show [1 "a"])', "!E6"],
-  ["E7", "(show (if 1 2 3))", "!E7"],
-  ["E7 guard", "(show (for [x [1 2]] x x))", "!E7"],
-  ["E8 expression at top", "(+ 1 2)", "!E8"],
-  ["E8 let inside", "(show (let x 1))", "!E8"],
-  ["E10 get", "(show (get [1 2] 5))", "!E10"],
-  ["E10 slice", "(show (slice [1 2 3] 2 1))", "!E10"],
-  ["E11 vadd", "(show (vadd [1 2] [1]))", "!E11"],
-  ["E11 map2", "(show (map2 + [1 2] [1]))", "!E11"],
-  ["E11 matmul", "(show (matmul [[1 2]] [[1 2]]))", "!E11"],
-  ["E12 unclosed", "(show (+ 1 2)", "!E12"],
-  ["E12 big literal", "(show 1e400)", "!E12"],
-  ["E14 singular", "(show (k.solve [[1 2] [2 4]] [[1] [2]]))", "!E14"],
-  ["E15", '(show (snum "x1"))', "!E15"],
-  ["E16", '(show (fail "oops" "bad input"))', "!E16"],
-  ["E17 zero", "(show (/ 1 0))", "!E17"],
-  ["E17 sqrt", "(show (sqrt -1))", "!E17"],
-  ["E17 overflow", "(show (exp 1000))", "!E17"],
-  ["all check errors at once", '(show (lenn 1))\n(show (+ 1 "a"))\n(show (if true 1 "b"))', "!E1,E4,E5"],
-  ["nothing runs after a check error", '(show 1)\n(show (+ 1 "a"))', "!E4"],
-  ["run stops at first error", "(show 1)\n(show (/ 1 0))\n(show (get [] 0))", "!E17"],
-  ["sum + match", "(sum Shape [Circle [Num] Rect [Num Num] Point []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Point 0))\n(show (map area [(Circle 2) (Rect 2 3) Point]))\n(show Point)\n(show (Circle 1))", "[4 6 0]\nPoint\n(Circle 1)"],
-  ["match literals", '(fn nm [n Num] Str (match n 0 "zero" 1 "one" _ "many"))\n(show (map nm [0 1 5]))\n(show (match true true 1 false 0))\n(show (match "b" "a" 1 _ 2))', '["zero" "one" "many"]\n1\n2'],
-  ["match rec", "(rec P [x Num y Num])\n(show (match (P 1 2) (P a _) a))", "1"],
-  ["match is a tail call", "(fn cnt [n Num] Num (match (= n 0) true 0 false (cnt (- n 1))))\n(show (cnt 50000))", "0"],
-  ["E18 ctor missed", "(show (match (Some 1) (Some x) x))", "!E18"],
-  ["E18 Num needs _", "(show (match 1 1 2))", "!E18"],
-  ["E18 arm after _", "(show (match 1 _ 2 1 3))", "!E18"],
-  ["E18 twice", "(show (match (Some 1) None 0 None 1 (Some x) x))", "!E18"],
-  ["E1 unknown ctor", "(show (match (Some 1) (Sme x) x _ 0))", "!E1"],
-  ["E2 pattern arity", "(show (match (Some 1) (Some x y) x None 0))", "!E2"],
-  ["E4 pattern type", "(show (match 1 None 0 _ 1))", "!E4"],
-  ["E5 match arms", '(show (match (Some 1) (Some x) x None "a"))', "!E5"],
-  ["E3 pattern shadows", "(let x 1)\n(show (match (Some 1) (Some x) x None 0))", "!E3"],
-  ["E12 nested pattern", "(show (match (Some (Some 1)) (Some (Some x)) x _ 0))", "!E12"],
-  ["generic rec", '(rec Cell [v ?a])\n(fn uncell [b (Cell ?a)] ?a (Cell.v b))\n(show (uncell (Cell "s")))\n(show (Cell.v (Cell 2)))', "s\n2"],
-  ["generic sum", "(sum Tree [Leaf [] Node [(Tree ?a) ?a (Tree ?a)]])\n(fn size [t (Tree ?a)] Num (match t Leaf 0 (Node l _ r) (+ 1 (+ (size l) (size r)))))\n(show (size (Node Leaf 1 (Node Leaf 2 Leaf))))", "2"],
-  ["E4 type args", "(rec Cell [v ?a])\n(fn f [b Cell] Num 1)\n(fn g [b (Cell Num Num)] Num 1)", "!E4,E4"],
-  ["E3 ctor and type names", "(sum A [B []])\n(let B 1)\n(let A 2)\n(sum C [B []])", "!E3,E3,E3"],
-  ["E4 nullary ctor called", "(show (None))", "!E4"],
-  ["Opt", '(show (first [1 2]))\n(show (first []))\n(show (else (last [1 2]) 0))\n(show (else (mget {} "k") 7))\n(show (map Some [1]))', "(Some 1)\nNone\n2\n7\n[(Some 1)]"],
-  ["need = E16", '(show (need (find (fun [x] (< 5 x)) [1 2]) "nothing over 5"))', "!E16"],
-  ["try", '(show (try (/ 1 0)))\n(show (try (+ 1 2)))\n(show (try (fail "nope" "bad input")))\n(show (unwrap (try (get [1] 0))))\n(show (match (try (get [1] 9)) (Ok v) "ok" (Err c m) c))', '(Err "E17" "division by zero")\n(Ok 3)\n(Err "nope" "bad input")\n1\nE10'],
-  ["unwrap raises again", "(show (unwrap (try (get [1] 3))))", "!E10"],
-  ["try cannot catch the step budget", "(fn spin [n Num] Num (spin (+ n 1)))\n(show (try (spin 0)))", "!E9", null, 1e5],
-  ["do + cat", '(show (do 1 2 "x"))\n(show (cat "n=" 3 " v=" ["a" "b"] " " true))', 'x\nn=3 v=["a" "b"] true'],
-  ["top do + io.print", '(do (io.print "a") (io.print (cat 1 2)))\n(show 3)', "a\n12\n3"],
-  ["maps", '(let m {"b" 2 "a" 1})\n(show m)\n(show (mget m "a"))\n(show (mget m "z"))\n(show (mput m "c" 3))\n(show (mkeys (mdel m "a")))\n(show (mlen m))\n(show {})\n(show (mhas m "b"))\n(show (mvals (mmerge m {"a" 9})))\n(show (mmap (fun [v] (* v 10)) m))',
-    '{"a" 1 "b" 2}\n(Some 1)\nNone\n{"a" 1 "b" 2 "c" 3}\n["b"]\n2\n{}\ntrue\n[9 2]\n{"a" 10 "b" 20}'],
-  ["maps build", '(fn tally [ws (Vec Str)] (Map Str Num) (fold (fun [m w] (mupd m w 0 (fun [n] (+ n 1)))) {} ws))\n(show (tally (split "a b a c a" " ")))\n(show (mitems (mfrom [(Pair 2 "x") (Pair 1 "y")])))\n(show (group (fun [x] (rem x 2)) (range 5)))\n(check {1 2} (mput {} 1 2))\n(show {[1 2] "v"})',
-    '{"a" 3 "b" 1 "c" 1}\n[(Pair 1 "y") (Pair 2 "x")]\n{0 [0 2 4] 1 [1 3]}\n{[1 2] "v"}'],
-  ["maps stay balanced", "(let m (fold (fun [acc i] (mput acc i (* i i))) {} (range 20000)))\n(show (mlen m))\n(show (mget m 19999))\n(show (mlen (fold (fun [acc i] (mdel acc i)) m (range 19990))))", "20000\n(Some 399960001)\n10"],
-  ["E6 map", '(show {1 "a" 2 3})', "!E6"],
-  ["E12 map odd", "(show {1 2 3})", "!E12"],
-  ["E17 fn as key", "(show (mput {1 len} 2 len))\n(show (mput {} len 1))", "!E17"],
-  ["vectors v2", '(show (zip [1 2] ["a" "b"]))\n(show (enum ["x"]))\n(show (sortby (fun [s] (slen s)) ["ccc" "a" "bb"]))\n(show (order ["b" "a"]))\n(show (take [1 2 3] 2))\n(show (drop [1 2 3] 2))\n(show (any (fun [x] (> x 2)) [1 3]))\n(show (all (fun [x] (>= x 2)) [1 3]))\n(show (index [5 6] 6))\n(show (chunk [1 2 3] 2))\n(show (scan + 0 [1 2 3]))\n(show (iter (fun [x] (* x 2)) 1 10))\n(show (cmp [1 2] [1 3]))\n(show (push [1] 2))\n(show (has ["a"] "a"))\n(show (count isint [1 1.5 2]))\n(show (mean [1 2 6]))\n(show (vmax [1 5 2]))',
-    '[(Pair 1 "a") (Pair 2 "b")]\n[(Pair 0 "x")]\n["a" "bb" "ccc"]\n["a" "b"]\n[1 2]\n[3]\ntrue\nfalse\n(Some 1)\n[[1 2] [3]]\n[1 3 6]\n1024\n-1\n[1 2]\ntrue\n2\n3\n5'],
-  ["E10 vmax empty", "(show (vmax []))", "!E10"],
-  ["numbers v2", "(show (round 2.5))\n(show (ceil 1.2))\n(show (trunc -1.7))\n(show (idiv 7 2))\n(show (mod -1 3))\n(show (fix pi 2))\n(show (sign -3))\n(show (shl 1 10))\n(show (shr 1024 3))\n(check (atan2 1 1) (/ pi 4))\n(check (tan (atan 2)) 2)\n(show (len (rand 1 5)))\n(check (rand 7 3) (rand 7 3))", "3\n2\n-1\n3\n2\n3.14\n-1\n1024\n128\n5"],
-  ["E17 asin", "(show (asin 2))", "!E17"],
-  ["strings v2", '(show (upper "ab"))\n(show (trim "  x "))\n(show (sfind "hello" "ll"))\n(show (sreplace "a-b-c" "-" "+"))\n(show (starts "hello" "he"))\n(show (lines "a\\nb\\n"))\n(show (padl "7" 3 "0"))\n(show (padr "ab" 4 "."))\n(show (pnum "x"))\n(show (pnum "2.5"))\n(show (radix 255 16))\n(show (pradix "ff" 16))\n(show (pradix "12" 2))\n(show (srep "ab" 2))',
-    'AB\nx\n(Some 2)\na+b+c\ntrue\n["a" "b"]\n007\nab..\nNone\n(Some 2.5)\nff\n(Some 255)\nNone\nabab'],
-  ["regex", '(show (re.test "^a+$" "aaa"))\n(show (re.find "(\\\\d+)-(\\\\d+)" "1-2 30-40"))\n(show (re.replace "\\\\s+" "a  b   c" " "))\n(show (re.split ",\\\\s*" "a, b,c"))\n(show (re.replace "(\\\\w)(\\\\w)" "ab" "$2$1"))', 'true\n[["1-2" "1" "2"] ["30-40" "30" "40"]]\na b c\n["a" "b" "c"]\nba'],
-  ["E12 regex literal is checked first", '(show 1)\n(show (re.test "(" "a"))', "!E12"],
-  ["E14 regex built at run time", '(show (re.test (scat "(" "") "a"))', "!E14"],
-  ["json", '(let j (json.parse "{\\"b\\": \\"x\\", \\"a\\": [1, true, null]}"))\n(show j)\n(show (json.str j))\n(show (json.get j "b"))\n(show (json.get j "zz"))\n(show (json.str (JArr [(JNum 1.5) (JObj {"k" JNull})])))',
-    '(JObj {"a" (JArr [(JNum 1) (JBool true) JNull]) "b" (JStr "x")})\n{"a":[1,true,null],"b":"x"}\n(Some (JStr "x"))\nNone\n[1.5,{"k":null}]'],
-  ["E15 json", '(show (json.parse "{"))', "!E15"],
-  ["bytes + dates", '(show (b64.enc "hé"))\n(show (b64.dec "aMOp"))\n(show (utf8 "é"))\n(show (unutf8 [104 105]))\n(show (date.iso 0))\n(show (date.parse "1970-01-02T00:00:00Z"))', "aMOp\nhé\n[195 169]\nhi\n1970-01-01T00:00:00.000Z\n86400000"],
-  ["E15 bad utf8", "(show (unutf8 [255]))", "!E15"],
-  ["kernels v2", "(check (k.pinv [[2 0] [0 4]]) [[0.5 0] [0 0.25]])\n(check (k.pinv [[1 2] [2 4]]) [[0.04 0.08] [0.08 0.16]])\n(check (matmul [[1 2] [3 4] [5 6]] (matmul (k.pinv [[1 2] [3 4] [5 6]]) [[1 2] [3 4] [5 6]])) [[1 2] [3 4] [5 6]])\n(check (k.eig [[2 0] [0 3]]) [[3 2] [0 0]])\n(check (k.eig [[0 -1] [1 0]]) [[0 0] [1 -1]])\n(check (k.eig [[0 1 0] [0 0 1] [6 -11 6]]) [[3 2 1] [0 0 0]])\n(check (k.eig [[1 2 0 0] [-2 1 0 0] [0 0 5 1] [0 0 0 7]]) [[7 5 1 1] [0 0 2 -2]])\n(show (< (abs (- (/ (get (svdvals [[1 0] [0 1e-12]]) 1) 1e-12) 1)) 1e-6))\n(show (len (k.pinv [[1 2 3]])))", "true\n3"],
-  ["E14 eig not square", "(show (k.eig [[1 2 3]]))", "!E14"],
-  ["io memory files", '(do (io.write "a.txt" "hi\\nyo"))\n(show (io.read "a.txt"))\n(show (io.exists "a.txt"))\n(show (io.ls "."))\n(do (io.append "a.txt" "!") (io.writeb "d/b.bin" [0 255]))\n(show (lines (io.read "a.txt")))\n(show (io.readb "d/b.bin"))\n(show (io.ls "."))\n(show (io.isdir "d"))\n(show (io.rm "a.txt"))\n(show (io.exists "a.txt"))\n(show (io.args))\n(show (io.env "NOPE"))\n(show (io.stdin))',
-    'hi\nyo\ntrue\n["a.txt"]\n["hi" "yo!"]\n[0 255]\n["a.txt" "d"]\ntrue\ntrue\nfalse\n[]\nNone\n'],
-  ["E19 io failed", '(show (io.read "missing.txt"))', "!E19"],
-  ["E19 is caught by try", '(show (match (try (io.read "nope")) (Ok s) s (Err c m) c))', "E19"],
-  ["E13 host lacks it", '(show (Sh.code (io.sh "true")))', "!E13"],
-  ["E14 http url", '(show (Http.status (io.http "GET" "file:///etc/passwd" {} "")))', "!E14"],
-  ["use", '(use "lib/a.tact")\n(use "lib/a.tact")\n(show (double base))\n(show (Tag.n (Tag 1)))', "20\n1",
-    { "lib/a.tact": '(use "b.tact")\n(fn double [x Num] Num (* x 2))\n(show "hidden")\n(do (io.print "hidden too"))\n(check (double 2) 4)', "lib/b.tact": '(use "a.tact")\n(let base 10)\n(rec Tag [n Num])' }],
-  ["use reports the file", '(use "bad.tact")\n(show 1)', "!E4@bad.tact:2", { "bad.tact": '(let p 1)\n(let q (+ 1 "a"))' }],
-  ["E12 use unreadable", '(use "nope.tact")\n(show 1)', "!E12"],
-  ["E8 top form inside", "(show (sum X [A []]))", "!E8"],
-  ["frames", '(show (rgb 255 0 300.4))\n(show (for [t (range 3)] (io.frame 8 8 [(Box 0 0 8 8 "black") (Line 0 0 t t (rgb 9 9 9)) (Dot t 1 "red")])))\n(show (io.sheet "s.png" 2))\n(show (take (io.readb "s.png") 4))\n(show (try (io.sheet "s.png" 0)))', '#ff00ff\n[1 2 3]\n3\n[137 80 78 71]\n(Err "E17" "io.sheet: 0 columns must be a whole number >= 1")'],
-  ["ascii is a value", '(show (ascii 8 8 [(Box 0 0 8 8 "#222") (Line 0 0 7 7 "white") (Box 4 0 4 2 "gray")] 8))\n(check (ascii 4 2 [(Dot 0 0 "white")] 4) "@")', "@@  ====\n  @@\n    @@\n      @@"],
-  ["E14 color", '(show (ascii 4 4 [(Dot 0 0 "rebeccapurple")] 4))', "!E14"],
-  ["E14 sheet without frames", '(show (io.sheet "s.png" 4))', "!E14"],
-  ["E4 frame takes shapes", "(show (io.frame 8 8 [1 2]))", "!E4"],
-  ["E17 frame size", "(show (io.frame 0 8 []))", "!E17"],
+  ["arith","(show (+ 1 2))\n(show (/ 1 4))\n(show (* 1.5 2))\n(show (neg 0))\n(show (rem 7 3))","3\n0.25\n3\n0\n1"],
+  ["let","(let x 5)\n(show (* x x))","25"],
+  ["fn recursion","(fn fact [n Num] Num (if (<= n 1) 1 (* n (fact (- n 1)))))\n(show (fact 10))","3628800"],
+  ["tail call is free","(fn loop [n Num acc Num] Num (if (= n 0) acc (loop (- n 1) (+ acc 1))))\n(show (loop 100000 0))","100000"],
+  ["tail call through with","(fn cnt [n Num] Num (if (= n 0) 0 (with [m (- n 1)] (cnt m))))\n(show (cnt 50000))","0"],
+  ["depth 500 ok","(fn down [n Num] Num (if (= n 0) 0 (+ 1 (down (- n 1)))))\n(show (down 500))","500"],
+  ["depth 700 = E9","(fn down [n Num] Num (if (= n 0) 0 (+ 1 (down (- n 1)))))\n(show (down 700))","!E9"],
+  ["depth inside map = E9","(fn d [n Num] Num (if (= n 0) 0 (vsum (map d [(- n 1)]))))\n(show (d 700))","!E9"],
+  ["with","(show (with [a 2 b (* a 3)] (+ a b)))","8"],
+  ["map fun","(show (map (fun [x] (* x x)) [1 2 3]))","[1 4 9]"],
+  ["builtin as value","(show (fold + 0 (range 5)))","10"],
+  ["fold acc","(show (fold (fun [acc x] (scat acc (str x))) \"\" [1 2 3]))","123"],
+  ["filter","(show (filter (fun [x] (< 2 x)) [1 5 2 7]))","[5 7]"],
+  ["for flat + guard","(show (for [i (range 3) j (range 3)] (< i j) [i j]))","[[0 1] [0 2] [1 2]]"],
+  ["pairs","(check (pairs 0 3) [[0 1] [0 2] [1 2]])\n(show (len (pairs 2 6)))","6"],
+  ["-> slots","(show (-> 3 (+ 1) (* 2) (- 100 _)))","92"],
+  ["-> bare names","(show (-> [3 1 2] sort rev))","[3 2 1]"],
+  ["rec","(rec P [x Num y Num])\n(let p (P 1 2))\n(show (P.x p))\n(show p)\n(show (map P.y [p (P 3 4)]))","1\n(P 1 2)\n[2 4]"],
+  ["rec self ref","(rec T [v Num kids (Vec T)])\n(fn total [t T] Num (+ (T.v t) (vsum (map total (T.kids t)))))\n(show (total (T 1 [(T 2 []) (T 3 [])])))","6"],
+  ["generic fn","(fn twice [f (Fn ?a ?a) x ?a] ?a (f (f x)))\n(show (twice (fun [n] (* n 3)) 2))\n(show (twice (fun [s] (scat s \"!\")) \"hi\"))","18\nhi!!"],
+  ["?a rigid in body","(fn bad [x ?a] ?a (+ x 1))","!E4,E4"],
+  ["?a outside a signature","(show ((fun [x] ?a x) 1))","!E4"],
+  ["let is polymorphic","(let id (fun [x] x))\n(show (id 3))\n(show (id \"a\"))","3\na"],
+  ["mutual recursion","(fn ev [n Num] Bool (if (= n 0) true (od (- n 1))))\n(fn od [n Num] Bool (if (= n 0) false (ev (- n 1))))\n(show (ev 10))\n(show (od 7))","true\ntrue"],
+  ["strings","(show (split \"a,b,c\" \",\"))\n(show (join [\"a\" \"b\"] \"-\"))\n(show (slen \"héllo\"))\n(show (sget \"abc\" 1))\n(show (ssub \"hello\" 1 3))\n(show (code \"A\"))\n(show (chr 66))\n(show (snum \" 3.5 \"))\n(show (str [1 2]))\n(show (slt \"ab\" \"b\"))\n(show (split \"hi\" \"\"))","[\"a\" \"b\" \"c\"]\na-b\n5\nb\nel\n65\nB\n3.5\n[1 2]\ntrue\n[\"h\" \"i\"]"],
+  ["escapes","(show \"a\\tb\")\n(show (slen \"a\\nb\"))\n(show [\"q\\\"\"])","a\tb\n3\n[\"q\\\"\"]"],
+  ["check tol 1e-9","(check (+ 0.1 0.2) 0.3)\n(show (= (+ 0.1 0.2) 0.3))","false"],
+  ["check slip","(check (+ 1 1) 3)","!ECHECK"],
+  ["fn compare by identity","(let f (fun [x] x))\n(show (same f f))\n(show (same (fun [x] x) (fun [x] x)))","true\nfalse"],
+  ["iroot exact","(show (iroot 27 3))\n(show (iroot 26 3))\n(show (iroot 1000000000000 2))\n(show (iroot 9007199254740993 1))","3\n2\n1000000\n9007199254740992"],
+  ["bits","(use bit)\n(show (bxor 5 3))\n(show (band 6 3))\n(show (bor 4 1))","6\n2\n5"],
+  ["uniq flat","(show (uniq [3 1 3 2 1]))\n(show (flat [[1] [] [2 3]]))\n(show (uniq [[1 2] [1 2] [2]]))","[3 1 2]\n[1 2 3]\n[[1 2] [2]]"],
+  ["vector ops","(show (rep 3 \"x\"))\n(show (onehot 3 1))\n(show (sort [3 -1 2]))\n(show (slice [1 2 3] 1 3))\n(show (concat [1] [2 3]))\n(show (dot [1 2] [3 4]))\n(show (vnorm [3 4]))\n(show (scale [1 2] 3))\n(show (vsub [5 5] [1 2]))","[\"x\" \"x\" \"x\"]\n[0 1 0]\n[-1 2 3]\n[2 3]\n[1 2 3]\n11\n5\n[3 6]\n[4 3]"],
+  ["matrix","(use mat)\n(show (matmul [[1 2] [3 4]] [[0 1] [1 0]]))\n(show (tpose [[1 2 3]]))","[[2 1] [4 3]]\n[[1] [2] [3]]"],
+  ["svdvals","(use mat)\n(check (svdvals [[3 0] [0 4]]) [4 3])\n(check (svdvals [[1 2] [3 4]]) [(sqrt (+ 15 (sqrt 221))) (sqrt (- 15 (sqrt 221)))])\n(show (len (svdvals [[1 2 3]])))","1"],
+  ["kernels js","(use mat)\n(show (k.backend))\n(show (k.rank [[1 2] [2 4]]))\n(show (k.rank [[1 0] [0 1]]))\n(check (k.det [[1 2] [3 4]]) -2)\n(check (k.solve [[2 0] [0 4]] [[2] [8]]) [[1] [2]])\n(check (k.randn 2 3 7) (k.randn 2 3 7))\n(show (len (get (k.randn 2 3 7) 0)))","js\n1\n2\n3"],
+  ["empty vec","(show (len []))","0"],
+  ["comments","; hello\n(show 1) ; trailing","1"],
+  ["fun declared result","(show ((fun [x] Num (* x 2)) 4))","8"],
+  ["show fn values","(fn sq [x Num] Num (* x x))\n(show sq)\n(show (fun [x] x))\n(show len)","<fn sq>\n<fun>\n<builtin len>"],
+  ["E1 typo","(show (lenn [1]))","!E1"],
+  ["E1 let later","(fn f [x Num] Num (+ x c))\n(let c 2)","!E1"],
+  ["E1 through fn","(let a (f 1))\n(let c 2)\n(fn f [x Num] Num (+ x c))","!E1"],
+  ["E1 _ outside ->","(show (+ _ 1))","!E1"],
+  ["E2 builtin","(show (+ 1))","!E2"],
+  ["E2 fun value","(let f (fun [x] x))\n(show (f 1 2))","!E2"],
+  ["E2 form","(show (if true 1))","!E2"],
+  ["E3 rebind","(let x 1)\n(let x 2)","!E3"],
+  ["E3 shadow builtin","(show (with [len 3] len))","!E3"],
+  ["E3 shadow param","(fn f [x Num] Num (with [x 2] x))","!E3"],
+  ["E4","(show (+ 1 \"a\"))","!E4"],
+  ["E4 self application","(show (map (fun [x] (x x)) [1 2]))","!E4"],
+  ["E4 fn result","(fn f [x Num] Str (+ x 1))","!E4"],
+  ["E5","(show (if true 1 \"a\"))","!E5"],
+  ["E6","(show [1 \"a\"])","!E6"],
+  ["E7","(show (if 1 2 3))","!E7"],
+  ["E7 guard","(show (for [x [1 2]] x x))","!E7"],
+  ["E8 expression at top","(+ 1 2)","!E8"],
+  ["E8 let inside","(show (let x 1))","!E8"],
+  ["E10 get","(show (get [1 2] 5))","!E10"],
+  ["E10 slice","(show (slice [1 2 3] 2 1))","!E10"],
+  ["E11 vadd","(show (vadd [1 2] [1]))","!E11"],
+  ["E11 map2","(show (map2 + [1 2] [1]))","!E11"],
+  ["E11 matmul","(use mat)\n(show (matmul [[1 2]] [[1 2]]))","!E11"],
+  ["E12 unclosed","(show (+ 1 2)","!E12"],
+  ["E12 big literal","(show 1e400)","!E12"],
+  ["E14 singular","(use mat)\n(show (k.solve [[1 2] [2 4]] [[1] [2]]))","!E14"],
+  ["E15","(show (snum \"x1\"))","!E15"],
+  ["E16","(show (fail \"oops\" \"bad input\"))","!E16"],
+  ["E17 zero","(show (/ 1 0))","!E17"],
+  ["E17 sqrt","(show (sqrt -1))","!E17"],
+  ["E17 overflow","(show (exp 1000))","!E17"],
+  ["all check errors at once","(show (lenn 1))\n(show (+ 1 \"a\"))\n(show (if true 1 \"b\"))","!E1,E4,E5"],
+  ["nothing runs after a check error","(show 1)\n(show (+ 1 \"a\"))","!E4"],
+  ["run stops at first error","(show 1)\n(show (/ 1 0))\n(show (get [] 0))","!E17"],
+  ["sum + match","(sum Shape [Circle [Num] Rect [Num Num] Point []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Point 0))\n(show (map area [(Circle 2) (Rect 2 3) Point]))\n(show Point)\n(show (Circle 1))","[4 6 0]\nPoint\n(Circle 1)"],
+  ["match literals","(fn nm [n Num] Str (match n 0 \"zero\" 1 \"one\" _ \"many\"))\n(show (map nm [0 1 5]))\n(show (match true true 1 false 0))\n(show (match \"b\" \"a\" 1 _ 2))","[\"zero\" \"one\" \"many\"]\n1\n2"],
+  ["match rec","(rec P [x Num y Num])\n(show (match (P 1 2) (P a _) a))","1"],
+  ["match is a tail call","(fn cnt [n Num] Num (match (= n 0) true 0 false (cnt (- n 1))))\n(show (cnt 50000))","0"],
+  ["E18 ctor missed","(show (match (Some 1) (Some x) x))","!E18"],
+  ["E18 Num needs _","(show (match 1 1 2))","!E18"],
+  ["E18 arm after _","(show (match 1 _ 2 1 3))","!E18"],
+  ["E18 twice","(show (match (Some 1) None 0 None 1 (Some x) x))","!E18"],
+  ["E1 unknown ctor","(show (match (Some 1) (Sme x) x _ 0))","!E1"],
+  ["E2 pattern arity","(show (match (Some 1) (Some x y) x None 0))","!E2"],
+  ["E4 pattern type","(show (match 1 None 0 _ 1))","!E4"],
+  ["E5 match arms","(show (match (Some 1) (Some x) x None \"a\"))","!E5"],
+  ["E3 pattern shadows","(let x 1)\n(show (match (Some 1) (Some x) x None 0))","!E3"],
+  ["E12 nested pattern","(show (match (Some (Some 1)) (Some (Some x)) x _ 0))","!E12"],
+  ["generic rec","(rec Cell [v ?a])\n(fn uncell [b (Cell ?a)] ?a (Cell.v b))\n(show (uncell (Cell \"s\")))\n(show (Cell.v (Cell 2)))","s\n2"],
+  ["generic sum","(sum Tree [Leaf [] Node [(Tree ?a) ?a (Tree ?a)]])\n(fn size [t (Tree ?a)] Num (match t Leaf 0 (Node l _ r) (+ 1 (+ (size l) (size r)))))\n(show (size (Node Leaf 1 (Node Leaf 2 Leaf))))","2"],
+  ["E4 type args","(rec Cell [v ?a])\n(fn f [b Cell] Num 1)\n(fn g [b (Cell Num Num)] Num 1)","!E4,E4"],
+  ["E3 ctor and type names","(sum A [B []])\n(let B 1)\n(let A 2)\n(sum C [B []])","!E3,E3,E3"],
+  ["E4 nullary ctor called","(show (None))","!E4"],
+  ["Opt","(show (first [1 2]))\n(show (first []))\n(show (else (last [1 2]) 0))\n(show (else (mget {} \"k\") 7))\n(show (map Some [1]))","(Some 1)\nNone\n2\n7\n[(Some 1)]"],
+  ["need = E16","(show (need (find (fun [x] (< 5 x)) [1 2]) \"nothing over 5\"))","!E16"],
+  ["try","(show (try (/ 1 0)))\n(show (try (+ 1 2)))\n(show (try (fail \"nope\" \"bad input\")))\n(show (unwrap (try (get [1] 0))))\n(show (match (try (get [1] 9)) (Ok v) \"ok\" (Err c m) c))","(Err \"E17\" \"division by zero\")\n(Ok 3)\n(Err \"nope\" \"bad input\")\n1\nE10"],
+  ["unwrap raises again","(show (unwrap (try (get [1] 3))))","!E10"],
+  ["try cannot catch the step budget","(fn spin [n Num] Num (spin (+ n 1)))\n(show (try (spin 0)))","!E9",null,100000],
+  ["do + cat","(show (do 1 2 \"x\"))\n(show (cat \"n=\" 3 \" v=\" [\"a\" \"b\"] \" \" true))","x\nn=3 v=[\"a\" \"b\"] true"],
+  ["top do + io.print","(do (io.print \"a\") (io.print (cat 1 2)))\n(show 3)","a\n12\n3"],
+  ["maps","(let m {\"b\" 2 \"a\" 1})\n(show m)\n(show (mget m \"a\"))\n(show (mget m \"z\"))\n(show (mput m \"c\" 3))\n(show (mkeys (mdel m \"a\")))\n(show (mlen m))\n(show {})\n(show (mhas m \"b\"))\n(show (mvals (mmerge m {\"a\" 9})))\n(show (mmap (fun [v] (* v 10)) m))","{\"a\" 1 \"b\" 2}\n(Some 1)\nNone\n{\"a\" 1 \"b\" 2 \"c\" 3}\n[\"b\"]\n2\n{}\ntrue\n[9 2]\n{\"a\" 10 \"b\" 20}"],
+  ["maps build","(fn tally [ws (Vec Str)] (Map Str Num) (fold (fun [m w] (mupd m w 0 (fun [n] (+ n 1)))) {} ws))\n(show (tally (split \"a b a c a\" \" \")))\n(show (mitems (mfrom [(Pair 2 \"x\") (Pair 1 \"y\")])))\n(show (group (fun [x] (rem x 2)) (range 5)))\n(check {1 2} (mput {} 1 2))\n(show {[1 2] \"v\"})","{\"a\" 3 \"b\" 1 \"c\" 1}\n[(Pair 1 \"y\") (Pair 2 \"x\")]\n{0 [0 2 4] 1 [1 3]}\n{[1 2] \"v\"}"],
+  ["maps stay balanced","(let m (fold (fun [acc i] (mput acc i (* i i))) {} (range 20000)))\n(show (mlen m))\n(show (mget m 19999))\n(show (mlen (fold (fun [acc i] (mdel acc i)) m (range 19990))))","20000\n(Some 399960001)\n10"],
+  ["E6 map","(show {1 \"a\" 2 3})","!E6"],
+  ["E12 map odd","(show {1 2 3})","!E12"],
+  ["E17 fn as key","(show (mput {1 len} 2 len))\n(show (mput {} len 1))","!E17"],
+  ["vectors v2","(show (zip [1 2] [\"a\" \"b\"]))\n(show (enum [\"x\"]))\n(show (sortby (fun [s] (slen s)) [\"ccc\" \"a\" \"bb\"]))\n(show (order [\"b\" \"a\"]))\n(show (take [1 2 3] 2))\n(show (drop [1 2 3] 2))\n(show (any (fun [x] (> x 2)) [1 3]))\n(show (all (fun [x] (>= x 2)) [1 3]))\n(show (index [5 6] 6))\n(show (chunk [1 2 3] 2))\n(show (scan + 0 [1 2 3]))\n(show (iter (fun [x] (* x 2)) 1 10))\n(show (cmp [1 2] [1 3]))\n(show (push [1] 2))\n(show (has [\"a\"] \"a\"))\n(show (count isint [1 1.5 2]))\n(show (mean [1 2 6]))\n(show (vmax [1 5 2]))","[(Pair 1 \"a\") (Pair 2 \"b\")]\n[(Pair 0 \"x\")]\n[\"a\" \"bb\" \"ccc\"]\n[\"a\" \"b\"]\n[1 2]\n[3]\ntrue\nfalse\n(Some 1)\n[[1 2] [3]]\n[1 3 6]\n1024\n-1\n[1 2]\ntrue\n2\n3\n5"],
+  ["E10 vmax empty","(show (vmax []))","!E10"],
+  ["numbers v2","(use bit)\n(show (round 2.5))\n(show (ceil 1.2))\n(show (trunc -1.7))\n(show (idiv 7 2))\n(show (mod -1 3))\n(show (fix pi 2))\n(show (sign -3))\n(show (shl 1 10))\n(show (shr 1024 3))\n(check (atan2 1 1) (/ pi 4))\n(check (tan (atan 2)) 2)\n(show (len (rand 1 5)))\n(check (rand 7 3) (rand 7 3))","3\n2\n-1\n3\n2\n3.14\n-1\n1024\n128\n5"],
+  ["E17 asin","(show (asin 2))","!E17"],
+  ["strings v2","(use bytes)\n(show (upper \"ab\"))\n(show (trim \"  x \"))\n(show (sfind \"hello\" \"ll\"))\n(show (sreplace \"a-b-c\" \"-\" \"+\"))\n(show (starts \"hello\" \"he\"))\n(show (lines \"a\\nb\\n\"))\n(show (padl \"7\" 3 \"0\"))\n(show (padr \"ab\" 4 \".\"))\n(show (pnum \"x\"))\n(show (pnum \"2.5\"))\n(show (radix 255 16))\n(show (pradix \"ff\" 16))\n(show (pradix \"12\" 2))\n(show (srep \"ab\" 2))","AB\nx\n(Some 2)\na+b+c\ntrue\n[\"a\" \"b\"]\n007\nab..\nNone\n(Some 2.5)\nff\n(Some 255)\nNone\nabab"],
+  ["regex","(use re)\n(show (re.test \"^a+$\" \"aaa\"))\n(show (re.find \"(\\\\d+)-(\\\\d+)\" \"1-2 30-40\"))\n(show (re.replace \"\\\\s+\" \"a  b   c\" \" \"))\n(show (re.split \",\\\\s*\" \"a, b,c\"))\n(show (re.replace \"(\\\\w)(\\\\w)\" \"ab\" \"$2$1\"))","true\n[[\"1-2\" \"1\" \"2\"] [\"30-40\" \"30\" \"40\"]]\na b c\n[\"a\" \"b\" \"c\"]\nba"],
+  ["E12 regex literal is checked first","(use re)\n(show 1)\n(show (re.test \"(\" \"a\"))","!E12"],
+  ["E14 regex built at run time","(use re)\n(show (re.test (scat \"(\" \"\") \"a\"))","!E14"],
+  ["json","(use json)\n(let j (json.parse \"{\\\"b\\\": \\\"x\\\", \\\"a\\\": [1, true, null]}\"))\n(show j)\n(show (json.str j))\n(show (json.get j \"b\"))\n(show (json.get j \"zz\"))\n(show (json.str (JArr [(JNum 1.5) (JObj {\"k\" JNull})])))","(JObj {\"a\" (JArr [(JNum 1) (JBool true) JNull]) \"b\" (JStr \"x\")})\n{\"a\":[1,true,null],\"b\":\"x\"}\n(Some (JStr \"x\"))\nNone\n[1.5,{\"k\":null}]"],
+  ["E15 json","(use json)\n(show (json.parse \"{\"))","!E15"],
+  ["bytes + dates","(use time)\n(use bytes)\n(show (b64.enc \"hé\"))\n(show (b64.dec \"aMOp\"))\n(show (utf8 \"é\"))\n(show (unutf8 [104 105]))\n(show (date.iso 0))\n(show (date.parse \"1970-01-02T00:00:00Z\"))","aMOp\nhé\n[195 169]\nhi\n1970-01-01T00:00:00.000Z\n86400000"],
+  ["E15 bad utf8","(use bytes)\n(show (unutf8 [255]))","!E15"],
+  ["kernels v2","(use mat)\n(check (k.pinv [[2 0] [0 4]]) [[0.5 0] [0 0.25]])\n(check (k.pinv [[1 2] [2 4]]) [[0.04 0.08] [0.08 0.16]])\n(check (matmul [[1 2] [3 4] [5 6]] (matmul (k.pinv [[1 2] [3 4] [5 6]]) [[1 2] [3 4] [5 6]])) [[1 2] [3 4] [5 6]])\n(check (k.eig [[2 0] [0 3]]) [[3 2] [0 0]])\n(check (k.eig [[0 -1] [1 0]]) [[0 0] [1 -1]])\n(check (k.eig [[0 1 0] [0 0 1] [6 -11 6]]) [[3 2 1] [0 0 0]])\n(check (k.eig [[1 2 0 0] [-2 1 0 0] [0 0 5 1] [0 0 0 7]]) [[7 5 1 1] [0 0 2 -2]])\n(show (< (abs (- (/ (get (svdvals [[1 0] [0 1e-12]]) 1) 1e-12) 1)) 1e-6))\n(show (len (k.pinv [[1 2 3]])))","true\n3"],
+  ["E14 eig not square","(use mat)\n(show (k.eig [[1 2 3]]))","!E14"],
+  ["io memory files","(use io)\n(do (io.write \"a.txt\" \"hi\\nyo\"))\n(show (io.read \"a.txt\"))\n(show (io.exists \"a.txt\"))\n(show (io.ls \".\"))\n(do (io.append \"a.txt\" \"!\") (io.writeb \"d/b.bin\" [0 255]))\n(show (lines (io.read \"a.txt\")))\n(show (io.readb \"d/b.bin\"))\n(show (io.ls \".\"))\n(show (io.isdir \"d\"))\n(show (io.rm \"a.txt\"))\n(show (io.exists \"a.txt\"))\n(show (io.args))\n(show (io.env \"NOPE\"))\n(show (io.stdin))","hi\nyo\ntrue\n[\"a.txt\"]\n[\"hi\" \"yo!\"]\n[0 255]\n[\"a.txt\" \"d\"]\ntrue\ntrue\nfalse\n[]\nNone\n"],
+  ["E19 io failed","(use io)\n(show (io.read \"missing.txt\"))","!E19"],
+  ["E19 is caught by try","(use io)\n(show (match (try (io.read \"nope\")) (Ok s) s (Err c m) c))","E19"],
+  ["E13 host lacks it","(use io)\n(show (Sh.code (io.sh \"true\")))","!E13"],
+  ["E14 http url","(use io)\n(show (Http.status (io.http \"GET\" \"file:///etc/passwd\" {} \"\")))","!E14"],
+  ["use","(use \"lib/a.tact\")\n(use \"lib/a.tact\")\n(show (double base))\n(show (Tag.n (Tag 1)))","20\n1",{"lib/a.tact":"(use \"b.tact\")\n(fn double [x Num] Num (* x 2))\n(show \"hidden\")\n(do (io.print \"hidden too\"))\n(check (double 2) 4)","lib/b.tact":"(use \"a.tact\")\n(let base 10)\n(rec Tag [n Num])"}],
+  ["use reports the file","(use \"bad.tact\")\n(show 1)","!E4@bad.tact:2",{"bad.tact":"(let p 1)\n(let q (+ 1 \"a\"))"}],
+  ["E12 use unreadable","(use \"nope.tact\")\n(show 1)","!E12"],
+  ["E8 top form inside","(show (sum X [A []]))","!E8"],
+  ["frames","(use io)\n(use draw)\n(show (rgb 255 0 300.4))\n(show (for [t (range 3)] (io.frame 8 8 [(Box 0 0 8 8 \"black\") (Line 0 0 t t (rgb 9 9 9)) (Dot t 1 \"red\")])))\n(show (io.sheet \"s.png\" 2))\n(show (take (io.readb \"s.png\") 4))\n(show (try (io.sheet \"s.png\" 0)))","#ff00ff\n[1 2 3]\n3\n[137 80 78 71]\n(Err \"E17\" \"io.sheet: 0 columns must be a whole number >= 1\")"],
+  ["ascii is a value","(use draw)\n(show (ascii 8 8 [(Box 0 0 8 8 \"#222\") (Line 0 0 7 7 \"white\") (Box 4 0 4 2 \"gray\")] 8))\n(check (ascii 4 2 [(Dot 0 0 \"white\")] 4) \"@\")","@@  ====\n  @@\n    @@\n      @@"],
+  ["E14 color","(use draw)\n(show (ascii 4 4 [(Dot 0 0 \"rebeccapurple\")] 4))","!E14"],
+  ["E14 sheet without frames","(use draw)\n(show (io.sheet \"s.png\" 4))","!E14"],
+  ["E4 frame takes shapes","(use draw)\n(show (io.frame 8 8 [1 2]))","!E4"],
+  ["E17 frame size","(use draw)\n(show (io.frame 0 8 []))","!E17"],
+  ["E1 names the pack","(show (json.parse \"1\"))\n(fn f [j Json] Num 1)\n(show (match 1 (JNum n) n _ 0))\n(show (io.read \"x\"))","!E1,E1,E1,E1"],
+  ["E1 unknown pack","(use jsn)","!E1"],
+  ["pack names are free until used","(rec Box [v Num])\n(fn rgb [x Num] Num x)\n(let Json 3)\n(show (+ (Box.v (Box 1)) (rgb Json)))","4"],
+  ["E3 pack names are taken once used","(use draw)\n(rec Box [v Num])","!E3"],
+  ["a used file brings its packs","(use \"j.tact\")\n(show (size \"[1,2]\"))","2",{"j.tact":"(use json)\n(fn size [s Str] Num (match (json.parse s) (JArr v) (len v) _ 0))"}],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
@@ -2096,10 +2119,11 @@ function runTests() {
   // the spec must describe the language as built: every builtin and every form has a matrix row
   const rows = new Set(MATRIX.split("\n").slice(1).map(l => l.split(" ")[0]));
   const lost = [...Object.keys(B), ...Object.keys(FORMS), ...Object.keys(TOPS)].filter(n => !rows.has(n));
-  const kinds = { draw: 1, num: 1, str: 1, cmp: 1, bool: 1, vec: 1, vnum: 1, hof: 1, mat: 1, bit: 1, build: 1, kern: 1, opt: 1, map: 1, re: 1, json: 1, time: 1, io: 1 };
-  const ghost = MATRIX.split("\n").slice(1).map(l => l.split(" ")).filter(p => kinds[p[1]] && !own(B, p[0])).map(p => p[0]);
+  const ghost = MATRIX.split("\n").slice(1).map(l => l.split(" ")).filter(p => !["form", "top", "type", "err"].includes(p[1]) && !own(B, p[0]) && !PACKOF.has(p[0])).map(p => p[0]);
   const got = [...lost.map(n => "no row: " + n), ...ghost.map(n => "no builtin: " + n)].join(", ");
   rs.push({ name: "matrix = builtins", ok: got === "", got, want: "", src: "; compares the matrix with the builtin table", errors: [] });
+  const size = specText().length;
+  rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
   return rs;
 }
 function fuzz(n, seed) {
@@ -2127,8 +2151,23 @@ function fuzz(n, seed) {
   return { n, seed, kinds, fails };
 }
 
+/* ------------------------------------------------------------------ spec text: the part a model keeps in context */
+const CORE_BUDGET = 12000;           // characters. a test holds the core spec under this
+function specText(which) {
+  const [head, ...rows] = MATRIX.split("\n"), packOf = r => KINDPACK[r.split(" ")[1]] || "core";
+  const core = rows.filter(r => packOf(r) === "core");
+  const pack = p => { const d = PACKS[p], rs = rows.filter(r => packOf(r) === p); return [`PACK ${p}. (use ${p}). ${d.say}. ${rs.length} rows`, d.notes, d.types, head, ...rs].filter(Boolean).join("\n"); };
+  const index = "PACKS  not loaded until a program says (use name). a pack name used without it = E1 that names the pack.\n       tact --spec NAME prints one. tact --spec all prints everything.\n" +
+    Object.keys(PACKS).map(p => `  ${p.padEnd(6)} ${String(rows.filter(r => packOf(r) === p).length).padStart(2)} rows  ${PACKS[p].say}`).join("\n");
+  const base = SYNTAX + "\n\n" + index + "\n\nMATRIX core " + core.length + " rows\n" + head + "\n" + core.join("\n");
+  if (which === undefined) return base;
+  if (which === "all") return base + "\n\n" + Object.keys(PACKS).map(pack).join("\n\n");
+  if (own(PACKS, which)) return pack(which);
+  return null;
+}
+
 /* ------------------------------------------------------------------ cli */
-const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --spec | --test | --fuzz N SEED | --list | --run FILE [args ..] | --show FILE";
+const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
 function errLines(r) { return r.errors.map(e => `${e.code} ${e.file ? e.file + " " : ""}line ${e.line}: ${e.msg}`).join("\n"); }
 function cli(args, host) {           // host = the io host. it also needs read and stdin to load the program itself
   const a = args.slice();
@@ -2147,8 +2186,12 @@ function cli(args, host) {           // host = the io host. it also needs read a
   try {
     switch (a[0]) {
       case undefined: case "-h": case "--help": return { out: USAGE, err: "", code: a[0] ? 0 : 2 };
-      case "--spec": return { out: SYNTAX + "\n\nMATRIX " + (MATRIX.split("\n").length - 1) + " rows\n" + MATRIX, err: "", code: 0 };
-      case "--list": return { out: Object.entries(B).map(([n, b]) => `${n.padEnd(10)} ${b.sig}`).join("\n"), err: "", code: 0 };
+      case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t, err: "", code: 0 }; }
+      case "--sigs": {                 // what a side loaded tact file offers, without its source
+        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true });
+        return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
+      }
+      case "--list": return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
       case "--test": {
         const rs = runTests(), bad = rs.filter(r => !r.ok);
         const lines = bad.map(r => `FAIL ${r.name}\n  want ${JSON.stringify(r.want)}\n  got  ${JSON.stringify(r.got)}` + (r.errors.length ? `\n  ${errLines({ errors: r.errors })}` : ""));
@@ -2174,7 +2217,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
   } catch (x) { return { out: "", err: String(x.message || x), code: 2 }; }
 }
 
-const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png };
+const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png, PACKS, specText };
 if (typeof module === "object" && module.exports) {
   module.exports = TACT;
   if (typeof require === "function" && require.main === module) {
