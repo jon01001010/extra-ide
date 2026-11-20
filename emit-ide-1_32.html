@@ -762,7 +762,7 @@ script talk:
 <script>
 const EX = {"basics":"// Emit — everything just works\n// No semicolons, no arrows, types inferred\n\nfn greet(name: str) {\n  printStr(name)\n}\n\nfn distance(x1: num, y1: num, x2: num, y2: num) num {\n  let dx = x2 - x1\n  let dy = y2 - y1\n  return sqrt(dx * dx + dy * dy)\n}\n\nexport fn demo() {\n  // Strings\n  greet(\"Hello from Emit!\")\n\n  // Math\n  printNum(distance(0.0, 0.0, 3.0, 4.0))\n  printNum(sin(3.14159 / 2.0))\n  print(max(42, 17))\n\n  // Arrays\n  let scores = newArray(5)\n  let i = 0\n  while (i < 5) {\n    setItem(scores, i, (i + 1) * 10)\n    i++\n  }\n  push(scores, 99)\n  print(arrayLen(scores))\n  print(getItem(scores, 5))\n\n  // Canvas\n  canvas(200, 100)\n  color(45, 212, 191)\n  rect(10, 10, 80, 80)\n  color(255, 100, 50)\n  circle(150, 50, 35)\n  color(255, 255, 255)\n  text(\"Emit!\", 20, 55, 16)\n\n  // Sound\n  beep(440, 150)\n  beep(550, 150)\n  beep(660, 200)\n}","draw":"// Canvas drawing — house scene\n\nexport fn house() {\n  canvas(300, 200)\n\n  // Sky\n  color(30, 30, 80)\n  rect(0, 0, 300, 140)\n\n  // Ground\n  color(30, 100, 30)\n  rect(0, 140, 300, 60)\n\n  // Sun\n  color(255, 220, 50)\n  circle(240, 45, 30)\n\n  // House\n  color(160, 80, 40)\n  rect(80, 80, 80, 60)\n\n  // Door\n  color(100, 50, 20)\n  rect(108, 105, 24, 35)\n\n  // Roof lines\n  let i = 0\n  while (i < 50) {\n    color(180, 40, 40)\n    line(70 + i, 80, 120, 40)\n    line(170 - i, 80, 120, 40)\n    i++\n  }\n\n  // Stars\n  color(255, 255, 255)\n  circle(30, 20, 2)\n  circle(80, 35, 1)\n  circle(150, 15, 2)\n  circle(200, 50, 1)\n\n  // Label\n  text(\"Home\", 100, 175, 14)\n}","art":"// Generative Art — rainbow spirograph\n\nexport fn spirograph() {\n  canvas(400, 400)\n  color(0, 0, 0)\n  rect(0, 0, 400, 400)\n\n  let cx = 200.0\n  let cy = 200.0\n  let ro = 120.0\n  let ri = 45.0\n  let d = 90.0\n  let t = 0.0\n  mut prevX = 0\n  mut prevY = 0\n  mut steps = 0\n\n  while (t < 62.8) {\n    let x: num = (ro - ri) * cos(t) + d * cos((ro - ri) * t / ri)\n    let y: num = (ro - ri) * sin(t) - d * sin((ro - ri) * t / ri)\n    let px = floor(cx + x)\n    let py = floor(cy + y)\n\n    let hue = steps % 360\n    mut cr = 0\n    mut cg = 0\n    mut cb = 0\n    if (hue < 60) { cr = 255; cg = hue * 4 }\n    if (hue >= 60) { if (hue < 120) { cr = 255 - (hue - 60) * 4; cg = 255 } }\n    if (hue >= 120) { if (hue < 180) { cg = 255; cb = (hue - 120) * 4 } }\n    if (hue >= 180) { if (hue < 240) { cg = 255 - (hue - 180) * 4; cb = 255 } }\n    if (hue >= 240) { if (hue < 300) { cr = (hue - 240) * 4; cb = 255 } }\n    if (hue >= 300) { cr = 255; cb = 255 - (hue - 300) * 4 }\n\n    color(cr, cg, cb)\n    if (steps > 0) { line(prevX, prevY, px, py) }\n    prevX = px\n    prevY = py\n    t = t + 0.02\n    steps++\n  }\n}","cube3d":"// 3D Room — drag to look around, scroll to zoom\nuse three.js\n\nexport fn room() {\n  scene3d(400, 350)\n  bgColor3d(20, 20, 35)\n\n  // Floor\n  let floor = plane(10.0, 10.0)\n  color3d(floor, 60, 60, 70)\n\n  // Walls\n  let back = wallBox(0.0, 1.5, -5.0, 10.0, 3.0, 0.1)\n  color3d(back, 80, 70, 90)\n\n  let left = wallBox(-5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(left, 90, 75, 85)\n\n  let right = wallBox(5.0, 1.5, 0.0, 0.1, 3.0, 10.0)\n  color3d(right, 90, 75, 85)\n\n  let front = wallBox(0.0, 1.5, 5.0, 10.0, 3.0, 0.1)\n  color3d(front, 80, 70, 90)\n\n  // Table\n  let top = wallBox(0.0, 1.0, 0.0, 2.0, 0.1, 1.2)\n  color3d(top, 139, 90, 43)\n  let leg1 = cylinder(-0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg1, 100, 60, 30)\n  let leg2 = cylinder(0.8, 0.5, -0.5, 0.06, 1.0)\n  color3d(leg2, 100, 60, 30)\n  let leg3 = cylinder(-0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg3, 100, 60, 30)\n  let leg4 = cylinder(0.8, 0.5, 0.5, 0.06, 1.0)\n  color3d(leg4, 100, 60, 30)\n\n  // Chair\n  let seat = wallBox(-2.5, 0.6, 0.0, 0.7, 0.08, 0.7)\n  color3d(seat, 45, 100, 180)\n  let chairBack = wallBox(-2.5, 1.2, -0.35, 0.7, 1.0, 0.08)\n  color3d(chairBack, 40, 90, 170)\n\n  // Lamp on table\n  let pole = cylinder(0.5, 1.3, 0.0, 0.03, 0.5)\n  color3d(pole, 200, 200, 200)\n  let shade = sphere(0.5, 1.6, 0.0, 0.15)\n  color3d(shade, 255, 240, 180)\n\n  // Rug\n  let rug = wallBox(0.0, 0.01, 2.0, 3.0, 0.02, 2.0)\n  color3d(rug, 150, 50, 50)\n\n  // Lighting\n  ambient3d(60, 60, 80)\n  light3d(0.5, 2.8, 0.0)\n  light3d(-3.0, 2.5, 3.0)\n\n  // Camera + controls\n  camera3d(3.0, 2.5, 5.0)\n  lookAt3d(0.0, 1.0, 0.0)\n  controls3d()\n  render3d()\n}","ui":"// Interactive UI — buttons, globals, canvas\n\nmut counter = 0\n\nexport fn app() {\n  div(\"Welcome to Emit!\")\n  div(\"Click a button:\")\n  button(\"Say Hello\", 1)\n  button(\"Count\", 2)\n  button(\"Draw\", 3)\n}\n\nexport fn onclick_1() {\n  div(\"Hello from Emit!\")\n  beep(523, 100)\n}\n\nexport fn onclick_2() {\n  counter++\n  print(counter)\n  beep(440 + counter * 50, 80)\n}\n\nexport fn onclick_3() {\n  canvas(200, 100)\n  let r = floor(random() * 255.0)\n  let g = floor(random() * 255.0)\n  let b = floor(random() * 255.0)\n  color(r, g, b)\n  circle(100, 50, 40)\n  color(255, 255, 255)\n  text(\"Random!\", 55, 55, 16)\n}","sound":"// Music — beep a melody\n\nexport fn melody() {\n  // Twinkle Twinkle Little Star\n  beep(262, 300)\n  beep(262, 300)\n  beep(392, 300)\n  beep(392, 300)\n  beep(440, 300)\n  beep(440, 300)\n  beep(392, 600)\n\n  beep(349, 300)\n  beep(349, 300)\n  beep(330, 300)\n  beep(330, 300)\n  beep(294, 300)\n  beep(294, 300)\n  beep(262, 600)\n}","algo":"// Algorithms — recursion, arrays, sorting\n\nfn factorial(n: int) int {\n  if (n <= 1) { return 1 }\n  return n * factorial(n - 1)\n}\n\nfn fibonacci(n: int) int {\n  if (n <= 1) { return n }\n  let a = 0\n  let b = 1\n  let i = 2\n  while (i <= n) {\n    let t = b\n    b = a + b\n    a = t\n    i++\n  }\n  return b\n}\n\nexport fn algorithms() {\n  printStr(\"Factorials:\")\n  let i = 1\n  while (i <= 8) {\n    print(factorial(i))\n    i++\n  }\n\n  printStr(\"Fibonacci:\")\n  i = 1\n  while (i <= 10) {\n    print(fibonacci(i))\n    i++\n  }\n\n  // Sort an array\n  printStr(\"Sorted:\")\n  let arr = newArray(0)\n  push(arr, 38)\n  push(arr, 7)\n  push(arr, 91)\n  push(arr, 14)\n  push(arr, 55)\n  push(arr, 3)\n\n  let n = arrayLen(arr)\n  i = 0\n  while (i < n) {\n    let j = 0\n    while (j < n - 1 - i) {\n      if (getItem(arr, j) > getItem(arr, j + 1)) {\n        let t = getItem(arr, j)\n        setItem(arr, j, getItem(arr, j + 1))\n        setItem(arr, j + 1, t)\n      }\n      j++\n    }\n    i++\n  }\n  i = 0\n  while (i < n) {\n    print(getItem(arr, i))\n    i++\n  }\n}","pong":"// Brick Breaker — touch/mouse to move paddle\n// Smash all the bricks!\n\nmut bx = 0\nmut by = 0\nmut dx = 0\nmut dy = 0\nmut px = 0\nmut score = 0\nmut bricks = 0\nmut lives = 0\n\nexport fn breaker() {\n  bx = 150\n  by = 140\n  dx = 3\n  dy = -3\n  px = 130\n  score = 0\n  lives = 3\n\n  // Create brick grid: 8 cols x 4 rows = 32 bricks\n  bricks = newArray(32)\n  let i = 0\n  while (i < 32) {\n    setItem(bricks, i, 1)\n    i++\n  }\n\n  canvas(300, 200)\n  animate()\n}\n\nexport fn frame() {\n  // Paddle follows touch/mouse\n  let mx = touchX()\n  if (mx > 0) { px = mx - 150 }\n  if (px < 0) { px = 0 }\n  if (px > 260) { px = 260 }\n\n  // Move ball\n  bx += dx\n  by += dy\n\n  // Bounce walls\n  if (bx < 4) { dx = 0 - dx; bx = 4 }\n  if (bx > 296) { dx = 0 - dx; bx = 296 }\n  if (by < 4) { dy = 0 - dy; by = 4 }\n\n  // Bounce paddle\n  if (by > 182) {\n    if (bx > px) {\n      if (bx < px + 40) {\n        dy = 0 - dy\n        by = 182\n        // Angle based on hit position\n        dx = (bx - px - 20) / 5\n        beep(440, 30)\n      }\n    }\n  }\n\n  // Miss — lose life\n  if (by > 200) {\n    lives -= 1\n    beep(150, 300)\n    bx = 150\n    by = 140\n    dx = 3\n    dy = -3\n    if (lives < 1) {\n      // Reset all bricks\n      let i = 0\n      while (i < 32) {\n        setItem(bricks, i, 1)\n        i++\n      }\n      lives = 3\n      score = 0\n    }\n  }\n\n  // Check brick collisions\n  let row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      let idx = row * 8 + col\n      if (getItem(bricks, idx) == 1) {\n        let bkx = col * 36 + 6\n        let bky = row * 14 + 10\n        if (bx > bkx) {\n          if (bx < bkx + 34) {\n            if (by > bky) {\n              if (by < bky + 12) {\n                setItem(bricks, idx, 0)\n                dy = 0 - dy\n                score++\n                beep(660 + score * 20, 40)\n              }\n            }\n          }\n        }\n      }\n      col++\n    }\n    row++\n  }\n\n  // Draw\n  clear()\n  color(0, 0, 20)\n  rect(0, 0, 300, 200)\n\n  // Bricks\n  row = 0\n  while (row < 4) {\n    let col = 0\n    while (col < 8) {\n      if (getItem(bricks, row * 8 + col) == 1) {\n        // Color by row\n        if (row == 0) { color(255, 80, 80) }\n        if (row == 1) { color(255, 180, 50) }\n        if (row == 2) { color(50, 220, 100) }\n        if (row == 3) { color(80, 150, 255) }\n        rect(col * 36 + 6, row * 14 + 10, 34, 12)\n      }\n      col++\n    }\n    row++\n  }\n\n  // Ball\n  color(255, 255, 255)\n  circle(bx, by, 4)\n\n  // Paddle\n  color(45, 212, 191)\n  rect(px, 185, 40, 8)\n\n  // Score + lives\n  color(200, 200, 200)\n  text(\"Score:\", 10, 198, 10)\n}","chat":"// Chat — text input and output\n\nexport fn chatapp() {\n  div(\"Emit Chat\")\n  input(\"Type a message...\", 1)\n  button(\"Send\", 1)\n  button(\"Clear\", 2)\n}\n\nexport fn onclick_1() {\n  let val = getInput(1)\n  if (val > 0) {\n    printStr(\"You said something!\")\n    print(val)\n    beep(500, 80)\n  }\n}\n\nexport fn onclick_2() {\n  div(\"Chat cleared!\")\n  beep(300, 100)\n}","babylon":"// Babylon.js — rotating 3D cube\n// No hand-wrapped builtins: `use babylon.js` + member calls = it just works\n\nuse babylon.js\n\nmut sceneH = 0\nmut boxH = 0\n\nexport fn world() {\n  canvas(500, 400)\n  let cv = getCanvas()\n\n  // Engine + scene\n  let engine = BABYLON.Engine(cv, true)\n  let scene = BABYLON.Scene(engine)\n\n  // Orbit camera — drag to rotate, scroll to zoom\n  let target = BABYLON.Vector3(0.0, 0.0, 0.0)\n  let cam = BABYLON.ArcRotateCamera(\"cam\", 1.0, 1.2, 6.0, target, scene)\n  cam.attachControl(cv, true)\n\n  // Light\n  let lightDir = BABYLON.Vector3(0.0, 1.0, 0.0)\n  BABYLON.HemisphericLight(\"light\", lightDir, scene)\n\n  // Meshes\n  let opts = emptyObj()\n  let cube = BABYLON.MeshBuilder.CreateBox(\"box\", opts, scene)\n\n  sceneH = scene\n  boxH = cube\n  animate()\n}\n\nexport fn frame() {\n  // Spin the cube around Y\n  let axis = BABYLON.Vector3(0.0, 1.0, 0.0)\n  boxH.rotate(axis, 0.02, 0)\n  sceneH.render()\n}","confetti":"// Word Confetti — particles are real words & emoji\n// textShape(text, color, scalar) builds a bitmap shape from text\n\nuse confetti\n\nexport fn party() {\n  div(\"🎉 Tap a button for word confetti!\")\n  button(\"Words\", 1)\n  button(\"Emoji\", 2)\n  button(\"Mixed\", 3)\n}\n\n// Fire confetti with a custom shape array\nfn fireShapes(shapes: int) {\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n\n  let opts = emptyObj()\n  opts.particleCount = 40\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 2.0\n  opts.ticks = 200\n  opts.shapes = shapes\n  opts.origin = origin\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  // Real words as confetti particles\n  let shapes = toJsArray([\n    textShape(\"WOW\",   \"#ff3366\", 2.0),\n    textShape(\"YES!\",  \"#fde047\", 2.0),\n    textShape(\"NICE\",  \"#22d3ee\", 2.0),\n    textShape(\"COOL\",  \"#4ade80\", 2.0),\n    textShape(\"EMIT\",  \"#a78bfa\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(880, 80)\n}\n\nexport fn onclick_2() {\n  // Emoji confetti — color is ignored for emoji glyphs\n  let shapes = toJsArray([\n    textShape(\"🎉\", \"#ffffff\", 2.0),\n    textShape(\"🎊\", \"#ffffff\", 2.0),\n    textShape(\"⭐\", \"#ffffff\", 2.0),\n    textShape(\"💖\", \"#ffffff\", 2.0),\n    textShape(\"🚀\", \"#ffffff\", 2.0)\n  ])\n  fireShapes(shapes)\n  beep(660, 80)\n}\n\nexport fn onclick_3() {\n  // Mix words, emoji, and built-in shapes\n  let shapes = toJsArray([\n    textShape(\"HI!\", \"#ff3366\", 2.0),\n    textShape(\"✨\",  \"#ffffff\", 2.0),\n    textShape(\"YAY\", \"#22d3ee\", 2.0),\n    \"star\",\n    \"circle\"\n  ])\n  fireShapes(shapes)\n  beep(990, 80)\n}","clock":"// Dayjs — chained member calls for date formatting\n// Every .format(), .year(), .month() dispatches through __jsCall\n\nuse dayjs\n\nexport fn clock() {\n  div(\"Current time (via dayjs):\")\n\n  let now = dayjs()\n  let stamp = now.format(\"YYYY-MM-DD HH:mm:ss\")\n  printStr(toStr(stamp))\n\n  let dayName = now.format(\"dddd, MMMM D\")\n  printStr(toStr(dayName))\n\n  // Math on dates — subtract 7 days\n  let lastWeek = now.subtract(7, \"day\")\n  let ago = lastWeek.format(\"YYYY-MM-DD\")\n  printStr(strConcat(\"One week ago: \", toStr(ago)))\n}","strings":"// Strings — concat, format, compare, slice\n// All the string builtins, no external libraries\n\nexport fn tour() {\n  // Build a greeting from pieces\n  let greeting = strConcat(\"Emit has \", intToStr(8))\n  let full = strConcat(greeting, \" string builtins.\")\n  printStr(full)\n\n  // Format a computed number\n  let circle = 3.14159 * 2.0 * 5.0\n  printStr(strConcat(\"Circle circumference: \", numToStr(circle)))\n\n  // Length + substring\n  let name = \"Emit language\"\n  printStr(strConcat(\"Length: \", intToStr(strLen(name))))\n  printStr(strConcat(\"Slice: \", substr(name, 5, 8)))\n\n  // Equality test\n  if (strEq(\"hello\", \"hello\")) {\n    printStr(\"✓ strEq works\")\n  }\n\n  // Char code of first character\n  let code = charAt(name, 0)\n  printStr(strConcat(\"'E' is code \", intToStr(code)))\n}","callbacks":"// Callbacks, promises, null checks — browser globals only, no library\n// fnRef(fn) hands an Emit function to JS. The parameter types you declare\n// decide how the JS arguments arrive: int / num / str / bool, or a handle.\n\nmut total = 0\nmut clicks = 0\n\n// arr.forEach calls this with (value, index)\nfn addUp(value: int, index: int) {\n  total += value\n  printStr(strConcat(\"item \", strConcat(intToStr(index), strConcat(\" = \", intToStr(value)))))\n}\n\n// arr.map uses the return value\nfn square(x: num) num {\n  return x * x\n}\n\n// Promise callbacks: the resolved value arrives with the type you declare\nfn onResolved(msg: str) {\n  printStr(strConcat(\"promise resolved: \", msg))\n}\n\n// A rejected promise passes an Error object — it arrives as a handle\nfn onRejected(err: int) {\n  let why: str = err.message\n  printStr(strConcat(\"promise rejected: \", why))\n}\n\nfn onTimer() {\n  printStr(\"timer fired after 300 ms\")\n}\n\n// DOM event listener: the event object is a handle\nfn onClick(ev: int) {\n  clicks++\n  let kind: str = ev.type\n  printStr(strConcat(kind, strConcat(\" #\", intToStr(clicks))))\n}\n\nexport fn run() {\n  // 1. Callbacks that receive arguments\n  let list = JSON.parse(\"[3, 4, 5]\")\n  list.forEach(fnRef(addUp))\n  printStr(strConcat(\"total = \", intToStr(total)))\n\n  // 2. Iterating a JS array: jsLen + jsAt\n  let squares = list.map(fnRef(square))\n  for (let i = 0; i < jsLen(squares); i++) {\n    let sq: num = jsAt(squares, i)\n    printNum(sq)\n  }\n\n  // 3. Null checks\n  let missing = document.getElementById(\"no-such-element\")\n  if (isNull(missing)) {\n    printStr(\"no such element: got null\")\n  }\n\n  // 4. Explicit new, and a typed value straight from JS\n  let d = new Date(2024, 0, 15)\n  let year: num = d.getFullYear()\n  printNum(year)\n\n  // 5. Promises, callback style (WASM cannot await)\n  Promise.resolve(\"hello from a promise\").then(fnRef(onResolved))\n  Promise.reject(new Error(\"nope\")).catch(fnRef(onRejected))\n  setTimeout(fnRef(onTimer), 300)\n\n  // 6. A real DOM button in the Output panel with an Emit click handler\n  let btn = document.createElement(\"button\")\n  btn.textContent = \"Click me\"\n  btn.addEventListener(\"click\", fnRef(onClick))\n  document.getElementById(\"tab-output\").appendChild(btn)\n}","particles":"// Particles — directed confetti via nested config objects\n// origin: {x, y} sets where particles launch from (0-1 screen coords)\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button to fire particles!\")\n  button(\"Burst from bottom\", 1)\n  button(\"Double cannons\", 2)\n  button(\"Rain from top\", 3)\n}\n\nexport fn onclick_1() {\n  // Center-bottom burst, straight up\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.9\n\n  let opts = emptyObj()\n  opts.particleCount = 120\n  opts.spread = 70\n  opts.startVelocity = 55\n  opts.origin = org\n  confetti(opts)\n}\n\nexport fn onclick_2() {\n  // Left cannon — angle 60 shoots up-right\n  let orgL = emptyObj()\n  orgL.x = 0.15\n  orgL.y = 0.6\n  let optsL = emptyObj()\n  optsL.particleCount = 70\n  optsL.angle = 60\n  optsL.spread = 55\n  optsL.startVelocity = 50\n  optsL.origin = orgL\n  confetti(optsL)\n\n  // Right cannon — angle 120 shoots up-left\n  let orgR = emptyObj()\n  orgR.x = 0.85\n  orgR.y = 0.6\n  let optsR = emptyObj()\n  optsR.particleCount = 70\n  optsR.angle = 120\n  optsR.spread = 55\n  optsR.startVelocity = 50\n  optsR.origin = orgR\n  confetti(optsR)\n}\n\nexport fn onclick_3() {\n  // Falling from top, wide spread, slow\n  let org = emptyObj()\n  org.x = 0.5\n  org.y = 0.0\n\n  let opts = emptyObj()\n  opts.particleCount = 100\n  opts.spread = 180\n  opts.startVelocity = 20\n  opts.gravity = 0.8\n  opts.ticks = 300\n  opts.origin = org\n  confetti(opts)\n}","orbit":"// Three.js — rotating cube via pure Path C\n// Field assignment at work: opts.canvas = cv, rot.x = rotX\n\nuse three.js\n\nmut sceneH = 0\nmut rendererH = 0\nmut cubeH = 0\nmut camH = 0\nmut rotX = 0.0\nmut rotY = 0.0\n\nexport fn scene() {\n  canvas(400, 300)\n  let cv = getCanvas()\n\n  let scn = THREE.Scene()\n  sceneH = scn\n\n  let cam = THREE.PerspectiveCamera(75.0, 1.333, 0.1, 1000.0)\n  let p = cam.position\n  p.z = 5.0\n  camH = cam\n\n  // Renderer needs a config object — build it with emptyObj + field assignment\n  let optsR = emptyObj()\n  optsR.canvas = cv\n  optsR.antialias = true\n  let r = THREE.WebGLRenderer(optsR)\n  r.setSize(400, 300)\n  rendererH = r\n\n  // Material config — red cube\n  let geo = THREE.BoxGeometry(1.0, 1.0, 1.0)\n  let matOpts = emptyObj()\n  matOpts.color = 16724736\n  let mat = THREE.MeshBasicMaterial(matOpts)\n  let cube = THREE.Mesh(geo, mat)\n  scn.add(cube)\n  cubeH = cube\n\n  animate()\n}\n\nexport fn frame() {\n  // Track rotation in pure Emit vars, then write back to the cube\n  rotX = rotX + 0.01\n  rotY = rotY + 0.015\n  let rot = cubeH.rotation\n  rot.x = rotX\n  rot.y = rotY\n  rendererH.render(sceneH, camH)\n}","snake":"// Snake — tap toward where you want to go\n// No external libraries — just Emit + canvas + arrays + animate()\n\nmut headX = 10\nmut headY = 10\nmut dirX = 1\nmut dirY = 0\nmut foodX = 15\nmut foodY = 15\nmut tail = 0\nmut tailLen = 3\nmut score = 0\nmut tickN = 0\n\nfn randCell() int { return floor(random() * 18.0) + 1 }\n\nexport fn game() {\n  headX = 10\n  headY = 10\n  dirX = 1\n  dirY = 0\n  foodX = randCell()\n  foodY = randCell()\n  tailLen = 3\n  score = 0\n  tickN = 0\n\n  tail = newArray(200)\n  let i = 0\n  while (i < 200) {\n    setItem(tail, i, 0)\n    i++\n  }\n\n  canvas(300, 300)\n  animate()\n}\n\nexport fn frame() {\n  tickN++\n\n  // Step every 6 frames\n  if (tickN % 6 == 0) {\n    // Steer toward touch point\n    let tx = touchX()\n    let ty = touchY()\n    if (tx > 0) {\n      let cx = headX * 15\n      let cy = headY * 15\n      let dx = tx - cx\n      let dy = ty - cy\n      if (abs(dx) > abs(dy)) {\n        if (dx > 0) { dirX = 1; dirY = 0 }\n        if (dx < 0) { dirX = 0 - 1; dirY = 0 }\n      }\n      if (abs(dy) >= abs(dx)) {\n        if (dy > 0) { dirX = 0; dirY = 1 }\n        if (dy < 0) { dirX = 0; dirY = 0 - 1 }\n      }\n    }\n\n    let newX = headX + dirX\n    let newY = headY + dirY\n\n    // Wrap at walls\n    if (newX < 1) { newX = 18 }\n    if (newX > 18) { newX = 1 }\n    if (newY < 1) { newY = 18 }\n    if (newY > 18) { newY = 1 }\n\n    // Eat food\n    if (newX == foodX) {\n      if (newY == foodY) {\n        score++\n        tailLen++\n        foodX = randCell()\n        foodY = randCell()\n        beep(880, 60)\n      }\n    }\n\n    // Shift tail history\n    let i = tailLen\n    while (i > 0) {\n      setItem(tail, i * 2, getItem(tail, (i - 1) * 2))\n      setItem(tail, i * 2 + 1, getItem(tail, (i - 1) * 2 + 1))\n      i--\n    }\n    setItem(tail, 0, headX)\n    setItem(tail, 1, headY)\n\n    headX = newX\n    headY = newY\n  }\n\n  // Draw every frame for smooth movement\n  clear()\n  color(10, 15, 30)\n  rect(0, 0, 300, 300)\n\n  color(40, 180, 100)\n  let i = 0\n  while (i < tailLen) {\n    let x = getItem(tail, i * 2)\n    let y = getItem(tail, i * 2 + 1)\n    rect(x * 15 + 1, y * 15 + 1, 13, 13)\n    i++\n  }\n\n  color(80, 240, 140)\n  rect(headX * 15 + 1, headY * 15 + 1, 13, 13)\n\n  color(240, 80, 80)\n  circle(foodX * 15 + 7, foodY * 15 + 7, 5)\n\n  color(200, 200, 230)\n  text(\"Score:\", 8, 295, 10)\n  text(intToStr(score), 50, 295, 10)\n}","words":"// Colors — confetti with custom palettes and shape mixes\n// Uses arrays via toJsArray() — works on every browser\n\nuse confetti\n\nexport fn party() {\n  div(\"🎨 Tap a button for themed confetti!\")\n  button(\"Hot Pink\", 1)\n  button(\"Ocean\", 2)\n  button(\"Stars\", 3)\n  button(\"Fire\", 4)\n}\n\nfn fire(palette: int, useStars: bool) {\n  let opts = emptyObj()\n  opts.particleCount = 80\n  opts.spread = 90\n  opts.startVelocity = 45\n  opts.scalar = 1.2\n  opts.colors = palette\n\n  // Mix in star shape\n  if (useStars) {\n    let shapes = toJsArray([\"star\", \"circle\"])\n    opts.shapes = shapes\n  }\n\n  let origin = emptyObj()\n  origin.x = 0.5\n  origin.y = 0.7\n  opts.origin = origin\n\n  confetti(opts)\n}\n\nexport fn onclick_1() {\n  fire(toJsArray([\"#ff3366\", \"#ff70a6\", \"#ff85b3\", \"#ffaad4\"]), false)\n}\n\nexport fn onclick_2() {\n  fire(toJsArray([\"#0ea5e9\", \"#22d3ee\", \"#06b6d4\", \"#67e8f9\"]), false)\n}\n\nexport fn onclick_3() {\n  fire(toJsArray([\"#fde047\", \"#facc15\", \"#fbbf24\", \"#f59e0b\"]), true)\n}\n\nexport fn onclick_4() {\n  fire(toJsArray([\"#dc2626\", \"#ea580c\", \"#f97316\", \"#fb923c\", \"#fde047\"]), false)\n}","npm":"// Any npm package — no built-in registry entry needed\n// `use name@version` loads the package's browser build from the jsDelivr CDN\n\nuse tinycolor2@1.6.0\n\nexport fn colors() {\n  div(\"tinycolor2, loaded straight from npm:\")\n\n  let base = tinycolor(\"#3498db\")\n  printStr(strConcat(\"Base: \", toStr(base.toHexString())))\n\n  // Chained member calls on the library's objects\n  let light = tinycolor(\"#3498db\").lighten(20)\n  printStr(strConcat(\"Lighter: \", toStr(light.toHexString())))\n\n  let opposite = tinycolor(\"#3498db\").complement()\n  printStr(strConcat(\"Complement: \", toStr(opposite.toHexString())))\n\n  printStr(strConcat(\"As RGB: \", toStr(base.toRgbString())))\n}","countdown":"// Callbacks — pass an Emit function to JS via fnRef(\"name\")\n// Recursive setTimeout schedules itself\n\nmut n = 5\n\nfn tick() {\n  printStr(strConcat(\"Tick: \", intToStr(n)))\n  n--\n  if (n > 0) {\n    setTimeout(fnRef(\"tick\"), 1000)\n  } else {\n    printStr(\"🎉 Done!\")\n  }\n}\n\nexport fn run() {\n  div(\"Counting down from 5...\")\n  setTimeout(fnRef(\"tick\"), 1000)\n}","modules":"// Modules — one program in three files (the tabs above the editor)\n// main.emit is the entry file. It imports two modules from the folder game/:\n//   game/physics.emit  moves the balls   (module game.physics)\n//   game/draw.emit     paints them       (module game.draw)\n\nimport game.physics\nimport game.draw\n\nexport fn balls() {\n  canvas(300, 200)\n  physics.setup(7)\n  animate()\n}\n\nexport fn frame() {\n  physics.step()\n  draw.render()\n}\n//// file: game/physics.emit\npackage game\n\n// Only names marked `public` can be used from other files.\npublic let width = 300\npublic let height = 200\npublic let radius = 8\n\nmut n = 0\nmut xs = 0\nmut ys = 0\nmut vx = 0\nmut vy = 0\n\npublic fn setup(count: int) {\n  n = count\n  xs = newArray(n)\n  ys = newArray(n)\n  vx = newArray(n)\n  vy = newArray(n)\n  let i = 0\n  while (i < n) {\n    setItem(xs, i, randInt(radius, width - radius))\n    setItem(ys, i, randInt(radius, height - radius))\n    setItem(vx, i, speed())\n    setItem(vy, i, speed())\n    i++\n  }\n}\n\npublic fn step() {\n  let i = 0\n  while (i < n) {\n    let x = getItem(xs, i) + getItem(vx, i)\n    let y = getItem(ys, i) + getItem(vy, i)\n    if (outside(x, width) == 1) { setItem(vx, i, 0 - getItem(vx, i)) }\n    if (outside(y, height) == 1) { setItem(vy, i, 0 - getItem(vy, i)) }\n    setItem(xs, i, keep(x, width))\n    setItem(ys, i, keep(y, height))\n    i++\n  }\n}\n\npublic fn count() int {\n  return n\n}\n\npublic fn ballX(i: int) int {\n  return getItem(xs, i)\n}\n\npublic fn ballY(i: int) int {\n  return getItem(ys, i)\n}\n\n// Private helpers: no `public`, so other files cannot call them.\n\n// 1 to 3 pixels per frame, in either direction\nfn speed() int {\n  let s = randInt(1, 3)\n  if (randInt(0, 1) == 0) { return 0 - s }\n  return s\n}\n\n// 1 when a ball at v has left the field 0..size, else 0\nfn outside(v: int, size: int) int {\n  if (v < radius) { return 1 }\n  if (v > size - radius) { return 1 }\n  return 0\n}\n\n// v moved back into the field\nfn keep(v: int, size: int) int {\n  if (v < radius) { return radius }\n  if (v > size - radius) { return size - radius }\n  return v\n}\n//// file: game/draw.emit\npackage game\n\nimport game.physics\n\npublic fn render() {\n  color(8, 9, 13)\n  rect(0, 0, physics.width, physics.height)\n  let i = 0\n  while (i < physics.count()) {\n    paint(i)\n    circle(physics.ballX(i), physics.ballY(i), physics.radius)\n    i++\n  }\n}\n\n// Private helper: a colour for ball number i\nfn paint(i: int) {\n  color(45 + i * 30, 212 - i * 20, 191)\n}","memory":"// Memory — falling sand that lives in memory regions\n// Open Output → MEMORY while it runs: each region is a live card there.\n// Tap a cell to poke it, tap 🔓 to lock a region.\n//\n//   fb      u8 region: the picture, 160 x 120 pixels of 4 bytes (RGBA), shown by screen()\n//   sparks  struct region: a few glowing particles\n//   stats   int region: grains poured, frames, errors caught\n//   sand/world.emit owns the grid of grains and the rules of falling sand\n//\n// Touch (or hold the mouse) to pour where you point.\n// \"Freeze grid\" locks the grid region: the sand stands still and pouring\n// becomes a write to a frozen region, an error that pour() catches.\n\nimport sand.world\n\nstruct Spark { x: num, y: num, vx: num, vy: num, life: int, alive: bool }\n\nregion fb: u8[160 * 120 * 4]\nregion sparks: Spark[12]\nregion stats: int[3]\n\nmut spout = 30\nmut dir = 1\nmut tick = 0\nmut next = 0\nmut warned = false\n\nexport fn sand() {\n  world.setup()\n  screen(fb, 160, 120, 2)\n  button(\"Freeze grid\", 1)\n  button(\"Thaw grid\", 2)\n  button(\"Clear\", 3)\n  animate()\n}\n\nexport fn onclick_1() {\n  world.lock(true)\n}\n\nexport fn onclick_2() {\n  world.lock(false)\n  warned = false\n}\n\nexport fn onclick_3() {\n  world.setup()\n  wipe(sparks)\n  fill(stats, 0)\n}\n\nexport fn frame() {\n  tick++\n  stats[1] += 1\n  // the spout wanders by itself; a touch takes it over\n  if (touching() == 1) {\n    spout = touchX() * 160 / screenW()\n  } else {\n    spout += dir\n    if (spout < 12) { dir = 1 }\n    if (spout > 148) { dir = -1 }\n  }\n  if (tick % 2 == 0) { pour(spout) }\n  world.step()\n  moveSparks()\n  paint()\n}\n\n// Drop a grain. A frozen grid refuses the write: catch it, say so once\nfn pour(x: int) {\n  try {\n    world.drop(x)\n    stats[0] += 1\n    if (tick % 8 == 0) { addSpark(x) }\n  } catch (e) {\n    stats[2] += 1\n    if (warned == false) {\n      printStr(\"caught: \" + e.message)\n      printStr(\"Thaw the grid, or poke it in the MEMORY tab: a front panel write overrides the lock.\")\n      warned = true\n    }\n  }\n}\n\nfn addSpark(x: int) {\n  let i = next\n  next = (next + 1) % sparks.length\n  sparks[i].x = x\n  sparks[i].y = 1.0\n  sparks[i].vx = random() * 2.0 - 1.0\n  sparks[i].vy = random() * 0.5\n  sparks[i].life = 45\n  sparks[i].alive = true\n}\n\nfn moveSparks() {\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      sparks[i].x = sparks[i].x + sparks[i].vx\n      sparks[i].vy = sparks[i].vy + 0.06\n      sparks[i].y = sparks[i].y + sparks[i].vy\n      sparks[i].life = sparks[i].life - 1\n      if (sparks[i].life <= 0) { sparks[i].alive = false }\n    }\n    i++\n  }\n}\n\n// The grid, one byte per cell, becomes 4 bytes per pixel in fb\nfn paint() {\n  mut p = 0\n  while (p < 160 * 120) {\n    let g = world.grid[p]\n    let o = p * 4\n    if (g == 0) {\n      fb[o] = 10\n      fb[o + 1] = 12\n      fb[o + 2] = 22\n    } else if (g == 1) {\n      fb[o] = 72\n      fb[o + 1] = 80\n      fb[o + 2] = 110\n    } else {\n      fb[o] = 205 + g % 50\n      fb[o + 1] = 150 + g % 70\n      fb[o + 2] = 60 + g % 50\n    }\n    fb[o + 3] = 255\n    p++\n  }\n  mut i = 0\n  while (i < sparks.length) {\n    if (sparks[i].alive) {\n      let x = floor(sparks[i].x)\n      let y = floor(sparks[i].y)\n      if (x >= 0 && x < 160 && y >= 0 && y < 120) {\n        let o = (y * 160 + x) * 4\n        fb[o] = 255\n        fb[o + 1] = 245\n        fb[o + 2] = 170\n      }\n    }\n    i++\n  }\n  // a violet bar on top while the grid is frozen\n  if (world.isFrozen()) {\n    mut x = 0\n    while (x < 160) {\n      fb[x * 4] = 167\n      fb[x * 4 + 1] = 139\n      fb[x * 4 + 2] = 250\n      x++\n    }\n  }\n}\n//// file: sand/world.emit\npackage sand\n\n// The grid: one byte per cell, 160 x 120.\n// 0 = empty, 1 = wall, 2..255 = sand (the value is the grain's shade)\npublic region grid: u8[160 * 120]\n\nlet W = 160\nlet H = 120\nmut tick = 0\n\npublic fn setup() {\n  thaw(grid)\n  wipe(grid)\n  // two shelves for the sand to pile on and slide off\n  mut x = 0\n  while (x < 56) {\n    grid[(62 + x / 4) * W + 18 + x] = 1\n    grid[(88 - x / 5) * W + 142 - x] = 1\n    x++\n  }\n}\n\npublic fn lock(on: bool) {\n  if (on) { freeze(grid) } else { thaw(grid) }\n}\n\npublic fn isFrozen() bool {\n  return frozen(grid)\n}\n\n// A new grain at the top of column x: a write, so a frozen grid refuses it\npublic fn drop(x: int) {\n  let cx = max(0, min(W - 1, x))\n  grid[W + cx] = randInt(2, 255)\n}\n\n// One step of falling sand, bottom row first so a grain moves once per step\npublic fn step() {\n  if (frozen(grid) == false) {\n    tick++\n    mut y = H - 2\n    while (y >= 0) {\n      mut i = 0\n      while (i < W) {\n        mut x = i\n        if (tick % 2 == 1) { x = W - 1 - i }\n        let p = y * W + x\n        let g = grid[p]\n        if (g > 1) { fall(p, x, g) }\n        i++\n      }\n      y--\n    }\n  }\n}\n\n// Down if free, else down-left or down-right (alternating which is tried first)\nfn fall(p: int, x: int, g: int) {\n  let below = p + W\n  mut d = 1\n  if ((x + tick) % 2 == 0) { d = -1 }\n  if (grid[below] == 0) {\n    grid[below] = g\n    grid[p] = 0\n  } else if (x + d >= 0 && x + d < W && grid[below + d] == 0) {\n    grid[below + d] = g\n    grid[p] = 0\n  } else if (x - d >= 0 && x - d < W && grid[below - d] == 0) {\n    grid[below - d] = g\n    grid[p] = 0\n  }\n}\n"};
 EX.sfx="// Sound — sound effects and music as blocks of the program\n// The sounds and the tune live in sounds.emit (the second tab). Open 🧰 (Drawer) →\n// Sound or Music to edit them with sliders and a piano roll, or edit them by hand there.\n// They are visible from every file without an import.\n\nmut coins = 0\n\nexport fn start() {\n  div(\"Sounds start after your first tap (phones allow audio only then).\")\n  button(\"Coin\", 1)\n  button(\"Jump\", 2)\n  button(\"Laser\", 3)\n  button(\"Boom\", 4)\n  button(\"Music\", 5)\n  button(\"Stop music\", 6)\n}\n\nexport fn onclick_1() {\n  coins++\n  // every fifth coin a little higher\n  if (coins % 5 == 0) {\n    play(coin, 1.5)\n  } else {\n    play(coin)\n  }\n  print(coins)\n}\n\nexport fn onclick_2() {\n  play(jump)\n}\n\nexport fn onclick_3() {\n  // a slightly different pitch each time\n  play(laser, 0.8 + random() * 0.4, 0.8)\n}\n\nexport fn onclick_4() {\n  play(boom)\n}\n\nexport fn onclick_5() {\n  music(theme)\n  if (musicPlaying()) {\n    div(\"music: playing (loops until Stop music)\")\n  }\n}\n\nexport fn onclick_6() {\n  stopMusic()\n  div(\"music: stopped\")\n}\n//// file: sounds.emit\n// Sounds and music for the Sound example. Saved here by 🧰 → Sound / Music.\n\nsound coin: square 988, 80ms, atk 1, rel 180, vol 0.4, arp 1.335 60ms\nsound jump: square 300 > 720, 150ms, atk 2, dec 80, sus 0.5, rel 70, vol 0.4, curve exp\nsound laser: saw 1500 > 220, 170ms, atk 1, vol 0.35, lowpass 7000, curve exp\nsound boom: noise 900 > 80, 420ms, atk 2, dec 300, sus 0.3, rel 320, vol 0.7, lowpass 3200, curve exp\n\nmusic theme: 132 bpm, 16 steps\n  lead square vol 0.7: E5 . G5 . C6 - - . G5 . E5 . D5 - - .\n  bass triangle: C3 - - - C3 - - - A2 - - - G2 - - -\n  drums: K . H . S . H . K K H . S . H H\n";   // Sound: sound / music blocks, play(), music()
-EX.game="// Coin Dash — a small game split into modules, one tab each:\n//   game.emit     the things and the rules         (🧰 → Logic)\n//   sprites.emit  the hero's pixels                (🧰 → Sprite)\n//   sounds.emit   the sound effects and the tune   (🧰 → Sound / Music)\n// This entry file needs no code: the rules make the game. Press ▶ to play.\n// Arrow keys / WASD, or hold a finger on the game, to move. Grab every coin;\n// the slimes chase you and every touch costs a heart. Tap to play again.\n//// file: game.emit\n// Coin Dash: things and rules. Saved here by 🧰 → Logic.\n\nthing hero: sprite hero, size 14 14, at 153 113, speed 2, hp 3, solid\nthing coin: circ 5 #ffcd75, count 8, at 34 + (i % 4) * 80, 40 + floor(i / 4) * 150\nthing rock: box 60 8 #5d6f8a, count 2, at 130, 70 + i * 92, wall\nthing slime: oval 16 12 #6ec850, count 2, pool 6, at 10 + i * 284, 200, chase hero 0.6\n\nrules:\n  stage size 320 240\n  on start: music theme\n  show score, hero.hp\n  every frame: hero mv stickX() * hero.speed, stickY() * hero.speed\n  on touch: hero mv (tapX() - hero.x - 7) / 12, (tapY() - hero.y - 7) / 12\n  on hit hero edge: block hero\n  on hit hero coin: remove coin : add score 1 : play coin\n  on hit hero slime: add hero.hp -1 : remove slime : say \"Ouch!\" : play hurt\n  every 4s: spawn slime at rnd(300), 0\n  when count(coin) == 0: say \"You win!\" : play win : stop\n  when hero.hp <= 0: say \"Game over\" : play lose : stop\n//// file: sprites.emit\n// Coin Dash: sprites. Saved here by 🧰 → Sprite.\n\nsprite hero: 14x14, fps 6\n  palette 1a1c2c 5fcde4 f4f4f4 3b5dc9 ffcd75\n  frame idle\n    \"....111111....\"\n    \"...12222221...\"\n    \"..1222222221..\"\n    \"..1231223221..\"\n    \"..1211221121..\"\n    \"..1222222221..\"\n    \"..1222442221..\"\n    \"...12222221...\"\n    \"....111111....\"\n    \"...14444441...\"\n    \"..1444444441..\"\n    \"..1441..1441..\"\n    \"...11....11...\"\n    \"..............\"\n//// file: sounds.emit\n// Coin Dash: sounds and music. Saved here by 🧰 → Sound / Music.\n\nsound coin: square 988, 80ms, atk 1, rel 180, vol 0.4, arp 1.335 60ms\nsound hurt: saw 320 > 90, 220ms, atk 1, rel 140, vol 0.45, lowpass 2400, curve exp\nsound win: square 523 > 1046, 420ms, atk 2, rel 220, vol 0.4, arp 1.25 70ms\nsound lose: triangle 330 > 110, 600ms, atk 4, rel 300, vol 0.5, curve exp\n\nmusic theme: 120 bpm, 16 steps\n  lead square vol 0.5: C5 . E5 . G5 - . E5 D5 . F5 . A5 - . F5\n  bass triangle vol 0.6: C3 - - - C3 - - - D3 - - - G2 - - -\n  drums: K . H . S . H . K . H . S . H H\n";
+EX.game="// Coin Dash — a small game split into modules, one tab each:\n//   game.emit     the things and the rules         (🧰 → Logic)\n//   hud.emit      score, hearts and the sparkles   (🧰 → HUD / Particles)\n//   sprites.emit  the hero's pixels                (🧰 → Sprite)\n//   sounds.emit   the sound effects and the tune   (🧰 → Sound / Music)\n// This entry file needs no code: the rules make the game. Press ▶ to play.\n// Arrow keys / WASD, or hold a finger on the game, to move. Grab every coin;\n// the slimes chase you and every touch costs a heart. Tap to play again.\n//// file: game.emit\n// Coin Dash: things and rules. Saved here by 🧰 → Logic.\n\nthing hero: sprite hero, size 14 14, at 153 113, speed 2, hp 3, solid\nthing coin: circ 5 #ffcd75, count 8, at 34 + (i % 4) * 80, 40 + floor(i / 4) * 150\nthing rock: box 60 8 #5d6f8a, count 2, at 130, 70 + i * 92, wall\nthing slime: oval 16 12 #6ec850, count 2, pool 6, at 10 + i * 284, 200, chase hero 0.6\n\nrules:\n  stage size 320 240\n  on start: music theme\n  every frame: hero mv stickX() * hero.speed, stickY() * hero.speed\n  every frame: set lives hero.hp : set coinsLeft count(coin)\n  on touch: hero mv (tapX() - hero.x - 7) / 12, (tapY() - hero.y - 7) / 12\n  on hit hero edge: block hero\n  on hit hero coin: remove coin : add score 1 : play coin : burst sparkle at coin\n  on hit hero slime: add hero.hp -1 : remove slime : say \"Ouch!\" : play hurt : burst dust at hero\n  every 4s: spawn slime at rnd(300), 0\n  when count(coin) == 0: say \"You win!\" : play win : stop\n  when hero.hp <= 0: say \"Game over\" : play lose : stop\n//// file: hud.emit\n// Coin Dash: what is drawn on top of the game. Saved here by 🧰 → HUD and 🧰 → Particles.\n// {score} shows a variable; the rules in game.emit keep lives and coinsLeft up to date.\n\nhud main:\n  text  \"Score {score}\"  top left\n  icons heart lives  top left below\n  text  \"Coins left {coinsLeft}\"  top right  color #ffcd75\n\nparticles sparkle:\n  count 14  life 0.3..0.7  speed 40..100  angle 0..360\n  gravity 60  size 3..1\n  colors #ffcd75 #f4f4f4  fade\n\nparticles dust:\n  count 10  life 0.2..0.5  speed 20..60  angle 0..360\n  gravity 0  drag 3  size 3..1  shape circle\n  colors #b13e53 #ef7d57  fade\n//// file: sprites.emit\n// Coin Dash: sprites. Saved here by 🧰 → Sprite.\n\nsprite hero: 14x14, fps 6\n  palette 1a1c2c 5fcde4 f4f4f4 3b5dc9 ffcd75\n  frame idle\n    \"....111111....\"\n    \"...12222221...\"\n    \"..1222222221..\"\n    \"..1231223221..\"\n    \"..1211221121..\"\n    \"..1222222221..\"\n    \"..1222442221..\"\n    \"...12222221...\"\n    \"....111111....\"\n    \"...14444441...\"\n    \"..1444444441..\"\n    \"..1441..1441..\"\n    \"...11....11...\"\n    \"..............\"\n\nsprite heart: 7x6\n  palette e43b44 f4f4f4\n  \".11.11.\"\n  \"1211111\"\n  \"1111111\"\n  \".11111.\"\n  \"..111..\"\n  \"...1...\"\n//// file: sounds.emit\n// Coin Dash: sounds and music. Saved here by 🧰 → Sound / Music.\n\nsound coin: square 988, 80ms, atk 1, rel 180, vol 0.4, arp 1.335 60ms\nsound hurt: saw 320 > 90, 220ms, atk 1, rel 140, vol 0.45, lowpass 2400, curve exp\nsound win: square 523 > 1046, 420ms, atk 2, rel 220, vol 0.4, arp 1.25 70ms\nsound lose: triangle 330 > 110, 600ms, atk 4, rel 300, vol 0.5, curve exp\n\nmusic theme: 120 bpm, 16 steps\n  lead square vol 0.5: C5 . E5 . G5 - . E5 D5 . F5 . A5 - . F5\n  bass triangle vol 0.6: C3 - - - C3 - - - D3 - - - G2 - - -\n  drums: K . H . S . H . K . H . S . H H\n";
 // ═══ EMIT COMPILER v0.4 — int/num + imports ═══
 const TT={INTEGER:'INTEGER',FLOAT:'FLOAT',STRING:'STRING',BOOLEAN:'BOOLEAN',NULL:'NULL',IDENTIFIER:'IDENTIFIER',KEYWORD:'KEYWORD',TYPE:'TYPE',PLUS:'PLUS',MINUS:'MINUS',STAR:'STAR',SLASH:'SLASH',PERCENT:'PERCENT',AMP:'AMP',PIPE:'PIPE',CARET:'CARET',TILDE:'TILDE',SHL:'SHL',SHR:'SHR',AND:'AND',OR:'OR',NOT:'NOT',EQ:'EQ',NEQ:'NEQ',LT:'LT',GT:'GT',LTE:'LTE',GTE:'GTE',ASSIGN:'ASSIGN',QUESTION:'QUESTION',NULLCOALESCE:'NULLCOALESCE',ARROW:'ARROW',DOT:'DOT',LPAREN:'LPAREN',RPAREN:'RPAREN',LBRACE:'LBRACE',RBRACE:'RBRACE',LBRACKET:'LBRACKET',RBRACKET:'RBRACKET',SEMICOLON:'SEMICOLON',COLON:'COLON',COMMA:'COMMA',PLUSPLUS:'PLUSPLUS',MINUSMINUS:'MINUSMINUS',PLUSEQ:'PLUSEQ',MINUSEQ:'MINUSEQ',STAREQ:'STAREQ',SLASHEQ:'SLASHEQ',EOF:'EOF'};
 const KW=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
@@ -4907,7 +4907,7 @@ var _LG_COLORS={white:'#ffffff',black:'#000000',red:'#e43b44',green:'#63c74d',bl
 var _LG_BASE_FIELDS=['alive','x','y','vx','vy','w','h','px','py','frame','dir'];
 var _LG_THING_WORDS=['box','circ','oval','sprite','at','size','count','pool','from','chase','flee','wander','patrol','track','follow','gravity','bounce','wrap','solid','wall'];
 var _LG_EVENT_HELP='on start, every frame, every 2s, every 500ms, on key K, on keydown K, on keyup K, on press A, on hold A, on tap, on touch, on hit A B, when <condition>, each K, each K when <condition>';
-var _LG_VERBS=['mv','vel','to','spawn','remove','block','bounce','set','add','play','music','say','frame','restart','stop','call'];
+var _LG_VERBS=['mv','vel','to','spawn','remove','block','bounce','set','add','play','music','say','frame','restart','stop','call','burst'];
 var _LG_SUBJ_VERBS={mv:1,vel:1,to:1,remove:1,block:1,bounce:1,frame:1};
 var _LG_FN_HELPERS={rnd:1,stickX:1,stickY:1,tapX:1,tapY:1,count:1};
 class ThingDecl extends Z{constructor(n,items,l){super('ThingDecl',l);this.name=n;this.items=items}}
@@ -5186,6 +5186,17 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
         break;
       }
       case'say':a.value=C.expr('what to say — say "You win!"');break;
+      case'burst':{   /* burst NAME [at THING | at X, Y]: a particles block (HUD & PARTICLES) */
+        var bn=C.peek();
+        if(bn&&(bn.type===TT.IDENTIFIER||bn.type===TT.STRING||bn.type===TT.KEYWORD)){C.next();a.name=String(bn.value);a.nameTok=bn}
+        else throw E(C.here(),'Expected a particles name after burst — burst sparkle at coin');
+        if(C.isWord('at')){
+          C.next();
+          if(C.isType(TT.IDENTIFIER)&&(C.end()||!C.peek(1)||C.isType(TT.COLON,1)))a.atThing=C.next();
+          else{a.x=C.expr('x after at — burst '+a.name+' at coin, or at 160, 120');C.pairSep();a.y=C.expr('y after at')}
+        }
+        break;
+      }
       case'restart':case'stop':break;
       case'call':{
         var f=C.peek();
@@ -5446,6 +5457,18 @@ function _lgLower(prog){
       }
       case'play':case'music':W('__lgPlay('+q(a.name)+', '+(a.verb==='music'?1:0)+')');break;
       case'say':W('__lgSay("" + '+X(a.value,cx)+')');break;
+      case'burst':{
+        var put=function(K,ix){W('burst('+q(a.name)+', '+R(K,ix)+'.x + '+R(K,ix)+'.w / 2.0, '+R(K,ix)+'.y + '+R(K,ix)+'.h / 2.0)')};
+        if(a.x)W('burst('+q(a.name)+', '+X(a.x,cx)+', '+X(a.y,cx)+')');
+        else if(a.atThing){
+          var BK=kindOf(a.atThing),bix=cx.binds[BK.name];
+          if(bix)put(BK,bix);
+          else{needFind.add(BK);var v3='__lg_s'+(phn++);W('let '+v3+' = __lg_find_'+BK.name+'()');W('if ('+v3+' >= 0) {');ind+='  ';put(BK,v3);ind=ind.slice(2);W('}')}
+        }
+        else if(!cx.hit&&!cx.each)throw E(a.tok,'Say where: burst '+a.name+' at '+(KL[0]?KL[0].name:'hero')+' (a thing), or at 160, 120 — outside on hit / each there is no thing involved');
+        else withSubj('burst',put);
+        break;
+      }
       case'restart':if(cx.start)throw E(at,'restart cannot be an action of on start — it would start again forever');W('__lg_init()');W('return;');break;
       case'stop':if(cx.start)throw E(at,'stop cannot be an action of on start');hasStop=true;W('__lg_on = false');W('__lg_hold = true');W('return;');break;
       case'call':{
@@ -6020,6 +6043,449 @@ _emitModLink=(function(link){return function(fr){
   };
 })();
 // ═══ end THINGS & RULES (compiler half) ═══
+// ═══ HUD & PARTICLES ═══ (compiler half; the runtime half is "HUD & PARTICLES" in the runtime block, the
+// editor half is drawer/hudfx.js: the HUD and PARTICLES tools)
+//
+//   hud main:                                           a HUD: text, icons and bars drawn on top of the game,
+//     text  "Score: {score}"  top left                  in screen space, after every frame (the first hud block
+//     icons heart lives  top right                      of the project is on at the start; hud("name") switches)
+//     bar   health 0..100  bottom left  width 60 color #38b764
+//     text  "{message}"  center  size 2
+//
+//   particles sparkle:                                  a particle effect: burst("sparkle", x, y) once,
+//     count 12  life 0.4..0.8  speed 40..90  angle 0..360     emitter("smoke", x, y) for a stream
+//     gravity 0  size 2..1  colors #ffcd75 #f4f4f4  fade
+//
+// Both are blocks (BLOCKS, compiler/sound.js): raw text tokens that the parseTop wrapper below checks with
+// _hudParse / _fxParse (also used by the tools) into HudDecl / FxDecl nodes. The linker wrapper takes them out
+// of the program, checks hud(…) / burst(…) / emitter(…) names (bare or "string", case-insensitive, like play)
+// and the names a HUD shows: {name} and the counts / values of icons and bars are global variables (of the
+// HUD's own file first, then of any file; rules auto-globals count), icons draw a sprite block. compile() hands
+// both to the runtime as imports.hudMeta / imports.fxMeta (JSON); a HUD reads its variables straight from the
+// WASM globals (exported as __g<index>, see wasm-rewrite.js), so nothing is added to the program's code.
+// A program without these blocks and builtins compiles exactly as before (same bytes, no meta).
+_EMIT_BLOCK_KINDS.hud=1;_EMIT_BLOCK_KINDS.particles=1;
+_EMIT_RAW_KINDS.hud=1;_EMIT_RAW_KINDS.particles=1;
+var _HUD_KINDS=['text','icons','bar'];
+var _HUD_WORDS={top:'v',middle:'v',bottom:'v',left:'h',center:'h',centre:'h',right:'h'};
+var _HUD_OPTS=['top','middle','bottom','left','center','right','below','size','color','width','height'];
+var _FX_PROPS=['count','life','speed','angle','spread','dir','gravity','drag','size','colors','color','fade','shape','loop','rate','area'];
+var _FX_MAX=2000;   // live particles at most (the runtime drops new ones past it)
+// ── a small tokenizer for block lines: words, numbers, ranges a..b, #hex, "strings" (offsets into s) ──
+// → [{t:'w'|'n'|'r'|'h'|'s'|'x', v, off, end, a, b (range), raw (string body), rawOff}]; // comments end a line.
+function _hfxToks(s,from,to){
+  var out=[],i=from;
+  while(i<to){
+    var c=s[i];
+    if(c===' '||c==='\t'||c==='\r'||c===','){i++;continue}
+    if(c==='/'&&s[i+1]==='/')break;
+    var st=i;
+    if(c==='"'){
+      i++;var body='';
+      while(i<to&&s[i]!=='"'){if(s[i]==='\\'&&i+1<to){i+=2;continue}i++}
+      var closed=i<to;
+      out.push({t:'s',off:st,end:closed?i+1:i,raw:s.substring(st+1,i),rawOff:st+1,closed:closed});
+      if(closed)i++;
+      continue;
+    }
+    if(c==='#'){i++;while(i<to&&/[0-9A-Za-z]/.test(s[i]))i++;out.push({t:'h',v:s.substring(st,i),off:st,end:i});continue}
+    if(/[\d.]/.test(c)||(c==='-'&&/[\d.]/.test(s[i+1]||''))){
+      var NUM='-?(?:\\d+(?:\\.\\d+)?|\\.\\d+)',rest=s.substring(i,to);
+      var rm=new RegExp('^('+NUM+')\\.\\.('+NUM+'|[A-Za-z_]\\w*)').exec(rest);
+      if(rm){var bn=/^[A-Za-z_]/.test(rm[2]);out.push({t:'r',a:Number(rm[1]),b:bn?rm[2]:Number(rm[2]),v:rm[0],off:st,end:st+rm[0].length,bOff:st+rm[0].length-rm[2].length});i=st+rm[0].length;continue}
+      var nm=new RegExp('^'+NUM).exec(rest);
+      if(nm){out.push({t:'n',v:nm[0],n:Number(nm[0]),off:st,end:st+nm[0].length});i=st+nm[0].length;continue}
+    }
+    if(/[A-Za-z_]/.test(c)){
+      i++;while(i<to&&/\w/.test(s[i]))i++;
+      /* name..name or name..number: a range of variables (bars) */
+      if(s[i]==='.'&&s[i+1]==='.'){
+        var r2=/^\.\.([A-Za-z_]\w*|-?\d+(?:\.\d+)?)/.exec(s.substring(i,to));
+        if(r2){var lo=s.substring(st,i);i+=r2[0].length;out.push({t:'r',a:lo,b:/^[A-Za-z_]/.test(r2[1])?r2[1]:Number(r2[1]),v:s.substring(st,i),off:st,end:i,bOff:i-r2[1].length});continue}
+      }
+      out.push({t:'w',v:s.substring(st,i),off:st,end:i});continue;
+    }
+    i++;while(i<to&&!/[\s,"#]/.test(s[i]))i++;
+    out.push({t:'x',v:s.substring(st,i),off:st,end:i});
+  }
+  return out;
+}
+function _hfxHex(v){
+  var m=/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(v);if(!m)return null;
+  var h=m[1].toLowerCase();if(h.length===3)h=h.replace(/./g,'$&$&');
+  return'#'+h;
+}
+function _hfxNum(n){n=Number(n);return String(Math.round(n*1000)/1000)}
+// ── HUD block → {spec:{items:[…]}, errors:[{off,msg}], warnings:[]} ──
+// item: {kind:'text'|'icons'|'bar', parts:[str|{name,off}] (text), sprite:{name,off} (icons), count:ref (icons),
+//   value:ref, min:ref, max:ref (bar), v:'top'|'middle'|'bottom', h:'left'|'center'|'right', below, size, color,
+//   width, height, off (start of the line)}; ref = {num} or {name, off}
+function _hudParse(text){
+  var s=String(text==null?'':text),errors=[],warnings=[],items=[];
+  function err(off,msg){errors.push({off:off,msg:msg})}
+  var p=0;
+  while(p<=s.length&&!errors.length){
+    var e=s.indexOf('\n',p);if(e<0)e=s.length;
+    var T=_hfxToks(s,p,e);
+    if(T.length)line(T,p);
+    p=e+1;
+  }
+  function ref(t,what){
+    if(t.t==='n')return{num:t.n};
+    if(t.t==='w'&&!/^(true|false)$/i.test(t.v))return{name:t.v,off:t.off};
+    err(t.off,'Expected '+what+', not "'+(t.v||'"')+'"');return null;
+  }
+  function line(T,lineOff){
+    var k=T[0],kind=k.t==='w'?k.v.toLowerCase():'';
+    if(_HUD_KINDS.indexOf(kind)<0){
+      var c=k.t==='w'?_emitModClosest(k.v,_HUD_KINDS):null;
+      return err(k.off,(k.t==='s'?'A HUD line starts with what to draw: text "'+k.raw+'" top left':'Unknown HUD item "'+(k.v||k.raw)+'"'+(c?' — did you mean '+c+'?':' — a line is text "…", icons SPRITE COUNT or bar VALUE MIN..MAX')));
+    }
+    var it={kind:kind,v:null,h:null,below:false,size:1,color:null,off:k.off},i=1;
+    if(kind==='text'){
+      var st=T[i];
+      if(!st||st.t!=='s')return err(st?st.off:k.end,'text needs the words to show in quotes — text "Score: {score}" top left');
+      if(!st.closed)return err(st.off,'This text has no closing " — text "Score: {score}"');
+      it.parts=_hudParts(st.raw,st.rawOff,err);if(errors.length)return;
+      i++;
+    }else if(kind==='icons'){
+      var sp=T[i];
+      if(!sp||sp.t!=='w')return err(sp?sp.off:k.end,'icons needs a sprite and how many — icons heart lives');
+      it.sprite={name:sp.v,off:sp.off};i++;
+      var ct=T[i];
+      if(!ct||(ct.t!=='w'&&ct.t!=='n')||_HUD_WORDS[ct.v&&ct.v.toLowerCase()]||_HUD_OPTS.indexOf(String(ct.v).toLowerCase())>=0)return err(ct?ct.off:sp.end,'icons needs how many after the sprite: a variable or a number — icons '+sp.v+' lives');
+      it.count=ref(ct,'how many');if(!it.count)return;i++;
+    }else{
+      var vt=T[i];
+      if(!vt||vt.t!=='w'||_HUD_WORDS[vt.v.toLowerCase()]||_HUD_OPTS.indexOf(vt.v.toLowerCase())>=0)return err(vt?vt.off:k.end,'bar needs a variable and its range — bar health 0..100');
+      it.value={name:vt.v,off:vt.off};i++;
+      var rt=T[i];
+      if(rt&&rt.t==='r'){
+        it.min=typeof rt.a==='number'?{num:rt.a}:{name:rt.a,off:rt.off};
+        it.max=typeof rt.b==='number'?{num:rt.b}:{name:rt.b,off:rt.bOff};
+        if(typeof rt.a!=='number'&&/^(true|false)$/i.test(rt.a))return err(rt.off,'Expected a number or a variable');
+        i++;
+      }else if(rt&&rt.t==='n'){it.min={num:0};it.max={num:rt.n};i++}
+      else return err(rt?rt.off:vt.end,'bar needs the range of '+vt.v+': MIN..MAX — bar '+vt.v+' 0..100');
+      if(it.min.num!==undefined&&it.max.num!==undefined&&it.min.num===it.max.num)return err(rt.off,'The range of a bar needs two different ends — 0..100');
+      it.width=50;it.height=null;
+    }
+    var seen={};
+    for(;i<T.length;i++){
+      var t=T[i],w=t.t==='w'?t.v.toLowerCase():'';
+      if(w==='centre')w='center';
+      if(_HUD_WORDS[w]){
+        var axis=_HUD_WORDS[w];
+        if(w==='center'&&it.h&&!it.v){it.v='middle';continue}
+        if(axis==='v'){if(it.v)return err(t.off,'This item already has a place up/down ('+it.v+') — one of top, middle, bottom');it.v=w}
+        else{if(it.h)return err(t.off,'This item already has a place left/right ('+it.h+') — one of left, center, right');it.h=w}
+        continue;
+      }
+      if(w==='below'){it.below=true;continue}
+      if(w==='size'||w==='width'||w==='height'){
+        if(seen[w])return err(t.off,w+' is set twice');seen[w]=1;
+        var n=T[i+1];
+        if(!n||n.t!=='n'||!(n.n>0)||Math.floor(n.n)!==n.n)return err(n?n.off:t.end,w+' needs a whole number'+(w==='size'?' (1 is the normal size, 2 twice as big) — size 2':' of pixels — '+w+' 60'));
+        if(w==='size'&&n.n>8)return err(n.off,'size is 1 to 8 — size 2');
+        if(w!=='size'&&kind!=='bar')return err(t.off,w+' is for bars — use size for '+kind);
+        it[w]=n.n;i++;continue;
+      }
+      if(w==='color'||w==='colour'){
+        if(seen.color)return err(t.off,'color is set twice');seen.color=1;
+        var h=T[i+1],hx=h&&h.t==='h'?_hfxHex(h.v):null;
+        if(!hx)return err(h?h.off:t.end,'color needs a colour like #ffcd75');
+        it.color=hx;i++;continue;
+      }
+      if(t.t==='h')return err(t.off,'Write color before a colour — color '+t.v);
+      var c2=t.t==='w'?_emitModClosest(w,_HUD_OPTS):null;
+      return err(t.off,'Unknown word "'+(t.v||t.raw||'"')+'" in this HUD line'+(c2?' — did you mean '+c2+'?':' — a place (top, middle, bottom, left, center, right, below), size N or color #hex'+(kind==='bar'?', width N, height N':'')));
+    }
+    if(!it.v&&!it.h){it.v='top';it.h='left'}
+    else{if(!it.v)it.v='middle';if(!it.h)it.h='center'}
+    items.push(it);
+  }
+  if(!errors.length&&!items.length)warnings.push({off:0,msg:'This HUD has nothing to show yet — add lines like:   text "Score: {score}" top left'});
+  return{spec:{items:items},errors:errors,warnings:warnings};
+}
+// "Score: {score}" → ['Score: ', {name:'score', off}]; {{ and }} are { and }; \" \\ \n escapes
+function _hudParts(raw,off0,err){
+  var parts=[],cur='',i=0;
+  while(i<raw.length){
+    var c=raw[i];
+    if(c==='\\'&&i+1<raw.length){var n=raw[i+1];cur+=n==='n'?' ':n;i+=2;continue}
+    if(c==='{'&&raw[i+1]==='{'){cur+='{';i+=2;continue}
+    if(c==='}'&&raw[i+1]==='}'){cur+='}';i+=2;continue}
+    if(c==='{'){
+      var e=raw.indexOf('}',i);
+      if(e<0){err(off0+i,'{ without } — write {score} to show a variable, {{ for a {');return parts}
+      var nm=raw.substring(i+1,e),tn=nm.trim(),at=off0+i+1+(nm.length-nm.replace(/^\s+/,'').length);
+      if(!/^[A-Za-z_]\w*$/.test(tn)){err(at,/^[A-Za-z_]\w*\.\w+$/.test(tn)?'{'+tn+'}: a HUD shows global variables — copy it into one in the rules (every frame: set '+tn.split('.').pop()+' '+tn+') and show {'+tn.split('.').pop()+'}':'{'+nm+'} is not a variable name — {score}');return parts}
+      if(cur)parts.push(cur);cur='';
+      parts.push({name:tn,off:at});
+      i=e+1;continue;
+    }
+    if(c==='}'){err(off0+i,'} without { — write }} for a }');return parts}
+    cur+=c;i++;
+  }
+  if(cur)parts.push(cur);
+  return parts;
+}
+// The text of a HUD block (the HUD tool writes this; the parser reads it back)
+function _hudItemText(it){
+  function r(x){return!x?'0':x.num!==undefined?_hfxNum(x.num):x.name}
+  var s;
+  if(it.kind==='text')s='text  "'+(it.parts||[]).map(function(p){return typeof p==='string'?p.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\{/g,'{{').replace(/\}/g,'}}'):'{'+p.name+'}'}).join('')+'"';
+  else if(it.kind==='icons')s='icons '+(it.sprite?it.sprite.name:'heart')+' '+r(it.count);
+  else s='bar   '+(it.value?it.value.name:'health')+' '+r(it.min)+'..'+r(it.max);
+  var v=it.v||'top',h=it.h||'left';
+  s+='  '+(v==='middle'&&h==='center'?'center':v==='middle'?h:h==='center'?v:v+' '+h);
+  if(it.below)s+=' below';
+  if(it.kind==='bar'){if(it.width&&it.width!==50)s+='  width '+it.width;if(it.height)s+='  height '+it.height}
+  if(it.size&&it.size!==1)s+='  size '+it.size;
+  if(it.color)s+='  color '+it.color;
+  return s;
+}
+function _hudWrite(name,spec){return'hud '+name+':\n'+(spec.items||[]).map(function(it){return'  '+_hudItemText(it)}).join('\n')}
+// ── particles block → {spec, errors, warnings} ──
+var _FX_DEFAULT={count:10,life:[0.5,1],speed:[30,80],angle:[0,360],gravity:0,drag:0,size:[2,2],colors:['#ffffff'],fade:false,shape:'square',loop:false,rate:20,area:[0,0]};
+function _fxDefaults(){return JSON.parse(JSON.stringify(_FX_DEFAULT))}
+function _fxParse(text){
+  var s=String(text==null?'':text),errors=[],warnings=[],sp=_fxDefaults(),seen={},T=[],p=0,spread=null,dir=null;
+  function err(off,msg){if(!errors.length)errors.push({off:off,msg:msg})}
+  while(p<=s.length){var e=s.indexOf('\n',p);if(e<0)e=s.length;T=T.concat(_hfxToks(s,p,e));p=e+1}
+  var RNG={life:[0.01,30,'seconds'],speed:[0,2000,'pixels per second'],angle:[-720,720,'degrees'],size:[0,64,'pixels']};
+  for(var i=0;i<T.length&&!errors.length;i++){
+    var t=T[i],w=t.t==='w'?t.v.toLowerCase():'';
+    if(w==='colour')w='color';if(w==='colours')w='colors';
+    if(_FX_PROPS.indexOf(w)<0){
+      var c=t.t==='w'?_emitModClosest(w,_FX_PROPS):null;
+      err(t.off,(t.t==='w'?'Unknown setting "'+t.v+'"':'"'+(t.v||t.raw)+'" needs a setting in front of it')+(c?' — did you mean '+c+'?':' — the settings are '+_FX_PROPS.join(', ')));break;
+    }
+    var key=w==='color'?'colors':w;
+    if(seen[key]&&key!=='fade'&&key!=='loop'){err(t.off,w+' is set twice in this effect');break}
+    seen[key]=1;
+    var n=T[i+1];
+    switch(w){
+      case'fade':sp.fade=true;break;
+      case'loop':sp.loop=true;break;
+      case'shape':{var v=n&&n.t==='w'?n.v.toLowerCase():'';if(v!=='square'&&v!=='circle'){err(n?n.off:t.end,'shape is square or circle — shape circle');break}sp.shape=v;i++;break}
+      case'colors':case'color':{
+        var cs=[];
+        while(T[i+1]&&T[i+1].t==='h'){var hx=_hfxHex(T[i+1].v);if(!hx){err(T[i+1].off,'"'+T[i+1].v+'" is not a colour — #ffcd75 or #fc7');break}cs.push(hx);i++}
+        if(!errors.length&&!cs.length)err(n?n.off:t.end,w+' needs one or more colours — colors #ffcd75 #f4f4f4');
+        sp.colors=cs;break;
+      }
+      case'count':case'rate':case'gravity':case'drag':case'spread':case'dir':{
+        if(!n||n.t!=='n'){err(n?n.off:t.end,w+' needs a number — '+w+' '+({count:12,rate:20,gravity:120,drag:2,spread:60,dir:90})[w]);break}
+        var x=n.n;
+        if(w==='count'&&(x<1||x>500||Math.floor(x)!==x)){err(n.off,'count is a whole number from 1 to 500 — count 12');break}
+        if(w==='rate'&&!(x>0&&x<=1000)){err(n.off,'rate is from 0.1 to 1000 particles per second — rate 20');break}
+        if(w==='drag'&&!(x>=0&&x<=20)){err(n.off,'drag is from 0 (none) to 20 — drag 2');break}
+        if(w==='gravity'&&Math.abs(x)>5000){err(n.off,'gravity is from -5000 to 5000 pixels per second² — gravity 120');break}
+        if(w==='spread'&&!(x>=0&&x<=360)){err(n.off,'spread is 0 to 360 degrees — spread 60');break}
+        if(w==='spread')spread=x;else if(w==='dir')dir=x;else sp[w]=x;
+        i++;break;
+      }
+      case'area':{
+        var a=T[i+1],b=T[i+2];
+        if(!a||a.t!=='n'||!b||b.t!=='n'||a.n<0||b.n<0){err(a?a.off:t.end,'area needs a width and a height in pixels (where the particles start, around the point) — area 320 0');break}
+        sp.area=[a.n,b.n];i+=2;break;
+      }
+      default:{   /* life speed angle size: a number or a range a..b */
+        var R=RNG[w];
+        if(!n||(n.t!=='n'&&n.t!=='r')||(n.t==='r'&&(typeof n.a!=='number'||typeof n.b!=='number'))){err(n?n.off:t.end,w+' needs a number or a range — '+w+' '+({life:'0.4..0.8',speed:'40..90',angle:'0..360',size:'2..1'})[w]);break}
+        var lo=n.t==='n'?n.n:n.a,hi=n.t==='n'?n.n:n.b;
+        if(lo<R[0]||hi<R[0]||lo>R[1]||hi>R[1]){err(n.off,w+' is from '+R[0]+' to '+R[1]+' '+R[2]);break}
+        sp[w]=[lo,hi];i++;
+      }
+    }
+  }
+  if(!errors.length&&(spread!==null||dir!==null)){
+    if(seen.angle){var at=T.filter(function(t){return t.t==='w'&&/^(spread|dir)$/i.test(t.v)})[0];err(at?at.off:0,'Use angle a..b, or dir and spread — not both')}
+    else{var d=dir===null?90:dir,h=(spread===null?60:spread)/2;sp.angle=[d-h,d+h]}
+  }
+  if(!errors.length&&!T.length)warnings.push({off:0,msg:'This effect has no settings yet — it uses the defaults (count 10  life 0.5..1  speed 30..80  angle 0..360)'});
+  return{spec:sp,errors:errors,warnings:warnings};
+}
+function _fxRange(r){return r[0]===r[1]?_hfxNum(r[0]):_hfxNum(r[0])+'..'+_hfxNum(r[1])}
+function _fxWrite(name,sp){
+  var l1='count '+sp.count+(sp.loop?'  loop  rate '+_hfxNum(sp.rate):'')+'  life '+_fxRange(sp.life)+'  speed '+_fxRange(sp.speed)+'  angle '+_fxRange(sp.angle);
+  var l2='gravity '+_hfxNum(sp.gravity)+(sp.drag?'  drag '+_hfxNum(sp.drag):'')+'  size '+_fxRange(sp.size)+(sp.shape==='circle'?'  shape circle':'')+(sp.area&&(sp.area[0]||sp.area[1])?'  area '+_hfxNum(sp.area[0])+' '+_hfxNum(sp.area[1]):'');
+  var l3='colors '+sp.colors.join(' ')+(sp.fade?'  fade':'');
+  return'particles '+name+':\n  '+l1+'\n  '+l2+'\n  '+l3;
+}
+// ── syntax: hud NAME: / particles NAME: → HudDecl / FxDecl ──
+(function(){
+  var P=Parser.prototype,top0=P.parseTop;
+  P.parseTop=function(){
+    var t=this.cur(),n=this.t[this.p+1],c=this.t[this.p+2],b=this.t[this.p+3];
+    if(!(t&&t.emitBlock&&n&&c&&b&&b.emitRaw&&(t.value==='hud'||t.value==='particles')))return top0.call(this);
+    var k=t.value,r=k==='hud'?_hudParse(b.value):_fxParse(b.value);
+    if(r.errors.length){var e=r.errors[0],ps=_emitBlockPos(b,e.off);throw new Error(ps.line+':'+ps.col+': '+e.msg)}
+    this.p+=4;
+    var d=new BlockDecl(k,n.value,b.value,{line:t.line,col:t.col});
+    d.type=k==='hud'?'HudDecl':'FxDecl';
+    d.nameRef={loc:{line:n.line,col:n.col}};
+    d.spec=r.spec;
+    d.warnings=r.warnings.map(function(w){var ps=_emitBlockPos(b,w.off);return{line:ps.line,col:ps.col,msg:w.msg}});
+    if(k==='hud')(d.spec.items||[]).forEach(function(it){   /* where each name is: errors point at it */
+      function at(x){if(x&&x.name!==undefined){var ps=_emitBlockPos(b,x.off);x.line=ps.line;x.col=ps.col}}
+      (it.parts||[]).forEach(function(p){if(typeof p!=='string')at(p)});
+      at(it.sprite);at(it.count);at(it.value);at(it.min);at(it.max);
+    });
+    return d;
+  };
+})();
+// ── builtins ──
+BUILTINS.hud={params:[{name:'name',type:'str'}],returnType:'void',module:'std'};
+BUILTINS.hudOn={params:[],returnType:'void',module:'std'};
+BUILTINS.hudOff={params:[],returnType:'void',module:'std'};
+BUILTINS.say={params:[{name:'text',type:'str'},{name:'seconds',type:'num'}],returnType:'void',module:'std'};
+BUILTINS.burst={params:[{name:'name',type:'str'},{name:'x',type:'num'},{name:'y',type:'num'}],returnType:'void',module:'std'};
+BUILTINS.emitter={params:[{name:'name',type:'str'},{name:'x',type:'num'},{name:'y',type:'num'}],returnType:'int',module:'std'};
+BUILTINS.moveEmitter={params:[{name:'h',type:'int'},{name:'x',type:'num'},{name:'y',type:'num'}],returnType:'void',module:'std'};
+BUILTINS.stopEmitter={params:[{name:'h',type:'int'}],returnType:'void',module:'std'};
+var _HFX_HUD_FNS={hud:1,hudOn:1,hudOff:1,say:1},_HFX_FX_FNS={burst:1,emitter:1,moveEmitter:1,stopEmitter:1};
+// ── linking: blocks out of the program, names checked, calls lowered ──
+//   hud(main) → hud("main")   say("Hi") → say("Hi", 2.0)   burst(sparkle, x, y) → burst("sparkle", x, y)
+var _hfxGen=null;   // the codegen of the compile in progress (its globals: name → index, type)
+_emitModLink=(function(link){return function(fr){
+  var errs=[],warns=[],huds={},hudOrder=[],fxs={},any=false,usesHud=false,usesFx=false,sprites={};
+  function at(m,loc){return fr.pre(m,(loc&&loc.line)||1,(loc&&loc.col)||1)}
+  var mods=fr.mods||[];
+  mods.forEach(function(m){
+    if(!m.ast)return;
+    var keep=[];
+    m.ast.body.forEach(function(n){
+      if(n&&n.type==='SpriteDecl')sprites[n.name.toLowerCase()]=n.name;
+      if(!n||(n.type!=='HudDecl'&&n.type!=='FxDecl')){keep.push(n);return}
+      any=true;
+      var tab=n.type==='HudDecl'?huds:fxs,key=n.name.toLowerCase(),old=tab[key],what=n.type==='HudDecl'?'hud':'particles';
+      if(old)errs.push(at(m,n.nameRef.loc)+what+' '+n.name+' is already declared'+(old.m===m?' at line '+old.n.loc.line:' in '+old.m.path+' (line '+old.n.loc.line+')')+' — every '+what+' block needs its own name');
+      else{tab[key]={n:n,m:m};if(tab===huds)hudOrder.push(key)}
+      (n.warnings||[]).forEach(function(w){warns.push(fr.pre(m,w.line,w.col)+w.msg)});
+    });
+    if(keep.length!==m.ast.body.length)m.ast.body=keep;
+  });
+  // the builtins: names checked and lowered (a file's own function of that name is left alone)
+  var calls=false;
+  mods.forEach(function(m){
+    if(!m.ast)return;
+    var own={},globals={};
+    m.ast.body.forEach(function(n){
+      if((n.type==='FunctionDecl'||n.type==='ImportDecl')&&(_HFX_HUD_FNS[n.name]||_HFX_FX_FNS[n.name]))own[n.name]=true;
+      if(n.type==='VarDecl')globals[n.name]=true;
+      if(n.type==='ModImportDecl'&&!n.star){var last=n.path[n.path.length-1];own[n.alias||last]=true}
+    });
+    function names(fn){
+      var s={};fn.params.forEach(function(p){s[p.name]=true});
+      (function walk(x){if(!x||typeof x!=='object')return;if(Array.isArray(x)){x.forEach(walk);return}if(x.type==='VarDecl'&&x.name)s[x.name]=true;if(x.type==='WithStmt'&&x.alias)s[x.alias]=true;for(var k in x){if(k!=='loc'){var v=x[k];if(v&&typeof v==='object')walk(v)}}})(fn.body);
+      return s;
+    }
+    function flt(x){if(x&&x.type==='IntLiteral'&&isFinite(Number(x.value))){var v=String(Number(x.value));return new FloatLiteral(v.indexOf('.')<0&&v.indexOf('e')<0?v+'.0':v,x.loc)}return x}
+    function lower(e,locals){
+      var fn=e.callee.name,A=e.args;
+      calls=true;
+      if(_HFX_HUD_FNS[fn])usesHud=true;else usesFx=true;
+      var want={hud:[1,1],hudOn:[0,0],hudOff:[0,0],say:[1,2],burst:[3,3],emitter:[3,3],moveEmitter:[3,3],stopEmitter:[1,1]}[fn];
+      var use={hud:'hud(main) or hud("main")',hudOn:'hudOn()',hudOff:'hudOff()',say:'say("Hello!") or say("Hello!", 3)',burst:'burst(sparkle, x, y)',emitter:'let smoke = emitter(smoke, x, y)',moveEmitter:'moveEmitter(smoke, x, y)',stopEmitter:'stopEmitter(smoke)'}[fn];
+      if(A.length<want[0]||A.length>want[1]){errs.push(at(m,e.loc)+fn+' takes '+(want[0]===want[1]?(want[0]===0?'no arguments':want[0]===1?'one argument':want[0]+' arguments'):want[0]+' or '+want[1]+' arguments')+': '+use);return}
+      if(fn==='hud'||fn==='burst'||fn==='emitter'){
+        var kind=fn==='hud'?'hud':'particles',tab=fn==='hud'?huds:fxs,a=A[0],nm=null,loc=a.loc;
+        if(a.type==='IdentifierExpr'&&!locals[a.name]&&!globals[a.name])nm=a.name;
+        else if(a.type==='StringLiteral')nm=String(a.value);
+        if(nm!==null){
+          var hit=tab[nm.toLowerCase()];
+          if(hit)A[0]=new StringLiteral(hit.n.name,loc);
+          else{
+            var list=Object.keys(tab).map(function(k){return tab[k].n.name}),c=_emitModClosest(nm,list),other=(fn==='hud'?fxs:huds)[nm.toLowerCase()];
+            var msg='Unknown '+kind+' "'+nm+'"';
+            if(other)msg+=' — '+nm+' is a '+(kind==='hud'?'particles':'hud')+' block';
+            else if(c)msg+=' — did you mean "'+c+'"?';
+            else if(list.length)msg+=' — the '+kind+' blocks are '+list.slice(0,12).join(', ');
+            else msg+=' — there is no '+kind+' block yet: write one (e.g. '+(kind==='hud'?'hud '+nm+':, then lines like   text "Score: {score}" top left':'particles '+nm+':, then   count 12  speed 40..90  fade')+') or make one with the Drawer (🧰 → '+(kind==='hud'?'HUD':'Particles')+')';
+            errs.push(at(m,loc)+msg);return;
+          }
+        }
+      }
+      if(fn==='say'&&A.length===1)A.push(new FloatLiteral('2.0',e.loc));
+      if(fn==='say')A[1]=flt(A[1]);
+      if(fn==='burst'||fn==='emitter'||fn==='moveEmitter'){A[1]=flt(A[1]);A[2]=flt(A[2])}
+    }
+    function walk(x,locals){
+      if(!x||typeof x!=='object')return;
+      if(Array.isArray(x)){for(var i=0;i<x.length;i++)walk(x[i],locals);return}
+      if(x.type==='CallExpr'&&x.callee&&x.callee.type==='IdentifierExpr'&&(_HFX_HUD_FNS[x.callee.name]||_HFX_FX_FNS[x.callee.name])&&!own[x.callee.name]&&!locals[x.callee.name])lower(x,locals);
+      for(var k in x){if(k==='loc')continue;var v=x[k];if(v&&typeof v==='object')walk(v,locals)}
+    }
+    m.ast.body.forEach(function(n){
+      if(n.type==='FunctionDecl')walk(n.body,names(n));
+      else if(n.type==='VarDecl'&&n.init)walk(n.init,{});
+    });
+  });
+  if(!any&&!calls)return link.apply(this,arguments);
+  // the globals every file declares (the nodes: their names after linking are the WASM global names)
+  var gl=[];
+  mods.forEach(function(m){if(m.ast)m.ast.body.forEach(function(n){if(n&&n.type==='VarDecl'&&n.name&&!/^__/.test(n.name))gl.push({m:m,n:n,name:n.name,key:n.name.toLowerCase()})})});
+  var r=link.apply(this,arguments);
+  // HUD names → global variables (own file first, then the one file that has it), sprites
+  var info={huds:[],fx:{}},gnames=gl.map(function(g){return g.name});
+  hudOrder.forEach(function(key){
+    var h=huds[key],m=h.m,items=JSON.parse(JSON.stringify(h.n.spec.items));
+    function ref(x,what){
+      if(!x||x.name===undefined)return;
+      var k=x.name.toLowerCase(),own=gl.filter(function(g){return g.m===m&&g.key===k}),all=own.length?own:gl.filter(function(g){return g.key===k});
+      if(all.length===1){x.g=all[0].n.name;x.decl=all[0].name;return}
+      if(all.length>1){errs.push(at(m,x)+'"'+x.name+'" is a variable of several files ('+all.map(function(g){return g.m.path}).join(', ')+') — move this HUD into the file whose '+x.name+' it shows');return}
+      var c=_emitModClosest(x.name,gnames);
+      errs.push(at(m,x)+'Unknown variable "'+x.name+'" in hud '+h.n.name+(c?' — did you mean "'+c+'"?':' — a HUD shows global variables: declare it (mut '+x.name+' = 0) or set it in the rules (add '+x.name+' 1)'));
+    }
+    items.forEach(function(it){
+      (it.parts||[]).forEach(function(p){if(typeof p!=='string')ref(p)});
+      if(it.sprite){
+        var s=sprites[it.sprite.name.toLowerCase()];
+        if(s)it.sprite.name=s;
+        else{var cs=_emitModClosest(it.sprite.name,Object.keys(sprites).map(function(k){return sprites[k]}));errs.push(at(m,it.sprite)+'Unknown sprite "'+it.sprite.name+'" in hud '+h.n.name+(cs?' — did you mean "'+cs+'"?':' — draw one with the Drawer (🧰 → Sprite), e.g. sprite '+it.sprite.name+': 8x8'))}
+      }
+      ref(it.count);ref(it.value);ref(it.min);ref(it.max);
+    });
+    info.huds.push({name:h.n.name,items:items});
+  });
+  Object.keys(fxs).forEach(function(k){info.fx[fxs[k].n.name]=fxs[k].n.spec});
+  info.usesHud=usesHud||hudOrder.length>0;info.usesFx=usesFx||Object.keys(fxs).length>0;
+  if(errs.length)r.errors=errs.concat(r.errors||[]);
+  if(warns.length)r.warnings=(r.warnings||[]).concat(warns);
+  if(r.ast)Object.defineProperty(r.ast,'hfxInfo',{value:info,enumerable:false,configurable:true,writable:true});
+  return r;
+}})(_emitModLink);
+// The codegen's globals (name → {idx, type}): kept for the compile wrapper below
+WasmCodegen.prototype.generate=(function(gen){return function(){var r=gen.apply(this,arguments);_hfxGen=this;return r}})(WasmCodegen.prototype.generate);
+// The compile result: imports.hudMeta / imports.fxMeta (JSON), r.huds / r.particles (names)
+compile=(function(c){return function(source,target){
+  _hfxGen=null;
+  var r=c.apply(this,arguments),I=r&&r.ast&&r.ast.hfxInfo,G=_hfxGen;_hfxGen=null;
+  if(!I||!r.imports)return r;
+  r.huds=I.huds.map(function(h){return h.name});r.particles=Object.keys(I.fx);
+  if(r.errors&&r.errors.length)return r;
+  var bad=[];
+  function glob(x,what){
+    if(!x||x.g===undefined)return;
+    var e=G&&G.globalMap&&G.globalMap.get(x.g);
+    if(!e){bad.push(x.decl+' ('+what+')');return}
+    var t=String(e.type||'int');
+    if(!/^(int|i64|i32|u32|i16|u16|i8|u8|num|f64|f32|bool|str)$/.test(t)){bad.push(x.decl+' is '+t);return}
+    x.i=e.idx;x.t=t;delete x.g;delete x.decl;
+  }
+  I.huds.forEach(function(h){h.items.forEach(function(it){
+    (it.parts||[]).forEach(function(p){if(typeof p!=='string')glob(p,'text')});
+    glob(it.count,'icons');glob(it.value,'bar');glob(it.min,'bar');glob(it.max,'bar');
+    (function strip(o){if(!o||typeof o!=='object')return;if(Array.isArray(o)){o.forEach(strip);return}delete o.off;delete o.line;delete o.col;for(var k in o)strip(o[k])})(it);
+  })});
+  if(bad.length){r.errors=(r.errors||[]).concat(['1:1: A HUD can show numbers, bools and strings — not '+bad.join(', ')]);r.wasm=new Uint8Array([0,0x61,0x73,0x6D,1,0,0,0]);return r}
+  if(I.usesHud)r.imports.hudMeta=JSON.stringify({v:1,huds:I.huds});
+  if(I.usesFx)r.imports.fxMeta=JSON.stringify({v:1,fx:I.fx});
+  return r;
+}})(compile);
 // EXAMPLES
 // EX is injected by build script before this file
 // UI
@@ -9373,6 +9839,253 @@ buildImportObject=(function(build){return function(imports,outputLog){
   _lgSetup(imports);
   return build.apply(this,arguments);
 }})(buildImportObject);
+// ═══ HUD & PARTICLES (runtime half; the compiler half is "HUD & PARTICLES" in the compiler) ═══
+// Each half sits between its own markers: an exported program carries the particles part only when it uses
+// particles (imports.fxMeta) and the HUD part only when it uses a HUD or say() (imports.hudMeta) — see
+// _exportRuntime. Both draw on the program's canvas after every frame (and after a call when the program does
+// not animate): first the particles, then the HUD, in canvas pixels. A screen(…) canvas is painted by the
+// region blit, so there they are drawn right after the blit. The drawer tools use the same painters:
+//   _hudPaintSpec(ctx2d, W, H, items, val(ref) → value)   _hudText(ctx2d, text, x, y, size, color)
+//   _fxWorld() → {spawn(spec, x, y, n), step(dt), draw(ctx2d), emitter(spec, x, y), move(h, x, y), stop(h), n()}
+//#emit-fx-begin — particles; removed from exports of programs without particles blocks
+var _FX_CAP=2000;
+function _fxRnd(r){return r[0]+(r[1]-r[0])*Math.random()}
+function _fxWorld(){
+  var N=0,X=new Float32Array(_FX_CAP),Y=new Float32Array(_FX_CAP),VX=new Float32Array(_FX_CAP),VY=new Float32Array(_FX_CAP),
+      AGE=new Float32Array(_FX_CAP),LIFE=new Float32Array(_FX_CAP),SP=[],COL=new Array(_FX_CAP),em=new Map(),next=1;
+  function spawn(s,x,y,n){
+    if(!s)return 0;
+    n=Math.max(0,Math.floor(n));var made=0,cols=s.colors&&s.colors.length?s.colors:['#ffffff'],area=s.area||[0,0];
+    for(var k=0;k<n&&N<_FX_CAP;k++){
+      var a=_fxRnd(s.angle)*Math.PI/180,v=_fxRnd(s.speed);
+      X[N]=x+(Math.random()-0.5)*area[0];Y[N]=y+(Math.random()-0.5)*area[1];
+      VX[N]=Math.cos(a)*v;VY[N]=-Math.sin(a)*v;AGE[N]=0;LIFE[N]=Math.max(0.01,_fxRnd(s.life));
+      SP[N]=s;COL[N]=cols[Math.floor(Math.random()*cols.length)%cols.length];N++;made++;
+    }
+    return made;
+  }
+  function step(dt){
+    dt=Number(dt);if(!(dt>0))return;
+    em.forEach(function(e){
+      if(!e.on)return;
+      e.acc+=dt*(e.s.loop?e.s.rate:(e.s.rate||e.s.count));
+      var k=Math.floor(e.acc);if(k>0){e.acc-=k;spawn(e.s,e.x,e.y,k)}
+    });
+    for(var i=0;i<N;i++){
+      var s=SP[i];
+      AGE[i]+=dt;
+      if(AGE[i]>=LIFE[i]){N--;if(i<N){X[i]=X[N];Y[i]=Y[N];VX[i]=VX[N];VY[i]=VY[N];AGE[i]=AGE[N];LIFE[i]=LIFE[N];SP[i]=SP[N];COL[i]=COL[N]}SP[N]=null;i--;continue}
+      if(s.gravity)VY[i]+=s.gravity*dt;
+      if(s.drag){var f=Math.exp(-s.drag*dt);VX[i]*=f;VY[i]*=f}
+      X[i]+=VX[i]*dt;Y[i]+=VY[i]*dt;
+    }
+  }
+  function draw(g){
+    if(!g||!N)return;
+    g.save();g.imageSmoothingEnabled=false;
+    var a0=g.globalAlpha,fs=null;
+    for(var i=0;i<N;i++){
+      var s=SP[i],t=AGE[i]/LIFE[i],sz=s.size[0]+(s.size[1]-s.size[0])*t;
+      if(!(sz>0.05))continue;
+      g.globalAlpha=a0*(s.fade?Math.max(0,1-t):1);
+      if(COL[i]!==fs){fs=COL[i];g.fillStyle=fs}
+      if(s.shape==='circle'&&sz>2.5){g.beginPath();g.arc(X[i],Y[i],sz/2,0,Math.PI*2);g.fill()}
+      else{var q=Math.max(1,Math.round(sz));g.fillRect(Math.round(X[i]-q/2),Math.round(Y[i]-q/2),q,q)}
+    }
+    g.restore();
+  }
+  return{
+    spawn:spawn,step:step,draw:draw,n:function(){return N},
+    emitter:function(s,x,y){var h=next++;em.set(h,{s:s,x:Number(x)||0,y:Number(y)||0,acc:0,on:true});return h},
+    move:function(h,x,y){var e=em.get(h);if(e){e.x=Number(x)||0;e.y=Number(y)||0}return!!e},
+    stop:function(h){return em.delete(h)},
+    emitters:function(){return em.size},
+    clear:function(){N=0;em.clear();for(var i=0;i<SP.length;i++)SP[i]=null}
+  };
+}
+var _fxW=null,_fxSpecs=Object.create(null),_fxT=0,_fxNoted=Object.create(null);
+function _fxSetup(imports){
+  if(_fxW)_fxW.clear();
+  _fxSpecs=Object.create(null);_fxT=0;_fxNoted=Object.create(null);
+  var m=null;try{if(imports&&typeof imports.fxMeta==='string')m=JSON.parse(imports.fxMeta)}catch(e){m=null}
+  if(!m){_fxW=null;return}
+  _fxW=_fxWorld();
+  Object.keys(m.fx||{}).forEach(function(k){_fxSpecs[k.toLowerCase()]=m.fx[k]});
+}
+function _fxFind(n){
+  var s=_fxSpecs[String(n).toLowerCase()];
+  if(!s&&!_fxNoted[n]){_fxNoted[n]=true;try{var d=document.createElement('div');d.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:11px;';d.textContent='particles "'+n+'": there is no particles block with this name — nothing is drawn';var o=document.getElementById('tab-output');if(o)o.appendChild(d)}catch(e){}}
+  return s||null;
+}
+function _fxTick(){
+  if(!_fxW)return;
+  var now=(typeof performance!=='undefined'?performance.now():Date.now()),dt=_fxT?(now-_fxT)/1000:1/60;
+  if(!(dt>0)||dt>0.1)dt=1/60;
+  _fxT=now;_fxW.step(dt);
+}
+function _fxPaint(g){if(_fxW&&g)_fxW.draw(g)}
+_emitFrame=(function(frame){return function(){
+  try{return frame.apply(this,arguments)}
+  finally{if(_fxW){_fxTick();if(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))_fxPaint(_need2d())}}
+}})(_emitFrame);
+_rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_fxW&&s&&s.cv===_canvas)_fxPaint(s.ctx);return r}})(_rgBlit1);
+buildImportObject=(function(build){return function(imports,outputLog){
+  _fxSetup(imports);
+  var obj=build.apply(this,arguments),s=obj.std;
+  if(s){
+    if(s.burst)s.burst=function(p,x,y){var f=_fxFind(_readStr(Number(p)));if(f&&_fxW)_fxW.spawn(f,Number(x),Number(y),f.count)};
+    if(s.emitter)s.emitter=function(p,x,y){var f=_fxFind(_readStr(Number(p)));return f&&_fxW?BigInt(_fxW.emitter(f,x,y)):0n};
+    if(s.moveEmitter)s.moveEmitter=function(h,x,y){if(_fxW)_fxW.move(Number(h),x,y)};
+    if(s.stopEmitter)s.stopEmitter=function(h){if(_fxW)_fxW.stop(Number(h))};
+  }
+  return obj;
+}})(buildImportObject);
+if(typeof window!=='undefined'){window._fxWorld=_fxWorld;window._fxLive=function(){return _fxW?_fxW.n():0}}
+//#emit-fx-end
+//#emit-hud-begin — the HUD and say(); removed from exports of programs without hud blocks or HUD builtins
+// The pixel font: 5×7 (8 rows with descenders), proportional. Per character 32…126: its width (1-5), then 8
+// rows as base-32 digits (bit x = column x).
+var _HUD_FONT='3000000001111110103550000005aavavaa054u5ekf4053j842po056952l9m0111000000221111120212222210504lel4005044v44002000002214000f000010000001050g8421005ehpljhe03232222705ehg842v05v848ghe058ca9v8805v1fgghe05c21fhhe05vg8422205ehhehhe05ehhug860100100100200200210484212480400f0f0004124842105ehg840405ehtlt1e05ehhvhhh05fhhfhhf05eh111he0579hhh9705v11f11v05v11f11105eh1thhu05hhhvhhh03722222705s88889605h95359h05111111v05hrllhhh05hhjlphh05ehhhhhe05fhhf11105ehhhl9m05fhhf59h05u11eggf05v44444405hhhhhhe05hhhhha405hhhllla05hha4ahh05hhha44405vg8421v0231111130501248g0023222223054ah000005000000v0212000000500eguhu0511djhhf0400e111e05ggmphhu0500ehv1e04c2722220500uhhuge511djhhh0110111110340444452411953590332222270500bllll0400799990400699960400799711400e99e88400d31110400e168704227222c04009999e0500hhha40500hhlla0400996990400999e86400f861f03422122401111111103122422105002l8000';
+var _HUD_B32='0123456789abcdefghijklmnopqrstuv';
+function _hudGlyph(ch){var c=ch.charCodeAt(0);if(c<32||c>126)c=63;return(c-32)*9}
+function _hudTextW(s){var w=0;s=String(s);for(var i=0;i<s.length;i++)w+=Number(_HUD_FONT[_hudGlyph(s[i])])+1;return Math.max(0,w-1)}
+var _hudCache=new Map();
+// The text drawn once into a small canvas (with a 1-pixel shadow), then scaled up without smoothing
+function _hudTextCv(s,color){
+  var key=color+'\u0000'+s,cv=_hudCache.get(key);
+  if(cv)return cv;
+  if(_hudCache.size>96)_hudCache.clear();
+  var w=_hudTextW(s);
+  cv=document.createElement('canvas');cv.width=Math.max(1,w+1);cv.height=9;
+  var g=cv.getContext('2d');
+  if(g){
+    for(var pass=0;pass<2;pass++){
+      g.fillStyle=pass?color:'rgba(0,0,0,0.6)';
+      var x=pass?0:1,y0=pass?0:1;
+      for(var i=0;i<s.length;i++){
+        var o=_hudGlyph(s[i]),gw=Number(_HUD_FONT[o]);
+        for(var r=0;r<8;r++){var b=_HUD_B32.indexOf(_HUD_FONT[o+1+r]);for(var c=0;c<gw;c++)if(b>>c&1)g.fillRect(x+c,y0+r,1,1)}
+        x+=gw+1;
+      }
+    }
+  }
+  _hudCache.set(key,cv);
+  return cv;
+}
+function _hudText(g,s,x,y,size,color){
+  s=String(s);if(!s||!g)return;
+  var cv=_hudTextCv(s,color||'#ffffff');size=Math.max(1,Math.round(size||1));
+  g.save();g.imageSmoothingEnabled=false;g.drawImage(cv,Math.round(x),Math.round(y),cv.width*size,cv.height*size);g.restore();
+}
+function _hudFmt(v){
+  if(typeof v==='bigint')return v.toString();
+  if(typeof v==='boolean')return v?'true':'false';
+  if(typeof v==='number')return Math.abs(v-Math.round(v))<1e-9?String(Math.round(v)):String(Math.round(v*100)/100);
+  return String(v);
+}
+// The size of an item (canvas pixels) and how to draw it
+function _hudMeasure(it,val){
+  var sz=Math.max(1,it.size||1);
+  if(it.kind==='text'){var s=(it.parts||[]).map(function(p){return typeof p==='string'?p:_hudFmt(val(p))}).join('');return{w:_hudTextW(s)*sz,h:8*sz,s:s}}
+  if(it.kind==='icons'){
+    var n=Math.max(0,Math.min(50,Math.floor(Number(val(it.count))||0))),inf=null;
+    try{if(typeof _spriteInfo==='function')inf=_spriteInfo(it.sprite&&it.sprite.name)}catch(e){inf=null}
+    var sw=(inf?inf.w:7)*sz,sh=(inf?inf.h:7)*sz;
+    return{w:n?n*sw+(n-1)*sz:0,h:sh,n:n,sw:sw,sh:sh,spr:!!inf};
+  }
+  var lo=Number(val(it.min)),hi=Number(val(it.max)),v=Number(val(it.value)),f=hi===lo?0:(v-lo)/(hi-lo);
+  if(!isFinite(f))f=0;
+  return{w:it.width||50,h:it.height||(4*sz+2),f:Math.max(0,Math.min(1,f))};
+}
+function _hudPaintSpec(g,W,H,items,val){
+  if(!g||!items||!items.length)return;
+  var M=3,stacks={},placed=[];
+  items.forEach(function(it){
+    var m=_hudMeasure(it,val),k=it.v+' '+it.h,S=stacks[k];
+    if(!S||!it.below){S={h:0,list:[]};(stacks[k+'#']=stacks[k+'#']||[]).push(S);stacks[k]=S}
+    var y=S.list.length?S.h+2:0;S.list.push({it:it,m:m,y:y});S.h=y+m.h;
+  });
+  g.save();g.imageSmoothingEnabled=false;
+  Object.keys(stacks).forEach(function(k){
+    if(k.slice(-1)!=='#')return;
+    stacks[k].forEach(function(S){
+      S.list.forEach(function(e){
+        var it=e.it,m=e.m,v=it.v,h=it.h;
+        var y0=v==='top'?M:v==='bottom'?H-M-S.h:Math.round((H-S.h)/2),y=y0+e.y;
+        var x=h==='left'?M:h==='right'?W-M-m.w:Math.round((W-m.w)/2);
+        var col=it.color||(it.kind==='bar'?'#38b764':'#ffffff');
+        if(it.kind==='text')_hudText(g,m.s,x,y,it.size||1,col);
+        else if(it.kind==='icons'){
+          for(var i=0;i<m.n;i++){
+            var ix=x+i*(m.sw+(it.size||1));
+            if(m.spr)_spriteDraw(g,it.sprite.name,0,ix,y,{scale:it.size||1});
+            else{g.fillStyle=it.color||'#e43b44';g.fillRect(ix,y,m.sw,m.sh)}
+          }
+        }else{
+          g.fillStyle='rgba(0,0,0,0.55)';g.fillRect(x,y,m.w,m.h);
+          g.fillStyle='rgba(255,255,255,0.35)';g.fillRect(x,y,m.w,1);g.fillRect(x,y+m.h-1,m.w,1);g.fillRect(x,y,1,m.h);g.fillRect(x+m.w-1,y,1,m.h);
+          var fw=Math.round((m.w-2)*m.f);if(fw>0){g.fillStyle=col;g.fillRect(x+1,y+1,fw,m.h-2)}
+        }
+      });
+    });
+  });
+  g.restore();
+}
+var _hudMeta=null,_hudCur=-1,_hudShow=true,_hudSayText='',_hudSayEnd=0,_hudNoted=Object.create(null);
+function _hudSetup(imports){
+  var m=null;try{if(imports&&typeof imports.hudMeta==='string')m=JSON.parse(imports.hudMeta)}catch(e){m=null}
+  _hudMeta=m;_hudCur=m&&m.huds&&m.huds.length?0:-1;_hudShow=true;_hudSayText='';_hudSayEnd=0;_hudNoted=Object.create(null);
+}
+// A HUD value: a number written in the block, or a global variable read from the running instance
+function _hudVal(r){
+  if(!r)return 0;
+  if(r.num!==undefined)return r.num;
+  var wi=window._wi,G=wi&&wi.exports&&wi.exports['__g'+r.i];
+  if(!G)return 0;
+  var v=G.value;
+  if(r.t==='str'){try{return v?_readStr(Number(v)):''}catch(e){return''}}
+  if(r.t==='bool')return!!Number(v);
+  return v;
+}
+function _hudNow(){return typeof performance!=='undefined'?performance.now():Date.now()}
+function _hudPaint(g){
+  if(!_hudMeta||!g||!_canvas)return;
+  var W=_canvas.width,H=_canvas.height,h=_hudMeta.huds[_hudCur];
+  if(_hudShow&&h)try{_hudPaintSpec(g,W,H,h.items,_hudVal)}catch(e){}
+  if(_hudSayText&&_hudNow()<_hudSayEnd){
+    var sz=Math.max(1,Math.min(4,Math.floor(W/160))),tw=_hudTextW(_hudSayText)*sz,x=Math.round((W-tw)/2),y=Math.round(H/2-4*sz);
+    g.save();g.fillStyle='rgba(0,0,0,0.6)';g.fillRect(x-4*sz,y-3*sz,tw+8*sz,13*sz);g.restore();
+    _hudText(g,_hudSayText,x,y,sz,'#ffffff');
+  }
+}
+function _hudOnCanvas(){return!!(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))}
+_emitFrame=(function(frame){return function(){
+  try{return frame.apply(this,arguments)}
+  finally{if(_hudMeta&&_hudOnCanvas())_hudPaint(_need2d())}
+}})(_emitFrame);
+_emitCallExport=(function(call){return function(inst,name,args,top){
+  var r=call.apply(this,arguments);
+  if(_hudMeta&&!_animRunning&&name!=='frame'&&_hudOnCanvas()&&!(r&&typeof r.then==='function'))_hudPaint(_need2d());
+  return r;
+}})(_emitCallExport);
+_rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_hudMeta&&s&&s.cv===_canvas)_hudPaint(s.ctx);return r}})(_rgBlit1);
+buildImportObject=(function(build){return function(imports,outputLog){
+  _hudSetup(imports);
+  var obj=build.apply(this,arguments),s=obj.std;
+  if(s){
+    if(s.hud)s.hud=function(p){
+      var n=_readStr(Number(p)),L=_hudMeta?_hudMeta.huds:[],k=String(n).toLowerCase();
+      for(var i=0;i<L.length;i++)if(L[i].name.toLowerCase()===k){_hudCur=i;_hudShow=true;return}
+      if(!_hudNoted[n]){_hudNoted[n]=true;try{var d=document.createElement('div');d.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:11px;';d.textContent='hud("'+n+'"): there is no hud block with this name';var o=document.getElementById('tab-output');if(o)o.appendChild(d)}catch(e){}}
+    };
+    if(s.hudOn)s.hudOn=function(){_hudShow=true};
+    if(s.hudOff)s.hudOff=function(){_hudShow=false};
+    if(s.say)s.say=function(p,sec){_hudSayText=_readStr(Number(p));sec=Number(sec);_hudSayEnd=_hudNow()+(sec>0?sec:2)*1000};
+  }
+  return obj;
+}})(buildImportObject);
+if(typeof window!=='undefined'){window._hudPaintSpec=_hudPaintSpec;window._hudText=_hudText;window._hudTextW=_hudTextW;window._hudState=function(){return{hud:_hudMeta&&_hudMeta.huds[_hudCur]?_hudMeta.huds[_hudCur].name:null,on:_hudShow,say:_hudNow()<_hudSayEnd?_hudSayText:''}}}
+//#emit-hud-end
 // ═══ TOP-LEVEL VALUES (runtime half) ═══
 // The compiler turns every top-level `let` / `mut` whose initial value is not a literal into an exported
 // function "__emitInit.<k> <name> <file:line:col>" (see TOP-LEVEL VALUES in the compiler). _emitInitRun(inst)
@@ -11345,7 +12058,9 @@ function importFile(){
 // the runtime source and _emitExportBoot() — not the editor, compiler, examples or library catalogue.
 // P (optional): the program's _exportProgram data. The parts between "//#emit-mote-begin" and "//#emit-mote-end" lines
 // (the Mote helpers and the built-in library loader) are copied only for a program that loads Mote (P.libs has
-// emit:mote), so the export of any other program is what it was before Mote existed in Emit.
+// emit:mote), so the export of any other program is what it was before Mote existed in Emit. Likewise the parts
+// between "//#emit-hud-begin" / "-end" and "//#emit-fx-begin" / "-end" are copied only for a program whose
+// importProps has hudMeta / fxMeta (it uses a HUD / particles).
 function _exportRuntime(P){
   var B='//#emit-'+'runtime-begin',E='//#emit-'+'runtime-end',parts=[];
   Array.prototype.slice.call(document.scripts).forEach(function(sc){
@@ -11363,6 +12078,10 @@ function _exportRuntime(P){
   /* the case-insensitive JS lookup (CASE-INSENSITIVE NAMES): only for a program that uses JS interop (or Mote) */
   var jsi=!P||!P.imports||mote||P.imports.some(function(i){return i&&(i.module==='__js__'||i.module==='js')});
   if(!jsi)parts=parts.map(function(t){return t.replace(/\n\/\/#emit-nocase-begin[^\n]*\n[\s\S]*?\n\/\/#emit-nocase-end[^\n]*/g,'')});
+  /* HUD and particles (HUD & PARTICLES): only for a program that uses them */
+  var ip=P&&P.importProps;
+  if(P&&!(ip&&typeof ip.hudMeta==='string'))parts=parts.map(function(t){return t.replace(/\n\/\/#emit-hud-begin[^\n]*\n[\s\S]*?\n\/\/#emit-hud-end[^\n]*/g,'')});
+  if(P&&!(ip&&typeof ip.fxMeta==='string'))parts=parts.map(function(t){return t.replace(/\n\/\/#emit-fx-begin[^\n]*\n[\s\S]*?\n\/\/#emit-fx-end[^\n]*/g,'')});
   // The names _emitExportBoot reaches the runtime through. If one is renamed, fail here, not in the exported page.
   ['buildImportObject','_resetJsInterop','_loadUse','_loadLib'].forEach(function(n){if(typeof window[n]!=='function'||parts.join('\n').indexOf('function '+n+'(')<0)throw new Error('runtime function '+n+' is missing from the runtime section')});
   // IDE names the runtime may mention: the library catalogue is not exported, status/navigation calls do nothing.
@@ -16112,6 +16831,7 @@ _drawerRegister({id:'controls',label:'Controls',icon:'🎮',desc:'On-screen stic
   ].join('\n');
   _drawerRegister({id:'logic',label:'Logic',icon:'🧩',desc:'Things (game objects) and rules: what happens when',open:open});
 })();
+// ═══ HUD and PARTICLES tools ═══
 </script>
 <script>
 // ═══ INTEGRATION of the drawer parts (CORE, SPRITE, STAGE, LOGIC) ═══
@@ -17687,6 +18407,10 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
 // changed. _ncExport(inst, name): _emitCallExport finds an export whatever its case. Both live between
 // //#emit-nocase-begin / end, which an export keeps only for programs that use JS interop (else a stub).
 // Sprite frames / sprites, sounds, maps, map object kinds and pressed("a") are looked up ignoring case at run time.
+// hud / particles blocks (HUD & PARTICLES): their names are project block names (two that differ only by case
+// clash); `burst NAME` in rules resolves NAME to a particles block first; the words of their bodies, the
+// {variables} and sprites a HUD names and hud("…") / burst("…") / emitter("…") names are matched ignoring case
+// by the compiler half (compiler/hudfx.js).
 // Mote: moteVM() and the Script tool make VMs with Mote's caseInsensitive option (MOTE.md).
 //
 // How. compile() first runs _ncCanon over the whole bundle: a light lexer (comments, strings, `use` lines and the
@@ -17710,7 +18434,7 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
 // the same module (Game.emit / game.emit). A local that shadows a global of another case shadows it, as today.
 var _NC_HOST_EXPORT=/^(frame|on(click|timer|http|recv)_\d+)$/i;
 var _NC_CTX_WORDS={struct:1,region:1,with:1,arr:1,numarr:1,i8:1,u8:1,i16:1,u16:1,u32:1};
-var _NC_BLOCK_PREF=['thing','sprite','sound','music','map','controls','script','use'];
+var _NC_BLOCK_PREF=['thing','sprite','sound','music','map','controls','script','hud','particles','use'];
 function _ncKey(s){return String(s).toLowerCase()}
 function _ncBuiltins(){
   var spell=new Map(),bad=new Set();
@@ -18056,7 +18780,7 @@ function _ncCanon(text){
       if(t.ctx==='thing'&&k==='i'){if(t.v!=='i')set(f,t.o,'i');continue}
       var pref=null;
       if(t.ctx==='thing'){var pw=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw==='sprite'?'sprite':pw==='map'?'map':'thing'}
-      else if(t.ctx==='rules'){var pw2=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw2==='play'?'sound':pw2==='music'?'music':pw2==='map'?'map':pw2==='controls'?'controls':'thing'}
+      else if(t.ctx==='rules'){var pw2=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw2==='play'?'sound':pw2==='music'?'music':pw2==='burst'?'particles':pw2==='map'?'map':pw2==='controls'?'controls':'thing'}
       var d=resolve(f,t,pref);
       if(d){t.res=d;if(d.name!==t.v)set(f,t.o,d.name);continue}
       if(_NC_CTX_WORDS[k]){if(k!==t.v)set(f,t.o,k)}

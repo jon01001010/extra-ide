@@ -7,6 +7,10 @@
 // changed. _ncExport(inst, name): _emitCallExport finds an export whatever its case. Both live between
 // //#emit-nocase-begin / end, which an export keeps only for programs that use JS interop (else a stub).
 // Sprite frames / sprites, sounds, maps, map object kinds and pressed("a") are looked up ignoring case at run time.
+// hud / particles blocks (HUD & PARTICLES): their names are project block names (two that differ only by case
+// clash); `burst NAME` in rules resolves NAME to a particles block first; the words of their bodies, the
+// {variables} and sprites a HUD names and hud("…") / burst("…") / emitter("…") names are matched ignoring case
+// by the compiler half (compiler/hudfx.js).
 // Mote: moteVM() and the Script tool make VMs with Mote's caseInsensitive option (MOTE.md).
 //
 // How. compile() first runs _ncCanon over the whole bundle: a light lexer (comments, strings, `use` lines and the
@@ -30,7 +34,7 @@
 // the same module (Game.emit / game.emit). A local that shadows a global of another case shadows it, as today.
 var _NC_HOST_EXPORT=/^(frame|on(click|timer|http|recv)_\d+)$/i;
 var _NC_CTX_WORDS={struct:1,region:1,with:1,arr:1,numarr:1,i8:1,u8:1,i16:1,u16:1,u32:1};
-var _NC_BLOCK_PREF=['thing','sprite','sound','music','map','controls','script','use'];
+var _NC_BLOCK_PREF=['thing','sprite','sound','music','map','controls','script','hud','particles','use'];
 function _ncKey(s){return String(s).toLowerCase()}
 function _ncBuiltins(){
   var spell=new Map(),bad=new Set();
@@ -376,7 +380,7 @@ function _ncCanon(text){
       if(t.ctx==='thing'&&k==='i'){if(t.v!=='i')set(f,t.o,'i');continue}
       var pref=null;
       if(t.ctx==='thing'){var pw=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw==='sprite'?'sprite':pw==='map'?'map':'thing'}
-      else if(t.ctx==='rules'){var pw2=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw2==='play'?'sound':pw2==='music'?'music':pw2==='map'?'map':pw2==='controls'?'controls':'thing'}
+      else if(t.ctx==='rules'){var pw2=prev&&prev.k==='w'?_ncKey(prev.v):'';pref=pw2==='play'?'sound':pw2==='music'?'music':pw2==='burst'?'particles':pw2==='map'?'map':pw2==='controls'?'controls':'thing'}
       var d=resolve(f,t,pref);
       if(d){t.res=d;if(d.name!==t.v)set(f,t.o,d.name);continue}
       if(_NC_CTX_WORDS[k]){if(k!==t.v)set(f,t.o,k)}

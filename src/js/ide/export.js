@@ -10,7 +10,9 @@
 // the runtime source and _emitExportBoot() — not the editor, compiler, examples or library catalogue.
 // P (optional): the program's _exportProgram data. The parts between "//#emit-mote-begin" and "//#emit-mote-end" lines
 // (the Mote helpers and the built-in library loader) are copied only for a program that loads Mote (P.libs has
-// emit:mote), so the export of any other program is what it was before Mote existed in Emit.
+// emit:mote), so the export of any other program is what it was before Mote existed in Emit. Likewise the parts
+// between "//#emit-hud-begin" / "-end" and "//#emit-fx-begin" / "-end" are copied only for a program whose
+// importProps has hudMeta / fxMeta (it uses a HUD / particles).
 function _exportRuntime(P){
   var B='//#emit-'+'runtime-begin',E='//#emit-'+'runtime-end',parts=[];
   Array.prototype.slice.call(document.scripts).forEach(function(sc){
@@ -28,6 +30,10 @@ function _exportRuntime(P){
   /* the case-insensitive JS lookup (CASE-INSENSITIVE NAMES): only for a program that uses JS interop (or Mote) */
   var jsi=!P||!P.imports||mote||P.imports.some(function(i){return i&&(i.module==='__js__'||i.module==='js')});
   if(!jsi)parts=parts.map(function(t){return t.replace(/\n\/\/#emit-nocase-begin[^\n]*\n[\s\S]*?\n\/\/#emit-nocase-end[^\n]*/g,'')});
+  /* HUD and particles (HUD & PARTICLES): only for a program that uses them */
+  var ip=P&&P.importProps;
+  if(P&&!(ip&&typeof ip.hudMeta==='string'))parts=parts.map(function(t){return t.replace(/\n\/\/#emit-hud-begin[^\n]*\n[\s\S]*?\n\/\/#emit-hud-end[^\n]*/g,'')});
+  if(P&&!(ip&&typeof ip.fxMeta==='string'))parts=parts.map(function(t){return t.replace(/\n\/\/#emit-fx-begin[^\n]*\n[\s\S]*?\n\/\/#emit-fx-end[^\n]*/g,'')});
   // The names _emitExportBoot reaches the runtime through. If one is renamed, fail here, not in the exported page.
   ['buildImportObject','_resetJsInterop','_loadUse','_loadLib'].forEach(function(n){if(typeof window[n]!=='function'||parts.join('\n').indexOf('function '+n+'(')<0)throw new Error('runtime function '+n+' is missing from the runtime section')});
   // IDE names the runtime may mention: the library catalogue is not exported, status/navigation calls do nothing.

@@ -24,7 +24,7 @@ var _LG_COLORS={white:'#ffffff',black:'#000000',red:'#e43b44',green:'#63c74d',bl
 var _LG_BASE_FIELDS=['alive','x','y','vx','vy','w','h','px','py','frame','dir'];
 var _LG_THING_WORDS=['box','circ','oval','sprite','at','size','count','pool','from','chase','flee','wander','patrol','track','follow','gravity','bounce','wrap','solid','wall'];
 var _LG_EVENT_HELP='on start, every frame, every 2s, every 500ms, on key K, on keydown K, on keyup K, on press A, on hold A, on tap, on touch, on hit A B, when <condition>, each K, each K when <condition>';
-var _LG_VERBS=['mv','vel','to','spawn','remove','block','bounce','set','add','play','music','say','frame','restart','stop','call'];
+var _LG_VERBS=['mv','vel','to','spawn','remove','block','bounce','set','add','play','music','say','frame','restart','stop','call','burst'];
 var _LG_SUBJ_VERBS={mv:1,vel:1,to:1,remove:1,block:1,bounce:1,frame:1};
 var _LG_FN_HELPERS={rnd:1,stickX:1,stickY:1,tapX:1,tapY:1,count:1};
 class ThingDecl extends Z{constructor(n,items,l){super('ThingDecl',l);this.name=n;this.items=items}}
@@ -303,6 +303,17 @@ class RulesDecl extends Z{constructor(rules,l){super('RulesDecl',l);this.rules=r
         break;
       }
       case'say':a.value=C.expr('what to say — say "You win!"');break;
+      case'burst':{   /* burst NAME [at THING | at X, Y]: a particles block (HUD & PARTICLES) */
+        var bn=C.peek();
+        if(bn&&(bn.type===TT.IDENTIFIER||bn.type===TT.STRING||bn.type===TT.KEYWORD)){C.next();a.name=String(bn.value);a.nameTok=bn}
+        else throw E(C.here(),'Expected a particles name after burst — burst sparkle at coin');
+        if(C.isWord('at')){
+          C.next();
+          if(C.isType(TT.IDENTIFIER)&&(C.end()||!C.peek(1)||C.isType(TT.COLON,1)))a.atThing=C.next();
+          else{a.x=C.expr('x after at — burst '+a.name+' at coin, or at 160, 120');C.pairSep();a.y=C.expr('y after at')}
+        }
+        break;
+      }
       case'restart':case'stop':break;
       case'call':{
         var f=C.peek();
@@ -563,6 +574,18 @@ function _lgLower(prog){
       }
       case'play':case'music':W('__lgPlay('+q(a.name)+', '+(a.verb==='music'?1:0)+')');break;
       case'say':W('__lgSay("" + '+X(a.value,cx)+')');break;
+      case'burst':{
+        var put=function(K,ix){W('burst('+q(a.name)+', '+R(K,ix)+'.x + '+R(K,ix)+'.w / 2.0, '+R(K,ix)+'.y + '+R(K,ix)+'.h / 2.0)')};
+        if(a.x)W('burst('+q(a.name)+', '+X(a.x,cx)+', '+X(a.y,cx)+')');
+        else if(a.atThing){
+          var BK=kindOf(a.atThing),bix=cx.binds[BK.name];
+          if(bix)put(BK,bix);
+          else{needFind.add(BK);var v3='__lg_s'+(phn++);W('let '+v3+' = __lg_find_'+BK.name+'()');W('if ('+v3+' >= 0) {');ind+='  ';put(BK,v3);ind=ind.slice(2);W('}')}
+        }
+        else if(!cx.hit&&!cx.each)throw E(a.tok,'Say where: burst '+a.name+' at '+(KL[0]?KL[0].name:'hero')+' (a thing), or at 160, 120 — outside on hit / each there is no thing involved');
+        else withSubj('burst',put);
+        break;
+      }
       case'restart':if(cx.start)throw E(at,'restart cannot be an action of on start — it would start again forever');W('__lg_init()');W('return;');break;
       case'stop':if(cx.start)throw E(at,'stop cannot be an action of on start');hasStop=true;W('__lg_on = false');W('__lg_hold = true');W('return;');break;
       case'call':{
