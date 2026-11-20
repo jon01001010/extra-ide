@@ -183,13 +183,13 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
-  xlsx: { say: "write .xlsx workbooks", types: "(sum Cell [XNum [Num] XStr [Str] XBool [Bool] XBlank []])\n(rec Sheet [name Str rows (Vec (Vec Cell))])",
+  xlsx: { machine: true, say: "write .xlsx workbooks", types: "(sum Cell [XNum [Num] XStr [Str] XBool [Bool] XBlank []])\n(rec Sheet [name Str rows (Vec (Vec Cell))])",
     notes: "(io.writeb \"out.xlsx\" (xlsx.pack [(Sheet \"Data\" [[(XStr \"id\") (XStr \"n\")] [(XStr \"007\") (XNum 1.5)]])]))\nrows top to bottom, cells left to right from A1. rows may differ in length. XBlank leaves a cell empty.\na cell keeps its type: (XStr \"007\") (XStr \"1e5\") (XStr \"=A1\") stay text, never a number or a formula.\nno formulas, dates, styles or widths. a date goes in as text, or as a number. reading xlsx is not here." },
-  zip: { say: "read and write zip and gzip", types: "(rec Entry [name Str data (Vec Num)])",
+  zip: { machine: true, say: "read and write zip and gzip", types: "(rec Entry [name Str data (Vec Num)])",
     notes: "bytes are a (Vec Num) of 0..255: (use io) io.readb and io.writeb move them, (use bytes) utf8 and unutf8 turn text into them.\nzip.pack gives the same bytes for the same entries on every host. a name is a relative path with / between parts.\nzip.unpack and gunzip check every crc. what they hand back is capped at 33554432 bytes (E17).\nnot read: encrypted, zip64 or split archives, methods other than stored and deflate. E15 says which." },
-  wav: { say: "sound: samples to wav and back", types: "(rec Sound [rate Num left (Vec Num) right (Vec Num)])",
+  wav: { machine: true, say: "sound: samples to wav and back", types: "(rec Sound [rate Num left (Vec Num) right (Vec Num)])",
     notes: "a sound is a (Vec Num) of samples -1..1, rate of them a second. all of it is pure: check works on it.\nto keep one: (io.writeb \"a.wav\" (wav.pack 44100 samples)). 16 bit pcm: sample x is stored as round(x*32767).\na sample outside -1..1 is E17 with its place, never clipped in silence. (wav.mix [v]) scales a sound to fit.\nwav.tone starts at 0 and stops where the time ends, mostly not at 0: that is a click. wav.env fades the ends:\ngain i/attack over the first attack samples, (n-1-i)/release over the last release, so both ends are 0.\na vector holds 1000000 samples: 22 seconds at 44100, 125 at 8000. for a long sound use a lower rate.\nthe bytes of a wav are 44 + 2 a sample a channel, so they may pass 1000000: hand them straight to io.writeb.\na note after a rest: (concat (rep n 0) note). wav.read gives back what wav.pack stored, within 1/32767." },
-  prop: { say: "seeded random tests that shrink", types: "",
+  prop: { machine: true, say: "seeded random tests that shrink", types: "",
     notes: "(check (prop.nums 1 200 (fun [v] (same (rev (rev v)) v))) None)   seed, how many inputs 1..10000, predicate.\nNone = it held on every input. else Some input it fails on, shrunk: items dropped, numbers moved to 0,\nchars dropped or turned to a. the shrunk input is small, not always the smallest there is.\nan input the predicate raises an error on fails too. same seed same inputs. pure: check reports it before the run." },
   graph: { say: "cheapest path, topo order, parts", types: "(rec Edge [from ?a to ?a cost Num])",
     notes: "a graph is a (Vec (Edge a)): (Edge from to cost). a node is any value cmp can order: Num, Str, a rec.\nedges have a direction. for a graph with none: (graph.both edges). only graph.parts ignores direction.\nno costs to give: write 1 and a cheapest path is a shortest one. an edge may repeat or loop on its node.\na node with no edge is in no edge list: graph.order and graph.parts take those in a second vector, [] for none." },
@@ -198,7 +198,7 @@ const PACKS = {
     notes: "a Dec is exact: (dec \"0.1\") + (dec \"0.2\") is (dec \"0.3\"). it is made by dec and dec.of, never by a ctor.\nsame, cmp, order and sortby see a Dec by its value. nothing rounds unless told how:\ndec.div and dec.round take places and a mode: half-up half-even down up floor ceil." },
   diff: { say: "edits by text: here it is, there it should be", types: "(rec Edit [here Str there Str])",
     notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
-  chart: { say: "charts and graphs as Draw shapes", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
+  chart: { machine: true, say: "charts and graphs as Draw shapes", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
   math: { say: "trig stats roots integrals seeded random", types: "", notes: "" },
   text: { say: "pad wrap words edit distance", types: "", notes: "" },
@@ -208,9 +208,9 @@ const PACKS = {
   time: { say: "dates and calendar math, utc", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
     notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
   bit: { say: "bit ops", types: "", notes: "" },
-  bytes: { say: "utf8 base64 hex url html.esc sha256", types: "", notes: "" },
+  bytes: { machine: true, say: "utf8 base64 hex url html.esc sha256", types: "", notes: "" },
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes: ascii png svg pdf frames", opaque: "(rec Image [w Num h Num id Str])", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+  draw: { machine: true, say: "shapes: ascii png svg pdf frames", opaque: "(rec Image [w Num h Num id Str])", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -221,14 +221,14 @@ to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, con
 to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
 as one png grid, left to right, top to bottom: a whole animation in one image.
 (io.gif "f.gif" fps) writes them all as one animation that plays, in a loop. up to 256 colors a frame are kept exact.` },
-  io: { say: "files paths shell http clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
+  io: { machine: true, say: "files paths shell http clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
     notes: `effects. args evaluate left to right, forms top to bottom.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
 const KINDPACK = { xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
-const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme\nrun it: node tact.js FILE. or, with no interpreter, in your own reasoning from this spec. say which.
+const SYNTAX = `TACT v2. a context-only language: you are the runtime. check a program against this spec, then work\nit out in your reasoning. nothing executes, so nothing can be harmed. tact.js is the reference.
 
 PROGRAM = top forms only. anything else at top = E8.
   (let name expr)                  bind once ever. visible from the next form on.
@@ -4784,8 +4784,8 @@ function specText(which) {
   const [head, ...rows] = MATRIX.split("\n"), packOf = r => KINDPACK[r.split(" ")[1]] || "core";
   const core = rows.filter(r => packOf(r) === "core");
   const pack = p => { const d = PACKS[p], rs = rows.filter(r => packOf(r) === p); return [`PACK ${p}. (use ${p}). ${d.say}. ${rs.length} rows`, d.notes, d.types, head, ...rs].filter(Boolean).join("\n"); };
-  const index = "PACKS  (use name) loads one. a name from an unloaded pack = E1 with the pack and the call. tact --spec NAME.\n" +
-    Object.keys(PACKS).map(p => `  ${p.padEnd(6)}${PACKS[p].say}`).join("\n");
+  const index = "PACKS  (use name) loads one. a name from an unloaded pack = E1 with the pack and the call. * = needs the interpreter\n" +
+    Object.keys(PACKS).map(p => `  ${(p + (PACKS[p].machine ? "*" : "")).padEnd(7)}${PACKS[p].say}`).join("\n");
   const base = SYNTAX + "\n\n" + index + "\n\nMATRIX core " + core.length + " rows\n" + head + "\n" + core.join("\n");
   if (which === undefined) return base;
   if (which === "all") return base + "\n\n" + Object.keys(PACKS).map(pack).join("\n\n");
@@ -4872,53 +4872,58 @@ function format(src) {
    built from the live tables, so the pack list and the limits here cannot drift from the language. */
 function readme() {
   const rows = MATRIX.split("\n").slice(1), core = rows.filter(r => !KINDPACK[r.split(" ")[1]]).length;
-  const packs = Object.keys(PACKS).map(p => `  ${p.padEnd(6)}${PACKS[p].say}`).join("\n");
+  const packs = Object.keys(PACKS).map(p => `  ${(p + (PACKS[p].machine ? "*" : "")).padEnd(7)}${PACKS[p].say}`).join("\n");
   return `TACT. READ THIS FIRST. it is written for a language model.
 
 IN ONE BREATH
-  tact lives in your context. the spec and this text came with the conversation, and usually the
-  runtime too (one file, tact.js). nothing is installed anywhere else. there is no tact server and
-  no service to call. "in context" means exactly that: everything tact is, is here with you.
-  you write one whole program and it is run once. there are two ways to run it:
-  - with the interpreter:  node tact.js program.tact  in your own code sandbox. checked and exact.
-  - in your own reasoning: with no interpreter, you are the runtime. you check the program
-    against the spec, then work it out form by form. tact is built so that this can be done
-    exactly: nothing changes once bound, there are no loops to lose track of, every builtin has
-    one row that says what it does.
-  always say which way a result was produced.
+  tact is a context-only language. you are the runtime.
+  a tact program is run in your own reasoning, from the spec in your context. no program is
+  executed on any machine. so running one cannot damage, change or leak anything: there is
+  nothing to mess up. that is the point of it.
+  you write one whole program, check it against the spec, and work it out form by form.
+  tact is built so this can be done exactly: nothing changes once bound, there are no loops
+  to lose track of, and every builtin has one row that says what it does.
+  an interpreter (tact.js) also exists. it is the reference: it defines the right answer, and
+  can check you when someone has it. you do not need it, and you should not assume it.
 
 WHAT TACT IS
-  a small programming language made to be written by a language model, in one pass,
-  from a spec that sits in the model's context. it is not meant for people to write by hand.
-  you reason about a problem, write one complete tact program, and the runtime checks it and
-  runs it. tact gives you exact computation: arithmetic, data, algorithms, dates, money, files,
-  charts. the things that go wrong when done "in your head".
+  a small programming language made to be written and run by a language model, in one pass,
+  from a spec that sits in its context. it is not meant for people to write by hand, and it is
+  not meant to be handed to a machine. you reason about a problem, write one complete tact
+  program, check it, and work it out. tact gives your reasoning a strict form to follow for
+  exact work: arithmetic, data, grouping and joins, dates, money. the things that go wrong
+  when done loosely "in your head".
 
 WHY IT EXISTS
-  a model cannot see its own mistakes until code runs. in most languages a run shows one error,
-  after part of the program has already run, and every round trip costs context.
-  tact turns that around:
-  - every error that can be known is reported before anything runs, all at once, each with its
-    line, what is wrong, and usually what to write instead.
-  - if the check fails, nothing ran. no half done effects to clean up.
-  - code that reaches no io does the same thing every time, so tact tries it while checking.
-    a bad index, a division by zero, a check that does not hold: those come up front too.
-  - so the loop is: one generation, one check, fix everything in one edit, run. often no fixes.
+  - safety. model-written code that runs on a machine can delete, send or change things.
+    a tact program runs nowhere but in reasoning. there is no program to mess anything up.
+  - exactness. loose reasoning about numbers drifts. a tact program is a written procedure
+    with one meaning: every step is a builtin with a fixed rule, and every value is written down.
+    anyone, a person or the reference interpreter, can check each step.
+  - errors up front. every error that can be known is found before any value is worked out,
+    all at once, each with its line, what is wrong, and usually what to write instead. a program
+    with an error is not half run and then abandoned: it is not run at all.
+  - one pass. because the errors come first, one generation and one run are the aim.
   the language is small on purpose. the whole core spec is about ${Math.round(specText().length / 350) * 100} tokens, short enough to
   stay in your context all the time. everything beyond the core is a pack you load by name.
 
 HOW TO USE IT
-  below, "tact" means  node tact.js  run with the code tool you already have.
   1 the spec is the contract: the syntax, the rules, every builtin as one row (name kind arity
-    in out note), every error code. if it is not in your context yet, print it:  tact --spec
+    in out note), every error code. it is in your context. it is all you need.
   2 write the whole program. only top forms at top level: let fn rec sum show check do use.
-  3 need more than the core? the spec lists the packs. (use name) loads one.
-    tact --spec NAME prints a pack. if you use a pack's name without loading it, the error
-    names the pack and gives the call's signature, so one edit fixes it.
-  4 check it:  tact --check FILE  (nothing runs), or just run it:  tact FILE
-  5 read the errors. each is  CODE line N: what is wrong. fix all of them, run again.
-  6 put (check expr expected) beside your code. it is your proof the program does what you
-    meant, and it is checked before the run when its values are known.
+  3 need more than the core? the spec lists the packs. (use name) loads one, and its spec must
+    be in your context too. a pack marked * cannot be worked out in reasoning: see below.
+  4 be the checker. go through the program against the spec before working anything out:
+    every name known and its pack loaded, every call with the right number and types of
+    arguments, every match covering every case, nothing bound twice.
+    if anything fails, list every error as  CODE line N: what is wrong  and stop. nothing ran.
+  5 be the interpreter. take the top forms in order. a name's value never changes, so work it
+    out once, write it down, and reuse it. keep numbers exact: write intermediate values down
+    instead of holding them in mind. a date is ms since 1970 utc: use the time pack's rules,
+    and take care at month and year ends.
+  6 print what show would print: a Str bare, anything else as tact writes it.
+  7 put (check expr expected) beside your code. it is your proof the program does what you
+    meant. work both sides out; if they differ, that is ECHECK and nothing else is reported.
 
   what an error looks like. this program:
       (show (+ 1 2))
@@ -4927,6 +4932,18 @@ HOW TO USE IT
   gives exactly:
       E4 line 2: arg 2 of +: expected Num, got Str
   and prints nothing: line 1 did not run either. fix line 2 and it prints 3, 3, 12.
+
+WHAT CANNOT BE DONE IN REASONING
+  some builtins are beyond working out by hand. do not pretend to. say the result needs the
+  interpreter, or restate the task without them:
+  - anything seeded and random: rand shuffle randn randint sample pick k.randn, and the prop pack
+  - hashes and encodings of bytes: sha256, base64, compression
+  - pixels, sound and files: the draw chart wav zip xlsx and io packs
+  - heavy numeric kernels: svd, eig, pinv, and root or integrate on anything but a simple function
+  the pack list marks such packs with *.
+  what is known about the rest: models of three sizes worked programs over 120 records out in
+  reasoning and matched the interpreter exactly. it costs tokens, nothing double-checks you,
+  and larger data is untested. be careful, and say so when you are unsure of a step.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.
@@ -4942,11 +4959,11 @@ HOW TO THINK IN IT. where tact differs from the languages you know
   - a Num is a finite double. for money and big whole numbers use the dec pack.
   - a value prints as the expression that builds it, so you can read your own output back.
 
-WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
-  there is no setup step. tact.js is one file with no dependencies. run it where you run code:
-      node tact.js program.tact        or        node tact.js -e '(show (+ 1 2))'
-  the aim is a single run: errors come up front so that one generation and one run are enough.
-  what a program can reach is only what its host gives it:
+THE REFERENCE INTERPRETER. for whoever has it; you do not need it
+  tact.js is one file with no dependencies:   node tact.js program.tact
+  it checks and runs a program exactly as the spec says, and is what a result worked out in
+  reasoning is measured against. "tact" in the commands below means  node tact.js.
+  when a program is run by the interpreter, what it can reach is only what its host gives it:
   - memory host (the default when tact is embedded, and the browser page): files live in
     memory, there is no shell and no network. asking for those is E13, a normal error.
   - node host (the command line): the files, shell and network of the sandbox it runs in.
@@ -4962,29 +4979,15 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   effects exist only in io.* and in host functions. everything else is pure and repeatable:
   the same program gives the same answer on every machine.
 
-RUNNING IT IN YOUR REASONING. when there is no interpreter, or you are told to run nothing
-  1 be the checker first. every name is known and its pack is loaded. every call has the right
-    number and types of arguments. every match covers every case. nothing is bound twice.
-    if anything fails, list every error as  CODE line N: what is wrong  and stop. nothing ran.
-  2 then be the interpreter. take the top forms in order. a name's value never changes, so work
-    it out once, write it down, and reuse it.
-  3 keep numbers exact. write intermediate values down instead of holding them in mind. a date
-    is ms since 1970 utc: use the time pack's rules, and take care at month and year ends.
-  4 print what show would print: a Str bare, anything else as tact writes it.
-  5 say plainly that the result was worked out in reasoning and not by the interpreter.
-  what is known: models of three sizes ran programs over 120 records this way and matched the
-  interpreter exactly. it costs many times the tokens, nothing double-checks you, and larger
-  data is untested. when an interpreter is at hand, use it, or use it to check yourself.
-
 WHAT COMES BACK
   - show prints a value. io.print prints a line from inside an expression.
-  - a picture is data. (ascii w h shapes cols) gives text you can read; png and svg are for people.
-  - exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
+  - either the output, or the list of errors. never both, and never part of a run.
+  - from the interpreter: exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
 
-THE PACKS. ${core} rows are core, the rest load with (use name)
+THE PACKS. ${core} rows are core, the rest load with (use name). * = needs the interpreter
 ${packs}
 
-COMMANDS
+COMMANDS OF THE INTERPRETER
   tact FILE [args ..]     check, then run
   tact -e SRC             the same for a program given as text
   tact --check FILE       check only. nothing runs
