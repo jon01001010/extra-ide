@@ -2485,7 +2485,7 @@ function fuzz(n, seed) {
 }
 
 /* ------------------------------------------------------------------ spec text: the part a model keeps in context */
-const CORE_BUDGET = 12000;           // characters. a test holds the core spec under this
+const CORE_BUDGET = 12000;           // characters, about 3400 tokens: 10% of a 32k window, the floor for a 70b-class model. a test holds the core spec under this
 function specText(which) {
   const [head, ...rows] = MATRIX.split("\n"), packOf = r => KINDPACK[r.split(" ")[1]] || "core";
   const core = rows.filter(r => packOf(r) === "core");
