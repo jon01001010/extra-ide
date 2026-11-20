@@ -222,7 +222,7 @@ what a host lacks = E13. what a host tried and could not do = E19. try catches b
 };
 const KINDPACK = { wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
-const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme
+const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme\nyou run it yourself, from your context, in your own sandbox: node tact.js FILE. no server, no setup.
 
 PROGRAM = top forms only. anything else at top = E8.
   (let name expr)                  bind once ever. visible from the next form on.
@@ -4372,6 +4372,13 @@ function readme() {
   const packs = Object.keys(PACKS).map(p => `  ${p.padEnd(6)}${PACKS[p].say}`).join("\n");
   return `TACT. READ THIS FIRST. it is written for a language model.
 
+IN ONE BREATH
+  tact lives in your context and you run it yourself. the runtime (one file, tact.js), the spec and
+  this text came with the conversation, as uploads or as pasted text. nothing is installed anywhere
+  else. there is no tact server and no service to call. nobody runs it for you.
+  you write one whole program, run it once in your own code sandbox, and read what comes back.
+  "in context" means exactly that: everything tact is, and everything you know about it, is here.
+
 WHAT TACT IS
   a small programming language made to be written by a language model, in one pass,
   from a spec that sits in the model's context. it is not meant for people to write by hand.
@@ -4393,8 +4400,9 @@ WHY IT EXISTS
   stay in your context all the time. everything beyond the core is a pack you load by name.
 
 HOW TO USE IT
-  1 get the spec:  tact --spec   and keep it in context. it is the contract: the syntax, the
-    rules, every builtin as one row (name kind arity in out note), every error code.
+  below, "tact" means  node tact.js  run with the code tool you already have.
+  1 the spec is the contract: the syntax, the rules, every builtin as one row (name kind arity
+    in out note), every error code. if it is not in your context yet, print it:  tact --spec
   2 write the whole program. only top forms at top level: let fn rec sum show check do use.
   3 need more than the core? the spec lists the packs. (use name) loads one.
     tact --spec NAME prints a pack. if you use a pack's name without loading it, the error
@@ -4426,10 +4434,17 @@ HOW TO THINK IN IT. where tact differs from the languages you know
   - a Num is a finite double. for money and big whole numbers use the dec pack.
   - a value prints as the expression that builds it, so you can read your own output back.
 
-WHERE IT RUNS
-  - memory host (the default, the browser page, any sandbox): files live in memory, there is
-    no shell and no network. asking for those is E13, a normal error. safe to run anything.
-  - node host (tact FILE on a real machine): real files, shell, http.
+WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
+  there is no setup step. tact.js is one file with no dependencies. run it where you run code:
+      node tact.js program.tact        or        node tact.js -e '(show (+ 1 2))'
+  the aim is a single run: errors come up front so that one generation and one run are enough.
+  if you have no way to run code, you can still write tact and read it against the spec, but
+  then nothing was checked and nothing ran. say so. never report output you did not get.
+  what a program can reach is only what its host gives it:
+  - memory host (the default when tact is embedded, and the browser page): files live in
+    memory, there is no shell and no network. asking for those is E13, a normal error.
+  - node host (the command line): the files, shell and network of the sandbox it runs in.
+    assume no network unless you have seen it work.
   - host functions: a program that embeds tact can hand it its own typed functions and types
     (tact --host H.js). calls to them are checked like builtins before anything runs, so a
     script cannot call the app's tools wrongly halfway through.
