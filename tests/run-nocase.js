@@ -267,6 +267,21 @@ const MIXED_GAME = g => g.replace(/thing hero: sprite hero/, 'Thing hero: Sprite
       check('exports: _emitCallExport(inst, "start") finds Start', !/threw/.test(via), via);
       await page.context().close();
     }
+    // ── hud / particles blocks (HUD & PARTICLES): kinds, words, names and {variables} in any case ──
+    {
+      const page = await newPage(browser);
+      const HFX = 'mut score = 0\nsprite heart: 1x1\n  "1"\nhud main:\n  text "Score {score}" top left size 2 color #fff\n  icons heart score top right below\n  bar score 0..10 bottom left width 40\nparticles sparkle:\n  count 12  life 0.4..0.8  speed 40..90  colors #ffcd75  fade  shape circle\nthing hero: box 8 8\nthing coin: box 4 4\nrules:\n  on hit hero coin: remove coin : add score 1 : burst sparkle at coin\nexport fn boom() {\n  burst(sparkle, 1, 2)\n  hud(main)\n  say("hi")\n}\n';
+      const MIXED = HFX.replace('hud main:', 'HUD main:').replace('text "Score {score}" top left size 2 color #fff', 'Text "Score {SCORE}" TOP Left SIZE 2 Color #FFF').replace('icons heart score top right below', 'ICONS Heart Score Top Right BELOW')
+        .replace('bar score 0..10 bottom left width 40', 'Bar SCORE 0..10 Bottom LEFT Width 40').replace('particles sparkle:', 'Particles sparkle:').replace('count 12  life 0.4..0.8  speed 40..90  colors #ffcd75  fade  shape circle', 'Count 12  LIFE 0.4..0.8  Speed 40..90  COLORS #FFCD75  Fade  Shape Circle')
+        .replace('burst sparkle at coin', 'Burst Sparkle AT Coin').replace('burst(sparkle, 1, 2)', 'BURST(SPARKLE, 1, 2)').replace('hud(main)', 'Hud(MAIN)').replace('say("hi")', 'SAY("hi")');
+      const a = await comp(page, HFX), b = await comp(page, MIXED);
+      check('hud / particles: HUD main: / Text / TOP Left / {SCORE} / ICONS Heart / Particles sparkle: / COLORS #FFCD75 / Burst Sparkle AT Coin / BURST(SPARKLE …) / Hud(MAIN) / SAY compile to the same WASM', !a.errors.length && !b.errors.length && !b.thrown && a.wasm === b.wasm, JSON.stringify([a.errors, b.errors, b.thrown]));
+      const c = await comp(page, 'mut score = 0\nhud main:\n  text "{score}"\nhud Main:\n  text "x"\nparticles Spark:\n  count 1\nparticles spark:\n  count 2\n');
+      check('hud / particles: two hud blocks (main / Main) and two particles blocks (Spark / spark) clash', c.errors && c.errors.some(e => /^4:5: hud "Main" and "main" .* differ only by case/.test(e)) && c.errors.some(e => /^8:11: particles "spark" and "Spark" .* differ only by case/.test(e)), JSON.stringify(c.errors));
+      const d = await comp(page, 'mut Score = 0\nmut score2 = 0\nhud main:\n  text "{score} {SCORE2}"\n');
+      check('hud / particles: {score} finds the variable declared as Score', !d.errors.length && !d.thrown, JSON.stringify(d.errors || d.thrown));
+      await page.context().close();
+    }
     // ── blocks in any case: the Coin Dash example with mixed-case keywords and uses compiles to the same bytes ──
     {
       const page = await newPage(browser);
