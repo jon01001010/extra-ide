@@ -196,7 +196,7 @@ const PACKS = {
     notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
   chart: { say: "charts and graphs as Draw shapes", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
-  math: { say: "trig gcd stats seeded shuffle", types: "", notes: "" },
+  math: { say: "trig stats roots integrals seeded random", types: "", notes: "" },
   text: { say: "pad wrap words edit distance", types: "", notes: "" },
   csv: { say: "csv rows, maps, named columns", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
   re: { say: "regex", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
@@ -204,7 +204,7 @@ const PACKS = {
   time: { say: "dates and calendar math, utc", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
     notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
   bit: { say: "bit ops", types: "", notes: "" },
-  bytes: { say: "utf8 base64 sha256 radix", types: "", notes: "" },
+  bytes: { say: "utf8 base64 hex url html.esc sha256", types: "", notes: "" },
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
   draw: { say: "shapes: ascii png svg pdf frames", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
@@ -603,6 +603,21 @@ wav.tone wav 3 Num,Num,Num @Vec.Num rate hz seconds. a sine, peak 1, from 0. rou
 wav.env wav 3 @Vec.Num,Num,Num @Vec.Num samples attack release, both counted in samples. straight fades. E17 longer than the sound
 wav.mix wav 1 @Vec.@Vec.Num @Vec.Num sum, short ones end early. divided by the peak only if it is over 1
 wav.read wav 1 @Vec.Num Sound bytes of a 16 bit pcm wav. E15 not a wav. E14 another kind of wav
+root math 3 @fn,Num,Num Num f lo hi. x in lo..hi where f is 0, to full precision. f(lo) f(hi) need opposite signs, else E17. E17 at a pole
+minimize math 3 @fn,Num,Num Num f lo hi. x where f is least. a local minimum: narrow lo..hi if f has several dips. about 7 digits. E17 lo over hi
+integrate math 3 @fn,Num,Num Num f lo hi. the definite integral, about 10 digits. lo over hi flips the sign. E17 if it does not settle: split at a jump or pole
+deriv math 2 @fn,Num Num f x. slope of f at x, about 9 digits. f must exist a little to both sides of x. E17 at a kink or jump
+randn math 2 Num,Num @Vec.Num seed n. standard normals: mean 0 sd 1. for mean m sd s map (+ m (* s z))
+randint math 4 Num,Num,Num,Num @Vec.Num seed n lo hi. whole numbers lo..hi, both ends included. E17 lo over hi
+sample math 3 Num,Num,@Vec.@T @Vec.@T seed k v. k items of v, none twice, in drawn order. E10 k over len
+pick math 3 Num,Num,@Vec.Num @Vec.Num seed n weights. n indexes, i drawn in proportion to weight i. E10 empty. E17 negative or all 0
+url.enc bytes 1 Str Str one component: all but A-Z a-z 0-9 - . _ ~ to %XX of utf8. space is %20
+url.dec bytes 1 Str Str %XX back to text. + stays +. E15 bad escape or not utf8
+url.query bytes 1 Str @Map a=1&b=x%20y to a Map Str Str. a leading ? is fine. + is a space. no = gives "". later keys win. E15
+url.build bytes 1 @Map Str a Map Str Str to k=v&k=v, both sides url.enc, keys in map order
+hex.enc bytes 1 @Vec.Num Str bytes to lower case hex. E17 not a byte
+hex.dec bytes 1 Str @Vec.Num hex of either case to bytes. E15 odd length or not hex
+html.esc bytes 1 Str Str & < > " ' escaped: safe as html text and inside a quoted attribute
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -2841,6 +2856,238 @@ def("wav.read", "(Vec Num) -> Sound", ([v]) => {
   return R("E15", "wav.read: no data chunk");
 });
 
+/* ---- numeric: root minimize integrate deriv, seeded draws (math). url hex html escapes (bytes) */
+const NUM_EPS = 2.220446049250313e-16;
+// root: brent's bracketing method. after 200 steps it is plain bisection, so the call count is bounded.
+def("root", "(Fn Num Num) Num Num -> Num", ([f, lo, hi], cx) => {
+  const F = x => cx.apply(f, [x]);
+  let a = lo, b = hi, fa = F(a), fb = F(b);
+  if (fa === 0) return a;
+  if (fb === 0) return b;
+  if ((fa > 0) === (fb > 0)) R("E17", `root: f(${fmtNum(lo)}) = ${fmtNum(fa)} and f(${fmtNum(hi)}) = ${fmtNum(fb)} have the same sign. give lo and hi where f has opposite signs`);
+  const big = Math.max(Math.abs(fa), Math.abs(fb));
+  let c = a, fc = fa, d = b - a, e = d;
+  for (let it = 0; it < 3000; it++) {
+    if ((fb > 0) === (fc > 0)) { c = a; fc = fa; d = e = b - a; }
+    if (Math.abs(fc) < Math.abs(fb)) { a = b; b = c; c = a; fa = fb; fb = fc; fc = fa; }
+    const tol = 2 * NUM_EPS * Math.abs(b) + 1e-300, xm = c / 2 - b / 2;
+    if (Math.abs(xm) <= tol || fb === 0) {
+      if (Math.abs(fb) > big) R("E17", `root: the sign of f changes near ${fmtNum(b)} but f does not reach 0 there (f = ${fmtNum(fb)}): a pole or a jump, not a root`);
+      return b === 0 ? 0 : b;
+    }
+    let bis = true;
+    if (it < 200 && Math.abs(e) >= tol && Math.abs(fa) > Math.abs(fb)) {
+      const s = fb / fa; let p, q;
+      if (a === c) { p = 2 * xm * s; q = 1 - s; }
+      else { const qq = fa / fc, r = fb / fc; p = s * (2 * xm * qq * (qq - r) - (b - a) * (r - 1)); q = (qq - 1) * (r - 1) * (s - 1); }
+      if (p > 0) q = -q; else p = -p;
+      if (2 * p < Math.min(3 * xm * q - Math.abs(tol * q), Math.abs(e * q))) { e = d; d = p / q; bis = false; }
+    }
+    if (bis) { d = xm; e = d; }
+    a = b; fa = fb;
+    b += Math.abs(d) > tol ? d : xm > 0 ? tol : -tol;
+    fb = F(b);
+  }
+  return R("E17", "root: no convergence in 3000 calls of f. give a narrower lo..hi");
+});
+// minimize: brent's golden section with parabolic steps, then one wide parabola to sharpen x.
+def("minimize", "(Fn Num Num) Num Num -> Num", ([f, lo, hi], cx) => {
+  const F = x => cx.apply(f, [x]);
+  if (lo > hi) R("E17", `minimize: lo ${fmtNum(lo)} is over hi ${fmtNum(hi)}`);
+  const span = fin(hi - lo, "minimize: hi - lo");
+  if (span === 0) { F(lo); return lo; }
+  const C = (3 - Math.sqrt(5)) / 2, SQ = Math.sqrt(NUM_EPS), tabs = 1e-11 * span;
+  let a = lo, b = hi, x = a + C * span, w = x, v = x, fx = F(x), fw = fx, fv = fx, d = 0, e = 0, tol1 = 0;
+  for (let it = 0; it < 300; it++) {
+    const xm = a / 2 + b / 2; tol1 = SQ * Math.abs(x) + tabs; const tol2 = 2 * tol1;
+    if (Math.abs(x - xm) <= tol2 - (b - a) / 2) break;
+    let gold = true;
+    if (Math.abs(e) > tol1) {
+      let r = (x - w) * (fx - fv), q = (x - v) * (fx - fw), p = (x - v) * q - (x - w) * r;
+      q = 2 * (q - r); if (q > 0) p = -p; q = Math.abs(q);
+      const e0 = e; e = d;
+      if (Math.abs(p) < Math.abs(0.5 * q * e0) && p > q * (a - x) && p < q * (b - x)) {
+        const d1 = p / q, u = x + d1;
+        if (u > a && u < b) { d = d1; gold = false; if (u - a < tol2 || b - u < tol2) d = xm >= x ? tol1 : -tol1; }   // u is NaN when f is near the largest numbers
+      }
+    }
+    if (gold) { e = x >= xm ? a - x : b - x; d = C * e; }
+    const u = Math.min(hi, Math.max(lo, Math.abs(d) >= tol1 ? x + d : x + (d > 0 ? tol1 : -tol1))), fu = F(u);
+    if (fu <= fx) { if (u >= x) a = x; else b = x; v = w; fv = fw; w = x; fw = fx; x = u; fx = fu; }
+    else {
+      if (u < x) a = u; else b = u;
+      if (fu <= fw || w === x) { v = w; fv = fw; w = u; fw = fu; }
+      else if (fu <= fv || v === x || v === w) { v = u; fv = fu; }
+    }
+  }
+  // sharpen: the vertex of a parabola through x-h x x+h, kept only when f there is no higher
+  const h = Math.cbrt(NUM_EPS) * Math.max(Math.abs(x), 1e-3 * span);
+  if (x - h > lo && x + h < hi) {
+    const fl = F(x - h), fr = F(x + h), den = fl - 2 * fx + fr;
+    if (den > 0) {
+      const u = x + Math.max(-h, Math.min(h, 0.5 * h * (fl - fr) / den));
+      if (u !== x && u > lo && u < hi) { const fu = F(u); if (fu <= fx) { x = u; fx = fu; } }
+    }
+  }
+  // the search never calls f at lo or hi. it does only when it ended right next to one
+  if (x - lo <= 4 * tol1 && F(lo) <= fx) return lo;
+  if (hi - x <= 4 * tol1 && F(hi) <= fx) return hi;
+  return x === 0 ? 0 : x;
+});
+// integrate: adaptive gauss kronrod 7/15. the worst piece is halved until the error estimate is small.
+// the rule never samples the last 0.4% at each end of a piece, so a jump there would go unseen: the value of f at
+// each end (known from the split, or asked for at lo and hi) is compared with what the 15 samples predict there.
+const GK_X = [0.991455371120812639, 0.949107912342758525, 0.864864423359769073, 0.741531185599394440, 0.586087235467691130, 0.405845151377397167, 0.207784955007898468, 0];
+const GK_W = [0.022935322010529224964, 0.063092092629978553291, 0.104790010322250183840, 0.140653259715525918745, 0.169004726639267902827, 0.190350578064785409913, 0.204432940075298892414, 0.209482141084727828013];
+const GK_G = [0.129484966168869693271, 0.279705391489276667901, 0.381830050505118944950, 0.417959183673469387755];
+const GK_END = (() => {          // lagrange weights that carry the 15 samples to the end of the piece at +1. slot 2j: node -x[j], 2j+1: node +x[j], 14: the centre
+  const xs = []; for (let j = 0; j < 7; j++) xs.push(-GK_X[j], GK_X[j]); xs.push(0);
+  return xs.map((xj, j) => xs.reduce((p, xk, k) => k === j ? p : p * (1 - xk) / (xj - xk), 1));
+})();
+def("integrate", "(Fn Num Num) Num Num -> Num", ([f, lo, hi], cx) => {
+  if (lo === hi) return 0;
+  const edge = x => { try { return cx.apply(f, [x]); } catch (x) { if (x instanceof TErr && !x.fatal) return null; throw x; } };   // f may not exist at lo or hi: 1/sqrt(x) at 0
+  const piece = (a, b, fa, fb) => {
+    const c = a / 2 + b / 2, hl = b / 2 - a / 2, fc = cx.apply(f, [c]), fs = [];
+    let k = fc * GK_W[7], g = fc * GK_G[3], abs = Math.abs(k);
+    for (let j = 0; j < 7; j++) {
+      const dx = hl * GK_X[j], f1 = cx.apply(f, [c - dx]), f2 = cx.apply(f, [c + dx]);
+      k += GK_W[j] * (f1 + f2); abs += GK_W[j] * (Math.abs(f1) + Math.abs(f2)); fs.push(f1, f2);
+      if (j % 2) g += GK_G[(j - 1) / 2] * (f1 + f2);
+    }
+    const mean = k / 2; let asc = GK_W[7] * Math.abs(fc - mean);
+    for (let j = 0; j < 14; j++) asc += GK_W[j >> 1] * Math.abs(fs[j] - mean);
+    const H = Math.abs(hl); let err = Math.abs((k - g) * hl); asc *= H; abs *= H;
+    if (asc !== 0 && err !== 0) err = asc * Math.min(1, Math.pow(200 * err / asc, 1.5));
+    let pa = fc * GK_END[14], pb = pa;
+    for (let j = 0; j < 14; j++) { pb += fs[j] * GK_END[j]; pa += fs[j] * GK_END[j ^ 1]; }
+    if (fa !== null) err += Math.abs(fa - pa) * H * (1 - GK_X[0]);
+    if (fb !== null) err += Math.abs(fb - pb) * H * (1 - GK_X[0]);
+    if (abs > 2.5e-306) err = Math.max(err, 50 * NUM_EPS * abs);
+    return { a, b, fa, fb, fc, v: fin(k * hl, "integrate"), err: fin(err, "integrate"), abs: fin(abs, "integrate") };
+  };
+  const ps = [piece(lo, hi, edge(lo), edge(hi))], MAXP = 1000;
+  let total, err, abs;
+  for (;;) {
+    total = 0; err = 0; abs = 0; let worst = 0;
+    for (let i = 0; i < ps.length; i++) { total += ps[i].v; err += ps[i].err; abs += ps[i].abs; if (ps[i].err > ps[worst].err) worst = i; }
+    fin(total, "integrate");
+    if (err <= Math.max(1e-11 * Math.abs(total), 1e-13 * abs)) break;
+    const p = ps[worst], m = p.a / 2 + p.b / 2;
+    if (ps.length >= MAXP || m === p.a || m === p.b) {
+      if (err <= Math.max(1e-9 * Math.abs(total), 1e-11 * abs)) break;
+      R("E17", `integrate: no convergence in ${15 * (2 * ps.length - 1) + 2} calls of f (so far ${fmtNum(total)}, error about ${fmtNum(err)}). f may have a pole or many jumps: split the range there, or the integral does not exist`);
+    }
+    ps[worst] = piece(p.a, m, p.fa, p.fc); ps.push(piece(m, p.b, p.fc, p.fb));
+  }
+  return total === 0 ? 0 : total;
+});
+// deriv: ridders. central differences at shrinking steps, extrapolated to step 0, with an error estimate.
+def("deriv", "(Fn Num Num) Num -> Num", ([f, x], cx) => {
+  const F = t => cx.apply(f, [t]), NT = 16, CON = 1.4, CON2 = CON * CON;
+  const h0 = 0.01 * (x === 0 ? 1 : Math.abs(x)); let h = h0, top = 0;
+  fin(x + h0, "deriv: x is too large, x + step"); fin(x - h0, "deriv: x is too large, x - step");
+  const cd = () => { const p = F(x + h), m = F(x - h); top = Math.max(top, Math.abs(p), Math.abs(m)); return (p - m) / (2 * h); };
+  const a = [[cd()]]; let ans = a[0][0], err = Infinity;
+  const ok = () => Number.isFinite(ans) && err <= 1e-6 * Math.abs(ans) + 1e-9 * top / h0;
+  for (let i = 1; i < NT; i++) {
+    h /= CON; a.push([cd()]); let fac = CON2;
+    for (let j = 1; j <= i; j++) {
+      a[i][j] = (a[i][j - 1] * fac - a[i - 1][j - 1]) / (fac - 1); fac *= CON2;
+      const et = Math.max(Math.abs(a[i][j] - a[i][j - 1]), Math.abs(a[i][j] - a[i - 1][j - 1]));
+      if (et <= err) { err = et; ans = a[i][j]; }
+    }
+    if (Math.abs(a[i][i] - a[i - 1][i - 1]) >= 2 * err && ok()) break;
+  }
+  if (!ok())
+    R("E17", `deriv: f is not smooth near ${fmtNum(x)} (a kink, a jump, or it wiggles faster than ${fmtNum(h0 / 100)}): the slope did not settle`);
+  return ans === 0 ? 0 : ans;
+});
+
+def("randn", "Num Num -> (Vec Num)", ([seed, n]) => {
+  ints("randn", seed); const r = mulberry32(seed), out = [];
+  for (let i = count(n, "randn"); i > 0; i--) { const u = r() || 1e-300, v = r(); out.push(Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)); }
+  return out;
+});
+def("randint", "Num Num Num Num -> (Vec Num)", ([seed, n, lo, hi]) => {
+  ints("randint", seed, lo, hi); count(n, "randint");
+  if (lo > hi) R("E17", `randint: lo ${fmtNum(lo)} is over hi ${fmtNum(hi)}`);
+  const span = hi - lo + 1;
+  if (!(span <= 4294967296) || Math.abs(lo) > 9007199254740991 || Math.abs(hi) > 9007199254740991) R("E17", "randint: lo..hi may hold at most 2^32 whole numbers");
+  const r = mulberry32(seed), out = [];
+  for (let i = 0; i < n; i++) out.push(lo + Math.floor(r() * span));
+  return out;
+});
+def("sample", "Num Num (Vec a) -> (Vec a)", ([seed, k, v]) => {
+  ints("sample", seed); count(k, "sample");
+  if (k > v.length) R("E10", `sample: cannot take ${k} of ${v.length} items without repeats`);
+  const r = mulberry32(seed), p = v.slice(), n = p.length;
+  for (let i = 0; i < k; i++) { const j = i + Math.floor(r() * (n - i)); [p[i], p[j]] = [p[j], p[i]]; }
+  p.length = k; return p;
+});
+def("pick", "Num Num (Vec Num) -> (Vec Num)", ([seed, n, w]) => {
+  ints("pick", seed); count(n, "pick"); nonEmpty(w, "pick");
+  const cum = []; let s = 0, lastPos = -1;
+  for (let i = 0; i < w.length; i++) { if (w[i] < 0) R("E17", `pick: weight ${fmtNum(w[i])} at ${i} is negative`); s += w[i]; cum.push(s); if (w[i] > 0) lastPos = i; }
+  if (lastPos < 0) R("E17", "pick: every weight is 0");
+  fin(s, "pick: the sum of the weights");
+  const r = mulberry32(seed), out = [];
+  for (let i = 0; i < n; i++) {
+    const t = r() * s; let a = 0, b = lastPos;
+    while (a < b) { const m = (a + b) >> 1; if (cum[m] > t) b = m; else a = m + 1; }
+    out.push(a);
+  }
+  return out;
+});
+
+const HEXU = "0123456789ABCDEF", HEXL = "0123456789abcdef";
+const hexVal = c => c >= 48 && c <= 57 ? c - 48 : c >= 97 && c <= 102 ? c - 87 : c >= 65 && c <= 70 ? c - 55 : -1;
+const urlEnc = s => {
+  let out = "";
+  for (const b of new TextEncoder().encode(s))
+    out += b >= 48 && b <= 57 || b >= 65 && b <= 90 || b >= 97 && b <= 122 || b === 45 || b === 46 || b === 95 || b === 126 ? String.fromCharCode(b) : "%" + HEXU[b >> 4] + HEXU[b & 15];
+  return out;
+};
+const urlDec = (s, op, plus) => {
+  if (!/[%+]/.test(s)) return s;
+  const src = new TextEncoder().encode(s), out = new Uint8Array(src.length); let n = 0;
+  for (let i = 0; i < src.length; i++) {
+    const b = src[i];
+    if (b === 37) {
+      const h = i + 2 < src.length ? hexVal(src[i + 1]) : -1, l = h < 0 ? -1 : hexVal(src[i + 2]);
+      if (l < 0) R("E15", `${op}: bad escape ${quote(new TextDecoder().decode(src.slice(i, i + 3)))} at byte ${i}. % needs two hex digits. a real % is %25`);
+      out[n++] = h * 16 + l; i += 2;
+    } else out[n++] = plus && b === 43 ? 32 : b;
+  }
+  return decode(out.subarray(0, n), op);
+};
+def("url.enc", "Str -> Str", ([s]) => urlEnc(s));
+def("url.dec", "Str -> Str", ([s]) => urlDec(s, "url.dec", false));
+def("url.query", "Str -> (Map Str Str)", ([s]) => {
+  let m = EMPTY;
+  for (const part of (s[0] === "?" ? s.slice(1) : s).split("&")) {
+    if (part === "") continue;
+    const i = part.indexOf("=");
+    m = mput(m, urlDec(i < 0 ? part : part.slice(0, i), "url.query", true), i < 0 ? "" : urlDec(part.slice(i + 1), "url.query", true));
+  }
+  return m;
+});
+def("url.build", "(Map Str Str) -> Str", ([m]) => tnodes(m.root).map(n => urlEnc(n.key) + "=" + urlEnc(n.val)).join("&"));
+def("hex.enc", "(Vec Num) -> Str", ([v]) => { let out = ""; for (const b of bytes(v, "hex.enc")) out += HEXL[b >> 4] + HEXL[b & 15]; return out; });
+def("hex.dec", "Str -> (Vec Num)", ([s]) => {
+  if (s.length % 2) R("E15", `hex.dec: ${s.length} hex digits is an odd count. every byte is two digits`);
+  if (s.length / 2 > MAXLEN) R("E17", "hex.dec: over the item cap");
+  const out = [];
+  for (let i = 0; i < s.length; i += 2) {
+    const h = hexVal(s.charCodeAt(i)), l = hexVal(s.charCodeAt(i + 1));
+    if (h < 0 || l < 0) R("E15", `hex.dec: ${quote(s.slice(i, i + 2))} at ${i} is not two hex digits 0-9 a-f`);
+    out.push(h * 16 + l);
+  }
+  return out;
+});
+const HTML_ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" };
+def("html.esc", "Str -> Str", ([s]) => s.replace(/[&<>"']/g, c => HTML_ESC[c]));
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -3937,6 +4184,35 @@ const TESTS = [
   ["E1 wav needs its pack","(show (wav.tone 8000 440 1))","check!E1"],
   ["E4 wav takes numbers","(use wav)\n(show (wav.pack 8000 [\"a\"]))","check!E4"],
   ["wav: a full vector packs to more bytes than a vector holds","(use wav)\n(let v (wav.tone 44100 440 22))\n(show (len v))\n(show (len (wav.pack 44100 v)))\n(show (len (Sound.left (wav.read (wav.stereo 48000 v v)))))","970200\n1940444\n970200"],
+  ["root: sqrt 2, cos, a cubic, exact ends","(use math)\n(show (fix (root (fun [x] (- (* x x) 2)) 0 2) 12))\n(check (root cos 1 2) (/ pi 2))\n(show (fix (root (fun [x] (- (* x (* x x)) (+ x 1))) 1 2) 12))\n(show (root (fun [x] (- x 2)) 2 5))\n(show (root (fun [x] (- x 5)) 2 5))\n(show (root (fun [x] (- x 3)) 5 2))\n(show (root (fun [x] (- (* 2 x) 1)) 0 1))","1.414213562373\n1.324717957245\n2\n5\n3\n0.5"],
+  ["root: tiny, huge, flat, steep, triple","(use math)\n(show (root (fun [x] (- x 1e-9)) 0 1))\n(show (root (fun [x] (- x 1e9)) 0 1e12))\n(show (root (fun [x] (- x 1e9)) -1e300 1e300))\n(show (root (fun [x] (* 1e-200 (- x 0.25))) -1e6 1e6))\n(show (fix (root (fun [x] (- (exp (* 50 x)) 1e20)) -10 10) 12))\n(show (fix (root (fun [x] (pow (- x 1.5) 3)) 0 4) 9))\n(show (= 0 (root (fun [x] (* x (* x x))) -1 2)))\n(show (root (fun [x] (* x (* x x))) -1 1))","1e-9\n1000000000\n1000000000\n0.25\n0.921034037198\n1.500000000\nfalse\n0"],
+  ["root: a loan payment and a rate","(use math)\n(fn bal [pay Num] Num (fold (fun [b _] (- (* b 1.01) pay)) 1000 (range 12)))\n(show (fix (root bal 0 1000) 6))\n(fn pv [r Num] Num (- (/ (* 1000 r) (- 1 (pow (+ 1 r) -12))) 88.848789))\n(show (fix (root pv 1e-9 1) 8))","88.848789\n0.01000000"],
+  ["root: same sign is E17 with both values, up front","(use math)\n(show (root (fun [x] (+ 1 (* x x))) -1 2))","check!E17"],
+  ["root: the message names both values","(use math)\n(show (try (root (fun [x] (+ 1 (* x x))) -1 2)))","(Err \"E17\" \"root: f(-1) = 2 and f(2) = 5 have the same sign. give lo and hi where f has opposite signs\")"],
+  ["root: a pole is not a root","(use math)\n(show (match (try (root tan 1 2)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (root (fun [x] (/ 1 (- x 0.3))) 0 1)) (Ok _) \"ok\" (Err c _) c))","E17\nE17"],
+  ["root: an error inside f comes out unchanged","(use math)\n(show (try (root (fun [x] (log (- x 5))) 0 10)))\n(show (try (root (fun [x] (fail \"mine\" \"no\")) 0 10)))\n(show (try (minimize (fun [x] (sqrt (- x 5))) 0 10)))\n(show (match (try (integrate (fun [x] (get [1 2] (+ x 5))) 0 1)) (Ok _) \"ok\" (Err c _) c))\n(show (try (deriv (fun [x] (/ 1 (- x x))) 1)))","(Err \"E17\" \"log of nonpositive -5\")\n(Err \"mine\" \"no\")\n(Err \"E17\" \"sqrt of negative -1.18033988749895\")\nE10\n(Err \"E17\" \"division by zero\")"],
+  ["root: endless f still ends on the budget","(use math)\n(fn spin [n Num] Num (spin (+ n 1)))\n(show (try (root spin 0 1)))","!E9",null,100000],
+  ["minimize: parabola, cos, x + 1/x, ends","(use math)\n(show (fix (minimize (fun [x] (* (- x 2) (- x 2))) -10 10) 9))\n(show (fix (minimize cos 0 6) 9))\n(show (fix (minimize (fun [x] (+ x (/ 9 x))) 0 50) 9))\n(show (minimize (fun [x] x) 0 1))\n(show (minimize (fun [x] (neg x)) 0 1))\n(show (minimize (fun [x] (* x x)) 3 3))\n(show (fix (minimize (fun [x] (abs (- x 0.3))) -1 1) 6))\n(show (fix (minimize (fun [x] (* x (log x))) 0 3) 6))","2.000000000\n3.141592654\n3.000000000\n0\n1\n3\n0.300000\n0.367879"],
+  ["minimize: a local minimum, and E17","(use math)\n(fn w [x Num] Num (+ (* (- (* x x) 1) (- (* x x) 1)) (* 0.2 x)))\n(show (fix (minimize w -2 0) 4))\n(show (fix (minimize w 0 2) 4))\n(show (try (minimize w 2 -2)))\n(show (try (minimize log 0 1)))","-1.0241\n0.9740\n(Err \"E17\" \"minimize: lo 2 is over hi -2\")\n(Err \"E17\" \"log of nonpositive 0\")"],
+  ["integrate: known areas","(use math)\n(check (integrate sin 0 pi) 2)\n(check (integrate exp 0 1) (- (exp 1) 1))\n(check (integrate (fun [x] (/ 1 x)) 1 2) (log 2))\n(check (integrate (fun [x] (* x x)) 0 3) 9)\n(check (integrate (fun [x] (* x x)) 3 0) -9)\n(check (integrate (fun [x] (/ 4 (+ 1 (* x x)))) 0 1) pi)\n(check (integrate (fun [x] (exp (neg (* x x)))) -8 8) (sqrt pi))\n(check (integrate (fun [x] (sin (* 40 x))) 0 10) (/ (- 1 (cos 400)) 40))\n(show (integrate (fun [x] 7) 2 2))\n(show (integrate (fun [x] 3) 0 1.5))\n(show (fix (integrate (fun [x] (* 5 (pow x 4))) 0 2) 9))","0\n4.5\n32.000000000"],
+  ["integrate: kinks, jumps and end singularities","(use math)\n(check (integrate abs -1 2) 2.5)\n(check (integrate (fun [x] (if (< x 0.3) 0 1)) 0 1) 0.7)\n(check (integrate (fun [x] (if (< x 0.001) 100 0)) 0 1) 0.1)\n(check (integrate (fun [x] (if (> x 0.5001) 1 0)) 0 1) 0.4999)\n(check (integrate sqrt 0 1) (/ 2 3))\n(check (integrate (fun [x] (/ 1 (sqrt x))) 0 1) 2)\n(check (integrate log 0 1) -1)\n(check (integrate (fun [x] (floor x)) 0 5) 10)\n(show \"ok\")","ok"],
+  ["integrate: E17 when it does not exist","(use math)\n(show (match (try (integrate (fun [x] (/ 1 x)) 0 1)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (integrate (fun [x] (/ 1 (* x x))) -1 2)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (integrate (fun [x] (sin (/ 1 x))) 0 1)) (Ok _) \"ok\" (Err c _) c))","E17\nE17\nE17"],
+  ["integrate: E17 up front","(use math)\n(show (integrate (fun [x] (/ 1 x)) 0 1))","check!E17"],
+  ["deriv: known slopes","(use math)\n(check (deriv sin 0) 1)\n(check (deriv exp 1) (exp 1))\n(check (deriv log 0.001) 1000)\n(check (deriv (fun [x] (* x (* x x))) 2) 12)\n(check (deriv (fun [x] (* x (* x x))) 0) 0)\n(check (deriv sqrt 1e-6) 500)\n(check (deriv (fun [x] (sin (* 1000 x))) 1) (* 1000 (cos 1000)))\n(check (deriv (fun [x] (/ 1 x)) 1e6) -1e-12)\n(show (fix (deriv (fun [x] (+ (* 3 x) 1)) 0) 9))\n(show (match (try (deriv (fun [x] (if (< x 0) -1 1)) 0)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (deriv sqrt 0)) (Ok _) \"ok\" (Err _ m) m))","3.000000000\nE17\nsqrt of negative -0.01"],
+  ["randn: seeded, the vector form of k.randn","(use math)\n(use mat)\n(show (map (fun [z] (fix z 9)) (randn 1 3)))\n(show (same (randn 7 5) (randn 7 5)))\n(show (same (randn 7 5) (randn 8 5)))\n(show (same [(randn 7 5)] (k.randn 1 5 7)))\n(show (same (take (randn 7 5) 3) (randn 7 3)))\n(show (randn 1 0))\n(show (len (randn 3 1000)))\n(show (< (abs (mean (randn 3 1000))) 0.1))\n(show (< (abs (- (sd (randn 3 1000)) 1)) 0.1))","[\"0.965974059\" \"1.123104194\" \"-0.049227863\"]\ntrue\nfalse\ntrue\ntrue\n[]\n1000\ntrue\ntrue"],
+  ["randn randint sample pick: bad counts and seeds","(use math)\n(show (match (try (randn 1.5 3)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randn 1 -1)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randn 1 2000000)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randint 1 2.5 1 6)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randint 1 2 1.5 6)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randint 1 2 6 1)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (randint 1 2 0 1e12)) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (sample 0.5 1 [1 2])) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (sample 1 -1 [1 2])) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (pick 1 1.5 [1 2])) (Ok _) \"ok\" (Err c _) c))","E17\nE17\nE17\nE17\nE17\nE17\nE17\nE17\nE17\nE17"],
+  ["randint: whole numbers, both ends","(use math)\n(show (randint 1 10 1 6))\n(show (randint 1 4 5 5))\n(show (randint 1 0 1 6))\n(show (order (uniq (randint 2 200 -1 1))))\n(show (all (fun [x] (and (isint x) (and (>= x 10) (<= x 12)))) (randint 5 1000 10 12)))\n(show (same (randint 9 20 0 99) (randint 9 20 0 99)))\n(show (same (randint 9 20 0 99) (randint 10 20 0 99)))\n(show (len (randint 4 3 -2147483648 2147483647)))","[4 1 4 6 6 2 4 5 3 6]\n[5 5 5 5]\n[]\n[-1 0 1]\ntrue\ntrue\nfalse\n3"],
+  ["sample: k of v, none twice","(use math)\n(let v [\"a\" \"b\" \"c\" \"d\" \"e\"])\n(show (sample 1 3 v))\n(show (sample 1 0 v))\n(show (order (sample 4 5 v)))\n(show (sample 1 1 [\"x\"]))\n(show (same (sample 3 2 v) (sample 3 2 v)))\n(let s (sample 11 40 (range 100)))\n(show (len (uniq s)))\n(show (all (fun [x] (and (>= x 0) (< x 100))) s))\n(show (same (take (sample 11 40 (range 100)) 10) (sample 11 10 (range 100))))\n(show (sample 2 0 (slice [1] 0 0)))","[\"d\" \"b\" \"a\"]\n[]\n[\"a\" \"b\" \"c\" \"d\" \"e\"]\n[\"x\"]\ntrue\n40\ntrue\ntrue\n[]"],
+  ["sample: more than there is = E10","(use math)\n(show (sample 1 3 [1 2]))","check!E10"],
+  ["pick: indexes by weight","(use math)\n(show (pick 1 10 [1 0 3]))\n(show (pick 1 5 [0 0 2]))\n(show (pick 1 3 [0.5]))\n(show (pick 1 0 [1 2]))\n(show (has (pick 3 1000 [1 0 1 0]) 1))\n(show (has (pick 3 1000 [1 0 1 0]) 3))\n(let n (count (fun [i] (= i 1)) (pick 5 10000 [1 3])))\n(show (and (> n 7300) (< n 7700)))\n(show (same (pick 5 10 [1 3]) (pick 5 10 [10 30])))\n(show (pick 1 4 [1e-300 1e300 0]))","[2 0 2 2 2 2 2 2 2 2]\n[2 2 2 2 2]\n[0 0 0]\n[]\nfalse\nfalse\ntrue\ntrue\n[1 1 1 1]"],
+  ["pick: bad weights","(use math)\n(show (try (pick 1 2 [1 -2 3])))\n(show (try (pick 1 2 [0 0])))\n(show (match (try (pick 1 2 (slice [1] 0 0))) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (pick 1 2 [1e308 1e308])) (Ok _) \"ok\" (Err c _) c))","(Err \"E17\" \"pick: weight -2 at 1 is negative\")\n(Err \"E17\" \"pick: every weight is 0\")\nE10\nE17"],
+  ["url.enc url.dec","(use bytes)\n(show (url.enc \"a b&c=d/e?f#g\"))\n(show (url.enc \"AZaz09-._~\"))\n(show (url.enc \"!*'();:@+$,[]%\"))\n(show (url.enc \"é中😀\"))\n(show (url.enc \"\"))\n(show (url.dec \"a%20b%26c%3dd%2Fe\"))\n(show (url.dec \"%C3%A9%e4%b8%ad%F0%9F%98%80\"))\n(show (url.dec \"a+b\"))\n(show (url.dec \"100%25\"))\n(show (url.dec \"\"))\n(show (url.dec (url.enc \"é+ %41 & 😀\")))\n(show (slen (url.dec \"%00\")))","a%20b%26c%3Dd%2Fe%3Ff%23g\nAZaz09-._~\n%21%2A%27%28%29%3B%3A%40%2B%24%2C%5B%5D%25\n%C3%A9%E4%B8%AD%F0%9F%98%80\n\na b&c=d/e\né中😀\na+b\n100%\n\né+ %41 & 😀\n1"],
+  ["url.dec: E15 on a bad escape or not utf8","(use bytes)\n(show (try (url.dec \"100%\")))\n(show (match (try (url.dec \"%4\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (url.dec \"%zz\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (url.dec \"a%é1\")) (Ok _) \"ok\" (Err c _) c))\n(show (try (url.dec \"%ff\")))\n(show (match (try (url.dec \"%C3\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (url.dec \"%ED%A0%80\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (url.query \"a=%\")) (Ok _) \"ok\" (Err c _) c))","(Err \"E15\" \"url.dec: bad escape \\\"%\\\" at byte 3. % needs two hex digits. a real % is %25\")\nE15\nE15\nE15\n(Err \"E15\" \"url.dec: bytes are not utf8 text\")\nE15\nE15\nE15"],
+  ["url.dec: E15 up front","(use bytes)\n(show (url.dec \"%zz\"))","check!E15"],
+  ["url.query url.build","(use bytes)\n(show (url.query \"a=1&b=x%20y\"))\n(show (url.query \"?a=1&b=x+y&c&d=&a=2&&e=f=g&%C3%A9=%26\"))\n(show (url.query \"\"))\n(show (url.query \"?\"))\n(show (mget (url.query \"q=caf%C3%A9+au+lait\") \"q\"))\n(show (url.build {\"q\" \"a b&c\" \"page\" \"2\" \"é\" \"=+\"}))\n(show (url.build {}))\n(show (url.build {\"\" \"\"}))\n(show (url.query (url.build {\"k 1\" \"v&1=+\" \"k2\" \"\"})))\n(show (url.build (url.query \"b=2&a=1&b=3\")))","{\"a\" \"1\" \"b\" \"x y\"}\n{\"a\" \"2\" \"b\" \"x y\" \"c\" \"\" \"d\" \"\" \"e\" \"f=g\" \"é\" \"&\"}\n{}\n{}\n(Some \"café au lait\")\npage=2&q=a%20b%26c&%C3%A9=%3D%2B\n\n=\n{\"k 1\" \"v&1=+\" \"k2\" \"\"}\na=1&b=3"],
+  ["hex.enc hex.dec","(use bytes)\n(show (hex.enc [0 1 15 16 255]))\n(show (hex.enc (utf8 \"hé\")))\n(show (hex.enc (slice [1] 0 0)))\n(show (hex.dec \"00010f10ff\"))\n(show (hex.dec \"DEADbeef\"))\n(show (hex.dec \"\"))\n(show (unutf8 (hex.dec (hex.enc (utf8 \"中😀\")))))\n(show (try (hex.dec \"abc\")))\n(show (try (hex.dec \"0g\")))\n(show (match (try (hex.dec \" 0a\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (hex.dec \"0x0a\")) (Ok _) \"ok\" (Err c _) c))\n(show (try (hex.enc [1 256])))\n(show (match (try (hex.enc [-1])) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (hex.enc [1.5])) (Ok _) \"ok\" (Err c _) c))","00010f10ff\n68c3a9\n\n[0 1 15 16 255]\n[222 173 190 239]\n[]\n中😀\n(Err \"E15\" \"hex.dec: 3 hex digits is an odd count. every byte is two digits\")\n(Err \"E15\" \"hex.dec: \\\"0g\\\" at 0 is not two hex digits 0-9 a-f\")\nE15\nE15\n(Err \"E17\" \"hex.enc: 256 is not a byte 0..255\")\nE17\nE17"],
+  ["html.esc","(use bytes)\n(show (html.esc \"<a href=\\\"x\\\">Tom & 'Jerry'</a>\"))\n(show (html.esc \"plain é 😀\"))\n(show (html.esc \"\"))\n(show (html.esc \"&amp;\"))\n(show (html.esc \"<<>>\"))","&lt;a href=&quot;x&quot;&gt;Tom &amp; &#x27;Jerry&#x27;&lt;/a&gt;\nplain é 😀\n\n&amp;amp;\n&lt;&lt;&gt;&gt;"],
+  ["numeric names need their pack","(show (root cos 1 2))\n(show (url.enc \"a\"))","!E1,E1"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

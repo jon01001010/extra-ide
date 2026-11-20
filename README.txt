@@ -77,14 +77,14 @@ THE PACKS. 167 rows are core, the rest load with (use name)
   dec   exact decimals, big whole numbers
   diff  edits by text: here it is, there it should be
   chart charts and graphs as Draw shapes
-  math  trig gcd stats seeded shuffle
+  math  trig stats roots integrals seeded random
   text  pad wrap words edit distance
   csv   csv rows, maps, named columns
   re    regex
   json  Json sum, read by path
   time  dates and calendar math, utc
   bit   bit ops
-  bytes utf8 base64 sha256 radix
+  bytes utf8 base64 hex url html.esc sha256
   mat   vectors and matrices
   draw  shapes: ascii png svg pdf frames
   io    files paths shell http clock

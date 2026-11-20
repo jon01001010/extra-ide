@@ -45,7 +45,7 @@ index line (~70 chars). Merge into existing packs where it fits.
       real database: the host gives the schema as types, and the query is sent
       as that database's SQL with parameters, never built from strings, so no
       injection.
-- [ ] **math** (extend): find a root of f, minimize f on a range, integrate f,
+- [x] **math** (extend): find a root of f, minimize f on a range, integrate f,
       seeded normal / int range / weighted pick / sample without replacement, for
       simulations and test data. Covers loans, IRR and most finance asks without
       a finance pack.
@@ -63,7 +63,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 
 ## 3. Small helpers, folded into existing packs
 
-- [ ] **bytes**: url encode/decode, query strings to a map, hex, html escape.
+- [x] **bytes**: url encode/decode, query strings to a map, hex, html escape.
       Escaping is the part of html a model gets wrong; the page it writes itself.
 - [x] **prop**: property checks: a predicate over N seeded inputs, report the
       first failing input, shrunk. A model testing its own code beyond examples.
