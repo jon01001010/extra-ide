@@ -11816,6 +11816,7 @@ function checkBuiltinAC(){
   // Get current word being typed
   var wordMatch=before.match(/([a-zA-Z_]\w*)$/);
   if(!wordMatch||wordMatch[1].length<3){if(_builtinAC){hideAC();_builtinAC=false}return}
+  if(typeof _libInStrOrComment==='function'&&_libInStrOrComment(before)){if(_builtinAC){hideAC();_builtinAC=false}return}   /* not in a comment or a string (//// file: extra.emit is not emitter) */
   var word=wordMatch[1].toLowerCase();
   // Don't show if we're in a keyword/type position
   var lineStart=before.lastIndexOf('\n')+1;

@@ -415,12 +415,12 @@ export fn run() {
       const bp = await newPage(browser, DESK);
       await bp.goto('file://' + bf);
       await bp.waitForFunction(() => typeof compileAndRun === 'function' && typeof EX === 'object');
-      const progs = await page.evaluate(() => Object.keys(EX).filter(n => n !== 'mote').map(n => [n, EX[n]]));
+      const progs = await page.evaluate(() => Object.keys(EX).filter(n => n !== 'mote' && !/^(hud|particles)[ \t]+\w+[ \t]*:/m.test(EX[n])).map(n => [n, EX[n]]));
       progs.push(['sound', 'sound coin: square 880\nexport fn run() {\n  play(coin)\n}\n'], ['interop', 'export fn run() {\n  let o = emptyObj()\n  o.x = 1\n  printStr(toStr(o.x))\n}\n']);
       const hashes = async (p, list) => p.evaluate(list => list.map(([n, s]) => { try { const r = compile(s); let h = 0; for (const b of r.wasm) h = (h * 31 + b) >>> 0; return n + ':' + r.wasm.length + ':' + h + ':' + (r.errors || []).length; } catch (e) { return n + ':throws:' + e.message; } }), list);
       const a = await hashes(bp, progs), b = await hashes(page, progs);
       const diffs = a.filter((x, i) => x !== b[i]);
-      check('programs without Mote compile to the same bytes as before Mote (' + progs.length + ' programs: every example but mote)', diffs.length === 0, diffs.join(' | ') + ' vs ' + b.filter((x, i) => x !== a[i]).join(' | '));
+      check('programs without Mote compile to the same bytes as before Mote (' + progs.length + ' programs: every example but mote and those with hud / particles blocks, which that build cannot read)', diffs.length === 0, diffs.join(' | ') + ' vs ' + b.filter((x, i) => x !== a[i]).join(' | '));
       // exports of a program without Mote: no Mote in them, and the size as before (± the few lines of loader hooks)
       const plain = 'export fn run() {\n  printStr("plain")\n}\n';
       const exp = async p => p.evaluate(s => { const r = compile(s); const P = _exportProgram(s, r); return { html: _exportHtml(P), js: _exportJs(P) }; }, plain);
