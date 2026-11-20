@@ -8,7 +8,7 @@
 (function(){
   if(typeof _drawerRegister!=='function'){window._drawerTools=window._drawerTools||[];window._drawerRegister=function(t){window._drawerTools.push(t)}}
   var EVENTS=[['start','on start'],['frame','every frame'],['every','every … (time)'],['key','on key (held)'],['keydown','on keydown'],['keyup','on keyup'],['press','on press (button)'],['hold','on hold (button)'],['tap','on tap'],['touch','on touch (held)'],['hit','on hit'],['when','when (condition)'],['each','each (thing)']];
-  var VERBS=[['mv','move by'],['vel','set velocity'],['to','move to'],['spawn','spawn'],['remove','remove'],['block','block'],['bounce','bounce'],['set','set'],['add','add'],['play','play sound'],['music','play music'],['say','say'],['frame','frame'],['call','call fn'],['restart','restart'],['stop','stop']];
+  var VERBS=[['mv','move by'],['vel','set velocity'],['to','move to'],['spawn','spawn'],['remove','remove'],['block','block'],['bounce','bounce'],['set','set'],['add','add'],['play','play sound'],['music','play music'],['say','say'],['frame','frame'],['call','call fn'],['restart','restart'],['stop','stop'],['burst','burst particles']];
   var SUBJ={mv:1,vel:1,to:1,remove:1,block:1,bounce:1,frame:1};
   var KEYS=['left','right','up','down','space','enter','shift','ctrl','alt','esc','tab','backspace'].concat('abcdefghijklmnopqrstuvwxyz0123456789'.split(''));
   var BEH=[['chase','chase'],['flee','flee'],['wander','wander'],['patrol','patrol'],['track','track (face)'],['follow','follow (chain)'],['gravity','gravity']];
@@ -94,6 +94,7 @@
         case'spawn':A.kind=a.kind.value;A.x=a.x?X(a.x):'';A.y=a.y?X(a.y):'';A.vx=a.vx?X(a.vx):'';A.vy=a.vy?X(a.vy):'';break;
         case'set':case'add':A.target=a.target.value+(a.field?'.'+a.field.value:'');A.value=X(a.value);break;
         case'play':case'music':A.name=a.name;break;
+        case'burst':A.name=a.name;A.at=a.atThing?a.atThing.value:a.x?X(a.x)+', '+X(a.y):'';break;
         case'say':case'frame':A.value=X(a.value);break;
         case'call':A.fn=a.fn?a.fn.value:X(a.callExpr);break;
       }
@@ -125,6 +126,7 @@
       case'set':case'add':return a.verb+' '+(a.target||'score')+' '+(a.value||(a.verb==='add'?'1':'0'));
       case'play':case'music':return a.verb+' '+(a.name||'?');
       case'say':return'say '+(a.value||'""');
+      case'burst':return'burst '+(a.name||'?')+(a.at?' at '+a.at:'');
       case'call':return'call '+(a.fn||'?');
       default:return a.verb;
     }
@@ -397,6 +399,7 @@
         case'set':case'add':h+=inp(a.target,'data-f="target" class="lg-var"','score','lg-dl-var')+inp(a.value,'data-f="value" class="lg-expr"',a.verb==='add'?'1':'0','lg-dl-expr');break;
         case'play':case'music':h+=(sounds.length?sel([['','(sound)']].concat(sounds.concat(a.name&&sounds.indexOf(a.name)<0?[a.name]:[]).map(function(n){return[n,n]})),a.name,'data-f="name"'):inp(a.name,'data-f="name"','coin'));break;
         case'say':h+=inp(a.value,'data-f="value" class="lg-expr"','"You win!"','lg-dl-expr');break;
+        case'burst':{var fxs=blocksOf('particles');h+=(fxs.length?sel([['','(particles)']].concat(fxs.concat(a.name&&fxs.indexOf(a.name)<0?[a.name]:[]).map(function(n){return[n,n]})),a.name,'data-f="name"'):inp(a.name,'data-f="name"','sparkle'))+'<span class="lg-w">at</span>'+inp(a.at,'data-f="at" class="lg-expr"','coin, or x, y','lg-dl-at');break}
         case'call':h+=inp(a.fn,'data-f="fn"','openChest','lg-dl-fn');break;
       }
       return h;
@@ -410,7 +413,7 @@
       var v=Object.keys(vars).filter(function(n){return!/^__lg/.test(n)}).concat(fields);
       var ex=v.concat(S.things.map(function(T){return'count('+T.name+')'})).concat(['rnd(100)','stickX()','stickY()','tapX()','tapY()','i']);
       function dl(id,items){return'<datalist id="'+id+'">'+items.map(function(n){return'<option value="'+esc(n)+'">'}).join('')+'</datalist>'}
-      return dl('lg-dl-var',v)+dl('lg-dl-expr',ex)+dl('lg-dl-fn',Object.keys(fns).filter(function(n){return n!=='frame'&&!/^__lg/.test(n)}));
+      return dl('lg-dl-var',v)+dl('lg-dl-expr',ex)+dl('lg-dl-at',S.things.map(function(T){return T.name}))+dl('lg-dl-fn',Object.keys(fns).filter(function(n){return n!=='frame'&&!/^__lg/.test(n)}));
     }
     function renderRules(){
       var h=lists()+'<div class="lg-rules">';
@@ -458,7 +461,7 @@
             r.ev[f]=f==='cond'||f==='n'?String(v).trim():v;touch(r);return;
           }
           var a=r.actions[j];
-          if(f==='verb'){r.actions[j]={verb:v,subj:'',x:'',y:'',vx:'',vy:'',kind:'',target:'',value:'',name:'',fn:''};if(v==='set'||v==='add'){r.actions[j].target='score';r.actions[j].value=v==='add'?'1':'0'}if(v==='mv'||v==='vel'||v==='to'){r.actions[j].x='0';r.actions[j].y='0'}if(v==='spawn')r.actions[j].kind=kinds()[0]||'';touch(r);renderRules();return}
+          if(f==='verb'){r.actions[j]={verb:v,subj:'',x:'',y:'',vx:'',vy:'',kind:'',target:'',value:'',name:'',fn:''};if(v==='set'||v==='add'){r.actions[j].target='score';r.actions[j].value=v==='add'?'1':'0'}if(v==='mv'||v==='vel'||v==='to'){r.actions[j].x='0';r.actions[j].y='0'}if(v==='spawn')r.actions[j].kind=kinds()[0]||'';if(v==='burst'){r.actions[j].name=blocksOf('particles')[0]||'sparkle';r.actions[j].at=kinds()[0]||''}touch(r);renderRules();return}
           a[f]=typeof v==='string'&&f!=='subj'&&f!=='kind'&&f!=='name'?v.trim():v;touch(r);
         });
       });

@@ -301,6 +301,29 @@ textarea::placeholder{color:var(--fg3)}textarea::selection{background:rgba(45,21
 .mte-bud{width:96px}
 .drw-krow{display:flex;align-items:center;gap:8px;margin:4px 0}
 .drw-krow code{flex:1;min-width:0;font-family:var(--mono);font-size:12px;color:var(--fg2);background:var(--bg);border:1px dashed var(--border);border-radius:6px;padding:8px;word-break:break-all}
+.hfx .drw-sm,.hfx .drw-seg button,.hfx .drw-chip{min-height:44px}
+.hfx-cv{display:block;width:100%;max-width:480px;margin:8px auto 2px;image-rendering:pixelated;border:1px solid var(--border);border-radius:10px;background:#000;touch-action:none}
+.hfx-note{text-align:center;margin:0 0 4px}
+.hfx-under{justify-content:space-between}
+.hfx-item{margin:8px 0;padding:8px 10px}
+.hfx-ihead{flex-wrap:wrap;gap:4px}
+.hfx-sp{flex:1}
+.hfx-dis{opacity:.35}
+.hfx-text{max-width:none}
+.hfx-bad{border-color:var(--red)}
+.hfx-place{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:6px}
+.hfx-grid{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:3px;flex-shrink:0}
+.hfx-grid button{position:relative;padding:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer}
+.hfx-grid button::after{content:'';position:absolute;left:50%;top:50%;width:12px;height:8px;border-radius:2px;background:var(--fg3);transform:translate(-50%,-50%)}
+.hfx-grid button.on{background:var(--cyan);border-color:var(--cyan)}
+.hfx-grid button.on::after{background:var(--bg)}
+.hfx-grid button:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
+.hfx-pside{flex:1;min-width:150px}
+.hfx-pside .drw-row{flex-wrap:wrap}
+.hfx-col{width:44px;height:44px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer}
+.hfx-ref{max-width:120px}
+.hfx-sel{max-width:200px}
+.hfx-cw{display:inline-flex;align-items:center;gap:2px}
 /* Sound */
 .snd-top{display:flex;gap:8px;align-items:stretch;margin:8px 0}
 .snd-cv{flex:1;min-width:0;height:120px;border:1px solid var(--border);border-radius:10px;display:block}
