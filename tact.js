@@ -45,7 +45,7 @@ const PACKS = {
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
   draw: { machine: true, say: "shapes: ascii png svg pdf frames", opaque: "(rec Image [w Num h Num id Str])", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
-(Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
+(Text x y size s color): a 3x5 pixel font, size = pixel scale, rounded and held to 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
 shapes become pixels in the core: the same picture on every host.
 an Image is pixels you can work on: img.read a png or img.draw shapes, then crop resize gray map,
@@ -119,7 +119,7 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
        under a small budget. a run error it ends in is reported in the check phase, all at once.
        a form that reaches io is only read: an error its literals and lets make certain, on code
        that must run, is reported. the rest wait for the run.
-       run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
+       run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK and a spent budget.
 
 HOST   an embedding program can add typed functions and types, checked like builtins: tact --host H.js --spec
 
@@ -325,7 +325,7 @@ date.add time 3 Num,Num,Str Num ms n unit. ms sec min hour day week month year
 date.days time 2 Num,Num Num a b. calendar days from a to b
 date.daynum time 1 Str Num iso text. days from 1970-01-01 to the date it starts with. E15. E17 not a day
 date.start time 2 Num,Str Num ms unit. start of that sec .. year. week = monday
-date.fmt time 2 Num,Str Str YYYY MM DD HH mm ss SSS MMM MMMM ddd dddd. the rest as is
+date.fmt time 2 Num,Str Str YYYY MM DD HH mm ss SSS MMM MMMM ddd dddd. words go in [ ] to stay as written
 date.span time 1 Num Str ms as 2d 3h 4m 5s
 date.iso time 1 Num Str ms since 1970 to iso utc
 date.parse time 1 Str Num iso only. a time needs Z or +hh:mm. E15
@@ -396,9 +396,9 @@ chart.bar chart 5 Num,Num,Str,@Vec.Str,@Vec.Num @Vec.Draw w h title labels value
 chart.hist chart 5 Num,Num,Str,@Vec.Num,Num @Vec.Draw w h title values bins. equal width bins
 chart.fn chart 6 Num,Num,Str,@fn,Num,Num @Vec.Draw w h title f lo hi. f at every pixel. an f error stops it
 Edit diff ! ! ! Edit here there
-diff.make diff 2 Str,Str @Vec.Edit a b. edits that turn a into b
+diff.make diff 2 Str,Str @Vec.Edit a b. edits that turn a into b. E17 over about 3000 changed lines on each side
 diff.apply diff 2 Str,@Vec.Edit Str text edits. in order. E14 here missing or not once
-diff.unified diff 2 Str,Str Str a b. unified diff for people. 3 lines of context
+diff.unified diff 2 Str,Str Str a b. unified diff for people. 3 lines of context. the same E17
 Dec dec ! ! ! exact decimal. shown as (dec "1.5")
 dec dec 1 Str Dec digits . sign. E15
 dec.of dec 1 Num Dec the number as written. 0.1 is 0.1
@@ -453,10 +453,10 @@ wav.tone wav 3 Num,Num,Num @Vec.Num rate hz seconds. a sine, peak 1, from 0. rou
 wav.env wav 3 @Vec.Num,Num,Num @Vec.Num samples attack release, both counted in samples. straight fades. E17 longer than the sound
 wav.mix wav 1 @Vec.@Vec.Num @Vec.Num sum, short ones end early. divided by the peak only if it is over 1
 wav.read wav 1 @Vec.Num Sound bytes of a 16 bit pcm wav. E15 not a wav. E14 another kind of wav
-root math 3 @fn,Num,Num Num f lo hi. x in lo..hi where f is 0, to full precision. f(lo) f(hi) need opposite signs, else E17. E17 at a pole
+root math 3 @fn,Num,Num Num f lo hi. x in lo..hi where f is 0, to full precision. f(lo) f(hi) need opposite signs, else E17. E17 at a pole. a jump across 0 counts as a root
 minimize math 3 @fn,Num,Num Num f lo hi. x where f is least. a local minimum: narrow lo..hi if f has several dips. about 7 digits. E17 lo over hi
 integrate math 3 @fn,Num,Num Num f lo hi. the definite integral, about 10 digits. lo over hi flips the sign. E17 if it does not settle: split at a jump or pole
-deriv math 2 @fn,Num Num f x. slope of f at x, about 9 digits. f must exist a little to both sides of x. E17 at a kink or jump
+deriv math 2 @fn,Num Num f x. slope of f at x, about 9 digits. f must exist a little to both sides of x. it looks both ways, so a kink at x goes unseen
 randn math 2 Num,Num @Vec.Num seed n. standard normals: mean 0 sd 1. for mean m sd s map (+ m (* s z))
 randint math 4 Num,Num,Num,Num @Vec.Num seed n lo hi. whole numbers lo..hi, both ends included. E17 lo over hi
 sample math 3 Num,Num,@Vec.@T @Vec.@T seed k v. k items of v, none twice, in drawn order. E10 k over len
@@ -552,7 +552,7 @@ function sx(s) {
 }
 
 /* ------------------------------------------------------------------ lex + parse */
-const NUMRE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const NUMRE = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;      // no way to match one text two ways: long digit runs stay linear
 const OPEN = { "(": ")", "[": "]", "{": "}" }, KIND = { "(": "list", "[": "vec", "{": "map" };
 const isClose = k => k === ")" || k === "]" || k === "}";
 function lex(src, errs, base = 0) {
@@ -951,6 +951,7 @@ function lev(a, b) {
   return prev[n];
 }
 function nearest(name, names) {
+  if (name.length > 100) return null;
   let best = null, bd = Infinity;
   for (const c of names) { const d = lev(name, c); if (d < bd) { bd = d; best = c; } }
   return best !== null && bd <= Math.max(2, Math.floor(name.length / 2)) ? best : null;
@@ -1134,6 +1135,7 @@ function pinv(A) {
 }
 function eig(A) {                  // eigenvalues of a real square matrix: [[re ..] [im ..]], re desc
   const [n, m] = mshape(A, "k.eig"); if (n !== m) R("E14", `k.eig needs a square matrix, got ${n}x${m}`);
+  if (n > 300) R("E17", `k.eig: ${n}x${n} is too large for the js backend`);
   let sym = true, big = 0;
   for (let i = 0; i < n && sym; i++) for (let j = 0; j < i; j++) if (A[i][j] !== A[j][i]) { sym = false; break; }
   for (const r of A) for (const x of r) big = Math.max(big, Math.abs(x));
@@ -1362,7 +1364,7 @@ def("pairs", `Num Num -> ${M_}`, ([lo, hi]) => {
 });
 def("uniq", "(Vec a) -> (Vec a)", ([v]) => {
   try { let t = null; const out = []; for (const x of v) if (!tget(t, x)) { t = tput(t, x, 1); out.push(x); } return out; }
-  catch (e) { const out = []; for (const x of v) if (!out.some(y => same(x, y, false))) out.push(x); return out; }      // functions have no order: compare one by one
+  catch (e) { if (v.length > 5000) R("E17", "uniq: over 5000 items that have no order (functions)"); const out = []; for (const x of v) if (!out.some(y => same(x, y, false))) out.push(x); return out; }      // functions have no order: compare one by one
 });
 def("flat", "(Vec (Vec a)) -> (Vec a)", ([v]) => { let n = 0; for (const x of v) n += x.length; if (n > MAXLEN) R("E17", "flat: over the item cap"); const out = []; for (const x of v) for (const y of x) out.push(y); return out; });
 def("same", "a a -> Bool", ([a, b]) => same(a, b, false));
@@ -1379,7 +1381,7 @@ def("k.pinv", `${M_} -> ${M_}`, ([a]) => pinv(a));
 def("k.eig", `${M_} -> ${M_}`, ([a]) => eig(a));
 def("k.randn", `Num Num Num -> ${M_}`, ([r, c, seed]) => {
   if (!isInt(r) || !isInt(c) || r < 0 || c < 0 || !isInt(seed)) R("E14", "k.randn needs whole rows >= 0, cols >= 0 and a whole seed");
-  if (r * c > MAXLEN) R("E14", "k.randn: too many entries");
+  if (r > MAXLEN || c > MAXLEN || r * c > MAXLEN) R("E14", "k.randn: too many entries");
   const rnd = mulberry32(seed), out = [];
   for (let i = 0; i < r; i++) {
     const row = [];
@@ -1539,16 +1541,17 @@ def("json.get", "Json Str -> (Opt Json)", ([j, k]) => { const n = j.name === "JO
 /* ---- time: a date is ms since 1970, utc. no zones, so a result never depends on the machine */
 const DAY = 864e5, MON = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const WDAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const when = (ms, op) => { if (!(Math.abs(ms) <= 8.64e15)) R("E17", `${op}: ${fmtNum(ms)} is outside the calendar`); return new Date(ms); };
+const when = (ms, op) => { if (!(Math.abs(ms) <= 8.4e15)) R("E17", `${op}: ${fmtNum(ms)} is outside the calendar`); return new Date(ms); };
 const daysIn = (y, m) => { const d = new Date(0); d.setUTCFullYear(y, m, 0); return d.getUTCDate(); };      // m is 1..12
 function dayOf(y, m, d, op) {
-  if (!isInt(y) || !isInt(m) || !isInt(d) || m < 1 || m > 12 || d < 1 || Math.abs(y) > 275000 || d > daysIn(y, m))
+  if (!isInt(y) || !isInt(m) || !isInt(d) || m < 1 || m > 12 || d < 1 || Math.abs(y) > 266000 || d > daysIn(y, m))
     R("E17", `${op}: ${fmtNum(y)}-${fmtNum(m)}-${fmtNum(d)} is not a day` + (isInt(m) && m >= 1 && m <= 12 && isInt(y) && d > daysIn(y, m) ? `. ${MON[m - 1]} ${fmtNum(y)} has ${daysIn(y, m)} days` : ""));
   const t = new Date(0); t.setUTCFullYear(y, m - 1, d); return t.getTime();
 }
 const isoWd = t => (t.getUTCDay() + 6) % 7 + 1;                 // 1 monday .. 7 sunday
 def("date.of", "Num Num Num -> Num", ([y, m, d]) => dayOf(y, m, d, "date.of"));
 def("date.parts", "Num -> Parts", ([ms]) => {
+  ms = Math.floor(ms);
   const t = when(ms, "date.parts"), y = t.getUTCFullYear(), jan1 = new Date(0); jan1.setUTCFullYear(y, 0, 1);
   return RV("Parts", [y, t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes(), t.getUTCSeconds(), t.getUTCMilliseconds(), isoWd(t), Math.floor((ms - jan1.getTime()) / DAY) + 1]);
 });
@@ -1558,6 +1561,7 @@ def("date.add", "Num Num Str -> Num", ([ms, n, u]) => {
   if (u === "month" || u === "year") {
     if (!isInt(n)) R("E17", `date.add: ${fmtNum(n)} ${u}s must be whole`);
     const k = t.getUTCMonth() + (u === "year" ? 12 * n : n), y = t.getUTCFullYear() + Math.floor(k / 12), m = ((k % 12) + 12) % 12 + 1;
+    if (Math.abs(y) > 266000) R("E17", "date.add: the result is outside the calendar");
     const d = Math.min(t.getUTCDate(), daysIn(y, m));             // the same day, or the month's last
     return dayOf(y, m, d, "date.add") + (ms - dayOf(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), "date.add"));
   }
@@ -1585,16 +1589,17 @@ def("date.start", "Num Str -> Num", ([ms, u]) => {
 });
 def("date.fmt", "Num Str -> Str", ([ms, p]) => {
   const t = when(ms, "date.fmt"), two = n => String(n).padStart(2, "0"), y = t.getUTCFullYear();
-  return p.replace(/YYYY|MMMM|MMM|MM|DD|dddd|ddd|HH|mm|ss|SSS/g, k => ({
+  return p.split(/(\[[^\]]*\])/).map(part => part[0] === "[" && part.endsWith("]") ? part.slice(1, -1) : part.replace(/YYYY|MMMM|MMM|MM|DD|dddd|ddd|HH|mm|ss|SSS/g, k => ({
     YYYY: y < 0 ? "-" + String(-y).padStart(4, "0") : String(y).padStart(4, "0"), MMMM: MON[t.getUTCMonth()], MMM: MON[t.getUTCMonth()].slice(0, 3), MM: two(t.getUTCMonth() + 1),
     DD: two(t.getUTCDate()), dddd: WDAY[isoWd(t) - 1], ddd: WDAY[isoWd(t) - 1].slice(0, 3), HH: two(t.getUTCHours()), mm: two(t.getUTCMinutes()), ss: two(t.getUTCSeconds()),
     SSS: String(t.getUTCMilliseconds()).padStart(3, "0"),
-  })[k]);
+  })[k])).join("");
 });
 def("date.span", "Num -> Str", ([ms]) => {
   if (!Number.isFinite(ms)) R("E17", "date.span: not a length of time");
-  const s = ms < 0 ? "-" : "", a = Math.abs(ms);
-  if (a < 1000) return s + fmtNum(Math.round(a)) + "ms";
+  const s = ms < 0 ? "-" : "", a = Math.round(Math.abs(ms));
+  if (a > 8.64e15) R("E17", `date.span: ${fmtNum(ms)} ms is too long to write out`);
+  if (a < 1000) return (a ? s : "") + a + "ms";
   const parts = [], d = Math.floor(a / DAY), h = Math.floor(a % DAY / 36e5), m = Math.floor(a % 36e5 / 6e4), sec = Math.floor(a % 6e4 / 1e3);
   if (d) parts.push(d + "d"); if (h) parts.push(h + "h"); if (m) parts.push(m + "m"); if (sec) parts.push(sec + "s");
   return s + parts.join(" ");
@@ -1604,7 +1609,7 @@ def("date.parse", "Str -> Num", ([s]) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/.exec(s.trim());
   const bad = () => R("E15", `date.parse cannot read ${quote(s)}. write 2020-01-31 or 2020-01-31T12:00:00Z (Z or +hh:mm is needed with a time)`);
   if (!m) return bad();
-  const day = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  const day = new Date(0); day.setUTCFullYear(+m[1], +m[2] - 1, +m[3]);
   if (day.getUTCMonth() !== +m[2] - 1 || day.getUTCDate() !== +m[3]) return bad();
   const v = Date.parse(s.trim()); return Number.isNaN(v) ? bad() : v;
 });
@@ -1621,15 +1626,20 @@ function raster(w, h, shapes, op) {
   if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w > 4096 || h > 4096) R("E17", `${op}: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 1..4096`);
   const px = new Uint8Array(w * h * 3);
   const dot = (x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; } };
+  let work = 0;
+  const spend = n => { if ((work += n) > 4e8) R("E17", `${op}: too much to draw. fewer or smaller shapes`); };
   for (const s of shapes) {
     const v = s.vals, c = color(v[v.length - 1]), col = c;
+    spend(64);
     if (s.name === "Dot") dot(Math.floor(v[0]), Math.floor(v[1]), c);
     else if (s.name === "Box") {
       const x0 = Math.max(0, Math.round(v[0])), y0 = Math.max(0, Math.round(v[1])), x1 = Math.min(w, Math.round(v[0] + v[2])), y1 = Math.min(h, Math.round(v[1] + v[3]));
+      spend(Math.max(0, x1 - x0) * Math.max(0, y1 - y0));
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
     } else if (s.name === "Text") {
       const z = textSize(v[2]), x0 = Math.round(v[0]), y0 = Math.round(v[1]);
-      glyphs(v[3]).forEach((g, k) => { for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (g[r] >> (2 - c) & 1) for (let yy = 0; yy < z; yy++) for (let xx = 0; xx < z; xx++) dot(x0 + (4 * k + c) * z + xx, y0 + r * z + yy, col); });
+      if (v[3].length > 20000) R("E17", `${op}: a Text of over 20000 characters`);
+      glyphs(v[3]).forEach((g, k) => { if (x0 + 4 * k * z >= w || y0 >= h) return; spend(15 * z * z); for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (g[r] >> (2 - c) & 1) for (let yy = 0; yy < z; yy++) for (let xx = 0; xx < z; xx++) dot(x0 + (4 * k + c) * z + xx, y0 + r * z + yy, col); });
     } else {
       let t0 = 0, t1 = 1, ok = true; const dx = v[2] - v[0], dy = v[3] - v[1];
       for (const [p, q] of [[-dx, v[0] + 1], [dx, w - v[0]], [-dy, v[1] + 1], [dy, h - v[1]]]) {       // keep only the part on the canvas
@@ -1695,7 +1705,7 @@ function png(w, h, rgb, plain) {     // 8 bit rgb, each row stored as difference
     const r = y * (w * 3 + 1), s = y * w * 3; raw[r] = 1;
     for (let x = 0; x < w * 3; x++) raw[r + 1 + x] = rgb[s + x] - (x >= 3 ? rgb[s + x - 3] : 0);
   }
-  const z = !plain && typeof require === "function" ? require("zlib").deflateSync(raw) : deflate(raw);
+  const z = zlibDeflate(raw);
   const be = n => Uint8Array.of(n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255);
   const chunk = (type, data) => {
     const td = join8([Uint8Array.from(type, c => c.charCodeAt(0)), data]); let c = -1;
@@ -1709,7 +1719,9 @@ let FRAMES = [];
 def("rgb", "Num Num Num -> Str", (v) => "#" + v.map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0")).join(""));
 def("ascii", "Num Num (Vec Draw) Num -> Str", ([w, h, v, cols]) => asciiArt(w, h, raster(w, h, v, "ascii"), cols));
 let HOST = null, EMIT = null;
+let DENYIO = false;
 function io(name, ...a) {
+  if (DENYIO) R("E13", `io.${name}: this host refuses io`);
   const h = HOST && HOST[name];
   if (typeof h !== "function") R("E13", `io.${name} needs a host that has it; this host is ${HOST && HOST.name || "none"}`);
   try { return h(...a); }
@@ -1845,7 +1857,7 @@ function glyphs(s) { return Array.from(s.toUpperCase(), c => FONT[c] || FONT["?"
 
 /* ---- svg: the same shapes as text, sharp at any size, for people; still plain text for the model */
 const hex2 = c => "#" + c.map(x => x.toString(16).padStart(2, "0")).join("");
-const xmlEsc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const xmlEsc = s => s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 def("svg", "Num Num (Vec Draw) -> Str", ([w, h, v]) => {
   if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w > 4096 || h > 4096) R("E17", `svg: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 1..4096`);
   const r = x => Math.round(x * 100) / 100, out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`];
@@ -1878,9 +1890,12 @@ function chartFrame(w, h, title, x0, x1, y0, y1, op, xmode) {      // xmode: "nu
   if (x0 === x1) { x0 -= 1; x1 += 1; }
   if (y0 === y1) { y0 -= 1; y1 += 1; }
   const s = h >= 360 ? 2 : 1, cw = 4 * s, ch = 6 * s;
+  const drawable = () => [x0, x1, y0, y1, x1 - x0, y1 - y0].every(Number.isFinite) && x1 - x0 > 1e-290 && y1 - y0 > 1e-290 && Math.max(Math.abs(x0), Math.abs(x1), Math.abs(y0), Math.abs(y1)) < 1e290;
+  if (!drawable()) R("E17", `${op}: the values span a range too wide or too narrow to draw`);
   const ext = (a, b) => { const st = niceStep((b - a) / 5); return [Math.floor(a / st + 1e-9) * st, Math.ceil(b / st - 1e-9) * st]; };      // out to the next tick
   [y0, y1] = ext(y0, y1);
   if (xmode === "num") [x0, x1] = ext(x0, x1);
+  if (!drawable()) R("E17", `${op}: the values span a range too wide or too narrow to draw`);
   const yt = ticks(y0, y1);
   let xt = xmode === "cat" ? [] : ticks(x0, x1);
   const ylab = yt.map(tickTxt), left = Math.max(...ylab.map(t => t.length)) * cw + 4 * s + 6;
@@ -2067,6 +2082,7 @@ def("diff.unified", "Str Str -> Str", ([a, b]) => diffUnified(a, b));
 /* ---- dec: exact decimals of any size. a value is its canonical text, so same works; cmp and show know it by its flag */
 const DECMAX = 10000;
 function decParse(s, op) {
+  if (s.length > DECMAX + 50) R("E17", `${op}: over ${DECMAX} digits`);
   const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(s.trim());
   if (!m || (m[2] === "" && (m[3] || "") === "")) R("E15", `${op} cannot read ${quote(s)} as a decimal. write digits, with at most one . and a sign`);
   return { n: BigInt((m[1] === "-" ? "-" : "") + (m[2] || "0") + (m[3] || "")), s: (m[3] || "").length };
@@ -2126,7 +2142,8 @@ def("dec.idiv", "Dec Dec -> Dec", ([x, y]) => { const [a, b] = decAlign(decOf(x)
 def("dec.rem", "Dec Dec -> Dec", ([x, y]) => { const [a, b, s] = decAlign(decOf(x), decOf(y)); if (b === 0n) R("E17", "dec.rem: division by zero"); return decMake(a % b, s, "dec.rem"); });
 def("dec.pow", "Dec Num -> Dec", ([x, n]) => {
   const a = decOf(x); if (!isInt(n) || n < 0) R("E17", `dec.pow: power ${fmtNum(n)} must be a whole number >= 0`);
-  if (x.vals[0].length * n > 2 * DECMAX) R("E17", `dec.pow: over ${DECMAX} digits`);
+  const big = a.n < 0n ? -a.n : a.n, ds = big.toString();
+  if (big > 1n && n * (ds.length - 1 + Math.log10(Number(ds.slice(0, 15)) / Math.pow(10, Math.min(14, ds.length - 1)))) > DECMAX) R("E17", `dec.pow: over ${DECMAX} digits`);
   return decMake(a.n ** BigInt(n), a.s * n, "dec.pow");
 });
 def("dec.sum", "(Vec Dec) -> Dec", ([v]) => { let n = 0n, s = 0; for (const x of v) { const [a, b, t] = decAlign({ n, s }, decOf(x)); n = a + b; s = t; } return decMake(n, s, "dec.sum"); });
@@ -2300,7 +2317,7 @@ function pdfFlow(w, h, size, text) {      // text onto pages: fixed width, wrapp
     let line = "";
     for (let word of para.split(" ").filter(x => x !== "")) {
       let cs = chars(word);
-      while (cs.length > cols) { if (line) { lines.push(line); line = ""; } lines.push(cs.slice(0, cols).join("")); cs = cs.slice(cols); }
+      if (cs.length > cols) { if (line) { lines.push(line); line = ""; } let k = 0; for (; cs.length - k > cols; k += cols) lines.push(cs.slice(k, k + cols).join("")); cs = cs.slice(k); }
       word = cs.join("");
       if (line && chars(line).length + 1 + cs.length > cols) { lines.push(line); line = word; } else line = line ? line + " " + word : word;
     }
@@ -3371,7 +3388,7 @@ def("img.crop", "Image Num Num Num Num -> Image", ([im, x, y, cw, chh]) => {
   for (let r = 0; r < chh; r++) out.set(px.subarray(((y + r) * w + x) * 3, ((y + r) * w + x + cw) * 3), r * cw * 3);
   return mkImg(cw, chh, out, "img.crop");
 });
-def("img.resize", "Image Num Num -> Image", ([im, w, h]) => { if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w * h > IMGMAX) R("E17", `img.resize: ${fmtNum(w)} x ${fmtNum(h)} must be whole, at least 1 x 1 and at most ${IMGMAX} pixels`); return mkImg(w, h, imgResize(im.img, w, h), "img.resize"); });
+def("img.resize", "Image Num Num -> Image", ([im, w, h]) => { if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w > 16384 || h > 16384 || w * h > IMGMAX) R("E17", `img.resize: ${fmtNum(w)} x ${fmtNum(h)} must be whole, at least 1 x 1 and at most ${IMGMAX} pixels`); return mkImg(w, h, imgResize(im.img, w, h), "img.resize"); });
 def("img.gray", "Image -> Image", ([im]) => { const { w, h, px } = im.img, out = new Uint8Array(px.length); for (let i = 0; i < px.length; i += 3) out[i] = out[i + 1] = out[i + 2] = Math.round(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]); return mkImg(w, h, out, "img.gray"); });
 def("img.map", "(Fn Num Num Num (Vec Num)) Image -> Image", ([f, im], cx) => {
   const { w, h, px } = im.img; if (w * h > MAXLEN) R("E17", `img.map: ${w} x ${h} is over ${MAXLEN} pixels. resize or crop first`);
@@ -3416,6 +3433,7 @@ def("wrap", "Str Num -> (Vec Str)", ([s, w]) => {
 def("edits", "Str Str -> Num", ([a, b]) => { const x = chars(a), y = chars(b); if (x.length * y.length > 1e8) R("E17", "edits: texts too long"); return lev(x, y); });
 
 function csvParse(s) {
+  if (s[0] === "\uFEFF") s = s.slice(1);          // a byte order mark is not part of the first header
   const rows = []; let row = [], f = "", i = 0, q = false, any = false;
   const end = () => { row.push(f); f = ""; }, line = () => { end(); rows.push(row); row = []; any = false; if (rows.length > MAXLEN) R("E17", "csv.parse: over the item cap"); };
   while (i < s.length) {
@@ -3502,7 +3520,7 @@ function unknown(name, line, sc, C) {
   const names = new Set([...C.g.keys(), "true", "false"]);
   for (let s = sc; s; s = s.p) for (const k of s.m.keys()) names.add(k);
   const near = nearest(name, names);
-  C.errs.push(E("E1", `unknown name ${name}` + (near ? `. nearest known: ${near}` : ""), line));
+  C.errs.push(E("E1", `unknown name ${name.length > 60 ? name.slice(0, 60) + ".." : name}` + (near ? `. nearest known: ${near}` : ""), line));
 }
 function inferMatch(e, sc, C) {
   const errs = C.errs, ts = infer(e.x, sc, C);
@@ -3563,7 +3581,7 @@ function infer(e, sc, C) {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
       en.used = true;
-      if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) { C.deps.impure = true; if (en.host) C.reach.host.add(e.name); else if (e.name.startsWith("io.")) C.reach.io.add(e.name); }
+      if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) { C.deps.impure = true; if (en.host) C.reach.host.add(e.name); else if (e.name.startsWith("io.")) { C.reach.io.add(e.name); if (!C.reach.at.has(e.name)) C.reach.at.set(e.name, e.line); } }
       if (en.host && C.host.fns[e.name].ahead) errs.push(E("E14", `${e.name} is read by the host before the program runs: call it directly, with its arguments written as literals`, e.line));
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
@@ -3648,7 +3666,7 @@ function infer(e, sc, C) {
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
         en.used = true;
-        if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) { C.deps.impure = true; if (en.host) C.reach.host.add(label); else if (label.startsWith("io.")) C.reach.io.add(label); }
+        if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) { C.deps.impure = true; if (en.host) C.reach.host.add(label); else if (label.startsWith("io.")) { C.reach.io.add(label); if (!C.reach.at.has(label)) C.reach.at.set(label, e.line); } }
         if (en.host && C.host.fns[label].ahead) {
           const lit = x => x.t === "num" || x.t === "str" || x.t === "bool" ? { v: x.v } : x.t === "vec" ? (xs => xs.every(Boolean) ? { v: xs.map(y => y.v) } : null)(x.items.map(lit)) : null;
           const vals = e.args.map(lit);
@@ -3689,7 +3707,7 @@ function infer(e, sc, C) {
 }
 function checkProgram(tops, errs, packs, H) {
   TV = 0; TWORK = 0;
-  const reach = { host: new Set(), io: new Set(), calls: [] };       // every effect the program names, known before it runs
+  const reach = { host: new Set(), io: new Set(), calls: [], at: new Map() };       // every effect the program names, known before it runs
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
   for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
   if (H) for (const [name, h] of Object.entries(H.fns)) g.set(name, { kind: "builtin", type: h.type, line: 0, host: true });
@@ -3894,7 +3912,7 @@ function makeEnv(tops, H) {
   return G;
 }
 function runProgram(tops, emit, st, opts) {
-  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = [];
+  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = []; DENYIO = !!opts.denyIo;
   const G = makeEnv(tops, opts.host);
   for (const t of tops) {
     try {
@@ -3949,7 +3967,7 @@ function foldProgram(tops, errs) {
       case "fail": fold(e.a, sc); fold(e.b, sc); return undefined;
       case "with": { const s2 = sub(sc); for (const [n, x] of e.binds) s2.m.set(n, fold(x, s2)); return fold(e.body, s2); }
       case "fun": return undefined;
-      case "for": { const s2 = sub(sc); for (const [n, x] of e.binds) { fold(x, s2); s2.m.set(n, undefined); } return undefined; }
+      case "for": { if (e.binds.length) fold(e.binds[0][1], sc); return undefined; }      // later sources run only if the first has an item
       case "up": { const v = fold(e.x, sc), xs = e.sets.map(s => fold(s.e, sc)); if (v === undefined || !all(xs)) return undefined; const vals = v.vals.slice(); e.sets.forEach((s, i) => { vals[s.idx] = xs[i]; }); return RV(v.name, vals); }
       case "match": {
         const v = fold(e.x, sc);
@@ -4081,18 +4099,19 @@ function dryProgram(tops, errs, H) {
 const HOSTS = new WeakMap();
 function hostTable(host) {
   if (!host) return null;
-  if (HOSTS.has(host)) return HOSTS.get(host);
   const bad = m => { throw new TypeError("tact host: " + m); };
+  if (typeof host !== "object") bad("a host is an object { types, fns }");
+  if (HOSTS.has(host)) return HOSTS.get(host);
   const errs = [], types = host.types || "";
   const tops = parse(lex(types, errs), errs).map(s => lowerTop(s, errs)).filter(Boolean);
   if (errs.length) bad(`types: ${errs[0].msg}`);
   for (const t of tops) if (t.t !== "rec" && t.t !== "sum") bad("types may hold only (rec ..) and (sum ..)");
-  const taken = new Set([...Object.keys(B), ...RESERVED, ...PACKOF.keys()]), shape = new Map();
+  const taken = new Set([...Object.keys(B), ...RESERVED, ...PACKOF.keys()]), shape = new Map(), owners = new Set(["Map"]);
   for (const text of [PRELUDE, ...Object.values(PACKS).map(p => p.types + "\n" + (p.opaque || "")), types])
     for (const s of parse(lex(text, []), [])) {
       const t = lowerTop(s, []); if (!t) continue;
-      if (t.t === "rec") shape.set(t.name, { owner: t.name, n: t.fields.length, rec: true });
-      else for (const [c, v] of t.ctors) shape.set(c, { owner: t.name, n: v.items.length, rec: false });
+      if (t.t === "rec") { const tys = t.fields.map(f => f[1]), params = []; tys.forEach(y => typeVarsOf(y, params)); shape.set(t.name, { owner: t.name, n: tys.length, rec: true, tys, params }); owners.add(t.name); }
+      else { const params = []; for (const [, v] of t.ctors) v.items.forEach(y => typeVarsOf(y, params)); for (const [c, v] of t.ctors) shape.set(c, { owner: t.name, n: v.items.length, rec: false, tys: v.items, params }); owners.add(t.name); }
     }
   for (const t of tops) { if (taken.has(t.name)) bad(`type ${t.name} is already a tact name`); taken.add(t.name); }
   const fns = {};
@@ -4101,35 +4120,60 @@ function hostTable(host) {
     if (!h || typeof h.fn !== "function" || typeof h.sig !== "string") bad(`${name}: needs { sig: "A B -> R", fn }`);
     let type; try { type = parseSig(h.sig); } catch (x) { bad(`${name}: signature ${h.sig}: ${x.message}`); }
     if (type.k !== "fn") type = fnT([], type);
+    const names = t => t.k === "rec" ? [t.name, ...t.args.flatMap(names)] : t.k === "vec" ? names(t.e) : t.k === "fn" ? [...t.ps.flatMap(names), ...names(t.r)] : [];
+    for (const n of names(type)) if (!owners.has(n)) bad(`${name}: signature ${h.sig} names the type ${n}, which is not a tact type or one of the host's`);
     fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "", writes: !!h.writes, ahead: !!h.ahead };
   }
+  const all = new Set(Object.keys(PACKS)), e2 = [];       // the host's types must check on their own, so a mistake in them never lands in a model's program
+  checkProgram(preludeTops(all, { types }), e2, all, null);
+  if (e2.length) bad(`types: ${e2[0].msg}`);
   const T = { types, tops, fns, shape };
   HOSTS.set(host, T);
   return T;
 }
-function fits(v, t, S) {                    // a host's answer must be what its signature says
+const ANYT = { k: "any" };
+function hostFieldType(x, env) {            // a field's declared type, with the type's own ?a filled in
+  if (x.t === "sym") { const v = x.v; return v === "Num" ? NUM : v === "Bool" ? BOOL : v === "Str" ? STR : v[0] === "?" ? env.get(v) || ANYT : recT(v, []); }
+  const [h, ...r] = x.items, ts = r.map(y => hostFieldType(y, env));
+  return h.v === "Vec" ? vecT(ts[0]) : h.v === "Fn" ? fnT(ts.slice(0, -1), ts[ts.length - 1]) : recT(h.v, ts);
+}
+const fnOk = v => !!v && typeof v === "object" && (v.k === "clo" || v.k === "ctor" || (v.k === "bi" && typeof v.fn === "function"));
+function mapOk(v, kt, vt, S, d) {
+  if (!v || v.k !== "map" || !isInt(v.n) || (v.root !== null && typeof v.root !== "object")) return false;
+  let ns; try { ns = tnodes(v.root); } catch (e) { return false; }
+  return ns.length === v.n && ns.every(n => n && typeof n === "object" && fits(n.key, kt, S, d + 1) && fits(n.val, vt, S, d + 1));
+}
+function fits(v, t, S, d = 0) {             // a host's answer must be what its signature says, all the way down
+  if (d > 200 || v === undefined || v === null) return false;
   switch (t.k) {
     case "num": return typeof v === "number" && Number.isFinite(v);
     case "str": return typeof v === "string";
     case "bool": return typeof v === "boolean";
-    case "vec": return Array.isArray(v) && v.length <= MAXLEN && v.every(x => fits(x, t.e, S));
-    case "fn": return !!v && typeof v === "object" && ["clo", "bi", "ctor", "rd"].includes(v.k);
+    case "vec": return Array.isArray(v) && v.length <= MAXLEN && v.every(x => fits(x, t.e, S, d + 1));
+    case "fn": return fnOk(v);
     case "rec": {
-      if (t.name === "Map") return !!v && v.k === "map";
-      const c = v && v.k === "rv" && S.shape.get(v.name);
+      if (t.name === "Map") return mapOk(v, t.args[0] || ANYT, t.args[1] || ANYT, S, d);
+      const c = v.k === "rv" && S.shape.get(v.name);
       if (!c || c.owner !== t.name || !Array.isArray(v.vals) || v.vals.length !== c.n) return false;
       if (!c.rec && c.n === 0) v.nul = true;
-      return true;
+      const env = new Map(c.params.map((p, i) => [p, t.args[i] || ANYT]));
+      return v.vals.every((x, i) => fits(x, hostFieldType(c.tys[i], env), S, d + 1));
     }
   }
-  return true;                              // a type variable takes anything
+  if (typeof v === "number") return Number.isFinite(v);       // a type variable: any well formed tact value
+  if (typeof v === "string" || typeof v === "boolean") return true;
+  if (Array.isArray(v)) return v.length <= MAXLEN && v.every(x => fits(x, ANYT, S, d + 1));
+  if (v.k === "rv") return typeof v.name === "string" && Array.isArray(v.vals) && v.vals.every(x => fits(x, ANYT, S, d + 1));
+  return v.k === "map" ? mapOk(v, ANYT, ANYT, S, d) : fnOk(v);
 }
+const hostFreeze = v => { if (Array.isArray(v)) { if (!Object.isFrozen(v)) { Object.freeze(v); v.forEach(hostFreeze); } } else if (v && v.k === "rv") hostFreeze(v.vals); };
 function hostCall(name, h, S) {
   return (args, cx) => {
     let r;
+    args.forEach(hostFreeze);            // a host reads what it is given. it cannot change the program's values
     try { r = h.fn(args, cx); }
     catch (x) { if (x instanceof TErr) throw x; R("E19", `${name}: ${String(x && x.message || x).split("\n")[0]}`); }
-    if (!fits(r, h.type.r, S)) R("E19", `${name} gave back ${typeof r === "object" && r ? (Array.isArray(r) ? "a vector" : r.k === "rv" ? r.name : "an object") : typeof r} where its signature says ${showT(h.type.r)}. the host has a bug`);
+    if (!fits(r, h.type.r, S)) R("E19", `${name} gave back a value that does not fit its signature ${h.sig}. the host has a bug`);
     return r === 0 ? 0 : r;
   };
 }
@@ -4153,6 +4197,8 @@ function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn
     const rel = s.items[1].v, path = normPath(rel[0] === "/" ? rel : dirOf(file) + rel);
     if (U.seen.has(path)) continue;
     U.seen.add(path);
+    if (U.deny.has("io")) { U.soft.push(E("E13", `(use ${quote(rel)}) reads a file, and this host refuses io`, s.line)); continue; }      // reported with the rest of the check
+    U.files.push(path);
     let text;
     try { if (!U.io || typeof U.io.read !== "function") throw new Error("this host cannot read files"); text = String(U.io.read(path)); }
     catch (x) { U.errs.push(E("E12", `use: cannot read ${path}: ${String(x && x.message || x).split("\n")[0]}`, s.line)); continue; }
@@ -4170,11 +4216,16 @@ function preludeTops(packs, H) {
   return tops;
 }
 function run(src, opts = {}) {
+  const was = [steps, budget, HOST, EMIT, FRAMES, FILES, DENYIO];
+  try { return run1(src, opts); } finally { [steps, budget, HOST, EMIT, FRAMES, FILES, DENYIO] = was; }
+}
+function run1(src, opts) {
   const errs = [], st = { checks: 0 }, out = [];
   const io = opts.io || memHost(), file = opts.file || "", H = hostTable(opts.host);
   const deny = new Set([...(opts.deny || []), ...(opts.host && opts.host.deny || [])]);
   for (const p of deny) if (!own(PACKS, p)) throw new TypeError(`tact: deny names ${p}, which is not a pack. packs: ${Object.keys(PACKS).join(" ")}`);
-  let uses = { packs: [], host: [], io: [], writes: [], calls: [] };      // what the program can reach. an app can show this and ask before running
+  const used = [], soft = [];
+  let uses = { packs: [], host: [], io: [], writes: [], calls: [], files: used };      // what the program can reach. an app can show this and ask before running
   const emit = s => { out.push(s); if (opts.onOut) opts.onOut(s); };
   const place = e => { const l = e.line || 0, r = { code: e.code, msg: e.msg, line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
   let info = [];
@@ -4183,7 +4234,7 @@ function run(src, opts = {}) {
     const toks = lex(src, errs);
     const before = errs.length;
     let sxs = parse(toks, errs);
-    if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([normPath(file)]) });
+    if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([normPath(file)]), deny, files: used, soft });
     if (errs.length === before) {       // structure is sound: lower and check everything, report all
       const mine = [], packs = new Set();
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
@@ -4191,22 +4242,25 @@ function run(src, opts = {}) {
       for (const t of mine) if (t.t === "use") for (const q of [t.pack, ...(PACKS[t.pack].needs || [])]) if (deny.has(q)) errs.push(E("E13", `pack ${q} is not offered by this host` + (q === t.pack ? "" : `, and ${t.pack} needs it`), t.line));
       const tops = [...preludeTops(packs, H), ...mine];
       info = checkProgram(tops, errs, packs, H);
-      uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort(), calls: info.reach.calls.map(c => ({ name: c.name, args: c.args, line: c.line % LINEBASE })) };
+      errs.push(...soft.splice(0));
+      if (deny.has("io")) for (const n of info.reach.io) if (n !== "io.print" && n !== "io.frame") errs.push(E("E13", `${n} goes through the host's files, and this host refuses io`, info.reach.at.get(n)));
+      uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort(), calls: info.reach.calls.map(c => ({ name: c.name, args: c.args, line: c.line % LINEBASE })), files: used };
       if (!errs.length) { dryProgram(tops, errs, H); foldProgram(tops, errs); }
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
-        if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io, host: H });
+        if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io, host: H, denyIo: deny.has("io") });
         return { phase: "ok", errors: [], output: out, checks: st.checks, info, uses };
       }
     }
+    errs.push(...soft);
     const keyed = new Map();
     for (const e of errs) keyed.set(e.code + "|" + e.line + "|" + e.msg, e);
     return { phase: "check", errors: [...keyed.values()].sort((a, b) => a.line - b.line).map(place), output: [], checks: 0, info, uses };
   } catch (x) {
-    if (x instanceof TErr) return { phase: "run", errors: [place({ code: x.code, msg: x.message, line: x.line })], output: out, checks: st.checks, info };
-    if (x instanceof TooBig) return { phase: "check", errors: [place({ code: "E4", msg: "the types here grow too large to check. give the pieces fn signatures", line: CURLINE })], output: [], checks: 0, info };
-    if (x instanceof RangeError) return { phase: "check", errors: [{ code: "E12", msg: "too deep or too large to check. name the inner parts with let, with or fn", line: 0 }], output: [], checks: 0, info };
-    return { phase: "internal", errors: [{ code: "BUG", msg: String(x && x.stack || x), line: 0 }], output: out, checks: st.checks, info };
+    if (x instanceof TErr) return { phase: "run", errors: [place({ code: x.code, msg: x.message, line: x.line })], output: out, checks: st.checks, info, uses };
+    if (x instanceof TooBig) return { phase: "check", errors: [place({ code: "E4", msg: "the types here grow too large to check. give the pieces fn signatures", line: CURLINE })], output: [], checks: 0, info, uses };
+    if (x instanceof RangeError) return { phase: "check", errors: [{ code: "E12", msg: "too deep or too large to check. name the inner parts with let, with or fn", line: 0 }], output: [], checks: 0, info, uses };
+    return { phase: "internal", errors: [{ code: "BUG", msg: String(x && x.stack || x), line: 0 }], output: out, checks: st.checks, info, uses };
   }
 }
 
@@ -4414,7 +4468,7 @@ const TESTS = [
   ["diff.unified","(use diff)\n(show (diff.unified \"a\\nb\\nc\\n\" \"a\\nB\\nc\"))\n(show (diff.unified \"same\" \"same\"))","--- a\n+++ b\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n\n"],
   ["host: typed calls","(show (app.greet \"bo\"))\n(show (app.find 1))\n(show (match (app.find 2) (Some t) (Ticket.title t) None \"none\"))\n(show (map Ticket.id (app.all)))\n(show (app.tags))\n(show (app.each (fun [x] (* x 10))))","hi bo\n(Some (Ticket 1 \"printer on fire\"))\nnone\n[1 2]\n{\"x\" 1 \"y\" 2}\n50",null,null,true],
   ["host: calls are checked before running","(show (app.greet 5))\n(show (app.gret \"x\"))\n(show (app.find 1 2))\n(show (+ 1 (app.find 1)))\n(fn f [t Ticket] Str (Ticket.titel t))","check!E4,E1,E2,E4,E1",null,null,true],
-  ["host: a host bug or failure is E19, try catches it","(show (try (app.bad)))\n(show (try (app.down)))\n(show (try (app.no \"ticket 9\")))","(Err \"E19\" \"app.bad gave back string where its signature says Num. the host has a bug\")\n(Err \"E19\" \"app.down: database is down\")\n(Err \"not-found\" \"ticket 9\")",null,null,true],
+  ["host: a host bug or failure is E19, try catches it","(show (try (app.bad)))\n(show (try (app.down)))\n(show (try (app.no \"ticket 9\")))","(Err \"E19\" \"app.bad gave back a value that does not fit its signature -> Num. the host has a bug\")\n(Err \"E19\" \"app.down: database is down\")\n(Err \"not-found\" \"ticket 9\")",null,null,true],
   ["host: a failure outside try stops the run","(show 1)\n(show (app.down))","run!E19",null,null,true],
   ["host: a call waits for the run","(show 1)\n(show (get [] (app.each (fun [x] x))))","run!E10",null,null,true],
   ["host names are unknown without the host","(show (app.greet \"x\"))","!E1"],
@@ -4549,6 +4603,14 @@ const TESTS = [
   ["field names are free names","(rec P [x Num len Num])\n(let x 5)\n(fn f [y Num] Num (+ y (P.len (P x 2))))\n(show (f x))","7"],
   ["time: dates as text, for working out in reasoning","(use time)\n(show (date.daynum \"2024-03-01\"))\n(show (date.daynum \"1970-01-01T05:00:00Z\"))\n(show (date.daynum \"1969-12-31\"))\n(check (* 86400000 (date.daynum \"2026-09-30T23:59:59Z\")) (date.of 2026 9 30))\n(show (- (date.daynum \"2026-10-01T00:00:01Z\") (date.daynum \"2026-09-30T23:59:59Z\")))\n(show (ssub \"2026-09-30T23:59:59Z\" 0 7))\n(show (- (date.daynum \"2024-03-01\") (date.daynum \"2024-02-01\")))","19783\n0\n-1\n1\n2026-09\n29"],
   ["E time: daynum on text that is not a date","(use time)\n(show (date.daynum \"30/09/2026\"))\n(show (date.daynum \"2023-02-29\"))\n(show (date.daynum \"2026-9-3\"))","check!E15,E17,E15"],
+  ["E13 deny io stops every route to files","(use draw)\n(use \"lib.tact\")\n(do (io.frame 10 10 [(Box 0 0 5 5 \"red\")]) (io.sheet \"x.png\" 1) (io.gif \"y.gif\" 5))\n(show (io.print \"print is core\"))","check!E13,E13,E13",{"lib.tact":"(let z 1)"},null,"denyio"],
+  ["a later for source is not sure to run","(use io)\n(show (for [a (io.args) y [(/ 1 0)]] y))\n(show (for [a [] y [(/ 1 0)]] y))","[]\n[]"],
+  ["long digit runs do not stall the check","(use text)\n(show (pnum (scat (srep \"1\" 60000) \"x\")))\n(show (try (snum (scat (srep \"1\" 60000) \"x\"))))","None\n(Err \"E15\" \"snum cannot read \\\"111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111x\\\"\")"],
+  ["sizes that used to hang are errors","(use draw)\n(use dec)\n(use text)\n(use mat)\n(fn id [x ?a] ?a x)\n(show (map (fun [r] (match r (Ok _) \"ok\" (Err c _) c)) [(try (len (img.size (img.resize (img.draw 4 4 []) (id 16777216) 1)))) (try (slen (dec.str (dec (scat \"1.\" (srep \"0\" 300000)))))) (try (slen (ascii 4096 4096 (rep 3000 (Box 0 0 4096 4096 \"red\")) 10))) (try (len (k.randn 30000000 0 1))) (try (len (k.eig (k.randn 400 400 1)))) (try (len (uniq (map (fun [i] (fun [x] i)) (range 6000)))))]))\n(show (len (pdf.flow 595 842 2 (srep \"a\" 200000))))","[\"E17\" \"E17\" \"E17\" \"E14\" \"E17\" \"E17\"]\n65"],
+  ["time: the edges of the calendar are errors, not NaN","(use time)\n(show (map (fun [r] (match r (Ok _) \"ok\" (Err c _) c)) [(try (date.of -272000 1 1)) (try (len [(date.parts -8640000000000000)])) (try (date.add (date.of -265999 1 1) -12 \"month\")) (try (slen (date.span 1e300)))]))\n(show (date.parts -0.5))\n(show (date.iso (date.parse \"0000-02-29\")))\n(show [(date.span 999.6) (date.span 0) (date.span -0.2)])\n(show (date.fmt 0 \"[Message sent] DD/MM/YYYY mm\"))","[\"E17\" \"E17\" \"E17\" \"E17\"]\n(Parts 1969 12 31 23 59 59 999 3 365)\n0000-02-29T00:00:00.000Z\n[\"1s\" \"0ms\" \"0ms\"]\nMessage sent 01/01/1970 00"],
+  ["chart: a range that cannot be drawn is E17","(use chart)\n(fn id [x ?a] ?a x)\n(show (map (fun [r] (match r (Ok _) \"ok\" (Err c _) c)) [(try (len (chart.scatter 100 100 \"\" [(Series \"a\" [1] [(id 1e308)])]))) (try (len (chart.line 100 100 \"\" [(Series \"a\" [0 1] [(id 5e-324) 1e-323])]))) (try (len (chart.bar 100 100 \"\" [\"a\" \"b\"] [(id 1e308) -1e308]))) (try (len (chart.fn 100 100 \"\" (fun [x] x) 0 (id 5e-324))))]))","[\"E17\" \"E17\" \"E17\" \"E17\"]"],
+  ["dec.pow counts digits, not factors","(use dec)\n(show (slen (dec.str (dec.pow (dec \"2\") 30000))))\n(show (dec.str (dec.pow (dec \"1\") 20001)))\n(show (dec.str (dec.pow (dec \"-1\") 20001)))\n(show (try (dec.str (dec.pow (dec \"10\") 20000))))","9031\n1\n-1\n(Err \"E17\" \"dec.pow: over 10000 digits\")"],
+  ["csv: a byte order mark is not part of the header; svg drops control characters","(use csv)\n(use draw)\n(use bytes)\n(show (csv.maps (scat (chr 65279) \"a,b\\n1,2\\n\")))\n(show (shas (svg 10 10 [(Text 0 0 1 (unutf8 [65 1 66]) \"red\")]) \">AB<\"))","[{\"a\" \"1\" \"b\" \"2\"}]\ntrue"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -4568,7 +4630,7 @@ const h = hostHelp, DEMO_HOST = {
 };
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps, withHost]) => {
-    const r = run(src, { io: memHost(files || {}), maxSteps, host: withHost ? DEMO_HOST : undefined });
+    const r = run(src, { io: memHost(files || {}), maxSteps, host: withHost === true ? DEMO_HOST : undefined, deny: withHost === "denyio" ? ["io"] : undefined });
     let got = r.errors.length ? (/^(check|run)!/.test(want) ? r.phase : "") + "!" + r.errors.map(e => e.code).join(",") : r.output.join("\n");
     if (want.includes("@") && r.errors.length) got += "@" + r.errors.map(e => `${e.file}:${e.line}`).join(",");
     let ok = got === want;
@@ -4586,10 +4648,24 @@ function runTests() {
   const fc = format("; top\n(let x   1) ; one\n\n\n(fn f [a Num\n b Num] Num ; sum\n (+ a\n b))");
   rs.push({ name: "format keeps meaning, comments and blank lines", ok: fbad === "" && fc.text === "; top\n(let x 1)  ; one\n\n(fn f [a Num b Num] Num\n  ; sum\n  (+ a b))\n", got: fbad || fc.text, want: "", src: "; formats every test program twice", errors: [] });
   const u = run('(use io)\n(use csv)\n(fn f [n Num] Bool (if (> n 0) (app.close n) false))\n(do (io.print (app.greet "x")))\n(show (len (app.all)))', { host: DEMO_HOST, checkOnly: true });
-  const ug = JSON.stringify(u.uses), uw = '{"packs":["csv","io"],"host":["app.all","app.close","app.greet"],"io":["io.print"],"writes":["app.close"],"calls":[]}';
+  const ug = JSON.stringify(u.uses), uw = '{"packs":["csv","io"],"host":["app.all","app.close","app.greet"],"io":["io.print"],"writes":["app.close"],"calls":[],"files":[]}';
   const ua = JSON.stringify(run('(let a (app.search "type = Bug" 5))\n(fn f [] Num (len (app.search "open" 2)))\n(show (len a))', { host: DEMO_HOST, checkOnly: true }).uses.calls), ux = '[{"name":"app.search","args":["type = Bug",5],"line":1},{"name":"app.search","args":["open",2],"line":2}]';
   rs.push({ name: "a check lists the host calls that must be known ahead, with their arguments", ok: ua === ux, got: ua, want: ux, src: "; run with checkOnly and a host", errors: [] });
   rs.push({ name: "a check says what the program can reach, before it runs", ok: ug === uw && u.output.length === 0, got: ug, want: uw, src: "; run with checkOnly and a host", errors: [] });
+  {
+    const bugHost = { types: "(rec Tk [id Num title Str])", fns: {
+      "b.swap": { sig: "-> Tk", fn: () => hostHelp.rec("Tk", "seven", 7) }, "b.nan": { sig: "-> (Opt Num)", fn: () => hostHelp.some(NaN) },
+      "b.map": { sig: "-> (Map Str Num)", fn: () => hostHelp.map([[1, "a"]]) }, "b.none": { sig: "Num -> a", fn: () => undefined },
+      "b.push": { sig: "(Vec Num) -> Num", fn: ([v]) => { v.push(9); return 1; } }, "b.ok": { sig: "-> (Vec (Opt Tk))", fn: () => [hostHelp.some(hostHelp.rec("Tk", 1, "a")), hostHelp.none] },
+      "b.run": { sig: "Str -> Str", fn: ([src]) => run(src, { maxSteps: 1000 }).output.join("|") } } };
+    const r = run('(use io)\n(let v [1 2])\n(show (map (fun [f] (match f (Ok _) "ok" (Err c _) c)) [(try (Tk.id (b.swap))) (try (else (b.nan) 0)) (try (mlen (b.map))) (try (+ 1 (b.none 1))) (try (b.push v))]))\n(show v)\n(show (b.ok))\n(show (b.run "(show (+ 1 2))"))\n(show (io.print "after"))', { host: bugHost });
+    const got = r.output.join("\n") + (r.errors.length ? " !" + r.errors[0].code : ""), want = '["E19" "E19" "E19" "E19" "E19"]\n[1 2]\n[(Some (Tk 1 "a")) None]\n3\nafter\nafter';
+    rs.push({ name: "a host's wrong answers are E19, it cannot change a value, and a run inside it leaves the outer run alone", ok: got === want, got, want, src: "; custom host", errors: r.errors });
+    let hb = ""; for (const bad of [{ fns: { "x.y": { sig: "Foo -> Num", fn: () => 1 } } }, { types: "(rec T [a Nope])", fns: {} }, { types: "(sum Mine [Some [Num]])", fns: {} }, 5]) { try { run("(show 1)", { host: bad }); hb += "accepted "; } catch (e) { hb += e instanceof TypeError ? "" : "wrong error "; } }
+    rs.push({ name: "a host with a bad signature or type is refused when it is given, not in a model's program", ok: hb === "", got: hb, want: "", src: "; four broken hosts", errors: [] });
+    const fm = ['(let v [1 2\n  ; 3\n])', '(show (+ 1 2) ; sum\n)', '(let m {"a" 1 ; one\n})', '(fn f [x Num ; the x\n] Num x)'].map(x => { const f = format(x); return f.ok && format(f.text).text === f.text && f.text.includes(";"); });
+    rs.push({ name: "format: a comment last inside brackets", ok: fm.every(Boolean), got: JSON.stringify(fm), want: "all true", src: "; four programs", errors: [] });
+  }
   const size = specText().length;
   rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
   return rs;
@@ -4670,7 +4746,7 @@ const PAIRVEC = { with: 0, for: 0, fn: 1, rec: 1, sum: 1 };
 function fmtNode(x, col, pairs) {      // text for x starting at column col. later lines carry their own indent
   if (x.t === "a" || x.t === "c") return x.v;
   if (fmtPlain(x) && col + fmtFlat(x).length <= FMTW) return fmtFlat(x);
-  const pad = n => " ".repeat(n), close = OPEN[x.t], its = x.items;
+  const pad = n => " ".repeat(n), its = x.items, close = (its.length && its[its.length - 1].t === "c" ? "\n" + " ".repeat(col) : "") + OPEN[x.t];
   const lines = (list, at, step) => {  // items one a line at column at, or step a line. a comment stays where it was put
     const out = []; let row = [];
     const flush = () => { if (row.length) { out.push(row.join(" ")); row = []; } };
@@ -4684,7 +4760,7 @@ function fmtNode(x, col, pairs) {      // text for x starting at column col. lat
   };
   if (x.t !== "(") return x.t + lines(its, col + 1, pairs || x.t === "{" ? 2 : 1) + close;
   const head = its[0], name = head && head.t === "a" ? head.v : null;
-  if (name === null || its.some(i => i.t === "c") && !own(FIRSTLINE, name)) return "(" + lines(its, col + 1, 1) + ")";
+  if (name === null || its.some(i => i.t === "c") && !own(FIRSTLINE, name)) return "(" + lines(its, col + 1, 1) + close;
   let keep = own(FIRSTLINE, name) ? FIRSTLINE[name] : 1;
   if (name === "fun" && its.length === 4) keep = 2;
   let first = "(" + name, k = 1;
@@ -4692,8 +4768,8 @@ function fmtNode(x, col, pairs) {      // text for x starting at column col. lat
     const t = fmtNode(its[k], col + first.length + 1, own(PAIRVEC, name) && PAIRVEC[name] === k - 1);
     first += " " + t; if (t.includes("\n")) { k++; break; }
   }
-  if (k >= its.length) return first + ")";
-  return first + "\n" + pad(col + 2) + lines(its.slice(k), col + 2, name === "match" ? 2 : 1) + ")";
+  if (k >= its.length) return first + close;
+  return first + "\n" + pad(col + 2) + lines(its.slice(k), col + 2, name === "match" ? 2 : 1) + close;
 }
 function format(src) {
   const errs = [], before = parse(lex(src, errs), errs);
@@ -4875,13 +4951,16 @@ function cli(args, host) {           // host = the io host. it also needs read a
   const a = args.slice();
   let tools = null;                    // --host H.js: a module whose export is a tact host: { types, fns }
   const deny = [];
-  while (a[0] === "--deny") { if (!a[1]) return { out: "", err: "--deny needs pack names, like --deny re,io", code: 2 }; deny.push(...a[1].split(",").filter(Boolean)); a.splice(0, 2); }
-  for (const p of deny) if (!own(PACKS, p)) return { out: "", err: `--deny ${p}: not a pack. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 };
-  while (a[0] === "--host") {
-    if (!a[1]) return { out: "", err: "--host needs a .js file", code: 2 };
-    if (typeof host.load !== "function") return { out: "", err: "--host needs node", code: 2 };
-    try { tools = host.load(a[1]); hostTable(tools); } catch (x) { return { out: "", err: `--host ${a[1]}: ${String(x.message || x).split("\n")[0]}`, code: 2 }; }
-    a.splice(0, 2);
+  while (a[0] === "--deny" || a[0] === "--host") {
+    const flag = a[0], val = a[1]; a.splice(0, 2);
+    if (flag === "--deny") {
+      if (!val) return { out: "", err: "--deny needs pack names, like --deny re,io", code: 2 };
+      for (const p of val.split(",").filter(Boolean)) { if (!own(PACKS, p)) return { out: "", err: `--deny ${p}: not a pack. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 }; deny.push(p); }
+    } else {
+      if (!val) return { out: "", err: "--host needs a .js file", code: 2 };
+      if (typeof host.load !== "function") return { out: "", err: "--host needs node", code: 2 };
+      try { tools = host.load(val); hostTable(tools); } catch (x) { return { out: "", err: `--host ${val}: ${String(x.message || x).split("\n")[0]}`, code: 2 }; }
+    }
   }
   const runIt = (src, showTypes, file, rest) => {
     const io = Object.assign({}, host, { args: () => rest || [] });
@@ -4910,7 +4989,8 @@ function cli(args, host) {           // host = the io host. it also needs read a
         const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools, deny });
         return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
       }
-      case "--list": return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
+      case "--list": if (a[1] && a[1] !== "all" && a[1] !== "core" && !own(PACKS, a[1])) return { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 };
+        return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
       case "--test": {
         const rs = runTests(), bad = rs.filter(r => !r.ok);
         const lines = bad.map(r => `FAIL ${r.name}\n  want ${JSON.stringify(r.want)}\n  got  ${JSON.stringify(r.got)}` + (r.errors.length ? `\n  ${errLines({ errors: r.errors })}` : ""));

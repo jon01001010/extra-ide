@@ -84,7 +84,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [x] `tact --fmt FILE`: one canonical layout, so diffs of model edits stay small.
 - [ ] Short spec mode (~1,500 tokens) for 8k-context models.
 - [ ] Measure the spec in real tokens (Llama and Claude tokenizers).
-- [ ] Rerun the adversarial agent on everything added since its last pass.
+- [x] Rerun the adversarial agent on everything added since its last pass.
 
 ## Context-only: the model is the runtime
 
