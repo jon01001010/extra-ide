@@ -6,7 +6,7 @@ they start with `src/`, `css/` or `html/`.
 
 ## How the page runs
 
-The page has **ten executing `<script>` elements** plus one non-executing one (Mote). They are classic scripts
+The page has **nine executing `<script>` elements** plus one non-executing one (Mote). They are classic scripts
 sharing one global scope and run in page order. Several files in `src/` make up one script: the files of a
 script are only a split of one text, so top-level `function` declarations are hoisted across all of them (for
 example `ide/lib-cache.js` wraps `compileAndRun`, which `ide/run.js` declares further down the same script).
