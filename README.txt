@@ -76,6 +76,9 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   - host functions: a program that embeds tact can hand it its own typed functions and types
     (tact --host H.js). calls to them are checked like builtins before anything runs, so a
     script cannot call the app's tools wrongly halfway through.
+  - a host can refuse packs (a regex has no time bound, so an app may leave re out). (use re)
+    is then E13 before anything runs. tact --check FILE also lists every io and host function
+    the program names, so an app can show that list and ask before it runs anything.
   effects exist only in io.* and in host functions. everything else is pure and repeatable:
   the same program gives the same answer on every machine.
 
@@ -116,6 +119,7 @@ COMMANDS
   tact --fmt FILE         the program in the one canonical layout
   tact --list [PACK|all]  builtin names and signatures
   tact --host H.js ..     add a host's functions and types to any of the above
+  tact --deny re,io ..    refuse those packs, as a host might
   tact --test | --fuzz N SEED   the language's own tests
   tact --readme           this text
 

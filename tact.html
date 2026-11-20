@@ -289,7 +289,7 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
 HOST   a program that embeds tact can give it typed functions and types. calls to them are checked
        like builtins and wait for the run. tact --host H.js --spec lists them.
 
-CLI    tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --readme | --fmt FILE | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
+CLI    tact FILE [args ..] | -e SRC | --check FILE | --spec [PACK|all] | --sigs FILE | --fmt FILE | --host H.js .. | --readme has the rest`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -642,7 +642,7 @@ E9 err ! ! ! run. depth 600
 E10 err ! ! ! run. index out of range
 E11 err ! ! ! run. length or shape
 E12 err ! ! ! check. parse. bad regex literal. use unreadable
-E13 err ! ! ! run. this host lacks it
+E13 err ! ! ! this host lacks it. a refused pack: at check
 E14 err ! ! ! run. refused input
 E15 err ! ! ! run. unreadable text
 E16 err ! ! ! run. fail on purpose
@@ -3598,7 +3598,7 @@ function infer(e, sc, C) {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
       en.used = true;
-      if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) C.deps.impure = true;
+      if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) { C.deps.impure = true; if (en.host) C.reach.host.add(e.name); else if (e.name.startsWith("io.")) C.reach.io.add(e.name); }
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
     }
@@ -3682,7 +3682,7 @@ function infer(e, sc, C) {
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
         en.used = true;
-        if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) C.deps.impure = true;
+        if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) { C.deps.impure = true; if (en.host) C.reach.host.add(label); else if (label.startsWith("io.")) C.reach.io.add(label); }
         if (en.kind === "fn") C.deps.fns.add(label); else if (en.kind === "let") C.deps.lets.add(label);
         ft = inst(en.type);
         if (en.kind === "builtin" && label.startsWith("re.") && e.args.length && e.args[0].t === "str") {
@@ -3717,6 +3717,7 @@ function infer(e, sc, C) {
 }
 function checkProgram(tops, errs, packs, H) {
   TV = 0; TWORK = 0;
+  const reach = { host: new Set(), io: new Set() };       // every effect the program names, known before it runs
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
   for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
   if (H) for (const [name, h] of Object.entries(H.fns)) g.set(name, { kind: "builtin", type: h.type, line: 0, host: true });
@@ -3760,7 +3761,7 @@ function checkProgram(tops, errs, packs, H) {
     g.set(t.name, { kind: "fn", type: rigidToGen(t.sig), line: t.line });
   }
   for (const t of tops) {
-    const C = { g, decls, errs, letLines, packs, deps: { fns: new Set(), lets: new Set() } };
+    const C = { g, decls, errs, letLines, packs, reach, deps: { fns: new Set(), lets: new Set() } };
     const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
     CURLINE = t.line;
     t.deps = C.deps;
@@ -3810,6 +3811,7 @@ function checkProgram(tops, errs, packs, H) {
       stack.push(...ft.deps.fns);
     }
   }
+  info.reach = reach;
   return info;
 }
 
@@ -4127,7 +4129,7 @@ function hostTable(host) {
     if (!h || typeof h.fn !== "function" || typeof h.sig !== "string") bad(`${name}: needs { sig: "A B -> R", fn }`);
     let type; try { type = parseSig(h.sig); } catch (x) { bad(`${name}: signature ${h.sig}: ${x.message}`); }
     if (type.k !== "fn") type = fnT([], type);
-    fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "" };
+    fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "", writes: !!h.writes };
   }
   const T = { types, tops, fns, shape };
   HOSTS.set(host, T);
@@ -4198,6 +4200,9 @@ function preludeTops(packs, H) {
 function run(src, opts = {}) {
   const errs = [], st = { checks: 0 }, out = [];
   const io = opts.io || memHost(), file = opts.file || "", H = hostTable(opts.host);
+  const deny = new Set([...(opts.deny || []), ...(opts.host && opts.host.deny || [])]);
+  for (const p of deny) if (!own(PACKS, p)) throw new TypeError(`tact: deny names ${p}, which is not a pack. packs: ${Object.keys(PACKS).join(" ")}`);
+  let uses = { packs: [], host: [], io: [], writes: [] };      // what the program can reach. an app can show this and ask before running
   const emit = s => { out.push(s); if (opts.onOut) opts.onOut(s); };
   const place = e => { const l = e.line || 0, r = { code: e.code, msg: e.msg, line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
   let info = [];
@@ -4211,18 +4216,20 @@ function run(src, opts = {}) {
       const mine = [], packs = new Set();
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
       for (const p of [...packs]) for (const q of PACKS[p].needs || []) packs.add(q);
+      for (const t of mine) if (t.t === "use") for (const q of [t.pack, ...(PACKS[t.pack].needs || [])]) if (deny.has(q)) errs.push(E("E13", `pack ${q} is not offered by this host` + (q === t.pack ? "" : `, and ${t.pack} needs it`), t.line));
       const tops = [...preludeTops(packs, H), ...mine];
       info = checkProgram(tops, errs, packs, H);
+      uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort() };
       if (!errs.length) { dryProgram(tops, errs, H); foldProgram(tops, errs); }
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
         if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io, host: H });
-        return { phase: "ok", errors: [], output: out, checks: st.checks, info };
+        return { phase: "ok", errors: [], output: out, checks: st.checks, info, uses };
       }
     }
     const keyed = new Map();
     for (const e of errs) keyed.set(e.code + "|" + e.line + "|" + e.msg, e);
-    return { phase: "check", errors: [...keyed.values()].sort((a, b) => a.line - b.line).map(place), output: [], checks: 0, info };
+    return { phase: "check", errors: [...keyed.values()].sort((a, b) => a.line - b.line).map(place), output: [], checks: 0, info, uses };
   } catch (x) {
     if (x instanceof TErr) return { phase: "run", errors: [place({ code: x.code, msg: x.message, line: x.line })], output: out, checks: st.checks, info };
     if (x instanceof TooBig) return { phase: "check", errors: [place({ code: "E4", msg: "the types here grow too large to check. give the pieces fn signatures", line: CURLINE })], output: [], checks: 0, info };
@@ -4560,6 +4567,8 @@ const TESTS = [
   ["xlsx: errors say the rule","(use xlsx)\n(show (try (xlsx.pack [])))\n(show (try (xlsx.pack [(Sheet \"a:b\" [])])))\n(show (try (xlsx.pack [(Sheet \"Data\" []) (Sheet \"data\" [])])))\n(show (try (xlsx.pack [(Sheet \"\" [])])))","(Err \"E10\" \"xlsx.pack: no sheets. a workbook needs at least one\")\n(Err \"E14\" \"xlsx.pack: the sheet name \\\"a:b\\\" has one of : \\\\ / ? * [ ] which a sheet name cannot hold\")\n(Err \"E14\" \"xlsx.pack: the sheet name \\\"data\\\" is there twice. sheet names differ, and upper or lower case does not count\")\n(Err \"E14\" \"xlsx.pack: sheet 1 has an empty name. a sheet name is 1 to 31 characters\")"],
   ["zip xlsx: written and read back through files","(use zip)\n(use xlsx)\n(use io)\n(use bytes)\n(do (io.writeb \"o/a.zip\" (zip.pack [(Entry \"n.txt\" (utf8 \"note\")) (Entry \"t.gz\" (gzip (utf8 \"inner\")))])))\n(show (map (fun [e] (Entry.name e)) (zip.unpack (io.readb \"o/a.zip\"))))\n(show (unutf8 (gunzip (Entry.data (get (zip.unpack (io.readb \"o/a.zip\")) 1)))))\n(show (io.writeb \"o/b.xlsx\" (xlsx.pack [(Sheet \"One\" [[(XNum 1)]])])))\n(show (take (io.readb \"o/b.xlsx\") 4))","[\"n.txt\" \"t.gz\"]\ninner\n2182\n[80 75 3 4]"],
   ["zip the pack and zip the builtin live together","(use zip)\n(show (zip [1 2] [\"a\" \"b\"]))\n(show (len (zip.pack [(Entry \"a\" [])])))","[(Pair 1 \"a\") (Pair 2 \"b\")]\n100"],
+  ["E13 a host may refuse a pack, before anything runs","(use re)\n(show 1)\n(show (re.test \"a\" \"a\"))","check!E13",null,null,true],
+  ["a pack a host refuses is fine elsewhere","(use re)\n(show (re.test \"a\" \"a\"))","true"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -4572,7 +4581,9 @@ const h = hostHelp, DEMO_HOST = {
     "app.bad": { sig: "-> Num", fn: () => "oops" },
     "app.down": { sig: "-> Num", fn: () => { throw new Error("database is down"); } },
     "app.no": { sig: "Str -> Num", fn: ([s]) => h.fail("not-found", s) },
+    "app.close": { sig: "Num -> Bool", fn: () => true, writes: true },
   },
+  deny: ["re"],
 };
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps, withHost]) => {
@@ -4593,6 +4604,9 @@ function runTests() {
   for (const [name, src] of TESTS) { if (src.length > 20000) continue; const f = format(src); if (!f.ok) { if (f.errors[0].code === "BUG") fbad = fbad || name; continue; } if (format(f.text).text !== f.text) fbad = fbad || name; }
   const fc = format("; top\n(let x   1) ; one\n\n\n(fn f [a Num\n b Num] Num ; sum\n (+ a\n b))");
   rs.push({ name: "format keeps meaning, comments and blank lines", ok: fbad === "" && fc.text === "; top\n(let x 1)  ; one\n\n(fn f [a Num b Num] Num\n  ; sum\n  (+ a b))\n", got: fbad || fc.text, want: "", src: "; formats every test program twice", errors: [] });
+  const u = run('(use io)\n(use csv)\n(fn f [n Num] Bool (if (> n 0) (app.close n) false))\n(do (io.print (app.greet "x")))\n(show (len (app.all)))', { host: DEMO_HOST, checkOnly: true });
+  const ug = JSON.stringify(u.uses), uw = '{"packs":["csv","io"],"host":["app.all","app.close","app.greet"],"io":["io.print"],"writes":["app.close"]}';
+  rs.push({ name: "a check says what the program can reach, before it runs", ok: ug === uw && u.output.length === 0, got: ug, want: uw, src: "; run with checkOnly and a host", errors: [] });
   const size = specText().length;
   rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
   return rs;
@@ -4795,6 +4809,9 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   - host functions: a program that embeds tact can hand it its own typed functions and types
     (tact --host H.js). calls to them are checked like builtins before anything runs, so a
     script cannot call the app's tools wrongly halfway through.
+  - a host can refuse packs (a regex has no time bound, so an app may leave re out). (use re)
+    is then E13 before anything runs. tact --check FILE also lists every io and host function
+    the program names, so an app can show that list and ask before it runs anything.
   effects exist only in io.* and in host functions. everything else is pure and repeatable:
   the same program gives the same answer on every machine.
 
@@ -4816,6 +4833,7 @@ COMMANDS
   tact --fmt FILE         the program in the one canonical layout
   tact --list [PACK|all]  builtin names and signatures
   tact --host H.js ..     add a host's functions and types to any of the above
+  tact --deny re,io ..    refuse those packs, as a host might
   tact --test | --fuzz N SEED   the language's own tests
   tact --readme           this text
 
@@ -4830,11 +4848,14 @@ LIMITS, PLAINLY
 }
 
 /* ------------------------------------------------------------------ cli */
-const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --readme | --fmt FILE | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
+const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --host H.js .. | --deny PACKS .. | --spec [PACK|all] | --readme | --fmt FILE | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
 function errLines(r) { return r.errors.map(e => `${e.code} ${e.file ? e.file + " " : ""}line ${e.line}: ${e.msg}`).join("\n"); }
 function cli(args, host) {           // host = the io host. it also needs read and stdin to load the program itself
   const a = args.slice();
   let tools = null;                    // --host H.js: a module whose export is a tact host: { types, fns }
+  const deny = [];
+  while (a[0] === "--deny") { if (!a[1]) return { out: "", err: "--deny needs pack names, like --deny re,io", code: 2 }; deny.push(...a[1].split(",").filter(Boolean)); a.splice(0, 2); }
+  for (const p of deny) if (!own(PACKS, p)) return { out: "", err: `--deny ${p}: not a pack. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 };
   while (a[0] === "--host") {
     if (!a[1]) return { out: "", err: "--host needs a .js file", code: 2 };
     if (typeof host.load !== "function") return { out: "", err: "--host needs node", code: 2 };
@@ -4844,11 +4865,11 @@ function cli(args, host) {           // host = the io host. it also needs read a
   const runIt = (src, showTypes, file, rest) => {
     const io = Object.assign({}, host, { args: () => rest || [] });
     if (showTypes) {
-      const r = run(src, { io, file, checkOnly: true, host: tools });
+      const r = run(src, { io, file, checkOnly: true, host: tools, deny });
       const txt = r.info.map(i => `${i.file ? i.file + " " : ""}line ${String(i.line).padEnd(4)} ${i.text}\n          ${i.code}`).join("\n");
       return { out: txt, err: errLines(r), code: r.errors.length ? 1 : 0, result: r };
     }
-    const r = run(src, { io, file, onOut: host.out, host: tools });
+    const r = run(src, { io, file, onOut: host.out, host: tools, deny });
     return { out: host.out ? "" : r.output.join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0, result: r };
   };
   const src = p => { if (p === undefined) throw new Error("missing FILE"); return p === "-" ? host.stdin() : host.read(p); };
@@ -4859,9 +4880,13 @@ function cli(args, host) {           // host = the io host. it also needs read a
       case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t + (tools ? "\n\n" + hostSpec(tools) : ""), err: "", code: 0 }; }
       case "--readme": return { out: readme().replace(/\n$/, ""), err: "", code: 0 };
       case "--fmt": { const r = format(src(a[1])); return { out: r.text.replace(/\n$/, ""), err: errLines(r), code: r.ok ? 0 : 1 }; }
-      case "--check": { const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools }); return { out: r.errors.length ? "" : "ok", err: errLines(r), code: r.errors.length ? 1 : 0 }; }
+      case "--check": {               // nothing runs. says what the program would reach if it did
+        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools, deny }), u = r.uses;
+        const reach = [u.io.length ? "reaches io: " + u.io.join(" ") : "", u.host.length ? "reaches host: " + u.host.join(" ") : "", u.writes.length ? "writes through: " + u.writes.join(" ") : ""].filter(Boolean);
+        return { out: r.errors.length ? "" : ["ok", ...reach].join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
+      }
       case "--sigs": {                 // what a side loaded tact file offers, without its source
-        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools });
+        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools, deny });
         return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
       }
       case "--list": return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
