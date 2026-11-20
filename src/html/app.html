@@ -1,0 +1,41 @@
+<div class="app">
+  <div class="header"><div class="logo">EMIT<sub>v0.4</sub></div><div class="hdr-r"><button class="hdr-btn" onclick="newFile()" title="New">+</button><button class="hdr-btn run" onclick="compileAndRun()" title="Run"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button class="hdr-btn" onclick="stopProgram()" title="Stop">■</button><select id="exportSel" onchange="doExport(this.value);this.value=''"><option value="">File…</option><option value="import">Open .emit</option><option value="emit">Save .emit</option><option value="newfile">New file in project…</option><option value="find">Find / replace…</option><option value="drawer">Drawer…</option><option value="wasm">Export .wasm</option><option value="html">Export .html</option><option value="htmloff">Export .html (offline)</option><option value="js">Export .js</option><option value="jsoff">Export .js (offline)</option></select><select id="example"><option value="">Example…</option><option value="basics">Demo</option><option value="pong">Breaker</option><option value="draw">Draw</option><option value="art">Art</option><option value="cube3d">3D</option><option value="babylon">Babylon</option><option value="orbit">Orbit</option><option value="confetti">Confetti</option><option value="particles">Particles</option><option value="words">Colors</option><option value="countdown">Countdown</option><option value="clock">Clock</option><option value="npm">npm</option><option value="strings">Strings</option><option value="callbacks">Callbacks</option><option value="ui">UI</option><option value="snake">Snake</option><option value="chat">Chat</option><option value="sound">Music</option><option value="sfx">Sound</option><option value="algo">Algo</option><option value="game">Game</option><option value="memory">Memory</option><option value="modules">Modules</option></select><button class="hdr-btn" onclick="_drawerOpen()" title="Drawer" aria-label="Drawer">&#x1F9F0;</button><button class="hdr-btn" onclick="shareURL()" title="Share">&#x1F517;</button><button class="hdr-btn" onclick="toggleLibs()" title="Libraries">&#x1F4DA;</button><button class="hdr-btn" onclick="toggleSnippets()" title="Snippets">&#x1F4E6;</button><button class="hdr-btn" onclick="toggleHelp()" title="Help">?</button></div></div>
+  <div class="vtabs"><div class="vtab active" data-v="edit" onclick="showView('edit')">Editor</div><div class="vtab" data-v="run" onclick="showView('run')">Output<div class="dot" id="runDot"></div></div></div>
+  <div class="panels" id="panels">
+    <div class="pnl" id="pnl-edit">
+      <div class="ftabs" id="fileTabs" role="tablist" aria-label="Files of the project"></div>
+      <div class="fbar" id="findBar"><div class="fbar-row"><input id="findQ" type="text" placeholder="Find" aria-label="Find" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"><button onclick="_findNext(true)" title="Previous match" aria-label="Previous match">&uarr;</button><button onclick="_findNext(false)" title="Next match" aria-label="Next match">&darr;</button><button id="findAllBtn" onclick="_findToggleAll()" title="Find in all files of the project">all files</button><button onclick="_findClose()" title="Close" aria-label="Close find">&times;</button></div><div class="fbar-row" id="findRepRow" style="display:none"><input id="findR" type="text" placeholder="Replace with" aria-label="Replace with" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false"><button onclick="_findReplace()" title="Replace this match">Replace</button><button onclick="_findReplaceAll()" title="Replace every match">All</button></div><div class="fres" id="findRes" style="display:none"></div></div>
+      <div class="ed-area"><div class="ed-wrap"><div class="gutter-clip"><div class="gutter" id="gutter"></div></div><div class="ed-code"><div class="hl-layer" id="hlLayer"><div class="hl-inner" id="hlInner"></div></div><textarea id="editor" spellcheck="false" autocapitalize="none" autocomplete="off" autocorrect="off" placeholder="// Write Emit here…"></textarea></div></div><div class="ac-popup" id="acPopup"></div></div>
+      <div class="kbar">
+        <button class="kb" onclick="ins('(')">( )</button><button class="kb" onclick="ins('{')">{ }</button><button class="kb" onclick="ins(':')">:</button><button class="kb" onclick="ins('"')">"</button><button class="kb" onclick="ins('  ')" style="font-size:10px">TAB</button>
+        <button class="kb wide" onclick="ins('fn ')">fn</button><button class="kb wide" onclick="ins('let ')">let</button><button class="kb wide" onclick="ins('mut ')">mut</button><button class="kb wide" onclick="ins('int')">int</button><button class="kb wide" onclick="ins('num')">num</button><button class="kb wide" onclick="ins('return ')">ret</button><button class="kb wide" onclick="ins('export ')">exp</button><button class="kb wide" onclick="ins('import ')">imp</button><button class="kb wide" onclick="ins('public ')">pub</button><button class="kb" onclick="_projUndo(false);ed.focus()" title="Undo" aria-label="Undo">&#x21B6;</button><button class="kb" onclick="_projUndo(true);ed.focus()" title="Redo" aria-label="Redo">&#x21B7;</button>
+      </div>
+    </div>
+    <div class="pnl off-r" id="pnl-run">
+      <div class="out-tabs"><div class="otab active" data-t="output" onclick="showOTab(this)">Output</div><div class="otab" data-t="wasm" onclick="showOTab(this)">WASM</div><div class="otab" data-t="ast" onclick="showOTab(this)">AST</div><div class="otab" data-t="tokens" onclick="showOTab(this)">Tokens</div><div class="otab" data-t="memory" onclick="showOTab(this)">Memory<span class="odot" id="memDot"></span></div></div>
+      <div class="out-body"><div class="output" id="tab-output"><span class="dim">Tap ▶ to compile</span></div><div class="output" id="tab-wasm" style="display:none"></div><div class="output" id="tab-ast" style="display:none"></div><div class="output" id="tab-tokens" style="display:none"></div><div class="output memtab" id="tab-memory" style="display:none"></div></div>
+    </div>
+  </div>
+  <div class="sbar"><div><span class="sdot idle" id="sDot"></span><span id="sTxt">Ready</span></div><div style="display:flex;gap:8px;align-items:center"><span id="curPos" style="color:var(--fg3)"></span><span id="sR"></span></div></div>
+</div>
+<div class="fsheet-bg" id="projSheet"></div>
+<div class="snip-overlay" id="snipOverlay">
+<button class="snip-close" onclick="toggleSnippets()">&times;</button>
+<div class="snip-content" id="snipContent"></div>
+</div>
+<div class="snip-overlay" id="libsOverlay">
+<button class="snip-close" onclick="toggleLibs()">&times;</button>
+<div class="snip-content" id="libsContent"></div>
+</div>
+<div class="welcome-overlay" id="welcomeOverlay">
+<div class="welcome-box">
+<!-- 01001010 01001111 01001110 --><h1>EMIT</h1>
+<div class="wl-sub">Code &rarr; WebAssembly &rarr; Run</div>
+<div class="wl-step"><b>Write</b> a function<br><span class="wl-code">export fn hello() { print(42) }</span></div>
+<div class="wl-step"><b>Hit &#9654;</b> to compile and run instantly</div>
+<div class="wl-step"><b><span id="wlBuiltins"></span> builtins</b> — canvas, 3D, sound, arrays, UI<br><span class="wl-code">canvas(300, 200)  circle(150, 100, 50)</span></div>
+<div class="wl-step"><b>use</b> any JS library in one line<br><span class="wl-code">use three.js</span></div>
+<div class="wl-step"><b>&#x1F4E6;</b> snippets &bull; <b>&#x1F517;</b> share as URL &bull; <b>?</b> full reference</div>
+<button class="wl-go" onclick="closeWelcome()">Start Coding</button>
+</div>
+</div>

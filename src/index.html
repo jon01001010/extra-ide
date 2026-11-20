@@ -1,0 +1,92 @@
+<!--#note The source of emit-ide-1_32.html: node tools/build.js writes the page, replacing each #include line by -->
+<!--#note that file and leaving these #note lines out (see docs/BUILDING.md). The scripts run in this order, as classic -->
+<!--#note scripts sharing one global scope; a later script often wraps a function an earlier one defined (docs/SOURCE-MAP.md). -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Emit</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+<!--#include file="css/ide.css" -->
+</style>
+</head>
+<body>
+<!--#include file="html/app.html" -->
+<!--#include file="html/help.html" -->
+<!--#note The first script: the examples, the compiler, the runtime (between the //#emit-runtime-begin/end markers, -->
+<!--#note copied into exported programs), the IDE and the first drawer tools. Its files only split it; they are one script. -->
+<script>
+<!--#include file="js/examples.js" -->
+<!--#include file="js/compiler/core.js" -->
+<!--#include file="js/compiler/js-interop.js" -->
+<!--#include file="js/compiler/await-try.js" -->
+<!--#include file="js/compiler/modules.js" -->
+<!--#include file="js/compiler/regions.js" -->
+<!--#include file="js/compiler/sprites.js" -->
+<!--#include file="js/compiler/sound.js" -->
+<!--#include file="js/compiler/mote.js" -->
+<!--#include file="js/compiler/things-rules.js" -->
+<!--#include file="js/ide/editor.js" -->
+<!--#include file="js/compiler/wasm-rewrite.js" -->
+<!--#include file="js/runtime/core.js" -->
+<!--#include file="js/runtime/regions.js" -->
+<!--#include file="js/runtime/sound.js" -->
+<!--#include file="js/runtime/sprites.js" -->
+<!--#include file="js/runtime/maps.js" -->
+<!--#include file="js/runtime/things.js" -->
+<!--#include file="js/runtime/toplevel.js" -->
+<!--#include file="js/compiler/toplevel.js" -->
+<!--#include file="js/compiler/call-args.js" -->
+<!--#include file="js/compiler/declared-types.js" -->
+<!--#include file="js/runtime/loader.js" -->
+<!--#include file="js/ide/lib-cache.js" -->
+<!--#include file="js/ide/run.js" -->
+<!--#include file="js/ide/libraries.js" -->
+<!--#include file="js/ide/lib-vocab.js" -->
+<!--#include file="js/ide/autocomplete.js" -->
+<!--#include file="js/ide/panels.js" -->
+<!--#include file="js/ide/export.js" -->
+<!--#include file="js/ide/export-offline.js" -->
+<!--#include file="js/ide/project.js" -->
+<!--#include file="js/ide/memory-tab.js" -->
+<!--#include file="js/ide/regions-editor.js" -->
+<!--#include file="js/drawer/drawer.js" -->
+<!--#include file="js/drawer/sound-music.js" -->
+<!--#include file="js/drawer/sprite.js" -->
+</script>
+<!--#note Each later <script> is a feature added on top: it wraps what the scripts before it define. -->
+<script>
+<!--#include file="js/maps-controls/compiler-editor.js" -->
+<!--#include file="js/maps-controls/stage.js" -->
+<!--#include file="js/maps-controls/controls.js" -->
+</script>
+<script>
+<!--#include file="js/drawer/logic.js" -->
+</script>
+<script>
+<!--#include file="js/drawer/integration.js" -->
+</script>
+<style>
+<!--#include file="css/timeline.css" -->
+</style>
+<script>
+<!--#include file="js/ide/timeline.js" -->
+</script>
+<script>
+<!--#include file="js/drawer/script-mote.js" -->
+</script>
+<script>
+<!--#include file="js/ide/tutorial.js" -->
+</script>
+<script>
+<!--#include file="js/nocase.js" -->
+</script>
+<!--#note The build puts mote.js between these two markers (as tools/build-mote-html.js does): do not add anything here. -->
+<!-- MOTE:BEGIN Mote (`use mote`), generated from mote.js by tools/build-mote-html.js — do not edit by hand. Not executed when the page opens. -->
+<!-- MOTE:END -->
+<!--#note Last: the globals the IDE itself defines, so library autocomplete leaves them out. -->
+<script>_libSnapshotGlobals()</script>
+</body>
+</html>
