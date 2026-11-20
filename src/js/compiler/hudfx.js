@@ -390,7 +390,7 @@ _emitModLink=(function(link){return function(fr){
     function ref(x,what){
       if(!x||x.name===undefined)return;
       var k=x.name.toLowerCase(),own=gl.filter(function(g){return g.m===m&&g.key===k}),all=own.length?own:gl.filter(function(g){return g.key===k});
-      if(all.length===1){x.g=all[0].n.name;x.decl=all[0].name;return}
+      if(all.length===1){x.g=all[0].n.name;x.decl=all[0].name;x.pre=at(m,x);return}
       if(all.length>1){errs.push(at(m,x)+'"'+x.name+'" is a variable of several files ('+all.map(function(g){return g.m.path}).join(', ')+') — move this HUD into the file whose '+x.name+' it shows');return}
       var c=_emitModClosest(x.name,gnames);
       errs.push(at(m,x)+'Unknown variable "'+x.name+'" in hud '+h.n.name+(c?' — did you mean "'+c+'"?':' — a HUD shows global variables: declare it (mut '+x.name+' = 0) or set it in the rules (add '+x.name+' 1)'));
@@ -426,17 +426,17 @@ compile=(function(c){return function(source,target){
   function glob(x,what){
     if(!x||x.g===undefined)return;
     var e=G&&G.globalMap&&G.globalMap.get(x.g);
-    if(!e){bad.push(x.decl+' ('+what+')');return}
+    if(!e){bad.push(x.pre+'"'+x.decl+'" cannot be shown by this HUD ('+what+')');return}
     var t=String(e.type||'int');
-    if(!/^(int|i64|i32|u32|i16|u16|i8|u8|num|f64|f32|bool|str)$/.test(t)){bad.push(x.decl+' is '+t);return}
-    x.i=e.idx;x.t=t;delete x.g;delete x.decl;
+    if(!/^(int|i64|i32|u32|i16|u16|i8|u8|num|f64|f32|bool|str)$/.test(t)){bad.push(x.pre+'A HUD shows numbers, bools and strings — '+x.decl+' is '+(/^[aeiou]/.test(t)?'an ':'a ')+t);return}
+    x.i=e.idx;x.t=t;delete x.g;delete x.decl;delete x.pre;
   }
   I.huds.forEach(function(h){h.items.forEach(function(it){
     (it.parts||[]).forEach(function(p){if(typeof p!=='string')glob(p,'text')});
     glob(it.count,'icons');glob(it.value,'bar');glob(it.min,'bar');glob(it.max,'bar');
     (function strip(o){if(!o||typeof o!=='object')return;if(Array.isArray(o)){o.forEach(strip);return}delete o.off;delete o.line;delete o.col;for(var k in o)strip(o[k])})(it);
   })});
-  if(bad.length){r.errors=(r.errors||[]).concat(['1:1: A HUD can show numbers, bools and strings — not '+bad.join(', ')]);r.wasm=new Uint8Array([0,0x61,0x73,0x6D,1,0,0,0]);return r}
+  if(bad.length){r.errors=(r.errors||[]).concat(bad);r.wasm=new Uint8Array([0,0x61,0x73,0x6D,1,0,0,0]);return r}
   if(I.usesHud)r.imports.hudMeta=JSON.stringify({v:1,huds:I.huds});
   if(I.usesFx)r.imports.fxMeta=JSON.stringify({v:1,fx:I.fx});
   return r;

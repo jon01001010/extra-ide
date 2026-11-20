@@ -44,7 +44,7 @@ const ERRORS = [
   ['more steps than the music has', 'music m: 120 bpm, 4 steps\n  lead square: C5 . E5 . G5\n', '2:26: Track lead has 5 steps, the music has 4 — remove steps or write 5 steps in the first line'],
   ['a track without a waveform', 'music m: 120 bpm, 2 steps\n  lead: C5 .\n', '2:3: Track lead needs a waveform (sine square saw triangle noise) or drums — lead square: C5 . E5 .'],
   ['a bad bpm', 'music m: fast bpm\n', '1:10: bpm is a number from 20 to 400 — 120 bpm'],
-  ['an unknown kind of block', 'sprit hero: 16x16\n  ..##..\nexport fn run() {\n}\n', '1:1: Unknown block "sprit hero:" — the kinds of blocks are sound, music, sprite, map, controls, thing, rules, script — did you mean sprite?'],
+  ['an unknown kind of block', 'sprit hero: 16x16\n  ..##..\nexport fn run() {\n}\n', '1:1: Unknown block "sprit hero:" — the kinds of blocks are sound, music, sprite, map, controls, thing, rules, script, hud, particles — did you mean sprite?'],
   ['two sounds with one name', 'sound coin: square\nsound coin: sine\n', '2:7: sound coin is already declared at line 1 — every sound needs its own name'],
   ['a block inside a function (indented)', 'export fn run() {\n  sound coin: square\n}\n', '2:3: sound blocks belong at the top level of a file and start in column 1 — sound coin: …'],
   ['a block header in column 1 inside a function', 'export fn run() {\nsound coin: square\n}\n', '2:1: sound coin: looks like a block — blocks belong at the top level of a file, starting in column 1'],

@@ -1,13 +1,16 @@
+//#emit-fx-begin — particles; removed from exports of programs without particles blocks
 // ═══ HUD & PARTICLES (runtime half; the compiler half is "HUD & PARTICLES" in the compiler) ═══
 // Each half sits between its own markers: an exported program carries the particles part only when it uses
 // particles (imports.fxMeta) and the HUD part only when it uses a HUD or say() (imports.hudMeta) — see
-// _exportRuntime. Both draw on the program's canvas after every frame (and after a call when the program does
-// not animate): first the particles, then the HUD, in canvas pixels. A screen(…) canvas is painted by the
-// region blit, so there they are drawn right after the blit. The drawer tools use the same painters:
+// _exportRuntime. Both draw on the program's canvas, in canvas pixels, first the particles, then the HUD: at
+// the end of _lgDraw for a program with things (so the Timeline's redraw of a frame draws them too), else after
+// every frame() (and the HUD after a call when the program does not animate); a screen(…) canvas is painted by
+// the region blit, so there they are drawn right after the blit. Particles move once per frame (1/60 s, like
+// the rules), at its start. _fxW.snap() / load() and _hudSnap() / _hudLoad() are their state for the Timeline.
+// The drawer tools use the same painters:
 //   _hudPaintSpec(ctx2d, W, H, items, val(ref) → value)   _hudText(ctx2d, text, x, y, size, color)
 //   _fxWorld() → {spawn(spec, x, y, n), step(dt), draw(ctx2d), emitter(spec, x, y), move(h, x, y), stop(h), n()}
-//#emit-fx-begin — particles; removed from exports of programs without particles blocks
-var _FX_CAP=2000;
+var _FX_CAP=2000,_FX_EMPTY={n:0,f:new Float32Array(0),sp:[],col:[],em:[],next:1,bytes:0};
 function _fxRnd(r){return r[0]+(r[1]-r[0])*Math.random()}
 function _fxWorld(){
   var N=0,X=new Float32Array(_FX_CAP),Y=new Float32Array(_FX_CAP),VX=new Float32Array(_FX_CAP),VY=new Float32Array(_FX_CAP),
@@ -59,13 +62,25 @@ function _fxWorld(){
     move:function(h,x,y){var e=em.get(h);if(e){e.x=Number(x)||0;e.y=Number(y)||0}return!!e},
     stop:function(h){return em.delete(h)},
     emitters:function(){return em.size},
+    snap:function(){
+      if(!N&&!em.size)return _FX_EMPTY;
+      var f=new Float32Array(N*6);for(var i=0;i<N;i++){var o=i*6;f[o]=X[i];f[o+1]=Y[i];f[o+2]=VX[i];f[o+3]=VY[i];f[o+4]=AGE[i];f[o+5]=LIFE[i]}
+      var e=[];em.forEach(function(v,h){e.push([h,v.s,v.x,v.y,v.acc,v.on])});
+      return{n:N,f:f,sp:SP.slice(0,N),col:COL.slice(0,N),em:e,next:next,bytes:N*40+e.length*48+64};
+    },
+    load:function(z){
+      if(!z)return;
+      for(var i=0;i<z.n;i++){var o=i*6;X[i]=z.f[o];Y[i]=z.f[o+1];VX[i]=z.f[o+2];VY[i]=z.f[o+3];AGE[i]=z.f[o+4];LIFE[i]=z.f[o+5];SP[i]=z.sp[i];COL[i]=z.col[i]}
+      for(i=z.n;i<N;i++)SP[i]=null;
+      N=z.n;em.clear();z.em.forEach(function(v){em.set(v[0],{s:v[1],x:v[2],y:v[3],acc:v[4],on:v[5]})});next=z.next;
+    },
     clear:function(){N=0;em.clear();for(var i=0;i<SP.length;i++)SP[i]=null}
   };
 }
-var _fxW=null,_fxSpecs=Object.create(null),_fxT=0,_fxNoted=Object.create(null);
+var _fxW=null,_fxSpecs=Object.create(null),_fxNoted=Object.create(null);
 function _fxSetup(imports){
   if(_fxW)_fxW.clear();
-  _fxSpecs=Object.create(null);_fxT=0;_fxNoted=Object.create(null);
+  _fxSpecs=Object.create(null);_fxNoted=Object.create(null);
   var m=null;try{if(imports&&typeof imports.fxMeta==='string')m=JSON.parse(imports.fxMeta)}catch(e){m=null}
   if(!m){_fxW=null;return}
   _fxW=_fxWorld();
@@ -76,17 +91,16 @@ function _fxFind(n){
   if(!s&&!_fxNoted[n]){_fxNoted[n]=true;try{var d=document.createElement('div');d.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:11px;';d.textContent='particles "'+n+'": there is no particles block with this name — nothing is drawn';var o=document.getElementById('tab-output');if(o)o.appendChild(d)}catch(e){}}
   return s||null;
 }
-function _fxTick(){
-  if(!_fxW)return;
-  var now=(typeof performance!=='undefined'?performance.now():Date.now()),dt=_fxT?(now-_fxT)/1000:1/60;
-  if(!(dt>0)||dt>0.1)dt=1/60;
-  _fxT=now;_fxW.step(dt);
-}
 function _fxPaint(g){if(_fxW&&g)_fxW.draw(g)}
-_emitFrame=(function(frame){return function(){
-  try{return frame.apply(this,arguments)}
-  finally{if(_fxW){_fxTick();if(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))_fxPaint(_need2d())}}
-}})(_emitFrame);
+function _fxOnCanvas(){return!!(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))}
+_emitCallExport=(function(call){return function(inst,name,args,top){
+  if(name!=='frame'||!_fxW)return call.apply(this,arguments);
+  _fxW.step(1/60);
+  var r=call.apply(this,arguments);
+  if(!_lgMeta&&_fxOnCanvas())_fxPaint(_need2d());
+  return r;
+}})(_emitCallExport);
+_lgDraw=(function(draw){return function(){var r=draw.apply(this,arguments);if(_fxW&&_fxOnCanvas())_fxPaint(_need2d());return r}})(_lgDraw);
 _rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_fxW&&s&&s.cv===_canvas)_fxPaint(s.ctx);return r}})(_rgBlit1);
 buildImportObject=(function(build){return function(imports,outputLog){
   _fxSetup(imports);
@@ -190,10 +204,10 @@ function _hudPaintSpec(g,W,H,items,val){
   });
   g.restore();
 }
-var _hudMeta=null,_hudCur=-1,_hudShow=true,_hudSayText='',_hudSayEnd=0,_hudNoted=Object.create(null);
+var _hudMeta=null,_hudCur=-1,_hudShow=true,_hudSayText='',_hudSayLeft=0,_hudNoted=Object.create(null);
 function _hudSetup(imports){
   var m=null;try{if(imports&&typeof imports.hudMeta==='string')m=JSON.parse(imports.hudMeta)}catch(e){m=null}
-  _hudMeta=m;_hudCur=m&&m.huds&&m.huds.length?0:-1;_hudShow=true;_hudSayText='';_hudSayEnd=0;_hudNoted=Object.create(null);
+  _hudMeta=m;_hudCur=m&&m.huds&&m.huds.length?0:-1;_hudShow=true;_hudSayText='';_hudSayLeft=0;_hudNoted=Object.create(null);
 }
 // A HUD value: a number written in the block, or a global variable read from the running instance
 function _hudVal(r){
@@ -206,27 +220,28 @@ function _hudVal(r){
   if(r.t==='bool')return!!Number(v);
   return v;
 }
-function _hudNow(){return typeof performance!=='undefined'?performance.now():Date.now()}
+function _hudSnap(){return _hudMeta?{c:_hudCur,s:_hudShow,t:_hudSayText,l:_hudSayLeft}:null}
+function _hudLoad(z){if(z&&_hudMeta){_hudCur=z.c;_hudShow=z.s;_hudSayText=z.t;_hudSayLeft=z.l}}
 function _hudPaint(g){
   if(!_hudMeta||!g||!_canvas)return;
   var W=_canvas.width,H=_canvas.height,h=_hudMeta.huds[_hudCur];
   if(_hudShow&&h)try{_hudPaintSpec(g,W,H,h.items,_hudVal)}catch(e){}
-  if(_hudSayText&&_hudNow()<_hudSayEnd){
+  if(_hudSayText&&_hudSayLeft>0){
     var sz=Math.max(1,Math.min(4,Math.floor(W/160))),tw=_hudTextW(_hudSayText)*sz,x=Math.round((W-tw)/2),y=Math.round(H/2-4*sz);
     g.save();g.fillStyle='rgba(0,0,0,0.6)';g.fillRect(x-4*sz,y-3*sz,tw+8*sz,13*sz);g.restore();
     _hudText(g,_hudSayText,x,y,sz,'#ffffff');
   }
 }
 function _hudOnCanvas(){return!!(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))}
-_emitFrame=(function(frame){return function(){
-  try{return frame.apply(this,arguments)}
-  finally{if(_hudMeta&&_hudOnCanvas())_hudPaint(_need2d())}
-}})(_emitFrame);
+// A say() lasts so many frames (60 a second); a program that does not animate shows it once
 _emitCallExport=(function(call){return function(inst,name,args,top){
+  if(!_hudMeta)return call.apply(this,arguments);
+  if(name==='frame'&&_hudSayLeft>0)_hudSayLeft--;
   var r=call.apply(this,arguments);
-  if(_hudMeta&&!_animRunning&&name!=='frame'&&_hudOnCanvas()&&!(r&&typeof r.then==='function'))_hudPaint(_need2d());
+  if((name==='frame'?!_lgMeta:!_animRunning&&!(r&&typeof r.then==='function'))&&_hudOnCanvas())_hudPaint(_need2d());
   return r;
 }})(_emitCallExport);
+_lgDraw=(function(draw){return function(){var r=draw.apply(this,arguments);if(_hudMeta&&_hudOnCanvas())_hudPaint(_need2d());return r}})(_lgDraw);
 _rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_hudMeta&&s&&s.cv===_canvas)_hudPaint(s.ctx);return r}})(_rgBlit1);
 buildImportObject=(function(build){return function(imports,outputLog){
   _hudSetup(imports);
@@ -239,9 +254,9 @@ buildImportObject=(function(build){return function(imports,outputLog){
     };
     if(s.hudOn)s.hudOn=function(){_hudShow=true};
     if(s.hudOff)s.hudOff=function(){_hudShow=false};
-    if(s.say)s.say=function(p,sec){_hudSayText=_readStr(Number(p));sec=Number(sec);_hudSayEnd=_hudNow()+(sec>0?sec:2)*1000};
+    if(s.say)s.say=function(p,sec){_hudSayText=_readStr(Number(p));sec=Number(sec);_hudSayLeft=Math.max(1,Math.round((sec>0?sec:2)*60))};
   }
   return obj;
 }})(buildImportObject);
-if(typeof window!=='undefined'){window._hudPaintSpec=_hudPaintSpec;window._hudText=_hudText;window._hudTextW=_hudTextW;window._hudState=function(){return{hud:_hudMeta&&_hudMeta.huds[_hudCur]?_hudMeta.huds[_hudCur].name:null,on:_hudShow,say:_hudNow()<_hudSayEnd?_hudSayText:''}}}
+if(typeof window!=='undefined'){window._hudPaintSpec=_hudPaintSpec;window._hudText=_hudText;window._hudTextW=_hudTextW;window._hudState=function(){return{hud:_hudMeta&&_hudMeta.huds[_hudCur]?_hudMeta.huds[_hudCur].name:null,on:_hudShow,say:_hudSayLeft>0?_hudSayText:''}}}
 //#emit-hud-end

@@ -10,7 +10,8 @@
 //   • every mutable WASM global (the __g<i> exports): 8 bytes each (f64, or i64 for an int / handle global).
 //   • the freeze flag of every region, the tiles of every map (setTile; a new copy only when one changed),
 //     the HUD of things (_lgShows, _lgSay, the tick) and the input of the frame (keys, touch, stick, buttons,
-//     taps on onclick buttons) — shared with the previous record when unchanged.
+//     taps on onclick buttons) — shared with the previous record when unchanged; the live particles and the
+//     state of hud / say (HUD & PARTICLES: _fxW.snap(), _hudSnap()), when the program has them.
 // The ring keeps at most _TL_CFG.maxFrames records and _TL_CFG.maxBytes bytes; dropping the oldest record turns
 // the next one into a keyframe in place (its delta is applied to the dropped copy).
 // RESTORING frame k: from the nearest keyframe at or before k forward, or by walking XOR deltas from the frame
@@ -186,6 +187,9 @@ function _tlRecord(keep,inp){
     if(ss){var ps=_tl.strs;if(ps&&ps.length===ss.length&&ps.every(function(x,i){return x===ss[i]}))ss=ps;_tl.strs=ss;rec.s=ss}
   }
   rec.fz=_tlFz();rec.maps=_tlMaps();rec.lg=_tlLg();
+  /* particles and the HUD's own state (HUD & PARTICLES): live particles are part of the frame */
+  if(typeof _fxW!=='undefined'&&_fxW){rec.fx=_fxW.snap();rec.sz+=rec.fx.bytes}
+  if(typeof _hudSnap==='function')rec.hud=_hudSnap();
   if(keep){rec.inp=keep.inp;rec.lab=keep.lab}
   else{
     rec.inp=inp||_tlInput();
@@ -270,6 +274,8 @@ function _tlApply(k){
     _tl.maps=F.maps;
   }
   if(F.lg){_lgTick=F.lg.t;_lgSay=F.lg.say;_lgSayAt=F.lg.sayAt;_lgShows=F.lg.shows.slice();_tl.lg=F.lg;_tl.lgOn=F.lg.on}
+  if(F.fx&&typeof _fxW!=='undefined'&&_fxW)_fxW.load(F.fx);
+  if(F.hud&&typeof _hudLoad==='function')_hudLoad(F.hud);
   if(typeof _rgDirty!=='undefined')_rgDirty=true;
 }
 function _tlOwnCanvas(){

@@ -56,9 +56,9 @@ function _hudRead(b){
   var body=_drawerBody(b.text,'hud'),r=_hudParse(body);
   return{name:b.name,orig:b.name,items:r.spec.items.map(function(it){var c=JSON.parse(JSON.stringify(it));delete c.off;return c}),err:r.errors[0]?r.errors[0].msg:null,dirty:false};
 }
-function _hudNewItem(kind,vars){
+function _hudNewItem(kind,vars,sprites){
   var v=vars[0]||'score';
-  if(kind==='icons')return{kind:'icons',sprite:{name:'heart'},count:{name:vars.filter(function(n){return/live|hp|heart/i.test(n)})[0]||v},v:'top',h:'right',below:false,size:1,color:null};
+  if(kind==='icons')return{kind:'icons',sprite:{name:(sprites&&sprites[0])||'heart'},count:{name:vars.filter(function(n){return/live|hp|heart/i.test(n)})[0]||v},v:'top',h:'right',below:false,size:1,color:null};
   if(kind==='bar')return{kind:'bar',value:{name:vars.filter(function(n){return/hp|health|energy|power/i.test(n)})[0]||v},min:{num:0},max:{num:100},v:'bottom',h:'left',below:false,size:1,color:null,width:60,height:null};
   return{kind:'text',parts:['Score: ',{name:v}],v:'top',h:'left',below:false,size:1,color:null};
 }
@@ -66,7 +66,7 @@ function _hudPartsText(parts){return(parts||[]).map(function(p){return typeof p=
 function _drawerHudTool(ctx){
   var list=ctx.blocks('hud').map(_hudRead),cur=0,ui={},vars=_hfxGlobals();
   var sprites=[];try{sprites=ctx.blocks('sprite').map(function(b){return b.name})}catch(e){}
-  if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:true});
+  if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:true});
   function S(){return list[cur]}
   function names(except){return list.filter(function(x,i){return i!==except}).map(function(x){return x.name})}
   function textOf(it){return _hudWrite(it.name,{items:it.items})}
@@ -124,7 +124,7 @@ function _drawerHudTool(ctx){
   function itemCard(it,ix){
     var n=S().items.length;
     var head=_drwEl('div',{cls:'drw-row hfx-ihead'},[
-      _drwSeg([['text','text'],['icons','icons'],['bar','bar']],function(){return it.kind},function(k){if(k===it.kind)return;var fresh=_hudNewItem(k,vars);fresh.v=it.v;fresh.h=it.h;fresh.below=it.below;fresh.size=it.size;S().items[ix]=fresh;changed(true)},'Kind of item'),
+      _drwSeg([['text','text'],['icons','icons'],['bar','bar']],function(){return it.kind},function(k){if(k===it.kind)return;var fresh=_hudNewItem(k,vars,sprites);fresh.v=it.v;fresh.h=it.h;fresh.below=it.below;fresh.size=it.size;S().items[ix]=fresh;changed(true)},'Kind of item'),
       _drwEl('span',{cls:'hfx-sp'}),
       _drwBtn('↑',function(){if(ix>0){var a=S().items;a.splice(ix-1,0,a.splice(ix,1)[0]);changed(true)}},'drw-sm'+(ix===0?' hfx-dis':''),'Move up'),
       _drwBtn('↓',function(){if(ix<n-1){var a=S().items;a.splice(ix+1,0,a.splice(ix,1)[0]);changed(true)}},'drw-sm'+(ix===n-1?' hfx-dis':''),'Move down'),
@@ -139,12 +139,14 @@ function _drawerHudTool(ctx){
         ti.classList.remove('hfx-bad');ti.title='';it.parts=parts;changed(false);return true;
       }
       ti.addEventListener('input',setText);
+      /* where a chip inserts: the last cursor position in the field, or its end when it was never focused */
+      ['select','keyup','click','input','blur'].forEach(function(ev){ti.addEventListener(ev,function(){ti._sel=[ti.selectionStart,ti.selectionEnd]})});
       card.appendChild(_drwEl('div',{cls:'drw-row'},[_drwEl('label',{cls:'drw-lab',text:'Text'}),ti]));
       var chips=_drwEl('div',{cls:'drw-chips hfx-vchips','aria-label':'Insert a variable'});
       vars.forEach(function(v){chips.appendChild(_drwBtn('{'+v+'}',function(){
-        var s=ti.selectionStart!=null?ti.selectionStart:ti.value.length,e=ti.selectionEnd!=null?ti.selectionEnd:s;
+        var s=ti._sel?ti._sel[0]:ti.value.length,e=ti._sel?ti._sel[1]:s;
         ti.value=ti.value.slice(0,s)+'{'+v+'}'+ti.value.slice(e);setText();
-        try{ti.focus();ti.setSelectionRange(s+v.length+2,s+v.length+2)}catch(x){}
+        ti._sel=[s+v.length+2,s+v.length+2];
       },'drw-chip','Insert {'+v+'}'))});
       if(!vars.length)chips.appendChild(_drwEl('span',{cls:'drw-dim',text:'No global variables yet — declare one (mut score = 0) or set one in the rules (add score 1).'}));
       card.appendChild(chips);
@@ -180,7 +182,7 @@ function _drawerHudTool(ctx){
     var root=_drwEl('div',{cls:'hfx','data-hud-tool':''});b.appendChild(root);
     root._hud={list:list,cur:function(){return cur},S:S,text:function(){return textOf(S())},save:save,build:build,paint:paint};
     ui.chips=_drwChips(list,cur,function(i){cur=i;build()},function(){
-      var n=_drwFreeName('hud',names(-1));list.push({name:n,orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:true});cur=list.length-1;dirty();build();
+      var n=_drwFreeName('hud',names(-1));list.push({name:n,orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:true});cur=list.length-1;dirty();build();
     },'+ New HUD');
     root.appendChild(ui.chips);
     var nameIn=_drwEl('input',{type:'text',cls:'drw-name',value:it.name,'aria-label':'HUD name',autocomplete:'off',autocapitalize:'none',spellcheck:'false'});
@@ -201,9 +203,9 @@ function _drawerHudTool(ctx){
     it.items.forEach(function(x,i){root.appendChild(itemCard(x,i))});
     if(!it.items.length)root.appendChild(_drwEl('p',{cls:'drw-dim',text:'No items yet — add one below.'}));
     root.appendChild(_drwEl('div',{cls:'drw-wrap'},[
-      _drwBtn('+ Text',function(){S().items.push(_hudNewItem('text',vars));changed(true)},null,'Add a text item'),
-      _drwBtn('+ Icons',function(){S().items.push(_hudNewItem('icons',vars));changed(true)},null,'Add icons (a sprite repeated)'),
-      _drwBtn('+ Bar',function(){S().items.push(_hudNewItem('bar',vars));changed(true)},null,'Add a bar')
+      _drwBtn('+ Text',function(){S().items.push(_hudNewItem('text',vars,sprites));changed(true)},null,'Add a text item'),
+      _drwBtn('+ Icons',function(){S().items.push(_hudNewItem('icons',vars,sprites));changed(true)},null,'Add icons (a sprite repeated)'),
+      _drwBtn('+ Bar',function(){S().items.push(_hudNewItem('bar',vars,sprites));changed(true)},null,'Add a bar')
     ]));
     root.appendChild(_drwEl('div',{cls:'drw-lab',text:'The block'}));
     ui.code=_drwEl('pre',{cls:'drw-code'});root.appendChild(ui.code);
@@ -227,7 +229,7 @@ function _drawerHudTool(ctx){
     if(!window.confirm('Delete hud '+it.name+'?'))return;
     if(it.orig)try{ctx.remove('hud',it.orig)}catch(e){}
     list.splice(cur,1);
-    if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:false});
+    if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:false});
     cur=0;dirty();build();ctx.toast('hud '+it.name+' deleted');
   }
   build();

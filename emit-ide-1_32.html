@@ -6484,7 +6484,7 @@ _emitModLink=(function(link){return function(fr){
     function ref(x,what){
       if(!x||x.name===undefined)return;
       var k=x.name.toLowerCase(),own=gl.filter(function(g){return g.m===m&&g.key===k}),all=own.length?own:gl.filter(function(g){return g.key===k});
-      if(all.length===1){x.g=all[0].n.name;x.decl=all[0].name;return}
+      if(all.length===1){x.g=all[0].n.name;x.decl=all[0].name;x.pre=at(m,x);return}
       if(all.length>1){errs.push(at(m,x)+'"'+x.name+'" is a variable of several files ('+all.map(function(g){return g.m.path}).join(', ')+') — move this HUD into the file whose '+x.name+' it shows');return}
       var c=_emitModClosest(x.name,gnames);
       errs.push(at(m,x)+'Unknown variable "'+x.name+'" in hud '+h.n.name+(c?' — did you mean "'+c+'"?':' — a HUD shows global variables: declare it (mut '+x.name+' = 0) or set it in the rules (add '+x.name+' 1)'));
@@ -6520,17 +6520,17 @@ compile=(function(c){return function(source,target){
   function glob(x,what){
     if(!x||x.g===undefined)return;
     var e=G&&G.globalMap&&G.globalMap.get(x.g);
-    if(!e){bad.push(x.decl+' ('+what+')');return}
+    if(!e){bad.push(x.pre+'"'+x.decl+'" cannot be shown by this HUD ('+what+')');return}
     var t=String(e.type||'int');
-    if(!/^(int|i64|i32|u32|i16|u16|i8|u8|num|f64|f32|bool|str)$/.test(t)){bad.push(x.decl+' is '+t);return}
-    x.i=e.idx;x.t=t;delete x.g;delete x.decl;
+    if(!/^(int|i64|i32|u32|i16|u16|i8|u8|num|f64|f32|bool|str)$/.test(t)){bad.push(x.pre+'A HUD shows numbers, bools and strings — '+x.decl+' is '+(/^[aeiou]/.test(t)?'an ':'a ')+t);return}
+    x.i=e.idx;x.t=t;delete x.g;delete x.decl;delete x.pre;
   }
   I.huds.forEach(function(h){h.items.forEach(function(it){
     (it.parts||[]).forEach(function(p){if(typeof p!=='string')glob(p,'text')});
     glob(it.count,'icons');glob(it.value,'bar');glob(it.min,'bar');glob(it.max,'bar');
     (function strip(o){if(!o||typeof o!=='object')return;if(Array.isArray(o)){o.forEach(strip);return}delete o.off;delete o.line;delete o.col;for(var k in o)strip(o[k])})(it);
   })});
-  if(bad.length){r.errors=(r.errors||[]).concat(['1:1: A HUD can show numbers, bools and strings — not '+bad.join(', ')]);r.wasm=new Uint8Array([0,0x61,0x73,0x6D,1,0,0,0]);return r}
+  if(bad.length){r.errors=(r.errors||[]).concat(bad);r.wasm=new Uint8Array([0,0x61,0x73,0x6D,1,0,0,0]);return r}
   if(I.usesHud)r.imports.hudMeta=JSON.stringify({v:1,huds:I.huds});
   if(I.usesFx)r.imports.fxMeta=JSON.stringify({v:1,fx:I.fx});
   return r;
@@ -9888,16 +9888,19 @@ buildImportObject=(function(build){return function(imports,outputLog){
   _lgSetup(imports);
   return build.apply(this,arguments);
 }})(buildImportObject);
+//#emit-fx-begin — particles; removed from exports of programs without particles blocks
 // ═══ HUD & PARTICLES (runtime half; the compiler half is "HUD & PARTICLES" in the compiler) ═══
 // Each half sits between its own markers: an exported program carries the particles part only when it uses
 // particles (imports.fxMeta) and the HUD part only when it uses a HUD or say() (imports.hudMeta) — see
-// _exportRuntime. Both draw on the program's canvas after every frame (and after a call when the program does
-// not animate): first the particles, then the HUD, in canvas pixels. A screen(…) canvas is painted by the
-// region blit, so there they are drawn right after the blit. The drawer tools use the same painters:
+// _exportRuntime. Both draw on the program's canvas, in canvas pixels, first the particles, then the HUD: at
+// the end of _lgDraw for a program with things (so the Timeline's redraw of a frame draws them too), else after
+// every frame() (and the HUD after a call when the program does not animate); a screen(…) canvas is painted by
+// the region blit, so there they are drawn right after the blit. Particles move once per frame (1/60 s, like
+// the rules), at its start. _fxW.snap() / load() and _hudSnap() / _hudLoad() are their state for the Timeline.
+// The drawer tools use the same painters:
 //   _hudPaintSpec(ctx2d, W, H, items, val(ref) → value)   _hudText(ctx2d, text, x, y, size, color)
 //   _fxWorld() → {spawn(spec, x, y, n), step(dt), draw(ctx2d), emitter(spec, x, y), move(h, x, y), stop(h), n()}
-//#emit-fx-begin — particles; removed from exports of programs without particles blocks
-var _FX_CAP=2000;
+var _FX_CAP=2000,_FX_EMPTY={n:0,f:new Float32Array(0),sp:[],col:[],em:[],next:1,bytes:0};
 function _fxRnd(r){return r[0]+(r[1]-r[0])*Math.random()}
 function _fxWorld(){
   var N=0,X=new Float32Array(_FX_CAP),Y=new Float32Array(_FX_CAP),VX=new Float32Array(_FX_CAP),VY=new Float32Array(_FX_CAP),
@@ -9949,13 +9952,25 @@ function _fxWorld(){
     move:function(h,x,y){var e=em.get(h);if(e){e.x=Number(x)||0;e.y=Number(y)||0}return!!e},
     stop:function(h){return em.delete(h)},
     emitters:function(){return em.size},
+    snap:function(){
+      if(!N&&!em.size)return _FX_EMPTY;
+      var f=new Float32Array(N*6);for(var i=0;i<N;i++){var o=i*6;f[o]=X[i];f[o+1]=Y[i];f[o+2]=VX[i];f[o+3]=VY[i];f[o+4]=AGE[i];f[o+5]=LIFE[i]}
+      var e=[];em.forEach(function(v,h){e.push([h,v.s,v.x,v.y,v.acc,v.on])});
+      return{n:N,f:f,sp:SP.slice(0,N),col:COL.slice(0,N),em:e,next:next,bytes:N*40+e.length*48+64};
+    },
+    load:function(z){
+      if(!z)return;
+      for(var i=0;i<z.n;i++){var o=i*6;X[i]=z.f[o];Y[i]=z.f[o+1];VX[i]=z.f[o+2];VY[i]=z.f[o+3];AGE[i]=z.f[o+4];LIFE[i]=z.f[o+5];SP[i]=z.sp[i];COL[i]=z.col[i]}
+      for(i=z.n;i<N;i++)SP[i]=null;
+      N=z.n;em.clear();z.em.forEach(function(v){em.set(v[0],{s:v[1],x:v[2],y:v[3],acc:v[4],on:v[5]})});next=z.next;
+    },
     clear:function(){N=0;em.clear();for(var i=0;i<SP.length;i++)SP[i]=null}
   };
 }
-var _fxW=null,_fxSpecs=Object.create(null),_fxT=0,_fxNoted=Object.create(null);
+var _fxW=null,_fxSpecs=Object.create(null),_fxNoted=Object.create(null);
 function _fxSetup(imports){
   if(_fxW)_fxW.clear();
-  _fxSpecs=Object.create(null);_fxT=0;_fxNoted=Object.create(null);
+  _fxSpecs=Object.create(null);_fxNoted=Object.create(null);
   var m=null;try{if(imports&&typeof imports.fxMeta==='string')m=JSON.parse(imports.fxMeta)}catch(e){m=null}
   if(!m){_fxW=null;return}
   _fxW=_fxWorld();
@@ -9966,17 +9981,16 @@ function _fxFind(n){
   if(!s&&!_fxNoted[n]){_fxNoted[n]=true;try{var d=document.createElement('div');d.style.cssText='color:#64748b;padding:2px 12px;font-family:var(--mono);font-size:11px;';d.textContent='particles "'+n+'": there is no particles block with this name — nothing is drawn';var o=document.getElementById('tab-output');if(o)o.appendChild(d)}catch(e){}}
   return s||null;
 }
-function _fxTick(){
-  if(!_fxW)return;
-  var now=(typeof performance!=='undefined'?performance.now():Date.now()),dt=_fxT?(now-_fxT)/1000:1/60;
-  if(!(dt>0)||dt>0.1)dt=1/60;
-  _fxT=now;_fxW.step(dt);
-}
 function _fxPaint(g){if(_fxW&&g)_fxW.draw(g)}
-_emitFrame=(function(frame){return function(){
-  try{return frame.apply(this,arguments)}
-  finally{if(_fxW){_fxTick();if(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))_fxPaint(_need2d())}}
-}})(_emitFrame);
+function _fxOnCanvas(){return!!(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))}
+_emitCallExport=(function(call){return function(inst,name,args,top){
+  if(name!=='frame'||!_fxW)return call.apply(this,arguments);
+  _fxW.step(1/60);
+  var r=call.apply(this,arguments);
+  if(!_lgMeta&&_fxOnCanvas())_fxPaint(_need2d());
+  return r;
+}})(_emitCallExport);
+_lgDraw=(function(draw){return function(){var r=draw.apply(this,arguments);if(_fxW&&_fxOnCanvas())_fxPaint(_need2d());return r}})(_lgDraw);
 _rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_fxW&&s&&s.cv===_canvas)_fxPaint(s.ctx);return r}})(_rgBlit1);
 buildImportObject=(function(build){return function(imports,outputLog){
   _fxSetup(imports);
@@ -10080,10 +10094,10 @@ function _hudPaintSpec(g,W,H,items,val){
   });
   g.restore();
 }
-var _hudMeta=null,_hudCur=-1,_hudShow=true,_hudSayText='',_hudSayEnd=0,_hudNoted=Object.create(null);
+var _hudMeta=null,_hudCur=-1,_hudShow=true,_hudSayText='',_hudSayLeft=0,_hudNoted=Object.create(null);
 function _hudSetup(imports){
   var m=null;try{if(imports&&typeof imports.hudMeta==='string')m=JSON.parse(imports.hudMeta)}catch(e){m=null}
-  _hudMeta=m;_hudCur=m&&m.huds&&m.huds.length?0:-1;_hudShow=true;_hudSayText='';_hudSayEnd=0;_hudNoted=Object.create(null);
+  _hudMeta=m;_hudCur=m&&m.huds&&m.huds.length?0:-1;_hudShow=true;_hudSayText='';_hudSayLeft=0;_hudNoted=Object.create(null);
 }
 // A HUD value: a number written in the block, or a global variable read from the running instance
 function _hudVal(r){
@@ -10096,27 +10110,28 @@ function _hudVal(r){
   if(r.t==='bool')return!!Number(v);
   return v;
 }
-function _hudNow(){return typeof performance!=='undefined'?performance.now():Date.now()}
+function _hudSnap(){return _hudMeta?{c:_hudCur,s:_hudShow,t:_hudSayText,l:_hudSayLeft}:null}
+function _hudLoad(z){if(z&&_hudMeta){_hudCur=z.c;_hudShow=z.s;_hudSayText=z.t;_hudSayLeft=z.l}}
 function _hudPaint(g){
   if(!_hudMeta||!g||!_canvas)return;
   var W=_canvas.width,H=_canvas.height,h=_hudMeta.huds[_hudCur];
   if(_hudShow&&h)try{_hudPaintSpec(g,W,H,h.items,_hudVal)}catch(e){}
-  if(_hudSayText&&_hudNow()<_hudSayEnd){
+  if(_hudSayText&&_hudSayLeft>0){
     var sz=Math.max(1,Math.min(4,Math.floor(W/160))),tw=_hudTextW(_hudSayText)*sz,x=Math.round((W-tw)/2),y=Math.round(H/2-4*sz);
     g.save();g.fillStyle='rgba(0,0,0,0.6)';g.fillRect(x-4*sz,y-3*sz,tw+8*sz,13*sz);g.restore();
     _hudText(g,_hudSayText,x,y,sz,'#ffffff');
   }
 }
 function _hudOnCanvas(){return!!(_canvas&&!(_canvas.hasAttribute&&_canvas.hasAttribute('data-emit-screen')))}
-_emitFrame=(function(frame){return function(){
-  try{return frame.apply(this,arguments)}
-  finally{if(_hudMeta&&_hudOnCanvas())_hudPaint(_need2d())}
-}})(_emitFrame);
+// A say() lasts so many frames (60 a second); a program that does not animate shows it once
 _emitCallExport=(function(call){return function(inst,name,args,top){
+  if(!_hudMeta)return call.apply(this,arguments);
+  if(name==='frame'&&_hudSayLeft>0)_hudSayLeft--;
   var r=call.apply(this,arguments);
-  if(_hudMeta&&!_animRunning&&name!=='frame'&&_hudOnCanvas()&&!(r&&typeof r.then==='function'))_hudPaint(_need2d());
+  if((name==='frame'?!_lgMeta:!_animRunning&&!(r&&typeof r.then==='function'))&&_hudOnCanvas())_hudPaint(_need2d());
   return r;
 }})(_emitCallExport);
+_lgDraw=(function(draw){return function(){var r=draw.apply(this,arguments);if(_hudMeta&&_hudOnCanvas())_hudPaint(_need2d());return r}})(_lgDraw);
 _rgBlit1=(function(blit){return function(s){var r=blit.apply(this,arguments);if(_hudMeta&&s&&s.cv===_canvas)_hudPaint(s.ctx);return r}})(_rgBlit1);
 buildImportObject=(function(build){return function(imports,outputLog){
   _hudSetup(imports);
@@ -10129,11 +10144,11 @@ buildImportObject=(function(build){return function(imports,outputLog){
     };
     if(s.hudOn)s.hudOn=function(){_hudShow=true};
     if(s.hudOff)s.hudOff=function(){_hudShow=false};
-    if(s.say)s.say=function(p,sec){_hudSayText=_readStr(Number(p));sec=Number(sec);_hudSayEnd=_hudNow()+(sec>0?sec:2)*1000};
+    if(s.say)s.say=function(p,sec){_hudSayText=_readStr(Number(p));sec=Number(sec);_hudSayLeft=Math.max(1,Math.round((sec>0?sec:2)*60))};
   }
   return obj;
 }})(buildImportObject);
-if(typeof window!=='undefined'){window._hudPaintSpec=_hudPaintSpec;window._hudText=_hudText;window._hudTextW=_hudTextW;window._hudState=function(){return{hud:_hudMeta&&_hudMeta.huds[_hudCur]?_hudMeta.huds[_hudCur].name:null,on:_hudShow,say:_hudNow()<_hudSayEnd?_hudSayText:''}}}
+if(typeof window!=='undefined'){window._hudPaintSpec=_hudPaintSpec;window._hudText=_hudText;window._hudTextW=_hudTextW;window._hudState=function(){return{hud:_hudMeta&&_hudMeta.huds[_hudCur]?_hudMeta.huds[_hudCur].name:null,on:_hudShow,say:_hudSayLeft>0?_hudSayText:''}}}
 //#emit-hud-end
 // ═══ TOP-LEVEL VALUES (runtime half) ═══
 // The compiler turns every top-level `let` / `mut` whose initial value is not a literal into an exported
@@ -16941,9 +16956,9 @@ function _hudRead(b){
   var body=_drawerBody(b.text,'hud'),r=_hudParse(body);
   return{name:b.name,orig:b.name,items:r.spec.items.map(function(it){var c=JSON.parse(JSON.stringify(it));delete c.off;return c}),err:r.errors[0]?r.errors[0].msg:null,dirty:false};
 }
-function _hudNewItem(kind,vars){
+function _hudNewItem(kind,vars,sprites){
   var v=vars[0]||'score';
-  if(kind==='icons')return{kind:'icons',sprite:{name:'heart'},count:{name:vars.filter(function(n){return/live|hp|heart/i.test(n)})[0]||v},v:'top',h:'right',below:false,size:1,color:null};
+  if(kind==='icons')return{kind:'icons',sprite:{name:(sprites&&sprites[0])||'heart'},count:{name:vars.filter(function(n){return/live|hp|heart/i.test(n)})[0]||v},v:'top',h:'right',below:false,size:1,color:null};
   if(kind==='bar')return{kind:'bar',value:{name:vars.filter(function(n){return/hp|health|energy|power/i.test(n)})[0]||v},min:{num:0},max:{num:100},v:'bottom',h:'left',below:false,size:1,color:null,width:60,height:null};
   return{kind:'text',parts:['Score: ',{name:v}],v:'top',h:'left',below:false,size:1,color:null};
 }
@@ -16951,7 +16966,7 @@ function _hudPartsText(parts){return(parts||[]).map(function(p){return typeof p=
 function _drawerHudTool(ctx){
   var list=ctx.blocks('hud').map(_hudRead),cur=0,ui={},vars=_hfxGlobals();
   var sprites=[];try{sprites=ctx.blocks('sprite').map(function(b){return b.name})}catch(e){}
-  if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:true});
+  if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:true});
   function S(){return list[cur]}
   function names(except){return list.filter(function(x,i){return i!==except}).map(function(x){return x.name})}
   function textOf(it){return _hudWrite(it.name,{items:it.items})}
@@ -17009,7 +17024,7 @@ function _drawerHudTool(ctx){
   function itemCard(it,ix){
     var n=S().items.length;
     var head=_drwEl('div',{cls:'drw-row hfx-ihead'},[
-      _drwSeg([['text','text'],['icons','icons'],['bar','bar']],function(){return it.kind},function(k){if(k===it.kind)return;var fresh=_hudNewItem(k,vars);fresh.v=it.v;fresh.h=it.h;fresh.below=it.below;fresh.size=it.size;S().items[ix]=fresh;changed(true)},'Kind of item'),
+      _drwSeg([['text','text'],['icons','icons'],['bar','bar']],function(){return it.kind},function(k){if(k===it.kind)return;var fresh=_hudNewItem(k,vars,sprites);fresh.v=it.v;fresh.h=it.h;fresh.below=it.below;fresh.size=it.size;S().items[ix]=fresh;changed(true)},'Kind of item'),
       _drwEl('span',{cls:'hfx-sp'}),
       _drwBtn('↑',function(){if(ix>0){var a=S().items;a.splice(ix-1,0,a.splice(ix,1)[0]);changed(true)}},'drw-sm'+(ix===0?' hfx-dis':''),'Move up'),
       _drwBtn('↓',function(){if(ix<n-1){var a=S().items;a.splice(ix+1,0,a.splice(ix,1)[0]);changed(true)}},'drw-sm'+(ix===n-1?' hfx-dis':''),'Move down'),
@@ -17024,12 +17039,14 @@ function _drawerHudTool(ctx){
         ti.classList.remove('hfx-bad');ti.title='';it.parts=parts;changed(false);return true;
       }
       ti.addEventListener('input',setText);
+      /* where a chip inserts: the last cursor position in the field, or its end when it was never focused */
+      ['select','keyup','click','input','blur'].forEach(function(ev){ti.addEventListener(ev,function(){ti._sel=[ti.selectionStart,ti.selectionEnd]})});
       card.appendChild(_drwEl('div',{cls:'drw-row'},[_drwEl('label',{cls:'drw-lab',text:'Text'}),ti]));
       var chips=_drwEl('div',{cls:'drw-chips hfx-vchips','aria-label':'Insert a variable'});
       vars.forEach(function(v){chips.appendChild(_drwBtn('{'+v+'}',function(){
-        var s=ti.selectionStart!=null?ti.selectionStart:ti.value.length,e=ti.selectionEnd!=null?ti.selectionEnd:s;
+        var s=ti._sel?ti._sel[0]:ti.value.length,e=ti._sel?ti._sel[1]:s;
         ti.value=ti.value.slice(0,s)+'{'+v+'}'+ti.value.slice(e);setText();
-        try{ti.focus();ti.setSelectionRange(s+v.length+2,s+v.length+2)}catch(x){}
+        ti._sel=[s+v.length+2,s+v.length+2];
       },'drw-chip','Insert {'+v+'}'))});
       if(!vars.length)chips.appendChild(_drwEl('span',{cls:'drw-dim',text:'No global variables yet — declare one (mut score = 0) or set one in the rules (add score 1).'}));
       card.appendChild(chips);
@@ -17065,7 +17082,7 @@ function _drawerHudTool(ctx){
     var root=_drwEl('div',{cls:'hfx','data-hud-tool':''});b.appendChild(root);
     root._hud={list:list,cur:function(){return cur},S:S,text:function(){return textOf(S())},save:save,build:build,paint:paint};
     ui.chips=_drwChips(list,cur,function(i){cur=i;build()},function(){
-      var n=_drwFreeName('hud',names(-1));list.push({name:n,orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:true});cur=list.length-1;dirty();build();
+      var n=_drwFreeName('hud',names(-1));list.push({name:n,orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:true});cur=list.length-1;dirty();build();
     },'+ New HUD');
     root.appendChild(ui.chips);
     var nameIn=_drwEl('input',{type:'text',cls:'drw-name',value:it.name,'aria-label':'HUD name',autocomplete:'off',autocapitalize:'none',spellcheck:'false'});
@@ -17086,9 +17103,9 @@ function _drawerHudTool(ctx){
     it.items.forEach(function(x,i){root.appendChild(itemCard(x,i))});
     if(!it.items.length)root.appendChild(_drwEl('p',{cls:'drw-dim',text:'No items yet — add one below.'}));
     root.appendChild(_drwEl('div',{cls:'drw-wrap'},[
-      _drwBtn('+ Text',function(){S().items.push(_hudNewItem('text',vars));changed(true)},null,'Add a text item'),
-      _drwBtn('+ Icons',function(){S().items.push(_hudNewItem('icons',vars));changed(true)},null,'Add icons (a sprite repeated)'),
-      _drwBtn('+ Bar',function(){S().items.push(_hudNewItem('bar',vars));changed(true)},null,'Add a bar')
+      _drwBtn('+ Text',function(){S().items.push(_hudNewItem('text',vars,sprites));changed(true)},null,'Add a text item'),
+      _drwBtn('+ Icons',function(){S().items.push(_hudNewItem('icons',vars,sprites));changed(true)},null,'Add icons (a sprite repeated)'),
+      _drwBtn('+ Bar',function(){S().items.push(_hudNewItem('bar',vars,sprites));changed(true)},null,'Add a bar')
     ]));
     root.appendChild(_drwEl('div',{cls:'drw-lab',text:'The block'}));
     ui.code=_drwEl('pre',{cls:'drw-code'});root.appendChild(ui.code);
@@ -17112,7 +17129,7 @@ function _drawerHudTool(ctx){
     if(!window.confirm('Delete hud '+it.name+'?'))return;
     if(it.orig)try{ctx.remove('hud',it.orig)}catch(e){}
     list.splice(cur,1);
-    if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars)],err:null,dirty:false});
+    if(!list.length)list.push({name:'main',orig:null,items:[_hudNewItem('text',vars,sprites)],err:null,dirty:false});
     cur=0;dirty();build();ctx.toast('hud '+it.name+' deleted');
   }
   build();
@@ -17429,7 +17446,8 @@ _memCardHead=(function(f){return function(c){
 //   • every mutable WASM global (the __g<i> exports): 8 bytes each (f64, or i64 for an int / handle global).
 //   • the freeze flag of every region, the tiles of every map (setTile; a new copy only when one changed),
 //     the HUD of things (_lgShows, _lgSay, the tick) and the input of the frame (keys, touch, stick, buttons,
-//     taps on onclick buttons) — shared with the previous record when unchanged.
+//     taps on onclick buttons) — shared with the previous record when unchanged; the live particles and the
+//     state of hud / say (HUD & PARTICLES: _fxW.snap(), _hudSnap()), when the program has them.
 // The ring keeps at most _TL_CFG.maxFrames records and _TL_CFG.maxBytes bytes; dropping the oldest record turns
 // the next one into a keyframe in place (its delta is applied to the dropped copy).
 // RESTORING frame k: from the nearest keyframe at or before k forward, or by walking XOR deltas from the frame
@@ -17605,6 +17623,9 @@ function _tlRecord(keep,inp){
     if(ss){var ps=_tl.strs;if(ps&&ps.length===ss.length&&ps.every(function(x,i){return x===ss[i]}))ss=ps;_tl.strs=ss;rec.s=ss}
   }
   rec.fz=_tlFz();rec.maps=_tlMaps();rec.lg=_tlLg();
+  /* particles and the HUD's own state (HUD & PARTICLES): live particles are part of the frame */
+  if(typeof _fxW!=='undefined'&&_fxW){rec.fx=_fxW.snap();rec.sz+=rec.fx.bytes}
+  if(typeof _hudSnap==='function')rec.hud=_hudSnap();
   if(keep){rec.inp=keep.inp;rec.lab=keep.lab}
   else{
     rec.inp=inp||_tlInput();
@@ -17689,6 +17710,8 @@ function _tlApply(k){
     _tl.maps=F.maps;
   }
   if(F.lg){_lgTick=F.lg.t;_lgSay=F.lg.say;_lgSayAt=F.lg.sayAt;_lgShows=F.lg.shows.slice();_tl.lg=F.lg;_tl.lgOn=F.lg.on}
+  if(F.fx&&typeof _fxW!=='undefined'&&_fxW)_fxW.load(F.fx);
+  if(F.hud&&typeof _hudLoad==='function')_hudLoad(F.hud);
   if(typeof _rgDirty!=='undefined')_rgDirty=true;
 }
 function _tlOwnCanvas(){
