@@ -14,24 +14,28 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  prop: { say: "seeded random tests that shrink", types: "",
+    notes: "(check (prop.nums 1 200 (fun [v] (same (rev (rev v)) v))) None)   seed, how many inputs 1..10000, predicate.\nNone = it held on every input. else Some input it fails on, shrunk: items dropped, numbers moved to 0,\nchars dropped or turned to a. the shrunk input is small, not always the smallest there is.\nan input the predicate raises an error on fails too. same seed same inputs. pure: check reports it before the run." },
+  graph: { say: "cheapest path, topo order, parts", types: "(rec Edge [from ?a to ?a cost Num])",
+    notes: "a graph is a (Vec (Edge a)): (Edge from to cost). a node is any value cmp can order: Num, Str, a rec.\nedges have a direction. for a graph with none: (graph.both edges). only graph.parts ignores direction.\nno costs to give: write 1 and a cheapest path is a shortest one. an edge may repeat or loop on its node.\na node with no edge is in no edge list: graph.order and graph.parts take those in a second vector, [] for none." },
   query: { say: "join group-sum pivot top rank", types: "", notes: "a table is a (Vec Row) with Row a rec. a column is its reader: Row.price. a key is any function of a row,\nso a wrong column name or a key of two different types is a check error (E1, E4) before anything runs.\nwhere = filter. select = map. order by = sortby. limit = take drop. distinct = uniq. group by = group.\na key may be any value that cmp orders: a Num, a Str, a vector or a Pair for a key of several columns.\na result Map lists its keys in cmp order. q.join and q.left keep the order of the first table.\na key on 2 rows of one side and 3 of the other gives 6 pairs." },
-  dec: { say: "exact decimals of any size: money, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
+  dec: { say: "exact decimals, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
     notes: "a Dec is exact: (dec \"0.1\") + (dec \"0.2\") is (dec \"0.3\"). it is made by dec and dec.of, never by a ctor.\nsame, cmp, order and sortby see a Dec by its value. nothing rounds unless told how:\ndec.div and dec.round take places and a mode: half-up half-even down up floor ceil." },
-  diff: { say: "edits as here it is, there it should be: make apply unified", types: "(rec Edit [here Str there Str])",
+  diff: { say: "edits by text: here it is, there it should be", types: "(rec Edit [here Str there Str])",
     notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
-  chart: { say: "line scatter bar hist and f(x) graphs as Draw shapes. loads draw", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
+  chart: { say: "charts and graphs as Draw shapes", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
-  math: { say: "trig gcd lcm clamp, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
-  text: { say: "pad repeat wrap words, edit distance", types: "", notes: "" },
-  csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
-  re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
-  json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
-  time: { say: "dates: parts, add months right, days between, format", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
+  math: { say: "trig gcd stats seeded shuffle", types: "", notes: "" },
+  text: { say: "pad wrap words edit distance", types: "", notes: "" },
+  csv: { say: "csv rows, maps, named columns", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
+  re: { say: "regex", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
+  json: { say: "Json sum, read by path", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
+  time: { say: "dates and calendar math, utc", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
     notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
-  bit: { say: "whole number bit ops", types: "", notes: "" },
-  bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
-  mat: { say: "vectors, matrices: svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes to pixels: text pictures, png sheets, svg", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+  bit: { say: "bit ops", types: "", notes: "" },
+  bytes: { say: "utf8 base64 sha256 radix", types: "", notes: "" },
+  mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
+  draw: { say: "shapes: ascii png svg pdf frames", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -39,12 +43,12 @@ shapes become pixels in the core: the same picture on every host.
 to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
 to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
 as one png grid, left to right, top to bottom: a whole animation in one image.` },
-  io: { say: "files, paths, stdin, args, env, shell, http, clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
+  io: { say: "files paths shell http clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
     notes: `effects. args evaluate left to right, forms top to bottom.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme
 
@@ -277,6 +281,8 @@ radix bytes 2 Num,Num Str whole n in base 2..36
 pradix bytes 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
 svg draw 3 Num,Num,@Vec.Draw Str w h shapes. an svg file as text
+pdf.pack draw 3 Num,Num,@Vec.@Vec.Draw @Vec.Num w h pages. a pdf, one picture a page. sizes in points: a4 = 595 842
+pdf.flow draw 4 Num,Num,Num,Str @Vec.@Vec.Draw w h size text. text wrapped onto pages with a margin, for pdf.pack
 rgb draw 3 Num,Num,Num Str #rrggbb. each clamped to 0..255
 ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. background = space. most ink = @
 utf8 bytes 1 Str @Vec.Num bytes
@@ -406,6 +412,17 @@ json.bool json 1 Json @Opt.Bool the value of a JBool
 json.arr json 1 Json @Opt.@Vec.Json the items of a JArr
 json.obj json 1 Json @Opt.@Map the map of a JObj
 csv.cols csv 2 Str,@Vec.Str @Vec.@Vec.Str text names. the data rows, each with just the named columns in that order. E15 no such column: nearest and the header. E15 short row
+Edge graph ! ! ! Edge from to cost. (Edge Str) in a signature
+graph.path graph 3 @Vec.@Edge,@T,@T @Opt.@Vec.@T edges a b. directed. cheapest path as nodes a..b. None if no way. a to a is [a]. E17 cost under 0
+graph.cost graph 3 @Vec.@Edge,@T,@T @Opt.Num edges a b. the cost of that path. a to a is 0
+graph.order graph 2 @Vec.@Edge,@Vec.@T @Vec.@T edges more. directed. from before to. of the ready nodes the smallest first. E14 cycle, named
+graph.reach graph 2 @Vec.@Edge,@T @Vec.@T edges a. directed. a then all it leads to. nearest first, then edge order
+graph.parts graph 2 @Vec.@Edge,@Vec.@T @Vec.@Vec.@T edges more. no direction. connected groups. each sorted. sorted
+graph.both graph 1 @Vec.@Edge @Vec.@Edge the edges and each one turned around
+prop.num prop 3 Num,Num,@fn @Opt.Num seed n pred. whole numbers and fractions. E17 n
+prop.nums prop 3 Num,Num,@fn @Opt.@Vec.Num seed n pred. vectors of 0..20 whole numbers
+prop.str prop 3 Num,Num,@fn @Opt.Str seed n pred. empty spaces quotes newlines unicode
+prop.pair prop 3 Num,Num,@fn @Opt.@Pair seed n pred. pred takes two whole numbers. Some (Pair a b)
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -2185,6 +2202,290 @@ def("csv.cols", "Str (Vec Str) -> (Vec (Vec Str))", ([s, names]) => {
   return rows.map((r, n) => { if (r.length !== head.length) R("E15", `csv.cols: row ${n + 2} has ${r.length} fields, the header has ${head.length}`); return at.map(i => r[i]); });
 });
 
+/* ---- pdf: the same shapes as a document people can print. one picture a page, text as real text */
+function pdfBytes(w, h, pages) {
+  if (!(w >= 10 && h >= 10 && w <= 14400 && h <= 14400)) R("E17", `pdf.pack: page ${fmtNum(w)} x ${fmtNum(h)} must be 10..14400 points a side (a4 is 595 x 842)`);
+  if (!pages.length) R("E10", "pdf.pack: no pages. give at least one picture");
+  if (pages.length > 2000) R("E17", "pdf.pack: over 2000 pages");
+  const n = x => String(Math.round(x * 100) / 100), rgb = c => c.map(x => n(x / 255)).join(" ");
+  const esc = s => Array.from(s, ch => { const c = ch.codePointAt(0); return ch === "(" || ch === ")" || ch === "\\" ? "\\" + ch : (c >= 32 && c <= 126) || (c >= 160 && c <= 255) ? ch : "?"; }).join("");
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", null, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"], kids = [];
+  let size = 0;
+  for (const shapes of pages) {
+    const ops = ["2 J 1 w"];
+    for (const s of shapes) {
+      const v = s.vals, c = rgb(color(v[v.length - 1]));
+      if (s.name === "Box") { if (v[2] > 0 && v[3] > 0) ops.push(`${c} rg ${n(v[0])} ${n(h - v[1] - v[3])} ${n(v[2])} ${n(v[3])} re f`); }
+      else if (s.name === "Dot") ops.push(`${c} rg ${Math.floor(v[0])} ${n(h - Math.floor(v[1]) - 1)} 1 1 re f`);
+      else if (s.name === "Line") ops.push(`${c} RG ${n(v[0] + .5)} ${n(h - v[1] - .5)} m ${n(v[2] + .5)} ${n(h - v[3] - .5)} l S`);
+      else { const z = textSize(v[2]); ops.push(`BT /F1 ${n(z * 20 / 3)} Tf ${c} rg ${n(v[0])} ${n(h - v[1] - 5 * z)} Td (${esc(v[3])}) Tj ET`); }
+    }
+    const body = ops.join("\n");
+    if ((size += body.length) > 2e7) R("E17", "pdf.pack: over 20 million bytes");
+    kids.push(objs.length + 1);
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(w)} ${n(h)}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objs.length + 2} 0 R >>`);
+    objs.push(`<< /Length ${body.length} >>\nstream\n${body}\nendstream`);
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.map(k => k + " 0 R").join(" ")}] /Count ${kids.length} >>`;
+  let out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"; const at = [];
+  objs.forEach((o, i) => { at.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + at.map(a => String(a).padStart(10, "0") + " 00000 n \n").join("") + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Array.from(out, ch => ch.charCodeAt(0));          // every char above is one latin-1 byte
+}
+function pdfFlow(w, h, size, text) {      // text onto pages: fixed width, wrapped at words, a margin all round
+  const z = textSize(size), m = Math.min(36, Math.floor(Math.min(w, h) / 10)), cols = Math.floor((w - 2 * m) / (4 * z)), rows = Math.floor((h - 2 * m) / (8 * z));
+  if (!(w >= 10 && h >= 10 && w <= 14400 && h <= 14400) || cols < 1 || rows < 1) R("E17", `pdf.flow: a ${fmtNum(w)} x ${fmtNum(h)} page has no room for text of size ${fmtNum(size)}`);
+  if (text.length > 2e6) R("E17", "pdf.flow: text too long");
+  const lines = [];
+  for (const para of text.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").split("\n")) {
+    let line = "";
+    for (let word of para.split(" ").filter(x => x !== "")) {
+      let cs = chars(word);
+      while (cs.length > cols) { if (line) { lines.push(line); line = ""; } lines.push(cs.slice(0, cols).join("")); cs = cs.slice(cols); }
+      word = cs.join("");
+      if (line && chars(line).length + 1 + cs.length > cols) { lines.push(line); line = word; } else line = line ? line + " " + word : word;
+    }
+    lines.push(line);
+  }
+  if (lines.length / rows > 2000) R("E17", "pdf.flow: over 2000 pages");
+  const pages = [];
+  for (let i = 0; i < Math.max(1, lines.length); i += rows) pages.push(lines.slice(i, i + rows).map((t, r) => RV("Text", [m, m + r * 8 * z, z, t, "black"])).filter(s => s.vals[3] !== ""));
+  return pages;
+}
+def("pdf.pack", "Num Num (Vec (Vec Draw)) -> (Vec Num)", ([w, h, pages]) => pdfBytes(w, h, pages));
+def("pdf.flow", "Num Num Num Str -> (Vec (Vec Draw))", ([w, h, size, text]) => pdfFlow(w, h, size, text));
+
+/* ---- pack graph: a graph is a vector of Edge. a node is any value with an order; cmp tells nodes apart.
+   every walk uses its own queue, stack or heap: nothing here recurses with the size of the graph */
+function graphIndex(op, edges, extra) {      // nodes get the numbers 0..n-1 in cmp order, so a smaller number is a smaller node
+  capped(edges, op); capped(extra, op);
+  const all = [];
+  for (const e of edges) all.push(e.vals[0], e.vals[1]);
+  for (const x of extra) all.push(x);
+  for (const x of all) rank(x);              // a function is no node: E17, also when it is the only one
+  all.sort(cmp);
+  const nodes = [];
+  for (const x of all) if (!nodes.length || cmp(nodes[nodes.length - 1], x) !== 0) nodes.push(x);
+  const prim = new Map();
+  nodes.forEach((x, i) => { if (typeof x === "number" || typeof x === "string") prim.set(x, i); });
+  const id = x => {
+    if (typeof x === "number" || typeof x === "string") { const i = prim.get(x); return i === undefined ? -1 : i; }
+    let lo = 0, hi = nodes.length - 1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1, c = cmp(x, nodes[mid]); if (c === 0) return mid; if (c < 0) hi = mid - 1; else lo = mid + 1; }
+    return -1;
+  };
+  const m = edges.length, from = new Int32Array(m), to = new Int32Array(m);
+  for (let i = 0; i < m; i++) { from[i] = id(edges[i].vals[0]); to[i] = id(edges[i].vals[1]); }
+  return { nodes, n: nodes.length, m, from, to, id };
+}
+function graphAdj(g, a, b) {                 // the edges that leave each node, in the order they were given: start[v]..start[v+1]-1 index into list
+  const start = new Int32Array(g.n + 1), list = new Int32Array(g.m);
+  for (let i = 0; i < g.m; i++) start[a[i] + 1]++;
+  for (let v = 0; v < g.n; v++) start[v + 1] += start[v];
+  const at = start.slice(0, g.n);
+  for (let i = 0; i < g.m; i++) list[at[a[i]]++] = i;
+  return { start, list };
+}
+function graphHeap(less) {                   // binary heap of whole numbers
+  const h = [];
+  return {
+    size: () => h.length,
+    push(x) { let i = h.length; h.push(x); while (i > 0) { const p = (i - 1) >> 1; if (!less(h[i], h[p])) break; [h[i], h[p]] = [h[p], h[i]]; i = p; } },
+    pop() {
+      const top = h[0], last = h.pop();
+      if (h.length) {
+        h[0] = last;
+        for (let i = 0; ;) { const l = 2 * i + 1, r = l + 1; let s = i; if (l < h.length && less(h[l], h[s])) s = l; if (r < h.length && less(h[r], h[s])) s = r; if (s === i) break; [h[i], h[s]] = [h[s], h[i]]; i = s; }
+      }
+      return top;
+    },
+  };
+}
+function graphPath(op, edges, a, b) {        // dijkstra. null, or { cost, path }
+  edges.forEach((e, i) => { if (e.vals[2] < 0) R("E17", `${op}: edge ${i} has cost ${fmtNum(e.vals[2])}. a cost must be >= 0`); });
+  rank(a); rank(b);
+  const g = graphIndex(op, edges, []), s = g.id(a), t = g.id(b);
+  if (cmp(a, b) === 0) return { cost: 0, path: [a] };
+  if (s < 0 || t < 0) return null;
+  const adj = graphAdj(g, g.from, g.to), dist = new Float64Array(g.n).fill(Infinity), prev = new Int32Array(g.n).fill(-1), done = new Uint8Array(g.n);
+  const hd = [], hv = [], heap = graphHeap((x, y) => hd[x] < hd[y] || (hd[x] === hd[y] && hv[x] < hv[y]));    // entries by cost, then by node: one answer, always the same
+  const put = (d, v) => { hd.push(d); hv.push(v); heap.push(hd.length - 1); };
+  dist[s] = 0; put(0, s);
+  while (heap.size()) {
+    const k = heap.pop(), v = hv[k];
+    if (done[v]) continue;
+    done[v] = 1;
+    if (v === t) break;
+    for (let j = adj.start[v]; j < adj.start[v + 1]; j++) {
+      const e = adj.list[j], w = g.to[e], d = dist[v] + edges[e].vals[2];
+      if (!Number.isFinite(d)) R("E17", `${op}: the cost of a path is too big for a number`);
+      if (d < dist[w]) { dist[w] = d; prev[w] = v; put(d, w); }
+    }
+  }
+  if (!done[t]) return null;
+  const path = [];
+  for (let v = t; v !== -1; v = prev[v]) path.push(g.nodes[v]);
+  return { cost: dist[t], path: path.reverse() };
+}
+function graphOrder(edges, extra) {          // kahn. of the nodes that are ready, the smallest goes first
+  const op = "graph.order", g = graphIndex(op, edges, extra), adj = graphAdj(g, g.from, g.to), deg = new Int32Array(g.n);
+  for (let i = 0; i < g.m; i++) deg[g.to[i]]++;
+  const heap = graphHeap((x, y) => x < y), out = [];
+  for (let v = 0; v < g.n; v++) if (!deg[v]) heap.push(v);
+  while (heap.size()) {
+    const v = heap.pop(); out.push(g.nodes[v]);
+    for (let j = adj.start[v]; j < adj.start[v + 1]; j++) { const w = g.to[adj.list[j]]; if (--deg[w] === 0) heap.push(w); }
+  }
+  if (out.length === g.n) return out;
+  // what is left all sits on a cycle or after one, and each has an edge coming in from what is left: walk back until a node repeats
+  const back = graphAdj(g, g.to, g.from), seen = new Int32Array(g.n).fill(-1), walk = [];
+  let v = 0; while (deg[v] <= 0) v++;
+  while (seen[v] < 0) {
+    seen[v] = walk.length; walk.push(v);
+    for (let j = back.start[v]; j < back.start[v + 1]; j++) { const u = g.from[back.list[j]]; if (deg[u] > 0) { v = u; break; } }
+  }
+  const cyc = walk.slice(seen[v]).reverse(), lo = cyc.indexOf(cyc.reduce((x, y) => x < y ? x : y)), turn = cyc.slice(lo).concat(cyc.slice(0, lo));
+  const name = i => { const s = fmt(g.nodes[i], false); return s.length > 40 ? s.slice(0, 40) + ".." : s; };
+  const shown = turn.length > 10 ? turn.slice(0, 10).map(name).join(" -> ") + ` -> .. ${turn.length} nodes .. -> ` + name(turn[0]) : turn.concat(turn[0]).map(name).join(" -> ");
+  return R("E14", `graph.order: cycle ${shown}. an order needs a graph with no cycle: take one of these edges out`);
+}
+function graphReach(edges, a) {              // breadth first
+  rank(a);
+  const g = graphIndex("graph.reach", edges, []), s = g.id(a);
+  if (s < 0) return [a];
+  const adj = graphAdj(g, g.from, g.to), seen = new Uint8Array(g.n), q = [s];
+  seen[s] = 1;
+  for (let h = 0; h < q.length; h++) {
+    const v = q[h];
+    for (let j = adj.start[v]; j < adj.start[v + 1]; j++) { const w = g.to[adj.list[j]]; if (!seen[w]) { seen[w] = 1; q.push(w); } }
+  }
+  return q.map(v => g.nodes[v]);
+}
+function graphParts(edges, extra) {          // union find. no direction
+  const g = graphIndex("graph.parts", edges, extra), up = new Int32Array(g.n);
+  for (let v = 0; v < g.n; v++) up[v] = v;
+  const find = v => { while (up[v] !== v) { up[v] = up[up[v]]; v = up[v]; } return v; };
+  for (let i = 0; i < g.m; i++) { const x = find(g.from[i]), y = find(g.to[i]); if (x !== y) up[Math.max(x, y)] = Math.min(x, y); }
+  const where = new Int32Array(g.n).fill(-1), out = [];
+  for (let v = 0; v < g.n; v++) { const r = find(v); if (where[r] < 0) { where[r] = out.length; out.push([]); } out[where[r]].push(g.nodes[v]); }
+  return out;
+}
+def("graph.path", "(Vec (Edge a)) a a -> (Opt (Vec a))", ([es, a, b]) => { const r = graphPath("graph.path", es, a, b); return r ? SOME(r.path) : NONE; });
+def("graph.cost", "(Vec (Edge a)) a a -> (Opt Num)", ([es, a, b]) => { const r = graphPath("graph.cost", es, a, b); return r ? SOME(fin(r.cost, "graph.cost")) : NONE; });
+def("graph.order", "(Vec (Edge a)) (Vec a) -> (Vec a)", ([es, more]) => graphOrder(es, more));
+def("graph.reach", "(Vec (Edge a)) a -> (Vec a)", ([es, a]) => graphReach(es, a));
+def("graph.parts", "(Vec (Edge a)) (Vec a) -> (Vec (Vec a))", ([es, more]) => graphParts(es, more));
+def("graph.both", "(Vec (Edge a)) -> (Vec (Edge a))", ([es]) => {
+  if (es.length * 2 > MAXLEN) R("E17", "graph.both: over the item cap");
+  return es.concat(es.map(e => RV("Edge", [e.vals[1], e.vals[0], e.vals[2]])));
+});
+
+/* ---- pack prop: a predicate over many seeded inputs. the first input that fails is shrunk to a small one that still fails.
+   an input on which the predicate raises fails too. the step budget is never caught here */
+const PROP_MAXN = 10000, PROP_SHRINK = 2000;
+const PROP_BIG = [100, 255, 256, 1000, 65535, 65536, 1e6, 2147483647, 2147483648, 4294967296, 9007199254740991];
+const PROP_FRAC = [0.5, 0.1, 0.25, 1.5, 2.75, 0.001, 99.99, 1e-9, 1234.5678];
+const PROP_PLAIN = chars("abcxyzAZ09 "), PROP_ODD = chars("abz AZ09 .,-_/:;!?()[]{}<>*&%$#@+=|~^\"'`\\\n\n\t\réßñΩя日本中\u{1F600}\u{1F389}\u{1F44D}\u{1F3FD}́ ​");
+const propPick = (r, a) => a[Math.floor(r() * a.length)];
+function propInt(r) {
+  const u = r();
+  if (u < 0.15) return 0;
+  if (u < 0.55) return Math.floor(r() * 11) - 5;
+  if (u < 0.8) return Math.floor(r() * 201) - 100;
+  const b = propPick(r, PROP_BIG) + Math.floor(r() * 3) - 1;
+  return r() < 0.5 ? -b : b;
+}
+function propNum(r, i) {
+  if (i < 4) return [0, 1, -1, 0.5][i];
+  if (r() < 0.65) return propInt(r);
+  const x = r() < 0.5 ? propPick(r, PROP_FRAC) : Math.round((r() * 200 - 100) * 100) / 100;
+  return x === 0 ? 0 : r() < 0.3 ? -Math.abs(x) : x;
+}
+function propNums(r, i) {
+  if (i < 2) return i ? [0] : [];
+  const n = r() < 0.6 ? Math.floor(r() * 7) : Math.floor(r() * 21), v = [];
+  for (let j = 0; j < n; j++) v.push(j && r() < 0.25 ? v[Math.floor(r() * j)] : propInt(r));
+  return v;
+}
+function propStr(r, i) {
+  if (i < 3) return ["", "a", " "][i];
+  const pool = r() < 0.4 ? PROP_PLAIN : PROP_ODD, n = r() < 0.6 ? Math.floor(r() * 6) : Math.floor(r() * 21);
+  let s = "";
+  for (let j = 0; j < n; j++) s += propPick(r, pool);
+  return s;
+}
+function propPair(r, i) {
+  if (i < 3) return [[0, 0], [0, 1], [1, 0]][i];
+  const a = propInt(r);
+  return [a, r() < 0.2 ? a : propInt(r)];
+}
+function propDec(x) { for (let k = 0; k < 16; k++) { const p = 10 ** k; if (Math.round(x * p) / p === x) return k; } return 16; }
+function propSimpler(c, x) {                 // fewer decimals, then nearer 0, then positive. strict, so shrinking ends
+  const dc = propDec(c), dx = propDec(x);
+  if (dc !== dx) return dc < dx;
+  return Math.abs(c) !== Math.abs(x) ? Math.abs(c) < Math.abs(x) : c > x;
+}
+function propNumC(x) {                       // simpler numbers to try in place of x, the simplest first
+  const out = [], add = c => { c = c === 0 ? 0 : c; if (Number.isFinite(c) && propSimpler(c, x) && !out.includes(c)) out.push(c); };
+  add(0); add(-x);
+  if (!isInt(x)) { add(Math.trunc(x)); add(Math.round(x)); for (const p of [10, 100, 1000]) add(Math.round(x * p) / p); }
+  for (let d = Math.trunc(Math.trunc(x) / 2); d !== 0; d = Math.trunc(d / 2)) add(x - d);
+  if (isInt(x)) add(x - Math.sign(x));
+  return out;
+}
+function propCuts(n) {                       // [start, length] of the runs to try taking out: all of it, halves, quarters .. single items
+  const out = [];
+  for (let k = n; k >= 1; k = k >> 1) for (let i = 0; i + k <= n; i += k) out.push([i, k]);
+  return out;
+}
+function propNumsC(v) {
+  const out = propCuts(v.length).map(([i, k]) => v.slice(0, i).concat(v.slice(i + k)));
+  for (let i = 0; i + 1 < v.length; i++) { const s = v[i] + v[i + 1]; if (Number.isFinite(s)) out.push(v.slice(0, i).concat([s === 0 ? 0 : s], v.slice(i + 2))); }
+  v.forEach((x, i) => {
+    const twice = v.indexOf(x) === i && v.indexOf(x, i + 1) > 0;       // a value that repeats: try moving every copy at once
+    for (const c of propNumC(x)) { if (twice) out.push(v.map(y => y === x ? c : y)); const w = v.slice(); w[i] = c; out.push(w); }
+  });
+  return out;
+}
+function propStrC(s) {
+  const cs = chars(s), out = propCuts(cs.length).map(([i, k]) => cs.slice(0, i).concat(cs.slice(i + k)).join(""));
+  cs.forEach((c, i) => { if (c !== "a") { const w = cs.slice(); w[i] = "a"; out.push(w.join("")); } });
+  return out;
+}
+function propPairC([a, b]) {
+  const out = [];
+  if (a === b) for (const c of propNumC(a)) out.push([c, c]);
+  if (a !== 0 && b !== 0 && Number.isFinite(a + b)) out.push([0, a + b], [a + b, 0]);
+  for (const c of propNumC(a)) out.push([c, b]);
+  for (const c of propNumC(b)) out.push([a, c]);
+  return out;
+}
+function propRun(op, seed, n, f, cx, gen, cands, args, back) {
+  ints(op, seed, n);
+  if (n < 1 || n > PROP_MAXN) R("E17", `${op}: ${fmtNum(n)} inputs. the count must be 1..${PROP_MAXN}`);
+  const fails = x => {
+    try { return cx.apply(f, args(x)) !== true; }
+    catch (e) { if (e instanceof TErr && !e.fatal) return true; throw e; }
+  };
+  const r = mulberry32(seed);
+  for (let i = 0; i < n; i++) {
+    let x = gen(r, i);
+    if (!fails(x)) continue;
+    for (let tries = 0, moved = true; moved && tries < PROP_SHRINK;) {
+      moved = false;
+      for (const c of cands(x)) { if (++tries > PROP_SHRINK) break; if (fails(c)) { x = c; moved = true; break; } }
+    }
+    return SOME(back(x));
+  }
+  return NONE;
+}
+const propOne = x => [x], propSelf = x => x;
+def("prop.num", "Num Num (Fn Num Bool) -> (Opt Num)", ([seed, n, f], cx) => propRun("prop.num", seed, n, f, cx, propNum, propNumC, propOne, propSelf));
+def("prop.nums", "Num Num (Fn (Vec Num) Bool) -> (Opt (Vec Num))", ([seed, n, f], cx) => propRun("prop.nums", seed, n, f, cx, propNums, propNumsC, propOne, propSelf));
+def("prop.str", "Num Num (Fn Str Bool) -> (Opt Str)", ([seed, n, f], cx) => propRun("prop.str", seed, n, f, cx, propStr, propStrC, propOne, propSelf));
+def("prop.pair", "Num Num (Fn Num Num Bool) -> (Opt (Pair Num Num))", ([seed, n, f], cx) => propRun("prop.pair", seed, n, f, cx, propPair, propPairC, propSelf, x => RV("Pair", x)));
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -3233,6 +3534,27 @@ const TESTS = [
   ["csv.cols picks columns by name","(use csv)\n(let t \"id,name,price\\n1,pen,2.5\\n2,\\\"big, pad\\\",4\\n\")\n(show (csv.cols t [\"price\" \"id\"]))\n(show (csv.cols t [\"name\"]))\n(show (csv.cols t []))\n(show (csv.cols \"a,b\\n\" [\"b\"]))\n(rec Item [id Num price Num])\n(show (map (fun [r] (Item (snum (get r 0)) (snum (get r 1)))) (csv.cols t [\"id\" \"price\"])))","[[\"2.5\" \"1\"] [\"4\" \"2\"]]\n[[\"pen\"] [\"big, pad\"]]\n[[] []]\n[]\n[(Item 1 2.5) (Item 2 4)]"],
   ["csv.cols names a missing column","(use csv)\n(show (try (csv.cols \"id,name,price\\n1,pen,2\" [\"id\" \"prise\"])))\n(show (try (csv.cols \"id,name\\n1,pen\" [\"quantity\"])))\n(show (try (csv.cols \"\" [\"id\"])))\n(show (try (csv.cols \"id,id\\n1,2\" [\"id\"])))\n(show (try (csv.cols \"id,name\\n1\" [\"id\"])))\n(show (try (csv.cols \"id,\\\"na\" [\"id\"])))","(Err \"E15\" \"csv.cols: no column \\\"prise\\\". nearest: \\\"price\\\". the header is: \\\"id\\\" \\\"name\\\" \\\"price\\\"\")\n(Err \"E15\" \"csv.cols: no column \\\"quantity\\\". the header is: \\\"id\\\" \\\"name\\\"\")\n(Err \"E15\" \"csv.cols: the text is empty: it has no header row\")\n(Err \"E15\" \"csv.cols: column \\\"id\\\" is in the header more than once (places 1 and 2). use csv.parse and take it by place\")\n(Err \"E15\" \"csv.cols: row 2 has 1 fields, the header has 2\")\n(Err \"E15\" \"csv.parse: a quoted field is never closed, row 1\")"],
   ["csv.cols fails in the check phase","(use csv)\n(show (csv.cols \"a,b\\n1,2\" [\"c\"]))","check!E15"],
+  ["pdf: pictures to pages","(use draw)\n(use bytes)\n(let b (pdf.pack 200 100 [[(Box 0 0 200 100 \"white\") (Text 10 10 2 \"Hi (there) \\\\ ok\" \"black\") (Line 0 0 199 99 \"red\") (Dot 3 3 \"#00f\")] []]))\n(show (unutf8 (take b 8)))\n(show (shas (unutf8 (filter (fun [x] (< x 128)) b)) \"(Hi \\\\(there\\\\) \\\\\\\\ ok) Tj\"))\n(show (shas (unutf8 (filter (fun [x] (< x 128)) b)) \"/Count 2\"))\n(check (pdf.pack 200 100 [[]]) (pdf.pack 200 100 [[]]))","%PDF-1.4\ntrue\ntrue"],
+  ["pdf.flow wraps and pages","(use draw)\n(fn texts [p (Vec Draw)] (Vec Str) (map (fun [s] (match s (Text _ _ _ t _) t _ \"\")) p))\n(let pages (pdf.flow 100 80 2 \"one two three four five six seven\\n\\nlast supercalifragilistic\"))\n(show (len pages))\n(show (map texts pages))\n(show (len (pdf.flow 100 80 2 \"\")))\n(show (all (fun [t] (<= (slen t) 10)) (flat (map texts pages))))","2\n[[\"one two\" \"three four\" \"five six\" \"seven\"] [\"last\" \"supercalif\" \"ragilistic\"]]\n1\ntrue"],
+  ["pdf errors before running","(use draw)\n(show (len (pdf.pack 200 100 [])))\n(show (len (pdf.pack 5 100 [[]])))\n(show (len (pdf.flow 20 20 8 \"x\")))\n(show (len (pdf.pack 200 100 [[(Dot 0 0 \"nocolor\")]])))","check!E10,E17,E17,E14"],
+  ["graph: path cost order reach parts","(use graph)\n(let es [(Edge \"a\" \"b\" 1) (Edge \"b\" \"c\" 2) (Edge \"a\" \"c\" 5) (Edge \"c\" \"d\" 0) (Edge \"x\" \"y\" 1)])\n(show (graph.path es \"a\" \"d\"))\n(show (graph.cost es \"a\" \"d\"))\n(show (graph.path es \"d\" \"a\"))\n(show (graph.cost es \"d\" \"a\"))\n(show (graph.path (graph.both es) \"d\" \"a\"))\n(show (graph.order es []))\n(show (graph.order es [\"zz\" \"a\" \"0\"]))\n(show (graph.reach es \"b\"))\n(show (graph.parts es [\"k\"]))\n(check (graph.cost es \"a\" \"c\") (Some 3))\n(show (len (graph.both es)))\n(show (Edge.cost (else (last (graph.both es)) (Edge \"\" \"\" 0))))","(Some [\"a\" \"b\" \"c\" \"d\"])\n(Some 3)\nNone\nNone\n(Some [\"d\" \"c\" \"b\" \"a\"])\n[\"a\" \"b\" \"c\" \"d\" \"x\" \"y\"]\n[\"0\" \"a\" \"b\" \"c\" \"d\" \"x\" \"y\" \"zz\"]\n[\"b\" \"c\" \"d\"]\n[[\"a\" \"b\" \"c\" \"d\"] [\"k\"] [\"x\" \"y\"]]\n10\n1"],
+  ["graph: empty, a to a, no such node, loops, repeats, zero costs","(use graph)\n(let none (take [(Edge 0 0 0)] 0))\n(show (graph.path none 1 1))\n(show (graph.cost none 1 1))\n(show (graph.path none 1 2))\n(show (graph.order none []))\n(show (graph.order none [3 1 2 1]))\n(show (graph.reach none 7))\n(show (graph.parts none []))\n(show (graph.parts none [2 1 2]))\n(show (graph.both none))\n(let es [(Edge 1 1 4) (Edge 1 2 9) (Edge 1 2 3) (Edge 2 3 0) (Edge 3 2 0) (Edge 1 2 7) (Edge 3 4 0.5)])\n(show (graph.path es 1 4))\n(show (graph.cost es 1 4))\n(show (graph.cost es 1 1))\n(show (graph.path es 4 1))\n(show (graph.path es 1 99))\n(show (graph.cost es 99 1))\n(show (graph.reach es 1))\n(show (graph.reach es 3))\n(show (graph.reach es 99))\n(show (graph.parts es [9]))\n(show (graph.cost [(Edge 1 2 0) (Edge 2 3 0)] 1 3))","(Some [1])\n(Some 0)\nNone\n[]\n[1 2 3]\n[7]\n[]\n[[1] [2]]\n[]\n(Some [1 2 3 4])\n(Some 3.5)\n(Some 0)\nNone\nNone\nNone\n[1 2 3 4]\n[3 2 4]\n[99]\n[[1 2 3 4] [9]]\n(Some 0)"],
+  ["graph: order is the smallest ready node first, reach is nearest first then edge order","(use graph)\n(show (graph.order [(Edge 5 1 0) (Edge 4 1 0) (Edge 1 0 0) (Edge 3 2 0)] []))\n(show (graph.order [(Edge \"shirt\" \"tie\" 0) (Edge \"tie\" \"jacket\" 0) (Edge \"socks\" \"shoes\" 0) (Edge \"pants\" \"shoes\" 0) (Edge \"pants\" \"belt\" 0) (Edge \"belt\" \"jacket\" 0) (Edge \"shirt\" \"belt\" 0)] [\"watch\"]))\n(show (graph.reach [(Edge 1 9 0) (Edge 1 2 0) (Edge 9 5 0) (Edge 2 7 0) (Edge 2 9 0) (Edge 7 1 0)] 1))\n(show (graph.path [(Edge 1 2 1) (Edge 2 4 1) (Edge 1 3 1) (Edge 3 4 1)] 1 4))\n(show (graph.path [(Edge 1 3 1) (Edge 3 4 1) (Edge 1 2 1) (Edge 2 4 1)] 1 4))","[3 2 4 5 1 0]\n[\"pants\" \"shirt\" \"belt\" \"socks\" \"shoes\" \"tie\" \"jacket\" \"watch\"]\n[1 9 2 5 7]\n(Some [1 2 4])\n(Some [1 2 4])"],
+  ["graph: nodes can be recs, vectors, any Str","(use graph)\n(rec At [x Num y Num])\n(let grid [(Edge (At 0 0) (At 0 1) 1) (Edge (At 0 1) (At 1 1) 1) (Edge (At 0 0) (At 1 1) 3)])\n(show (graph.path grid (At 0 0) (At 1 1)))\n(show (graph.order grid [(At -1 5)]))\n(show (graph.parts [(Edge [1 2] [3] 1) (Edge [] [0] 1)] [[3]]))\n(show (graph.order [(Edge \"😀\" \"～\" 1) (Edge \"z\" \"\" 1)] []))\n(fn route [es (Vec (Edge Str)) a Str b Str] Str (match (graph.path es a b) (Some p) (join p \" > \") None \"no way\"))\n(show (route [(Edge \"x\" \"y\" 1)] \"x\" \"y\"))\n(show (route [(Edge \"x\" \"y\" 1)] \"y\" \"x\"))","(Some [(At 0 0) (At 0 1) (At 1 1)])\n[(At -1 5) (At 0 0) (At 0 1) (At 1 1)]\n[[[] [0]] [[1 2] [3]]]\n[\"z\" \"\" \"😀\" \"～\"]\nx > y\nno way"],
+  ["E14 graph.order: a cycle, named, known before running","(use graph)\n(show (graph.order [(Edge \"a\" \"b\" 0) (Edge \"b\" \"c\" 0) (Edge \"c\" \"a\" 0)] []))\n(show (graph.order [(Edge 1 1 0)] []))","check!E14,E14"],
+  ["graph.order: the cycle in the message","(use graph)\n(show (try (graph.order [(Edge 0 1 0) (Edge 3 1 0) (Edge 1 2 0) (Edge 2 3 0) (Edge 3 4 0)] [])))\n(show (try (graph.order [(Edge \"b\" \"b\" 0) (Edge \"a\" \"b\" 0)] [])))\n(show (try (graph.order (map (fun [i] (Edge i (mod (+ i 1) 50) 0)) (range 50)) [])))\n(show (graph.parts [(Edge 1 2 0) (Edge 2 1 0)] []))","(Err \"E14\" \"graph.order: cycle 1 -> 2 -> 3 -> 1. an order needs a graph with no cycle: take one of these edges out\")\n(Err \"E14\" \"graph.order: cycle \\\"b\\\" -> \\\"b\\\". an order needs a graph with no cycle: take one of these edges out\")\n(Err \"E14\" \"graph.order: cycle 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> .. 50 nodes .. -> 0. an order needs a graph with no cycle: take one of these edges out\")\n[[1 2]]"],
+  ["E17 graph: a cost under 0, a path too costly, a function as a node","(use graph)\n(show (graph.path [(Edge 1 2 1) (Edge 5 6 -0.5)] 1 2))\n(show (graph.cost [(Edge 1 2 -1)] 7 7))\n(show (graph.cost [(Edge 1 2 1e308) (Edge 2 3 1e308)] 1 3))\n(show (graph.order [] [neg]))","check!E17,E17,E17,E17"],
+  ["E4 graph: a node of another type","(use graph)\n(show (graph.path [(Edge \"a\" \"b\" 1)] 1 \"a\"))\n(show (graph.order [(Edge \"a\" \"b\" 1)] [1]))\n(show (Edge 1 \"a\" 0))","!E4,E4,E4"],
+  ["E1 graph and prop need use","(show (graph.reach [] 1))\n(show (prop.num 1 1 (fun [x] true)))","!E1,E1"],
+  ["graph: 20000 nodes in a line, nothing nests","(use graph)\n(let es (map (fun [i] (Edge (- 20000 i) (- 19999 i) 2)) (range 20000)))\n(show (len (else (graph.path es 20000 0) [])))\n(show (graph.cost es 20000 0))\n(show (take (graph.order es []) 3))\n(show (len (graph.reach es 20000)))\n(show (len (graph.parts es [])))\n(show (match (try (graph.order (push es (Edge 0 20000 1)) [])) (Err c _) c (Ok _) \"ok\"))","20001\n(Some 40000)\n[20000 19999 19998]\n20001\n1\nE14"],
+  ["prop: None when it holds","(use prop)\n(check (prop.nums 1 200 (fun [v] (same (rev (rev v)) v))) None)\n(check (prop.num 1 200 (fun [x] (>= (abs x) 0))) None)\n(check (prop.str 1 200 (fun [s] (= (slen s) (len (split s \"\"))))) None)\n(check (prop.pair 1 200 (fun [a b] (= (+ a b) (+ b a)))) None)\n(show (prop.nums 9 1 (fun [v] (= (len v) 0))))","None"],
+  ["prop: what fails is shrunk","(use prop)\n(show (prop.nums 1 200 (fun [v] (all (fun [x] (< x 100)) v))))\n(show (prop.nums 2 200 (fun [v] (< (len v) 3))))\n(show (prop.nums 3 200 (fun [v] (< (vsum v) 100))))\n(show (prop.nums 4 200 (fun [v] (same (uniq v) v))))\n(show (prop.nums 5 200 (fun [v] (same (sort v) v))))\n(show (prop.num 1 200 (fun [x] (> (abs x) 0))))\n(show (prop.num 2 200 (fun [x] (< x 1000))))\n(show (prop.num 3 200 (fun [x] (isint x))))\n(show (prop.num 4 200 (fun [x] (> x -37))))\n(show (prop.str 1 200 (fun [s] (not (shas s \" \")))))\n(show (prop.str 2 200 (fun [s] (not (shas s \"\\n\")))))\n(show (prop.str 3 200 (fun [s] (< (slen s) 4))))\n(show (prop.str 4 200 (fun [s] (same (upper s) s))))\n(show (prop.pair 1 200 (fun [a b] (not (= a b)))))\n(show (prop.pair 2 200 (fun [a b] (<= a b))))\n(show (prop.pair 3 500 (fun [a b] (not (and (= a b) (>= a 5))))))","(Some [100])\n(Some [0 0 0])\n(Some [100])\n(Some [0 0])\n(Some [0 -1])\n(Some 0)\n(Some 1000)\n(Some 0.5)\n(Some -37)\n(Some \" \")\n(Some \"\\n\")\n(Some \"aaaa\")\n(Some \"a\")\n(Some (Pair 0 0))\n(Some (Pair 1 0))\n(Some (Pair 5 5))"],
+  ["prop: an input the predicate raises on fails too","(use prop)\n(show (prop.nums 1 200 (fun [v] (>= (vmax v) (vmin v)))))\n(show (prop.pair 1 200 (fun [a b] (= (* (idiv a b) b) (- a (mod a b))))))\n(show (prop.num 1 200 (fun [x] (>= (sqrt x) 0))))\n(show (prop.str 1 200 (fun [s] (>= (code s) 0))))\n(show (prop.nums 1 200 (fun [v] (if (has v 3) (fail \"x\" \"three\") true))))\n(fn down [n Num] Num (if (<= n 0) 0 (+ 1 (down (- n 1)))))\n(show (prop.num 1 200 (fun [x] (>= (down x) 0))))","(Some [])\n(Some (Pair 0 0))\n(Some -1)\n(Some \"\")\n(Some [3])\n(Some 599)"],
+  ["ECHECK prop: the shrunk input is in the message, known before running","(use prop)\n(do (io.print \"never printed\"))\n(check (prop.nums 7 300 (fun [v] (= (else (last (sort v)) 0) (vmin (push v 0))))) None)\n(check (prop.num 7 300 (fun [x] (> (abs x) 0))) None)","check!ECHECK,ECHECK"],
+  ["E17 prop: how many inputs, a seed that is no whole number","(use prop)\n(show (prop.num 1 0 (fun [x] true)))\n(show (prop.nums 1 10001 (fun [v] true)))\n(show (prop.str 1.5 10 (fun [s] true)))\n(show (prop.pair 1 2.5 (fun [a b] true)))\n(show (prop.num 1 -3 (fun [x] true)))","check!E17,E17,E17,E17,E17"],
+  ["E4 prop: the predicate has to fit","(use prop)\n(show (prop.nums 1 10 (fun [x] (> x 0))))\n(show (prop.num 1 10 (fun [x] x)))\n(show (prop.pair 1 10 (fun [p] true)))","!E4,E4,E4"],
+  ["E9 prop does not catch the step budget","(use prop)\n(fn spin [n Num] Bool (spin (+ n 1)))\n(show (prop.num 1 5 (fun [x] (spin x))))","!E9",null,100000],
+  ["prop: same seed same answer, a property of graph","(use prop)\n(use graph)\n(fn line [v (Vec Num)] (Vec (Edge Num)) (map (fun [p] (Edge (Pair.a p) (+ (Pair.a p) 1) (abs (Pair.b p)))) (enum v)))\n(show (same (prop.nums 5 100 (fun [v] (< (vsum v) 50))) (prop.nums 5 100 (fun [v] (< (vsum v) 50)))))\n(check (prop.nums 1 100 (fun [v] (same (graph.cost (line v) 0 (len v)) (Some (vsum (map abs v)))))) None)\n(check (prop.nums 2 100 (fun [v] (same (graph.order (line v) [0]) (range (+ (len v) 1))))) None)\n(check (prop.nums 3 100 (fun [v] (= (len (graph.parts (line v) [0])) 1))) None)","true"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

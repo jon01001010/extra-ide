@@ -59,15 +59,15 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [ ] **gif**: frames to one animated GIF, for people to watch.
 - [ ] **wav**: samples to a WAV file, tones and envelopes. Sound for people,
       numbers the model can check.
-- [ ] **pdf**: text and shapes to a simple PDF. Largest; last.
+- [x] **pdf**: text and shapes to a simple PDF. Largest; last.
 
 ## 3. Small helpers, folded into existing packs
 
 - [ ] **bytes**: url encode/decode, query strings to a map, hex, html escape.
       Escaping is the part of html a model gets wrong; the page it writes itself.
-- [ ] **prop**: property checks: a predicate over N seeded inputs, report the
+- [x] **prop**: property checks: a predicate over N seeded inputs, report the
       first failing input, shrunk. A model testing its own code beyond examples.
-- [ ] **graph**: shortest path, BFS/DFS order, topological sort with cycle report,
+- [x] **graph**: shortest path, BFS/DFS order, topological sort with cycle report,
       connected parts. Scheduling, dependencies, routes, puzzles.
 
 ## Dropped: a model writes these directly

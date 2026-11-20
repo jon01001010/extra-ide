@@ -70,21 +70,23 @@ WHAT COMES BACK
   - exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
 
 THE PACKS. 167 rows are core, the rest load with (use name)
+  prop  seeded random tests that shrink
+  graph cheapest path, topo order, parts
   query join group-sum pivot top rank
-  dec   exact decimals of any size: money, big whole numbers
-  diff  edits as here it is, there it should be: make apply unified
-  chart line scatter bar hist and f(x) graphs as Draw shapes. loads draw
-  math  trig gcd lcm clamp, stats: median quantile sd corr, seeded shuffle
-  text  pad repeat wrap words, edit distance
-  csv   csv to rows or to maps by header, and back
-  re    regex: test find replace split
-  json  parse and print json as the Json sum
-  time  dates: parts, add months right, days between, format
-  bit   whole number bit ops
-  bytes utf8 bytes, base64, sha256, other bases
-  mat   vectors, matrices: svd rank det solve pinv eig
-  draw  shapes to pixels: text pictures, png sheets, svg
-  io    files, paths, stdin, args, env, shell, http, clock
+  dec   exact decimals, big whole numbers
+  diff  edits by text: here it is, there it should be
+  chart charts and graphs as Draw shapes
+  math  trig gcd stats seeded shuffle
+  text  pad wrap words edit distance
+  csv   csv rows, maps, named columns
+  re    regex
+  json  Json sum, read by path
+  time  dates and calendar math, utc
+  bit   bit ops
+  bytes utf8 base64 sha256 radix
+  mat   vectors and matrices
+  draw  shapes: ascii png svg pdf frames
+  io    files paths shell http clock
 
 COMMANDS
   tact FILE [args ..]     check, then run
