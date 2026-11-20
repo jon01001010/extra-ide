@@ -55,7 +55,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [x] **zip**: write and read zip archives, gzip. Uses the deflate in draw.
 - [x] **xlsx**: spreadsheets people open in Excel: sheets, numbers vs text,
       header row. Built on zip.
-- [ ] **img**: read PNG to pixels, crop, resize, grayscale, write back. Needs inflate.
+- [x] **img**: read PNG to pixels, crop, resize, grayscale, write back. Needs inflate.
 - [x] **gif**: frames to one animated GIF, for people to watch.
 - [x] **wav**: samples to a WAV file, tones and envelopes. Sound for people,
       numbers the model can check.
