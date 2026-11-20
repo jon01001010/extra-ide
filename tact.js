@@ -4363,6 +4363,7 @@ const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli
 if (typeof module === "object" && module.exports) {
   module.exports = TACT;
   if (typeof require === "function" && require.main === module) {
+    process.stdout.on("error", e => { if (e && e.code === "EPIPE") process.exit(0); else throw e; });      // the reader stopped early (| head): not an error
     const r = cli(process.argv.slice(2), nodeHost());
     if (r.out) process.stdout.write(r.out + "\n");
     if (r.err) process.stderr.write(r.err + "\n");
