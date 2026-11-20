@@ -23,8 +23,6 @@ budget before adding more.
       plain text for the model.
 - [ ] **html**: escape, and an element builder that escapes by construction,
       so a generated page cannot be broken by its data. Reports and small tools.
-- [ ] **md**: markdown table from rows, escape, headings and lists. What people
-      paste into docs and chats.
 - [ ] **dec**: exact decimals for money (no 0.1 + 0.2 drift), rounding modes,
       and big integers. Floats are wrong for invoices and totals.
 - [ ] **diff**: line diff of two texts, unified patch out, apply a patch back.
