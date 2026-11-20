@@ -68,7 +68,7 @@ EXPRESSIONS
   (up r Name.field v ..)           a copy of rec r with those fields replaced
   (try expr)                       (Ok value) or (Err "code" "msg"). catches any run error
   (fail "code" "msg")              E16. fits any type. try gives (Err "code" "msg")
-  ; comment to end of line         string escapes: \\n \\t \\r \\" \\\\
+  ; comment to eol                 escapes: \\n \\t \\r \\" \\\\
 
 TYPES  Num  Bool  Str  (Vec T)  (Map K V)  (Fn A B R)  Name  (Name T ..)  ?a
        ?a in fn, rec and sum signatures: rigid inside a fn body, fresh at every use.
@@ -88,9 +88,10 @@ RULES  single assignment. no mutation. no loops. no shadowing (builtins and type
        io.print is the one effect in the core. the rest live in packs.
 
 ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with its line. nothing runs.
-       names never change, so once names and types are clean, a run error that literals, lets and
-       pure builtins make certain is reported in the check phase too. only on code that must run:
-       not in a branch, a fun, a for body, a fn body or a try.
+       once names and types are clean, every top form that reaches no io and no regex is tried,
+       under a small budget. a run error it ends in is reported in the check phase, all at once.
+       a form that reaches io is only read: an error its literals and lets make certain, on code
+       that must run, is reported. the rest wait for the run.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
 CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
@@ -1693,6 +1694,7 @@ function infer(e, sc, C) {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
       en.used = true;
+      if (en.kind === "builtin" && /^(io|re)\./.test(e.name)) C.deps.impure = true;
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
     }
@@ -1776,6 +1778,7 @@ function infer(e, sc, C) {
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
         en.used = true;
+        if (en.kind === "builtin" && /^(io|re)\./.test(label)) C.deps.impure = true;
         if (en.kind === "fn") C.deps.fns.add(label); else if (en.kind === "let") C.deps.lets.add(label);
         ft = inst(en.type);
         if (en.kind === "builtin" && label.startsWith("re.") && e.args.length && e.args[0].t === "str") {
@@ -1987,6 +1990,7 @@ function applyFn(f, args, depth) {
 function callPrim(f, args, depth) {
   switch (f.k) {
     case "bi": {                      // what a builtin makes counts against the step budget
+      if (steps > budget) { const x = new TErr("E9", `step budget of ${budget} spent: endless recursion, or too much data?`); x.fatal = true; throw x; }
       const r = f.fn(args, { apply: (g, a) => applyFn(g, a, depth) });
       if (Array.isArray(r)) steps += r.length * 4; else if (typeof r === "string") steps += r.length >> 3;
       return r;
@@ -1996,10 +2000,9 @@ function callPrim(f, args, depth) {
   }
   throw new Error("not callable");
 }
-function runProgram(tops, emit, st, opts) {
-  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = [];
+function makeEnv(tops) {
   const G = new Env(null);
-  for (const n of Object.keys(B)) G.m.set(n, B[n].fn ? { k: "bi", name: n, fn: B[n].fn } : B[n].val);
+ for (const n of Object.keys(B)) G.m.set(n, B[n].fn ? { k: "bi", name: n, fn: B[n].fn } : B[n].val);
   for (const t of tops) {
     if (t.t === "rec") {
       G.m.set(t.name, { k: "ctor", name: t.name });
@@ -2007,6 +2010,11 @@ function runProgram(tops, emit, st, opts) {
     } else if (t.t === "sum") for (const [c, v] of t.ctors) G.m.set(c, v.items.length ? { k: "ctor", name: c } : { k: "rv", name: c, vals: [], nul: true });
   }
   for (const t of tops) if (t.t === "fn") G.m.set(t.name, { k: "clo", params: t.params.map(p => p[0]), body: t.body, env: G, name: t.name });
+  return G;
+}
+function runProgram(tops, emit, st, opts) {
+  steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = [];
+  const G = makeEnv(tops);
   for (const t of tops) {
     try {
       switch (t.t) {
@@ -2044,7 +2052,7 @@ function foldProgram(tops, errs) {
   const look = (name, sc) => { for (let s = sc; s; s = s.p) if (s.m.has(name)) return s.m.get(name); return consts.has(name) ? consts.get(name) : fns.has(name) ? undefined : base.get(name); };
   const sub = sc => ({ m: new Map(), p: sc });
   const all = xs => xs.every(x => x !== undefined);
-  const live = true;                 // fold only walks code that must run, so an error it meets is certain
+  let live = true;                   // fold only walks code that must run, so an error it meets is certain. forms the dry pass tried are not reported twice
   const weigh = v => { let n = 0; const go = x => { if (++n > 5000) return; if (Array.isArray(x)) x.forEach(go); else if (x && x.k === "rv") x.vals.forEach(go); else if (x && x.k === "map") n += x.n * 2; }; go(v); return n; };
   const sure = (line, f) => { try { return small(f()); } catch (x) { if (x instanceof TErr && live) errs.push(E(x.code, x.message + ". known before running", line)); return undefined; } };
   function fold(e, sc) {
@@ -2083,12 +2091,13 @@ function foldProgram(tops, errs) {
     return undefined;
   }
   for (const t of tops) {
+    live = !!t.dirty;
     if (t.t === "let") consts.set(t.name, fold(t.expr, null));
     else if (t.t === "show") fold(t.expr, null);
     else if (t.t === "dotop") for (const x of t.exprs) fold(x, null);
     else if (t.t === "check") {
       const a = fold(t.a, null), b = fold(t.b, null);
-      if (a !== undefined && b !== undefined && !isFn(a) && !isFn(b) && !same(a, b, true)) errs.push(E("ECHECK", `check slipped: got ${fmt(a, false)}, expected ${fmt(b, false)}. known before running`, t.line));
+      if (live && a !== undefined && b !== undefined && !isFn(a) && !isFn(b) && !same(a, b, true)) errs.push(E("ECHECK", `check slipped: got ${fmt(a, false)}, expected ${fmt(b, false)}. known before running`, t.line));
     }
   }
 }
@@ -2145,6 +2154,45 @@ function normPath(p) {              // a/./b and a/x/../b are a/b, so one file h
   for (const part of p.split("/")) { if (part === "." || (part === "" && out.length)) continue; if (part === ".." && out.length && out[out.length - 1] !== ".." && out[out.length - 1] !== "") out.pop(); else out.push(part); }
   return out.join("/");
 }
+/* ------------------------------------------------------------------ tried before running
+   a top form that reaches no io and no regex gives the same result every time. so it is run here, inside
+   a small budget, and a run error it ends in is reported in the check phase: every such error at once,
+   where the run phase would stop at the first. */
+const DRY = 2e5;
+function dryProgram(tops, errs) {
+  const fnTop = new Map(), letTop = new Map(), mine = tops.filter(t => t.deps);
+  for (const t of tops) { if (t.t === "fn") fnTop.set(t.name, t); else if (t.t === "let") letTop.set(t.name, t); }
+  for (const t of mine) { t.dirty = !!t.deps.impure; t.lets = new Set(t.deps.lets); }
+  for (let again = true; again;) {                       // what a form reaches through fns and lets, to a fixed point
+    again = false;
+    for (const t of mine) {
+      for (const d of [...[...t.deps.fns].map(f => fnTop.get(f)), ...[...t.lets].map(l => letTop.get(l))]) {
+        if (!d) continue;
+        if (d.dirty && !t.dirty) { t.dirty = true; again = true; }
+        if (d.t === "fn") for (const l of d.lets) if (!t.lets.has(l)) { t.lets.add(l); again = true; }
+      }
+    }
+  }
+  HOST = null; EMIT = () => {}; FRAMES = [];
+  const G = makeEnv(tops), unknown = new Set();
+  for (const t of tops) {
+    if (t.t !== "let" && t.t !== "show" && t.t !== "check" && t.t !== "dotop") continue;
+    if (t.dirty || [...t.lets].some(l => unknown.has(l))) { if (t.t === "let") unknown.add(t.name); continue; }
+    steps = 0; budget = DRY;
+    try {
+      if (t.t === "let") G.m.set(t.name, ev(t.expr, G, 0, false));
+      else if (t.t === "show") ev(t.expr, G, 0, false);
+      else if (t.t === "dotop") for (const x of t.exprs) ev(x, G, 0, false);
+      else {
+        const a = ev(t.a, G, 0, false), b = ev(t.b, G, 0, false);
+        if (!same(a, b, true)) errs.push(E("ECHECK", `check slipped: got ${fmt(a, false)}, expected ${fmt(b, false)}. known before running`, t.line));
+      }
+    } catch (x) {
+      if (t.t === "let") unknown.add(t.name);
+      if (x instanceof TErr && !x.fatal) errs.push(E(x.code, x.message + ". known before running" + (x.line != null && x.line !== t.line ? `. it fails on line ${LN(x.line)}` : ""), t.line));      // the form that leads there, and where it breaks
+    }
+  }
+}
 const dirOf = p => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i + 1); };
 const headOf = s => s.t === "list" && s.items.length && isSym(s.items[0]) ? s.items[0].v : null;
 function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn rec sum check forms, in place, once
@@ -2187,7 +2235,7 @@ function run(src, opts = {}) {
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
       const tops = [...preludeTops(packs), ...mine];
       info = checkProgram(tops, errs, packs);
-      if (!errs.length) foldProgram(tops, errs);
+      if (!errs.length) { dryProgram(tops, errs); foldProgram(tops, errs); }
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
         if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io });
@@ -2281,7 +2329,7 @@ const TESTS = [
   ["E17 overflow","(show (exp 1000))","!E17"],
   ["all check errors at once","(show (lenn 1))\n(show (+ 1 \"a\"))\n(show (if true 1 \"b\"))","!E1,E4,E5"],
   ["nothing runs after a check error","(show 1)\n(show (+ 1 \"a\"))","!E4"],
-  ["run stops at first error","(fn inv [x Num] Num (/ 1 x))\n(show 1)\n(show (inv 0))\n(show 2)","run!E17"],
+  ["run stops at first error","(use io)\n(fn inv [x Num] Num (/ 1 x))\n(show 1)\n(show (inv (len (io.args))))\n(show (get [] (len (io.args))))","run!E17"],
   ["sum + match","(sum Shape [Circle [Num] Rect [Num Num] Point []])\n(fn area [s Shape] Num (match s (Circle r) (* r r) (Rect w h) (* w h) Point 0))\n(show (map area [(Circle 2) (Rect 2 3) Point]))\n(show Point)\n(show (Circle 1))","[4 6 0]\nPoint\n(Circle 1)"],
   ["match literals","(fn nm [n Num] Str (match n 0 \"zero\" 1 \"one\" _ \"many\"))\n(show (map nm [0 1 5]))\n(show (match true true 1 false 0))\n(show (match \"b\" \"a\" 1 _ 2))","[\"zero\" \"one\" \"many\"]\n1\n2"],
   ["match rec","(rec P [x Num y Num])\n(show (match (P 1 2) (P a _) a))","1"],
@@ -2354,7 +2402,7 @@ const TESTS = [
   ["known before running: check","(let n (len [1 2 3]))\n(check n 4)\n(show 1)","check!ECHECK"],
   ["known before running: rec and match","(rec P [x Num v (Vec Num)])\n(let p (up (P 1 [5]) P.x 0))\n(show (match (first (P.v p)) (Some a) (/ a (P.x p)) None 0))","check!E17"],
   ["a branch not taken is not an error","(show (if true 1 (/ 1 0)))\n(show (match (first []) (Some x) x None (get [7] 0)))\n(let n 0)\n(show (if (= n 0) 0 (/ 1 n)))\n(show (try (/ 1 0)))","1\n7\n0\n(Err \"E17\" \"division by zero\")"],
-  ["unknown values still fail at run","(fn at [v (Vec Num) i Num] Num (get v i))\n(show 1)\n(show (at [1] 4))","run!E10"],
+  ["unknown values still fail at run","(use io)\n(fn at [v (Vec Num) i Num] Num (get v i))\n(show 1)\n(show (at [1] (+ 4 (len (io.args)))))","run!E10"],
   ["up","(rec P [x Num y Num])\n(let p (P 1 2))\n(show (up p P.y 5))\n(show (up p P.x 9 P.y 8))\n(show p)\n(rec Cell [v ?a])\n(show (up (Cell 1) Cell.v 2))","(P 1 5)\n(P 9 8)\n(P 1 2)\n(Cell 2)"],
   ["up is checked","(rec P [x Num y Num])\n(rec Q [z Num])\n(let p (P 1 2))\n(show (up p P.z 5))\n(show (up p P.x \"a\"))\n(show (up p Q.z 1))\n(show (up p P.x 1 P.x 2))\n(show (up 3 P.x 1))","!E1,E4,E4,E2,E4"],
   ["E20 with bind never used","(show (with [a 1 b 2] a))","!E20"],
@@ -2383,6 +2431,14 @@ const TESTS = [
   ["rows that were wrong","(use bytes)\n(show [(mod -1 3) (mod 1 -3) (mod -1e-20 3)])\n(show (try (unutf8 [300])))\n(show (utf8 (unutf8 [239 187 191 97])))\n(show (try (fix 1e21 2)))\n(show (atan2 0 -0))\n(show (slt \"😀\" \"ｚ\"))\n(show (order [\"ｚ\" \"😀\" \"a\"]))\n(show (try (chr 55357)))","[2 -2 0]\n(Err \"E15\" \"unutf8: 300 is not a byte 0..255\")\n[239 187 191 97]\n(Err \"E17\" \"fix: 1e+21 is too big to write out\")\n0\nfalse\n[\"a\" \"ｚ\" \"😀\"]\n(Err \"E17\" \"chr: 55357 is not a code point\")"],
   ["a line longer than the canvas is solid","(use draw)\n(check (ascii 60 2 [(Line 0 0 100000 0 \"white\")] 60) (ascii 60 2 [(Line 0 0 59 0 \"white\")] 60))\n(show (ascii 8 8 [(Line -500 -500 500 500 \"white\")] 8))\n(show (ascii 8 8 [(Line 20 0 30 5 \"white\")] 8))","@@\n  @@\n    @@\n      @@\n\n\n\n"],
   ["memory host: made dirs exist, .. resolves","(use io)\n(use \"lib/a.tact\")\n(use \"lib/../lib/a.tact\")\n(do (io.mkdir \"d\") (io.write \"d/../e.txt\" \"x\"))\n(show [(io.isdir \"d\") (io.exists \"e.txt\")])\n(show z)","[true true]\n1",{"lib/a.tact":"(use \"../z.tact\")","z.tact":"(let z 1)"}],
+  ["tried before running: errors in fn bodies, all at once","(fn at [v (Vec Num) i Num] Num (get v i))\n(show 1)\n(show (at [1] 4))\n(show (at [1 2] 9))","check!E10,E10"],
+  ["tried before running: recursion and check","(fn fact [n Num] Num (if (<= n 1) 1 (* n (fact (- n 1)))))\n(check (fact 5) 120)\n(check (fact 5) 121)\n(show (fact 3))","check!ECHECK"],
+  ["tried before running: depth","(fn down [n Num] Num (if (= n 0) 0 (+ 1 (down (- n 1)))))\n(show (down 500))\n(show (down 800))","check!E9"],
+  ["tried before running: try still catches","(fn boom [] Num (/ 1 0))\n(show (try (boom)))\n(let r (try (boom)))\n(show (match r (Ok _) \"ok\" (Err c _) c))","(Err \"E17\" \"division by zero\")\nE17"],
+  ["tried before running: a let after a failed let is not tried","(let a (get [1] 3))\n(let b (+ a 1))\n(show b)","check!E10"],
+  ["io waits for the run","(use io)\n(let n (len (io.args)))\n(show 1)\n(show (/ 1 n))","run!E17"],
+  ["a regex waits for the run","(use re)\n(fn m [s Str] Num (len (re.find \"a\" s)))\n(show (get [] (m \"b\")))","run!E10"],
+  ["the budget spent is not an error up front","(fn spin [n Num acc Num] Num (if (= n 0) acc (spin (- n 1) (+ acc 1))))\n(show (spin 1000000 0))","1000000"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
