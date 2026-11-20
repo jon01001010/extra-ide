@@ -56,8 +56,8 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [ ] **xlsx**: spreadsheets people open in Excel: sheets, numbers vs text,
       header row. Built on zip.
 - [ ] **img**: read PNG to pixels, crop, resize, grayscale, write back. Needs inflate.
-- [ ] **gif**: frames to one animated GIF, for people to watch.
-- [ ] **wav**: samples to a WAV file, tones and envelopes. Sound for people,
+- [x] **gif**: frames to one animated GIF, for people to watch.
+- [x] **wav**: samples to a WAV file, tones and envelopes. Sound for people,
       numbers the model can check.
 - [x] **pdf**: text and shapes to a simple PDF. Largest; last.
 

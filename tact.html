@@ -183,6 +183,8 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  wav: { say: "sound: samples to wav and back", types: "(rec Sound [rate Num left (Vec Num) right (Vec Num)])",
+    notes: "a sound is a (Vec Num) of samples -1..1, rate of them a second. all of it is pure: check works on it.\nto keep one: (io.writeb \"a.wav\" (wav.pack 44100 samples)). 16 bit pcm: sample x is stored as round(x*32767).\na sample outside -1..1 is E17 with its place, never clipped in silence. (wav.mix [v]) scales a sound to fit.\nwav.tone starts at 0 and stops where the time ends, mostly not at 0: that is a click. wav.env fades the ends:\ngain i/attack over the first attack samples, (n-1-i)/release over the last release, so both ends are 0.\na vector holds 1000000 samples: 22 seconds at 44100, 125 at 8000. for a long sound use a lower rate.\nthe bytes of a wav are 44 + 2 a sample a channel, so they may pass 1000000: hand them straight to io.writeb.\na note after a rest: (concat (rep n 0) note). wav.read gives back what wav.pack stored, within 1/32767." },
   prop: { say: "seeded random tests that shrink", types: "",
     notes: "(check (prop.nums 1 200 (fun [v] (same (rev (rev v)) v))) None)   seed, how many inputs 1..10000, predicate.\nNone = it held on every input. else Some input it fails on, shrunk: items dropped, numbers moved to 0,\nchars dropped or turned to a. the shrunk input is small, not always the smallest there is.\nan input the predicate raises an error on fails too. same seed same inputs. pure: check reports it before the run." },
   graph: { say: "cheapest path, topo order, parts", types: "(rec Edge [from ?a to ?a cost Num])",
@@ -211,13 +213,14 @@ x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
 shapes become pixels in the core: the same picture on every host.
 to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
 to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
-as one png grid, left to right, top to bottom: a whole animation in one image.` },
+as one png grid, left to right, top to bottom: a whole animation in one image.
+(io.gif "f.gif" fps) writes them all as one animation that plays, in a loop. up to 256 colors a frame are kept exact.` },
   io: { say: "files paths shell http clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
     notes: `effects. args evaluate left to right, forms top to bottom.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme
 
@@ -592,6 +595,14 @@ prop.num prop 3 Num,Num,@fn @Opt.Num seed n pred. whole numbers and fractions. E
 prop.nums prop 3 Num,Num,@fn @Opt.@Vec.Num seed n pred. vectors of 0..20 whole numbers
 prop.str prop 3 Num,Num,@fn @Opt.Str seed n pred. empty spaces quotes newlines unicode
 prop.pair prop 3 Num,Num,@fn @Opt.@Pair seed n pred. pred takes two whole numbers. Some (Pair a b)
+io.gif draw 2 Str,Num Num path fps. every frame so far as one looping gif. fps 0.1..50. gives the frame count. E14 no frames
+Sound wav ! ! ! Sound.rate Sound.left Sound.right. mono: right is []
+wav.pack wav 2 Num,@Vec.Num @Vec.Num rate samples. a mono wav file as bytes. E17 a sample outside -1..1
+wav.stereo wav 3 Num,@Vec.Num,@Vec.Num @Vec.Num rate left right. E11 lengths differ. E17 as wav.pack
+wav.tone wav 3 Num,Num,Num @Vec.Num rate hz seconds. a sine, peak 1, from 0. round(rate*seconds) samples. E17 hz over rate/2
+wav.env wav 3 @Vec.Num,Num,Num @Vec.Num samples attack release, both counted in samples. straight fades. E17 longer than the sound
+wav.mix wav 1 @Vec.@Vec.Num @Vec.Num sum, short ones end early. divided by the peak only if it is over 1
+wav.read wav 1 @Vec.Num Sound bytes of a 16 bit pcm wav. E15 not a wav. E14 another kind of wav
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -2655,6 +2666,181 @@ def("prop.nums", "Num Num (Fn (Vec Num) Bool) -> (Opt (Vec Num))", ([seed, n, f]
 def("prop.str", "Num Num (Fn Str Bool) -> (Opt Str)", ([seed, n, f], cx) => propRun("prop.str", seed, n, f, cx, propStr, propStrC, propOne, propSelf));
 def("prop.pair", "Num Num (Fn Num Num Bool) -> (Opt (Pair Num Num))", ([seed, n, f], cx) => propRun("prop.pair", seed, n, f, cx, propPair, propPairC, propSelf, x => RV("Pair", x)));
 
+/* ---- media: frames as an animated gif (draw pack), sound as samples and wav bytes (wav pack) */
+function gifLzw(idx, n, bits) {      // gif lzw: codes grow from bits+1 to 12 bits, a clear code when all 4096 are taken. data sub-blocks of up to 255 bytes
+  const out = new Uint8Array(Math.ceil(n * 1.55) + 64), clear = 1 << bits, keys = new Int32Array(8192).fill(-1), vals = new Uint16Array(8192);
+  let o = 0, acc = 0, nb = 0, size = bits + 1, next = clear + 2, cur = idx[0];
+  out[o++] = bits; let bs = o++;
+  const put = b => { out[o++] = b; if (o - bs === 256) { out[bs] = 255; bs = o++; } };
+  const emit = c => { acc |= c << nb; nb += size; while (nb >= 8) { put(acc & 255); acc >>>= 8; nb -= 8; } };
+  emit(clear);
+  for (let i = 1; i < n; i++) {
+    const k = idx[i], key = cur << 8 | k; let h = Math.imul(key, 0x9E3779B1) >>> 19;
+    while (keys[h] !== -1 && keys[h] !== key) h = h + 1 & 8191;
+    if (keys[h] === key) { cur = vals[h]; continue; }
+    emit(cur);
+    if (next < 4096) { keys[h] = key; vals[h] = next; if (next === 1 << size) size++; next++; }
+    else { emit(clear); keys.fill(-1); size = bits + 1; next = clear + 2; }
+    cur = k;
+  }
+  emit(cur);
+  if (next === 1 << size && size < 12) size++;       // the reader adds an entry for that last code too, and widens on it
+  emit(clear + 1); if (nb) put(acc & 255);
+  if (o - bs === 1) o = bs; else out[bs] = o - bs - 1;
+  out[o++] = 0;
+  return out.slice(0, o);
+}
+function gifCut(er, eg, eb, ec, m) {  // median cut: m weighted colors into at most 256 boxes. gives box of each color, and the palette
+  const ord = Array.from({ length: m }, (_, i) => i), ch = [er, eg, eb], boxes = [];
+  const box = (lo, hi) => {
+    let pop = 0, ax = 0, rng = -1;
+    for (let c = 0; c < 3; c++) { let a = 255, b = 0; for (let i = lo; i < hi; i++) { const v = ch[c][ord[i]]; if (v < a) a = v; if (v > b) b = v; } if (b - a > rng) { rng = b - a; ax = c; } }
+    for (let i = lo; i < hi; i++) pop += ec[ord[i]];
+    return { lo, hi, pop, ax, score: hi - lo > 1 ? rng * Math.sqrt(pop) : -1 };
+  };
+  boxes.push(box(0, m));
+  while (boxes.length < 256) {
+    let bi = -1; for (let i = 0; i < boxes.length; i++) if (boxes[i].score >= 0 && (bi < 0 || boxes[i].score > boxes[bi].score)) bi = i;
+    if (bi < 0) break;
+    const b = boxes[bi], a = ch[b.ax], part = ord.slice(b.lo, b.hi).sort((x, y) => a[x] - a[y] || x - y);
+    for (let i = 0; i < part.length; i++) ord[b.lo + i] = part[i];
+    let acc = 0, cut = b.lo + 1;
+    for (let i = b.lo; i < b.hi - 1; i++) { acc += ec[ord[i]]; cut = i + 1; if (acc * 2 >= b.pop) break; }
+    boxes[bi] = box(b.lo, cut); boxes.push(box(cut, b.hi));
+  }
+  const of = new Uint8Array(m), pal = new Uint8Array(boxes.length * 3);
+  boxes.forEach((b, k) => {
+    let r = 0, g = 0, bl = 0;
+    for (let i = b.lo; i < b.hi; i++) { const e = ord[i], w = ec[e]; r += er[e] * w; g += eg[e] * w; bl += eb[e] * w; of[e] = k; }
+    pal[k * 3] = Math.round(r / b.pop); pal[k * 3 + 1] = Math.round(g / b.pop); pal[k * 3 + 2] = Math.round(bl / b.pop);
+  });
+  return { of, pal };
+}
+function gifIndex(px, n) {           // rgb pixels -> palette indexes. exact up to 256 colors, else median cut
+  const ids = new Uint16Array(n), seen = new Map(), cnt = []; let last = -1, li = 0, many = false;
+  for (let i = 0, p = 0; i < n; i++, p += 3) {
+    const c = px[p] << 16 | px[p + 1] << 8 | px[p + 2];
+    if (c !== last) { let j = seen.get(c); if (j === undefined) { if (seen.size === 65536) { many = true; break; } j = seen.size; seen.set(c, j); cnt.push(0); } last = c; li = j; }
+    ids[i] = li; cnt[li]++;
+  }
+  if (!many) {
+    const m = seen.size, er = new Float64Array(m), eg = new Float64Array(m), eb = new Float64Array(m);
+    for (const [c, j] of seen) { er[j] = c >> 16; eg[j] = c >> 8 & 255; eb[j] = c & 255; }
+    if (m <= 256) { const pal = new Uint8Array(m * 3); for (let j = 0; j < m; j++) { pal[j * 3] = er[j]; pal[j * 3 + 1] = eg[j]; pal[j * 3 + 2] = eb[j]; } return { idx: Uint8Array.from(ids), pal }; }
+    const q = gifCut(er, eg, eb, cnt, m), idx = new Uint8Array(n);
+    for (let i = 0; i < n; i++) idx[i] = q.of[ids[i]];
+    return { idx, pal: q.pal };
+  }
+  const bc = new Float64Array(65536), sr = new Float64Array(65536), sg = new Float64Array(65536), sb = new Float64Array(65536);     // too many to list: bins of 5 6 5 bits
+  for (let i = 0, p = 0; i < n; i++, p += 3) { const b = px[p] >> 3 << 11 | px[p + 1] >> 2 << 5 | px[p + 2] >> 3; bc[b]++; sr[b] += px[p]; sg[b] += px[p + 1]; sb[b] += px[p + 2]; }
+  const used = []; for (let b = 0; b < 65536; b++) if (bc[b]) used.push(b);
+  const m = used.length, er = new Float64Array(m), eg = new Float64Array(m), eb = new Float64Array(m), ec = new Float64Array(m), slot = new Int32Array(65536);
+  used.forEach((b, j) => { slot[b] = j; ec[j] = bc[b]; er[j] = sr[b] / bc[b]; eg[j] = sg[b] / bc[b]; eb[j] = sb[b] / bc[b]; });
+  const q = gifCut(er, eg, eb, ec, m), idx = new Uint8Array(n);
+  for (let i = 0, p = 0; i < n; i++, p += 3) idx[i] = q.of[slot[px[p] >> 3 << 11 | px[p + 1] >> 2 << 5 | px[p + 2] >> 3]];
+  return { idx, pal: q.pal };
+}
+function gifBytes(frames, delay, op) {       // gif89a, loops forever. every frame is the whole canvas with its own palette
+  const W = Math.max(...frames.map(f => f.w)), H = Math.max(...frames.map(f => f.h)), n = W * H, CAP = 5e7;
+  if (n * frames.length > 1e8) R("E17", `${op}: ${frames.length} frames of ${W} x ${H} is over 100 million pixels. make the frames one size, or fewer`);
+  const le = v => [v & 255, v >> 8], parts = [Uint8Array.from([71, 73, 70, 56, 57, 97, ...le(W), ...le(H), 0x70, 0, 0, 0x21, 0xFF, 11, 78, 69, 84, 83, 67, 65, 80, 69, 50, 46, 48, 3, 1, 0, 0, 0])];
+  let total = parts[0].length + 1;
+  for (const f of frames) {
+    let px = f.px;
+    if (f.w !== W || f.h !== H) { px = new Uint8Array(n * 3).fill(255); for (let y = 0; y < f.h; y++) px.set(f.px.subarray(y * f.w * 3, (y + 1) * f.w * 3), y * W * 3); }
+    const q = gifIndex(px, n); let pb = 1; while (1 << pb < q.pal.length / 3) pb++;
+    const table = new Uint8Array(3 << pb); table.set(q.pal);
+    const data = gifLzw(q.idx, n, Math.max(2, pb));
+    parts.push(Uint8Array.from([0x21, 0xF9, 4, 4, ...le(delay), 0, 0, 0x2C, 0, 0, 0, 0, ...le(W), ...le(H), 0x80 | pb - 1]), table, data);
+    total += 18 + table.length + data.length;
+    if (total > CAP) R("E17", `${op}: the gif is over 50 MB. make fewer or smaller frames, or use fewer colors`);
+  }
+  parts.push(Uint8Array.of(0x3B));
+  return join8(parts);
+}
+def("io.gif", "Str Num -> Num", ([path, fps]) => {
+  if (!FRAMES.length) R("E14", "io.gif: no frames yet. io.frame makes them");
+  if (!(fps >= 0.1 && fps <= 50)) R("E17", `io.gif: ${fmtNum(fps)} frames a second is outside 0.1..50`);
+  io("writeb", path, gifBytes(FRAMES, Math.round(100 / fps), "io.gif"));
+  return FRAMES.length;
+});
+const wavRate = (r, op) => { if (!isInt(r) || r < 1 || r > 192000) R("E17", `${op}: rate ${fmtNum(r)} must be a whole number 1..192000, like 44100 or 8000`); return r; };
+function wavBytes(rate, chans, op) {         // 16 bit pcm, little endian, channels interleaved. 1 is 32767 and -1 is -32767
+  wavRate(rate, op);
+  const nc = chans.length, n = chans[0].length, size = n * nc * 2, out = new Array(44 + size), names = nc > 1 ? ["left ", "right "] : [""];
+  if (n > MAXLEN) R("E17", `${op}: ${n} samples is over the ${MAXLEN} cap`);
+  const u32 = v => [v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255];
+  const head = [82, 73, 70, 70, ...u32(36 + size), 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, nc, 0, ...u32(rate), ...u32(rate * nc * 2), nc * 2, 0, 16, 0, 100, 97, 116, 97, ...u32(size)];
+  for (let i = 0; i < 44; i++) out[i] = head[i];
+  for (let c = 0; c < nc; c++) {
+    const v = chans[c];
+    for (let i = 0, o = 44 + c * 2; i < n; i++, o += nc * 2) {
+      const x = v[i];
+      if (!(x >= -1 && x <= 1)) R("E17", `${op}: ${names[c]}sample ${i} is ${fmtNum(x)}, outside -1..1. scale the sound down: (wav.mix [v]) fits one to -1..1`);
+      const s = Math.round(x * 32767) & 65535; out[o] = s & 255; out[o + 1] = s >> 8;
+    }
+  }
+  return out;
+}
+def("wav.pack", "Num (Vec Num) -> (Vec Num)", ([rate, v]) => wavBytes(rate, [v], "wav.pack"));
+def("wav.stereo", "Num (Vec Num) (Vec Num) -> (Vec Num)", ([rate, a, b]) => { sameLen(a, b, "wav.stereo"); return wavBytes(rate, [a, b], "wav.stereo"); });
+def("wav.tone", "Num Num Num -> (Vec Num)", ([rate, freq, secs]) => {
+  wavRate(rate, "wav.tone");
+  if (!(freq >= 0 && freq <= rate / 2)) R("E17", `wav.tone: ${fmtNum(freq)} hz is outside 0..${fmtNum(rate / 2)}, half the rate. above it a tone turns into a lower one`);
+  if (!(secs >= 0)) R("E17", `wav.tone: ${fmtNum(secs)} seconds must be >= 0`);
+  const n = Math.round(rate * secs);
+  if (n > MAXLEN) R("E17", `wav.tone: ${fmtNum(n)} samples is over the ${MAXLEN} cap. that is ${fmtNum(MAXLEN / rate)} seconds at this rate: use a lower rate or a shorter sound`);
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {       // the phase is folded into a quarter turn first, so 0 and the peaks are exact
+    const t = i * freq / rate; let p = t - Math.floor(t);
+    if (p > 0.75) p -= 1; else if (p > 0.25) p = 0.5 - p;
+    const s = Math.sin(2 * Math.PI * p); out[i] = s === 0 ? 0 : s;
+  }
+  return out;
+});
+def("wav.env", "(Vec Num) Num Num -> (Vec Num)", ([v, att, rel]) => {
+  const n = v.length;
+  if (!isInt(att) || !isInt(rel) || att < 0 || rel < 0) R("E17", `wav.env: attack ${fmtNum(att)} and release ${fmtNum(rel)} are counts of samples: whole numbers >= 0. seconds * rate gives one`);
+  if (att + rel > n) R("E17", `wav.env: attack ${att} + release ${rel} is longer than the ${n} samples`);
+  return v.map((x, i) => { const g = Math.min(i < att ? i / att : 1, i >= n - rel ? (n - 1 - i) / rel : 1), y = x * g; return y === 0 ? 0 : y; });
+});
+def("wav.mix", "(Vec (Vec Num)) -> (Vec Num)", ([vs]) => {
+  let n = 0, total = 0;
+  for (const v of vs) { total += v.length; if (v.length > n) n = v.length; }
+  if (total > 8 * MAXLEN || n > MAXLEN) R("E17", `wav.mix: ${total} samples in all is over the ${8 * MAXLEN} cap`);
+  const out = new Array(n).fill(0); let peak = 0;
+  for (const v of vs) for (let i = 0; i < v.length; i++) out[i] += v[i];
+  for (let i = 0; i < n; i++) { const a = Math.abs(out[i]); if (a > peak) peak = a; }
+  if (!Number.isFinite(peak)) R("E17", "wav.mix: the sum is too big for a number");
+  for (let i = 0; i < n; i++) { const y = peak > 1 ? out[i] / peak : out[i]; out[i] = y === 0 ? 0 : y; }
+  return out;
+});
+def("wav.read", "(Vec Num) -> Sound", ([v]) => {
+  if (v.length > 4 * MAXLEN + 4096) R("E17", `wav.read: ${v.length} bytes is over the ${4 * MAXLEN + 4096} cap`);
+  const b = bytes(v, "wav.read", "E15"), n = b.length, tag = o => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+  const u16 = o => b[o] | b[o + 1] << 8, u32 = o => (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >>> 0;
+  if (n < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") R("E15", "wav.read: not a wav file: it does not start RIFF....WAVE");
+  let fmt = null, o = 12;
+  for (; o + 8 <= n; o += 8 + u32(o + 4) + (u32(o + 4) & 1)) {
+    const id = tag(o), len = u32(o + 4);
+    if (id === "fmt ") {
+      if (len < 16 || o + 8 + len > n) R("E15", "wav.read: the fmt chunk is cut short");
+      const kind = u16(o + 8) === 0xFFFE && len >= 26 ? u16(o + 32) : u16(o + 8);
+      fmt = { kind, nc: u16(o + 10), rate: u32(o + 12), bits: u16(o + 22) };
+      if (fmt.kind !== 1 || fmt.bits !== 16 || fmt.nc < 1 || fmt.nc > 2) R("E14", `wav.read: reads 16 bit pcm with 1 or 2 channels. this file is format ${fmt.kind}, ${fmt.bits} bit, ${fmt.nc} channels`);
+      if (fmt.rate < 1) R("E15", "wav.read: the rate is 0");
+    } else if (id === "data") {
+      if (!fmt) R("E15", "wav.read: the data chunk comes before any fmt chunk");
+      if (o + 8 + len > n) R("E15", `wav.read: the data chunk says ${len} bytes and the file has ${n - o - 8} left`);
+      const step = fmt.nc * 2, m = Math.floor(len / step);
+      if (m > MAXLEN) R("E17", `wav.read: ${m} samples a channel is over the ${MAXLEN} cap`);
+      const ch = c => { const out = new Array(m); for (let i = 0, p = o + 8 + c * 2; i < m; i++, p += step) { const s = u16(p); out[i] = Math.max(-1, (s > 32767 ? s - 65536 : s) / 32767); } return out; };
+      return RV("Sound", [fmt.rate, ch(0), fmt.nc > 1 ? ch(1) : []]);
+    }
+  }
+  return R("E15", "wav.read: no data chunk");
+});
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -3724,6 +3910,33 @@ const TESTS = [
   ["E4 prop: the predicate has to fit","(use prop)\n(show (prop.nums 1 10 (fun [x] (> x 0))))\n(show (prop.num 1 10 (fun [x] x)))\n(show (prop.pair 1 10 (fun [p] true)))","!E4,E4,E4"],
   ["E9 prop does not catch the step budget","(use prop)\n(fn spin [n Num] Bool (spin (+ n 1)))\n(show (prop.num 1 5 (fun [x] (spin x))))","!E9",null,100000],
   ["prop: same seed same answer, a property of graph","(use prop)\n(use graph)\n(fn line [v (Vec Num)] (Vec (Edge Num)) (map (fun [p] (Edge (Pair.a p) (+ (Pair.a p) 1) (abs (Pair.b p)))) (enum v)))\n(show (same (prop.nums 5 100 (fun [v] (< (vsum v) 50))) (prop.nums 5 100 (fun [v] (< (vsum v) 50)))))\n(check (prop.nums 1 100 (fun [v] (same (graph.cost (line v) 0 (len v)) (Some (vsum (map abs v)))))) None)\n(check (prop.nums 2 100 (fun [v] (same (graph.order (line v) [0]) (range (+ (len v) 1))))) None)\n(check (prop.nums 3 100 (fun [v] (= (len (graph.parts (line v) [0])) 1))) None)","true"],
+  ["gif: frames to a looping gif","(use io)\n(use draw)\n(do (for [t (range 3)] (io.frame 5 4 [(Box 0 0 5 4 \"white\") (Dot t 1 \"red\")])))\n(show (io.gif \"a.gif\" 10))\n(let b (io.readb \"a.gif\"))\n(show (take b 13))\n(show (slice b 13 32))\n(show (slice b 32 51))\n(show (slice b 50 57))\n(show (len b))\n(show (last b))","3\n[71 73 70 56 57 97 5 0 4 0 112 0 0]\n[33 255 11 78 69 84 83 67 65 80 69 50 46 48 3 1 0 0 0]\n[33 249 4 4 10 0 0 0 44 0 0 0 0 5 0 4 0 128 255]\n[255 255 255 255 0 0 2]\n129\n(Some 59)"],
+  ["gif: smaller frames sit top left on white, like io.sheet","(use io)\n(use draw)\n(do (io.frame 2 1 [(Box 0 0 2 1 \"black\")]) (io.frame 3 2 [(Box 0 0 3 2 \"blue\")]))\n(show (io.gif \"a.gif\" 50))\n(let b (io.readb \"a.gif\"))\n(show (slice b 6 10))\n(show (slice b 32 61))","2\n[3 0 2 0]\n[33 249 4 4 2 0 0 0 44 0 0 0 0 3 0 2 0 128 0 0 0 255 255 255 2 3 4 130 81]"],
+  ["gif: delay is 100/fps rounded","(use io)\n(use draw)\n(do (io.frame 1 1 []))\n(fn delay [fps Num] Num (with [n (io.gif \"a.gif\" fps)  b (io.readb \"a.gif\")] (+ (* 0 n) (+ (get b 36) (* 256 (get b 37))))))\n(show (map delay [0.1 1 12 24 30 50]))","[1000 100 8 4 3 2]"],
+  ["gif: over 256 colors is cut to 256","(use io)\n(use draw)\n(do (io.frame 20 20 (for [x (range 20) y (range 20)] (Dot x y (rgb (* x 12) (* y 12) (+ x y))))))\n(show (io.gif \"a.gif\" 5))\n(show (get (io.readb \"a.gif\") 49))","1\n135"],
+  ["E14 gif without frames","(use draw)\n(show (io.gif \"a.gif\" 10))","run!E14"],
+  ["E17 gif fps","(use io)\n(use draw)\n(do (io.frame 2 2 []))\n(show (try (io.gif \"a.gif\" 0)))\n(show (try (io.gif \"a.gif\" 60)))\n(show (try (io.gif \"a.gif\" -5)))\n(show (io.exists \"a.gif\"))","(Err \"E17\" \"io.gif: 0 frames a second is outside 0.1..50\")\n(Err \"E17\" \"io.gif: 60 frames a second is outside 0.1..50\")\n(Err \"E17\" \"io.gif: -5 frames a second is outside 0.1..50\")\nfalse"],
+  ["E17 gif fps, not caught","(use io)\n(use draw)\n(do (io.frame 2 2 []))\n(show (io.gif \"a.gif\" 51))","run!E17"],
+  ["E17 gif frames padded over the cap","(use io)\n(use draw)\n(do (io.frame 4096 4096 []) (for [t (range 6)] (io.frame 1 1 [])))\n(show (try (io.gif \"a.gif\" 10)))","(Err \"E17\" \"io.gif: 7 frames of 4096 x 4096 is over 100 million pixels. make the frames one size, or fewer\")"],
+  ["wav: a mono file, byte for byte","(use wav)\n(show (wav.pack 8000 [0 1 -1 0.5 -0.5 0.25]))\n(show (len (wav.pack 44100 [])))","[82 73 70 70 48 0 0 0 87 65 86 69 102 109 116 32 16 0 0 0 1 0 1 0 64 31 0 0 128 62 0 0 2 0 16 0 100 97 116 97 12 0 0 0 0 0 255 127 1 128 0 64 1 192 0 32]\n44"],
+  ["wav: stereo interleaves left right","(use wav)\n(show (drop (wav.stereo 44100 [0 1] [-1 0.5]) 20))\n(show (try (wav.stereo 8000 [0 1] [0])))\n(show (try (wav.stereo 8000 [0 0] [0 -1.01])))","[1 0 2 0 68 172 0 0 16 177 2 0 4 0 16 0 100 97 116 97 8 0 0 0 0 0 1 128 255 127 0 64]\n(Err \"E11\" \"wav.stereo: lengths 2 and 1 differ\")\n(Err \"E17\" \"wav.stereo: right sample 1 is -1.01, outside -1..1. scale the sound down: (wav.mix [v]) fits one to -1..1\")"],
+  ["wav: tone is exact at the quarter turns","(use wav)\n(show (wav.tone 8 1 1))\n(show (wav.tone 4 2 1))\n(show (wav.tone 8 0 0.5))\n(show (len (wav.tone 44100 440 0.01)))\n(show (wav.tone 8000 440 0))\n(check (get (wav.tone 48000 1000 1) 12) 1)\n(check (get (wav.tone 44100 441 20) 800000) 0)\n(check (get (wav.tone 44100 440 1) 1) (sin (/ (* 2 (* pi 440)) 44100)))","[0 0.707106781186547 1 0.707106781186547 0 -0.707106781186547 -1 -0.707106781186547]\n[0 0 0 0]\n[0 0 0 0]\n441\n[]"],
+  ["wav: env fades both ends to 0","(use wav)\n(show (wav.env [1 1 1 1 1 1 1 1] 4 2))\n(show (wav.env [1 -1 1] 0 0))\n(show (wav.env [-1 -1 -1 -1] 2 2))\n(show (wav.env [] 0 0))\n(show (wav.env [0.5] 1 0))","[0 0.25 0.5 0.75 1 1 0.5 0]\n[1 -1 1]\n[0 -0.5 -0.5 0]\n[]\n[0]"],
+  ["wav: mix sums and scales only when over 1","(use wav)\n(show (wav.mix [[0.25 0.25] [0.5 -0.25 0.125]]))\n(show (wav.mix [[1 1] [1 -0.5 0.25]]))\n(show (wav.mix [[3 -6 0]]))\n(show (wav.mix []))\n(show (wav.mix [[] []]))\n(show (len (wav.pack 8000 (wav.mix [(wav.tone 8000 440 0.1) (wav.tone 8000 660 0.1) (wav.tone 8000 880 0.05)]))))","[0.75 0 0.125]\n[1 0.25 0.125]\n[0.5 -1 0]\n[]\n[]\n1644"],
+  ["wav: read gives back what pack stored","(use wav)\n(let s (wav.read (wav.pack 22050 [0 1 -1 0.5])))\n(show s)\n(show (wav.read (wav.stereo 8000 [0 1] [-1 0])))\n(show (same (wav.pack 22050 (Sound.left s)) (wav.pack 22050 [0 1 -1 0.5])))\n(show (wav.read (wav.pack 1 [])))\n(show (Sound.left (wav.read (concat (take (wav.pack 8 [0.5]) 44) [0 128 255 127]))))","(Sound 22050 [0 1 -1 0.500015259254738] [])\n(Sound 8000 [0 1] [-1 0])\ntrue\n(Sound 1 [] [])\n[-1]"],
+  ["wav: read skips other chunks","(use wav)\n(let f (wav.pack 8000 [1 0]))\n(show (wav.read (concat (take f 12) (concat [76 73 83 84 3 0 0 0 9 9 9 0] (drop f 12)))))","(Sound 8000 [1 0] [])"],
+  ["wav: file through io","(use io)\n(use wav)\n(show (io.writeb \"t.wav\" (wav.pack 8000 (wav.env (wav.tone 8000 1000 0.002) 4 4))))\n(show (wav.read (io.readb \"t.wav\")))","76\n(Sound 8000 [0 0.176763206884976 0.500015259254738 0.530320139164403 0 -0.707113864558855 -1 -0.707113864558855 0 0.707113864558855 1 0.707113864558855 0 -0.353556932279427 -0.250007629627369 0] [])"],
+  ["E17 wav sample out of range names the place","(use wav)\n(show (try (wav.pack 8000 [0 0.5 1.5 -3])))\n(show (try (wav.pack 8000 [-1.0001])))","(Err \"E17\" \"wav.pack: sample 2 is 1.5, outside -1..1. scale the sound down: (wav.mix [v]) fits one to -1..1\")\n(Err \"E17\" \"wav.pack: sample 0 is -1.0001, outside -1..1. scale the sound down: (wav.mix [v]) fits one to -1..1\")"],
+  ["E17 wav sample, in the check phase","(use wav)\n(show (wav.pack 8000 [0 2]))","check!E17"],
+  ["E17 wav rate","(use wav)\n(show (try (wav.pack 0 [0])))\n(show (try (wav.pack 44100.5 [0])))\n(show (try (wav.stereo 192001 [0] [0])))\n(show (try (wav.tone -1 1 1)))","(Err \"E17\" \"wav.pack: rate 0 must be a whole number 1..192000, like 44100 or 8000\")\n(Err \"E17\" \"wav.pack: rate 44100.5 must be a whole number 1..192000, like 44100 or 8000\")\n(Err \"E17\" \"wav.stereo: rate 192001 must be a whole number 1..192000, like 44100 or 8000\")\n(Err \"E17\" \"wav.tone: rate -1 must be a whole number 1..192000, like 44100 or 8000\")"],
+  ["E17 wav tone","(use wav)\n(show (try (wav.tone 8000 4001 1)))\n(show (try (wav.tone 8000 -1 1)))\n(show (try (wav.tone 8000 440 -1)))\n(show (try (wav.tone 44100 440 23)))\n(show (len (wav.tone 8000 4000 125)))","(Err \"E17\" \"wav.tone: 4001 hz is outside 0..4000, half the rate. above it a tone turns into a lower one\")\n(Err \"E17\" \"wav.tone: -1 hz is outside 0..4000, half the rate. above it a tone turns into a lower one\")\n(Err \"E17\" \"wav.tone: -1 seconds must be >= 0\")\n(Err \"E17\" \"wav.tone: 1014300 samples is over the 1000000 cap. that is 22.6757369614512 seconds at this rate: use a lower rate or a shorter sound\")\n1000000"],
+  ["E17 wav env","(use wav)\n(show (try (wav.env [1 1 1] 2 2)))\n(show (try (wav.env [1 1 1] 0.5 0)))\n(show (try (wav.env [1 1 1] 0 -1)))","(Err \"E17\" \"wav.env: attack 2 + release 2 is longer than the 3 samples\")\n(Err \"E17\" \"wav.env: attack 0.5 and release 0 are counts of samples: whole numbers >= 0. seconds * rate gives one\")\n(Err \"E17\" \"wav.env: attack 0 and release -1 are counts of samples: whole numbers >= 0. seconds * rate gives one\")"],
+  ["E11 wav stereo lengths","(use wav)\n(show (wav.stereo 8000 [0 0] [0]))","check!E11"],
+  ["E15 wav read not a wav","(use wav)\n(show (try (wav.read [])))\n(show (try (wav.read [1 2 3])))\n(show (try (wav.read (take (wav.pack 8000 [0 1]) 46))))\n(show (try (wav.read (take (wav.pack 8000 [0 1]) 36))))\n(show (try (wav.read [82 73 70 70 256])))\n(show (try (wav.read (concat (take (wav.pack 8000 []) 12) (drop (wav.pack 8000 []) 36)))))","(Err \"E15\" \"wav.read: not a wav file: it does not start RIFF....WAVE\")\n(Err \"E15\" \"wav.read: not a wav file: it does not start RIFF....WAVE\")\n(Err \"E15\" \"wav.read: the data chunk says 4 bytes and the file has 2 left\")\n(Err \"E15\" \"wav.read: no data chunk\")\n(Err \"E15\" \"wav.read: 256 is not a byte 0..255\")\n(Err \"E15\" \"wav.read: the data chunk comes before any fmt chunk\")"],
+  ["E14 wav read another kind","(use wav)\n(let f (wav.pack 8000 [0 1]))\n(show (try (wav.read (concat (take f 34) (concat [8] (drop f 35))))))\n(show (try (wav.read (concat (take f 20) (concat [3] (drop f 21))))))\n(show (try (wav.read (concat (take f 22) (concat [6] (drop f 23))))))","(Err \"E14\" \"wav.read: reads 16 bit pcm with 1 or 2 channels. this file is format 1, 8 bit, 1 channels\")\n(Err \"E14\" \"wav.read: reads 16 bit pcm with 1 or 2 channels. this file is format 3, 16 bit, 1 channels\")\n(Err \"E14\" \"wav.read: reads 16 bit pcm with 1 or 2 channels. this file is format 1, 16 bit, 6 channels\")"],
+  ["E1 wav needs its pack","(show (wav.tone 8000 440 1))","check!E1"],
+  ["E4 wav takes numbers","(use wav)\n(show (wav.pack 8000 [\"a\"]))","check!E4"],
+  ["wav: a full vector packs to more bytes than a vector holds","(use wav)\n(let v (wav.tone 44100 440 22))\n(show (len v))\n(show (len (wav.pack 44100 v)))\n(show (len (Sound.left (wav.read (wav.stereo 48000 v v)))))","970200\n1940444\n970200"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
