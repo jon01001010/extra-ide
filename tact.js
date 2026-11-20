@@ -108,7 +108,7 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
 HOST   a program that embeds tact can give it typed functions and types. calls to them are checked
        like builtins and wait for the run. tact --host H.js --spec lists them.
 
-CLI    tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
+CLI    tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --fmt FILE | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -3091,6 +3091,10 @@ function runTests() {
   const ghost = MATRIX.split("\n").slice(1).map(l => l.split(" ")).filter(p => !["form", "top", "type", "err"].includes(p[1]) && !own(B, p[0]) && !PACKOF.has(p[0])).map(p => p[0]);
   const got = [...lost.map(n => "no row: " + n), ...ghost.map(n => "no builtin: " + n)].join(", ");
   rs.push({ name: "matrix = builtins", ok: got === "", got, want: "", src: "; compares the matrix with the builtin table", errors: [] });
+  let fbad = "";                          // the formatter: same program back, and a second pass changes nothing
+  for (const [name, src] of TESTS) { if (src.length > 20000) continue; const f = format(src); if (!f.ok) { if (f.errors[0].code === "BUG") fbad = fbad || name; continue; } if (format(f.text).text !== f.text) fbad = fbad || name; }
+  const fc = format("; top\n(let x   1) ; one\n\n\n(fn f [a Num\n b Num] Num ; sum\n (+ a\n b))");
+  rs.push({ name: "format keeps meaning, comments and blank lines", ok: fbad === "" && fc.text === "; top\n(let x 1)  ; one\n\n(fn f [a Num b Num] Num\n  ; sum\n  (+ a b))\n", got: fbad || fc.text, want: "", src: "; formats every test program twice", errors: [] });
   const size = specText().length;
   rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
   return rs;
@@ -3135,8 +3139,83 @@ function specText(which) {
   return null;
 }
 
+/* ------------------------------------------------------------------ format: one layout for a program
+   so two versions of a file differ only where their meaning does. comments and blank lines are kept.
+   the result must read back as the same program, or nothing is returned. */
+function fmtRead(src) {                // like lex + parse, but keeps comments, blank lines and each atom as written
+  const toks = []; let i = 0, nl = 0, fresh = true; const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "\n") { nl++; fresh = true; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    const tok = { nl, fresh }; nl = 0; fresh = false;
+    if (c === ";") { let j = i; while (j < n && src[j] !== "\n") j++; tok.k = "c"; tok.v = src.slice(i, j).replace(/\s+$/, ""); i = j; }
+    else if (own(OPEN, c) || isClose(c)) { tok.k = c; i++; }
+    else if (c === '"') { let j = i + 1; while (j < n && src[j] !== '"') j += src[j] === "\\" ? 2 : 1; tok.k = "a"; tok.v = src.slice(i, Math.min(n, j + 1)); i = j + 1; }
+    else { let j = i; while (j < n && !/[\s()\[\]{};"]/.test(src[j])) j++; tok.k = "a"; tok.v = src.slice(i, j); i = j; }
+    toks.push(tok);
+  }
+  let p = 0;
+  const item = () => {
+    const t = toks[p++];
+    if (t.k === "a") return { t: "a", v: t.v, nl: t.nl };
+    if (t.k === "c") return { t: "c", v: t.v, nl: t.nl, own: t.fresh };
+    const node = { t: t.k, items: [], nl: t.nl };
+    while (p < toks.length && !isClose(toks[p].k)) node.items.push(item());
+    p++; return node;
+  };
+  const out = []; while (p < toks.length) { if (isClose(toks[p].k)) { p++; continue; } out.push(item()); }
+  return out;
+}
+const FMTW = 96;
+const fmtFlat = x => x.t === "a" || x.t === "c" ? x.v : x.t + x.items.map(fmtFlat).join(" ") + OPEN[x.t];
+const fmtPlain = x => x.t === "a" ? !x.v.includes("\n") : x.t !== "c" && x.items.every(fmtPlain);      // can sit on one line
+const FIRSTLINE = { fn: 3, let: 1, rec: 1, sum: 1, with: 1, for: 1, fun: 1, match: 1, if: 1, check: 0, up: 1 };
+const PAIRVEC = { with: 0, for: 0, fn: 1, rec: 1, sum: 1 };
+function fmtNode(x, col, pairs) {      // text for x starting at column col. later lines carry their own indent
+  if (x.t === "a" || x.t === "c") return x.v;
+  if (fmtPlain(x) && col + fmtFlat(x).length <= FMTW) return fmtFlat(x);
+  const pad = n => " ".repeat(n), close = OPEN[x.t], its = x.items;
+  const lines = (list, at, step) => {  // items one a line at column at, or step a line. a comment stays where it was put
+    const out = []; let row = [];
+    const flush = () => { if (row.length) { out.push(row.join(" ")); row = []; } };
+    for (const it of list) {
+      if (it.t === "c") { if (!it.own && (row.length || out.length)) { if (row.length) flush(); out[out.length - 1] += "  " + it.v; } else { flush(); out.push(it.v); } continue; }
+      const text = fmtNode(it, at + (row.length ? row.join(" ").length + 1 : 0), false);
+      row.push(text);
+      if (row.length >= step || text.includes("\n")) flush();
+    }
+    flush(); return out.join("\n" + pad(at));
+  };
+  if (x.t !== "(") return x.t + lines(its, col + 1, pairs || x.t === "{" ? 2 : 1) + close;
+  const head = its[0], name = head && head.t === "a" ? head.v : null;
+  if (name === null || its.some(i => i.t === "c") && !own(FIRSTLINE, name)) return "(" + lines(its, col + 1, 1) + ")";
+  let keep = own(FIRSTLINE, name) ? FIRSTLINE[name] : 1;
+  if (name === "fun" && its.length === 4) keep = 2;
+  let first = "(" + name, k = 1;
+  for (; k < its.length && k <= keep && its[k].t !== "c"; k++) {
+    const t = fmtNode(its[k], col + first.length + 1, own(PAIRVEC, name) && PAIRVEC[name] === k - 1);
+    first += " " + t; if (t.includes("\n")) { k++; break; }
+  }
+  if (k >= its.length) return first + ")";
+  return first + "\n" + pad(col + 2) + lines(its.slice(k), col + 2, name === "match" ? 2 : 1) + ")";
+}
+function format(src) {
+  const errs = [], before = parse(lex(src, errs), errs);
+  if (errs.length) return { ok: false, text: "", errors: errs.map(e => ({ code: e.code, msg: e.msg, line: e.line })) };
+  const out = [];
+  for (const x of fmtRead(src)) {
+    if (x.t === "c" && !x.own && out.length) { out[out.length - 1] += "  " + x.v; continue; }
+    if (out.length && x.nl > 1) out.push("");
+    out.push(fmtNode(x, 0, false));
+  }
+  const text = out.join("\n") + (out.length ? "\n" : ""), e2 = [], after = parse(lex(text, e2), e2);
+  if (e2.length || before.map(sx).join("\n") !== after.map(sx).join("\n")) return { ok: false, text: "", errors: [{ code: "BUG", msg: "the formatter would change the program. nothing was changed", line: 0 }] };
+  return { ok: true, text, errors: [] };
+}
+
 /* ------------------------------------------------------------------ cli */
-const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
+const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --fmt FILE | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
 function errLines(r) { return r.errors.map(e => `${e.code} ${e.file ? e.file + " " : ""}line ${e.line}: ${e.msg}`).join("\n"); }
 function cli(args, host) {           // host = the io host. it also needs read and stdin to load the program itself
   const a = args.slice();
@@ -3163,6 +3242,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
     switch (a[0]) {
       case undefined: case "-h": case "--help": return { out: USAGE, err: "", code: a[0] ? 0 : 2 };
       case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t + (tools ? "\n\n" + hostSpec(tools) : ""), err: "", code: 0 }; }
+      case "--fmt": { const r = format(src(a[1])); return { out: r.text.replace(/\n$/, ""), err: errLines(r), code: r.ok ? 0 : 1 }; }
       case "--check": { const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools }); return { out: r.errors.length ? "" : "ok", err: errLines(r), code: r.errors.length ? 1 : 0 }; }
       case "--sigs": {                 // what a side loaded tact file offers, without its source
         const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools });
@@ -3194,7 +3274,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
   } catch (x) { return { out: "", err: String(x.message || x), code: 2 }; }
 }
 
-const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png, PACKS, specText, hostSpec, host: hostHelp };
+const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png, PACKS, specText, hostSpec, host: hostHelp, format };
 if (typeof module === "object" && module.exports) {
   module.exports = TACT;
   if (typeof require === "function" && require.main === module) {

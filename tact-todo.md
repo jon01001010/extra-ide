@@ -81,7 +81,7 @@ index line (~70 chars). Merge into existing packs where it fits.
       types, and the checker checks calls to them like builtins. This is what
       makes Tact embeddable the way Lua is: the host gives the model a typed,
       checked set of tools.
-- [ ] `tact --fmt FILE`: one canonical layout, so diffs of model edits stay small.
+- [x] `tact --fmt FILE`: one canonical layout, so diffs of model edits stay small.
 - [ ] Short spec mode (~1,500 tokens) for 8k-context models.
 - [ ] Measure the spec in real tokens (Llama and Claude tokenizers).
 - [ ] Rerun the adversarial agent on everything added since its last pass.
