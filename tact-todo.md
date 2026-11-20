@@ -16,10 +16,10 @@ budget before adding more.
 - [ ] **table**: rows as `(Vec (Map Str Str))` or recs. group by + sum/mean/count,
       join two tables on a key, pivot, sort by several keys, select columns.
       The everyday "analyse this spreadsheet" request.
-- [ ] **chart**: line, bar, scatter, histogram to `(Vec Draw)` with axes, ticks
+- [x] **chart**: line, bar, scatter, histogram to `(Vec Draw)` with axes, ticks
       and labels. People see the PNG; the model reads it with `ascii`.
-      Needs a `Text` shape in `draw` first.
-- [ ] **svg**: `(Vec Draw)` to an SVG string. Sharp charts and diagrams for people,
+      Also `chart.fn` graphs a function. `Text` added to `draw`.
+- [x] **svg**: `(Vec Draw)` to an SVG string. Sharp charts and diagrams for people,
       plain text for the model.
 - [ ] **html**: escape, and an element builder that escapes by construction,
       so a generated page cannot be broken by its data. Reports and small tools.

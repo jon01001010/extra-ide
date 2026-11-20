@@ -183,6 +183,8 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  chart: { say: "line scatter bar hist and f(x) graphs as Draw shapes. loads draw", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
+    notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
   math: { say: "trig, gcd lcm clamp hypot, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
   text: { say: "pad repeat wrap words, edit distance", types: "", notes: "" },
   csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
@@ -192,8 +194,9 @@ const PACKS = {
   bit: { say: "whole number bit ops", types: "", notes: "" },
   bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
   mat: { say: "vector math, matrices: multiply svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes to pixels: text pictures, frames, png sheets", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str]])",
-    notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
+  draw: { say: "shapes to pixels: text pictures, frames, png sheets", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+    notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
+(Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
 shapes become pixels in the core: the same picture on every host.
 to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
@@ -204,7 +207,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.` 
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -306,7 +309,7 @@ Pair type 2 @A,@B ! Pair.a Pair.b
 Json json ! ! ! JNull JBool JNum JStr JArr JObj
 Sh io ! ! ! Sh.code Sh.out Sh.err
 Http io ! ! ! Http.status Http.body
-Draw draw ! ! ! Line x1 y1 x2 y2 color. Box x y w h color. Dot x y color
+Draw draw ! ! ! Line Box Dot Text. see notes
 pi num ! ! Num a value. not a call
 neg num 1 Num Num !
 abs num 1 Num Num !
@@ -433,8 +436,9 @@ fix str 2 Num,Num Str x with d decimals
 radix bytes 2 Num,Num Str whole n in base 2..36
 pradix bytes 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
+svg draw 3 Num,Num,@Vec.Draw Str w h shapes. an svg file as text
 rgb draw 3 Num,Num,Num Str #rrggbb. each clamped to 0..255
-ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. darkest = space. brightest = @
+ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. background = space. most ink = @
 utf8 bytes 1 Str @Vec.Num bytes
 unutf8 bytes 1 @Vec.Num Str E15 bad bytes
 b64.enc bytes 1 Str Str utf8 then base64
@@ -509,6 +513,12 @@ path.join io 2 Str,Str Str b absolute wins. normalized
 path.dir io 1 Str Str "." if none
 path.base io 1 Str Str last part
 path.ext io 1 Str Str ".txt" or ""
+Series chart ! ! ! Series name xs ys. xs ys same length
+chart.line chart 4 Num,Num,Str,@Vec.Series @Vec.Draw w h title series. joins points in the order given
+chart.scatter chart 4 Num,Num,Str,@Vec.Series @Vec.Draw w h title series. a mark a point
+chart.bar chart 5 Num,Num,Str,@Vec.Str,@Vec.Num @Vec.Draw w h title labels values. from 0. E11
+chart.hist chart 5 Num,Num,Str,@Vec.Num,Num @Vec.Draw w h title values bins. equal width bins
+chart.fn chart 6 Num,Num,Str,@fn,Num,Num @Vec.Draw w h title f lo hi. f at every pixel. an f error stops it
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -1592,11 +1602,14 @@ function raster(w, h, shapes, op) {
   const px = new Uint8Array(w * h * 3);
   const dot = (x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; } };
   for (const s of shapes) {
-    const v = s.vals, c = color(v[v.length - 1]);
+    const v = s.vals, c = color(v[v.length - 1]), col = c;
     if (s.name === "Dot") dot(Math.floor(v[0]), Math.floor(v[1]), c);
     else if (s.name === "Box") {
       const x0 = Math.max(0, Math.round(v[0])), y0 = Math.max(0, Math.round(v[1])), x1 = Math.min(w, Math.round(v[0] + v[2])), y1 = Math.min(h, Math.round(v[1] + v[3]));
       for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
+    } else if (s.name === "Text") {
+      const z = textSize(v[2]), x0 = Math.round(v[0]), y0 = Math.round(v[1]);
+      glyphs(v[3]).forEach((g, k) => { for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (g[r] >> (2 - c) & 1) for (let yy = 0; yy < z; yy++) for (let xx = 0; xx < z; xx++) dot(x0 + (4 * k + c) * z + xx, y0 + r * z + yy, col); });
     } else {
       let t0 = 0, t1 = 1, ok = true; const dx = v[2] - v[0], dy = v[3] - v[1];
       for (const [p, q] of [[-dx, v[0] + 1], [dx, w - v[0]], [-dy, v[1] + 1], [dy, h - v[1]]]) {       // keep only the part on the canvas
@@ -1614,14 +1627,18 @@ function asciiArt(w, h, px, cols) {
   if (!isInt(cols) || cols < 1 || cols > 400) R("E17", `ascii: ${fmtNum(cols)} columns outside 1..400`);
   const RAMP = " .:-=+*#%@", rows = Math.max(1, Math.round(cols * h / w / 2)), cells = [];
   if (rows > 400) R("E17", `ascii: ${rows} rows is over 400. use fewer columns`);
-  let lo = 255, hi = 0;
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {     // brightest pixel in the cell, so a thin line still shows
+  const seen = new Map(), stride = Math.max(1, Math.floor(w * h / 1e5));     // the background is the commonest color
+  let bg = 0, most = 0;
+  for (let k = 0; k < w * h; k += stride) { const i = k * 3, key = px[i] << 16 | px[i + 1] << 8 | px[i + 2], n = (seen.get(key) || 0) + 1; seen.set(key, n); if (n > most) { most = n; bg = key; } }
+  const br = bg >> 16, bgr = bg >> 8 & 255, bb = bg & 255;
+  let lo = Infinity, hi = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {     // the pixel least like the background, so a thin line still shows
     const x0 = Math.floor(c * w / cols), x1 = Math.max(x0 + 1, Math.floor((c + 1) * w / cols)), y0 = Math.floor(r * h / rows), y1 = Math.max(y0 + 1, Math.floor((r + 1) * h / rows));
     let top = 0;
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3, l = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; if (l > top) top = l; }
-    cells.push(top); if (top < lo) lo = top; if (top > hi) hi = top;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 3, a = px[i] - br, b = px[i + 1] - bgr, d = px[i + 2] - bb, l = a * a + b * b + d * d; if (l > top) top = l; }
+    top = Math.sqrt(top); cells.push(top); if (top < lo) lo = top; if (top > hi) hi = top;
   }
-  const out = [];                                                      // darkest cell = space, brightest = @: contrast is stretched to fit
+  const out = [];                                                      // background = space, most ink = @: contrast is stretched to fit
   for (let r = 0; r < rows; r++) {
     let line = "";
     for (let c = 0; c < cols; c++) line += RAMP[hi > lo ? Math.min(9, Math.floor((cells[r * cols + c] - lo) / (hi - lo) * 10)) : hi > 0 ? 9 : 0];
@@ -1795,6 +1812,135 @@ function nodeHost() {                // the real machine: files, processes, netw
     out: s => { process.stdout.write(s + "\n"); },
   };
 }
+
+/* ---- text in pictures: a 3x5 pixel font, so labels are the same pixels on every host */
+const FONT = {};
+{
+  const G = "0 75557 1 26227 2 71747 3 71717 4 55711 5 74717 6 74757 7 71122 8 75757 9 75717 A 25755 B 65656 C 34443 D 65556 E 74647 F 74644 G 34553 H 55755 I 72227 J 11152 K 55655 L 44447 M 57755 N 65555 O 25552 P 65644 Q 25563 R 65655 S 34216 T 72222 U 55557 V 55552 W 55775 X 55255 Y 55222 Z 71247 . 00002 , 00024 - 00700 + 02720 : 02020 / 11244 % 51245 ( 24442 ) 21112 = 07070 _ 00007 ? 71202 # 57575 * 05250 < 12421 > 42124 ! 22202 \" 55000 ' 22000 [ 64446 ] 31113 $ 36236 & 25253 @ 75743".split(" ");
+  for (let i = 0; i < G.length; i += 2) FONT[G[i]] = Array.from(G[i + 1], d => parseInt(d, 8));
+  FONT[" "] = [0, 0, 0, 0, 0];
+}
+function glyphs(s) { return Array.from(s.toUpperCase(), c => FONT[c] || FONT["?"]); }
+
+/* ---- svg: the same shapes as text, sharp at any size, for people; still plain text for the model */
+const hex2 = c => "#" + c.map(x => x.toString(16).padStart(2, "0")).join("");
+const xmlEsc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+def("svg", "Num Num (Vec Draw) -> Str", ([w, h, v]) => {
+  if (!isInt(w) || !isInt(h) || w < 1 || h < 1 || w > 4096 || h > 4096) R("E17", `svg: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 1..4096`);
+  const r = x => Math.round(x * 100) / 100, out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`];
+  let n = 0;
+  for (const s of v) {
+    const a = s.vals, c = hex2(color(a[a.length - 1]));
+    if (s.name === "Line") out.push(`<line x1="${r(a[0] + .5)}" y1="${r(a[1] + .5)}" x2="${r(a[2] + .5)}" y2="${r(a[3] + .5)}" stroke="${c}" stroke-linecap="square"/>`);
+    else if (s.name === "Box") { if (a[2] > 0 && a[3] > 0) out.push(`<rect x="${r(a[0])}" y="${r(a[1])}" width="${r(a[2])}" height="${r(a[3])}" fill="${c}"/>`); }
+    else if (s.name === "Dot") out.push(`<rect x="${Math.floor(a[0])}" y="${Math.floor(a[1])}" width="1" height="1" fill="${c}"/>`);
+    else { const z = textSize(a[2]); out.push(`<text x="${r(a[0])}" y="${r(a[1] + 5 * z)}" font-family="monospace" font-size="${6 * z}" fill="${c}">${xmlEsc(a[3])}</text>`); }
+    if ((n += out[out.length - 1].length) > 5e7) R("E17", "svg: too large");
+  }
+  return out.join("\n") + "\n</svg>\n";
+});
+const textSize = z => Math.max(1, Math.min(64, Math.round(z)));
+
+/* ---- charts: data to (Vec Draw). light background, axes with ticks, legend for 2 or more series */
+const PAL = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf"];
+const INK = "#222222", AXIS = "#555555", GRID = "#e6e6e6", BG = "#ffffff";
+const Dr = (name, ...vals) => RV(name, vals);
+function niceStep(x) { const e = Math.pow(10, Math.floor(Math.log10(x))), f = x / e; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * e; }
+function ticks(lo, hi) {
+  const step = niceStep((hi - lo) / 5), out = [];
+  for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + step * 1e-9 && out.length < 50; k++) { const v = Number((k * step).toPrecision(12)); out.push(v === 0 ? 0 : v); }
+  return out;
+}
+const tickTxt = v => fmtNum(Number(v.toPrecision(6)));
+function chartFrame(w, h, title, x0, x1, y0, y1, op, xmode) {      // xmode: "num" ticks and stretch, "fixed" ticks only, "cat" none
+  if (!isInt(w) || !isInt(h) || w < 80 || h < 80 || w > 4096 || h > 4096) R("E17", `${op}: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 80..4096`);
+  if (x0 === x1) { x0 -= 1; x1 += 1; }
+  if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const s = h >= 360 ? 2 : 1, cw = 4 * s, ch = 6 * s;
+  const ext = (a, b) => { const st = niceStep((b - a) / 5); return [Math.floor(a / st + 1e-9) * st, Math.ceil(b / st - 1e-9) * st]; };      // out to the next tick
+  [y0, y1] = ext(y0, y1);
+  if (xmode === "num") [x0, x1] = ext(x0, x1);
+  const yt = ticks(y0, y1);
+  let xt = xmode === "cat" ? [] : ticks(x0, x1);
+  const ylab = yt.map(tickTxt), left = Math.max(...ylab.map(t => t.length)) * cw + 4 * s + 6;
+  const top = title ? 2 * ch + 4 : 8, bottom = ch + 12, W = w - left - 12, H = h - top - bottom;
+  if (W < 20 || H < 20) R("E17", `${op}: ${w} x ${h} leaves no room to plot`);
+  const px = x => left + (x - x0) / (x1 - x0) * W, py = y => top + H - (y - y0) / (y1 - y0) * H;
+  const out = [Dr("Box", 0, 0, w, h, BG)];
+  if (title) out.push(Dr("Text", left, 6, s, Array.from(title).slice(0, Math.max(1, Math.floor((w - left) / cw))).join(""), INK));
+  yt.forEach((v, i) => { const y = py(v); out.push(Dr("Line", left, y, left + W, y, GRID), Dr("Text", left - 4 - ylab[i].length * cw, y - 2.5 * s, s, ylab[i], INK)); });
+  xt = xt.filter(v => v >= x0 - 1e-9 * Math.abs(x1 - x0) && v <= x1 + 1e-9 * Math.abs(x1 - x0));
+  let lastEnd = -Infinity;
+  for (const v of xt) {
+    const x = px(v), t = tickTxt(v), tw = t.length * cw, tx = Math.max(0, Math.min(w - tw, x - tw / 2));
+    out.push(Dr("Line", x, top, x, top + H, GRID));
+    if (tx > lastEnd + cw) { out.push(Dr("Text", tx, top + H + 5, s, t, INK)); lastEnd = tx + tw; }
+  }
+  out.push(Dr("Line", left, top, left, top + H, AXIS), Dr("Line", left, top + H, left + W, top + H, AXIS));
+  return { out, px, py, s, cw, ch, left, top, W, H };
+}
+function legend(F, names) {
+  if (names.length < 2) return;
+  const n = names.map(t => Array.from(t).slice(0, 24).join("")), lw = Math.max(...n.map(t => t.length)) * F.cw + 4 * F.s + 10;
+  const x = F.left + F.W - lw - 4, y = F.top + 4;
+  F.out.push(Dr("Box", x, y, lw, n.length * (F.ch + 3) + 4, BG));
+  n.forEach((t, i) => { const yy = y + 4 + i * (F.ch + 3); F.out.push(Dr("Box", x + 3, yy, 3 * F.s, 5 * F.s, PAL[i % PAL.length]), Dr("Text", x + 6 + 4 * F.s, yy, F.s, t, INK)); });
+}
+function seriesData(ss, op) {
+  const all = ss.map(s => { const [name, xs, ys] = s.vals; if (xs.length !== ys.length) R("E11", `${op}: series ${quote(name)} has ${xs.length} xs and ${ys.length} ys`); return { name, xs, ys }; });
+  const xs = all.flatMap(s => s.xs), ys = all.flatMap(s => s.ys);
+  if (!xs.length) R("E10", `${op}: nothing to plot`);
+  if (xs.length > MAXLEN) R("E17", `${op}: too many points`);
+  return { all, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+const mark = (F, x, y, c) => { const z = 2 * F.s + 1; return Dr("Box", F.px(x) - z / 2, F.py(y) - z / 2, z, z, c); };
+def("chart.line", "Num Num Str (Vec Series) -> (Vec Draw)", ([w, h, title, ss]) => {
+  const D = seriesData(ss, "chart.line"), F = chartFrame(w, h, title, D.x0, D.x1, D.y0, D.y1, "chart.line", "num");
+  D.all.forEach((s, k) => {
+    const c = PAL[k % PAL.length];
+    for (let i = 1; i < s.xs.length; i++) F.out.push(Dr("Line", F.px(s.xs[i - 1]), F.py(s.ys[i - 1]), F.px(s.xs[i]), F.py(s.ys[i]), c));
+    if (s.xs.length <= 40) s.xs.forEach((x, i) => F.out.push(mark(F, x, s.ys[i], c)));
+  });
+  legend(F, D.all.map(s => s.name)); return F.out;
+});
+def("chart.scatter", "Num Num Str (Vec Series) -> (Vec Draw)", ([w, h, title, ss]) => {
+  const D = seriesData(ss, "chart.scatter"), F = chartFrame(w, h, title, D.x0, D.x1, D.y0, D.y1, "chart.scatter", "num");
+  D.all.forEach((s, k) => s.xs.forEach((x, i) => F.out.push(mark(F, x, s.ys[i], PAL[k % PAL.length]))));
+  legend(F, D.all.map(s => s.name)); return F.out;
+});
+function bars(F, n, vals, at, width, labels) {
+  vals.forEach((v, i) => { const y = F.py(Math.max(v, 0)), y0 = F.py(Math.min(v, 0)); F.out.push(Dr("Box", at(i), y, width, Math.max(1, y0 - y), PAL[0])); });
+  F.out.push(Dr("Line", F.left, F.py(0), F.left + F.W, F.py(0), AXIS));
+  if (labels) {
+    const slot = F.W / n, fit = Math.max(1, Math.floor(slot / F.cw) - 1);
+    labels.forEach((t, i) => { const tt = Array.from(t).slice(0, fit).join(""); F.out.push(Dr("Text", F.left + slot * (i + 0.5) - tt.length * F.cw / 2, F.top + F.H + 5, F.s, tt, INK)); });
+  }
+  return F.out;
+}
+def("chart.bar", "Num Num Str (Vec Str) (Vec Num) -> (Vec Draw)", ([w, h, title, labels, vals]) => {
+  if (labels.length !== vals.length) R("E11", `chart.bar: ${labels.length} labels and ${vals.length} values`);
+  if (!vals.length) R("E10", "chart.bar: nothing to plot");
+  if (vals.length > 4096) R("E17", "chart.bar: over 4096 bars");
+  const F = chartFrame(w, h, title, 0, vals.length, Math.min(0, ...vals), Math.max(0, ...vals), "chart.bar", "cat"), slot = F.W / vals.length;
+  return bars(F, vals.length, vals, i => F.left + slot * (i + 0.15), Math.max(1, slot * 0.7), labels);
+});
+def("chart.hist", "Num Num Str (Vec Num) Num -> (Vec Draw)", ([w, h, title, v, bins]) => {
+  if (!isInt(bins) || bins < 1 || bins > 1000) R("E17", `chart.hist: ${fmtNum(bins)} bins must be whole and 1..1000`);
+  nonEmpty(v, "chart.hist");
+  let lo = Math.min(...v), hi = Math.max(...v); if (lo === hi) { lo -= 0.5; hi += 0.5; }
+  const n = new Array(bins).fill(0); for (const x of v) n[Math.min(bins - 1, Math.floor((x - lo) / (hi - lo) * bins))]++;
+  const F = chartFrame(w, h, title, lo, hi, 0, Math.max(...n), "chart.hist", "fixed"), bw = F.W / bins;
+  return bars(F, bins, n, i => F.left + bw * i, Math.max(1, bw - 1), null);
+});
+def("chart.fn", "Num Num Str (Fn Num Num) Num Num -> (Vec Draw)", ([w, h, title, f, lo, hi], cx) => {
+  if (!(lo < hi)) R("E17", `chart.fn: low ${fmtNum(lo)} must be under high ${fmtNum(hi)}`);
+  if (!isInt(w) || w < 80 || w > 4096) R("E17", `chart.fn: size ${fmtNum(w)} x ${fmtNum(h)} must be whole and 80..4096`);
+  const xs = [], ys = [];
+  for (let i = 0; i <= w; i++) { const x = lo + (hi - lo) * i / w; xs.push(x); ys.push(cx.apply(f, [x])); }
+  const F = chartFrame(w, h, title, lo, hi, Math.min(...ys), Math.max(...ys), "chart.fn", "fixed");
+  for (let i = 1; i < xs.length; i++) F.out.push(Dr("Line", F.px(xs[i - 1]), F.py(ys[i - 1]), F.px(xs[i]), F.py(ys[i]), PAL[0]));
+  return F.out;
+});
 
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
@@ -2512,6 +2658,7 @@ function run(src, opts = {}) {
     if (errs.length === before) {       // structure is sound: lower and check everything, report all
       const mine = [], packs = new Set();
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
+      for (const p of [...packs]) for (const q of PACKS[p].needs || []) packs.add(q);
       const tops = [...preludeTops(packs), ...mine];
       info = checkProgram(tops, errs, packs);
       if (!errs.length) { dryProgram(tops, errs); foldProgram(tops, errs); }
@@ -2726,6 +2873,10 @@ const TESTS = [
   ["E15 csv","(use csv)\n(fn id [x ?a] ?a x)\n(show (map (fun [s] (match (try (csv.maps s)) (Ok _) \"ok\" (Err c _) c)) [(id \"a,\\\"b\") (id \"a,b\\\"c\") (id \"h1,h2\\n1\")]))","[\"E15\" \"E15\" \"E15\"]"],
   ["sha256","(use text)\n(use bytes)\n(show (sha256 \"\"))\n(show (sha256 \"abc\"))\n(show (sha256 \"héllo 😀\"))\n(show (slen (sha256 (srep \"a\" 1000))))","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na53c56966616f0ec3ed9db7ea07a6034430149528bbaba8966c284f9373669c2\n64"],
   ["paths","(use io)\n(show [(path.join \"a/b\" \"../c.txt\") (path.join \"a\" \"/x\") (path.dir \"a/b/c.txt\") (path.dir \"c.txt\") (path.base \"a/b/c.txt\") (path.ext \"a/b/c.tar.gz\") (path.ext \".bashrc\") (path.ext \"a.b/c\")])","[\"a/c.txt\" \"/x\" \"a/b\" \".\" \"c.txt\" \".gz\" \"\" \"\"]"],
+  ["chart: shapes a model can read","(use chart)\n(let c (chart.line 200 100 \"t\" [(Series \"a\" [0 1 2] [0 1 4]) (Series \"b\" [0 1 2] [4 1 0])]))\n(show (> (len c) 20))\n(show (any (fun [s] (match s (Text _ _ _ t _) (same t \"t\") _ false)) c))\n(show (> (slen (trim (ascii 200 100 c 40))) 100))\n(show (starts (svg 200 100 c) \"<svg\"))\n(show (> (len (chart.bar 120 80 \"\" [\"a\" \"b\"] [1 -2])) 5))\n(show (> (len (chart.hist 120 80 \"h\" [1 2 2 3] 3)) 5))\n(show (> (len (chart.fn 120 80 \"\" (fun [x] (* x x)) -1 1)) 120))\n(show (> (len (chart.scatter 120 80 \"\" [(Series \"p\" [1] [1])])) 3))","true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue"],
+  ["chart errors before running","(use chart)\n(show (chart.line 200 100 \"\" [(Series \"a\" [0 1] [0])]))\n(show (chart.line 50 100 \"\" [(Series \"a\" [0] [0])]))\n(show (chart.scatter 200 100 \"\" [(Series \"a\" [] [])]))\n(show (chart.bar 200 100 \"\" [\"a\"] [1 2]))\n(show (chart.hist 200 100 \"\" [1] 0))\n(show (chart.fn 200 100 \"\" (fun [x] x) 1 1))\n(show (chart.fn 200 100 \"\" log -1 1))","check!E11,E17,E10,E11,E17,E17,E17"],
+  ["text and svg","(use draw)\n(check (ascii 40 8 [(Text 0 0 1 \"abc?\" \"white\")] 40) (ascii 40 8 [(Text 0 0 1 \"ABC?\" \"white\")] 40))\n(show (same (ascii 8 8 [(Text 0 0 1 \"A\" \"white\")] 8) (ascii 8 8 [(Text 0 0 1 \"B\" \"white\")] 8)))\n(show (shas (svg 10 10 [(Text 0 0 1 \"a<b & \\\"c\\\"\" \"red\")]) \"a&lt;b &amp; &quot;c&quot;\"))\n(show (lines (svg 4 4 [(Box 0 0 2 2 \"#0f0\") (Box 0 0 0 2 \"red\")])))","false\ntrue\n[\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" width=\\\"4\\\" height=\\\"4\\\" viewBox=\\\"0 0 4 4\\\">\" \"<rect x=\\\"0\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"2\\\" fill=\\\"#00ff00\\\"/>\" \"</svg>\"]"],
+  ["ascii reads dark ink on light","(use draw)\n(show (ascii 8 8 [(Box 0 0 8 8 \"white\") (Line 0 0 7 7 \"black\")] 8))","@@\n  @@\n    @@\n      @@"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
@@ -3066,6 +3217,26 @@ Perth,18.4,46
 (show (map (fun [r] (cat (padr (Row.city r) 6 ".") (padl (fix (Row.temp r) 1) 5 " "))) (sortby Row.temp rows)))
 (show (csv.str (for [r rows] (> (Row.rain r) 10) [(Row.city r) (str (Row.rain r))])))
 (show (edits "Cairo" "Kairo"))
+`,
+  "Charts": `; charts are (Vec Draw). a model reads them with ascii, people get png and svg
+(use chart) (use io) (use math)
+
+(let months ["Jan" "Feb" "Mar" "Apr" "May" "Jun"])
+(let sales [12 19 3 -5 22 15])
+(let xs (map (fun [i] (/ i 2)) (range 25)))
+
+(let a (chart.line 480 300 "Growth: two plans"
+         [(Series "plan a" xs (map (fun [x] (* x x)) xs))
+          (Series "plan b" xs (map (fun [x] (* 20 x)) xs))]))
+(let b (chart.bar 480 300 "Sales by month" months sales))
+(let c (chart.hist 480 300 "500 dice" (map (fun [u] (+ 1 (floor (* 6 u)))) (rand 4 500)) 6))
+(let d (chart.fn 480 300 "y = sin(x) / x" (fun [x] (if (= x 0) 1 (/ (sin x) x))) -20 20))
+
+(show (ascii 480 300 b 72))
+(do (for [f [a b c d]] (io.frame 480 300 f)))
+(do (io.sheet "charts.png" 2)
+    (io.write "sales.svg" (svg 480 300 b)))
+(show "charts.png and sales.svg are below, ready to download")
 `,
   "Generics + records": `(rec Tree [v Num kids (Vec Tree)])
 
