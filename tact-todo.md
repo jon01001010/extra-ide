@@ -34,7 +34,17 @@ index line (~70 chars). Merge into existing packs where it fits.
       once, with a hint), and a unified diff for people.
 - [ ] **table**: group by with sum/mean/count, join on a key, pivot, multi-key
       sort, select columns, over `(Vec (Map Str Str))` or recs. Each is a fold a
-      model can write, but long and easy to get subtly wrong.
+      model can write, but long and easy to get subtly wrong. May fold into query.
+- [ ] **query**: the idea behind SQL and JQL, not their syntax: ask for data by
+      saying what you want (select, where, join, group, order, limit, paths into
+      JSON), and have it checked against a schema before anything runs. Unknown
+      columns or fields get the nearest name; comparing a text column with a
+      number, grouping without an aggregate, or joining on mismatched types are
+      check errors; the result type follows from the query, so the code that uses
+      it is checked too. Works on rows in memory, on JSON, and through a host on a
+      real database: the host gives the schema as types, and the query is sent
+      as that database's SQL with parameters, never built from strings, so no
+      injection.
 - [ ] **math** (extend): find a root of f, minimize f on a range, integrate f,
       seeded normal / int range / weighted pick / sample without replacement, for
       simulations and test data. Covers loans, IRR and most finance asks without
