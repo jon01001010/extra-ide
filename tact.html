@@ -228,15 +228,15 @@ what a host lacks = E13. what a host tried and could not do = E19. try catches b
 };
 const KINDPACK = { xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
-const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme\nyou run it yourself, from your context, in your own sandbox: node tact.js FILE. no server, no setup.
+const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme\nrun it: node tact.js FILE. or, with no interpreter, in your own reasoning from this spec. say which.
 
 PROGRAM = top forms only. anything else at top = E8.
   (let name expr)                  bind once ever. visible from the next form on.
   (fn name [p T  q T ..] R body)   declared boundary. every fn sees every fn.
   (rec Name [field T ..])          ctor (Name a b ..) positional. reader (Name.field r).
-                                   immutable. a field may hold Name itself.
+                                   immutable. a field may hold Name itself. a reader is a fn: (map P.x ps)
   (sum Name [A [T ..]  B []])      variants. (A x ..) builds one. B with no fields is a value.
-  (show expr)                      print the value.
+  (show expr)                      print the value: a Str bare, the rest as tact writes it.
   (check expr expected)            ok, or ECHECK. numbers equal within 1e-9 (relative above 1).
   (do expr ..)                     run for effect. prints nothing.
   (use "lib.tact")                 take let fn rec sum check from a file. once per file.
@@ -271,12 +271,12 @@ TYPES  Num  Bool  Str  (Vec T)  (Map K V)  (Fn A B R)  Name  (Name T ..)  ?a
 BUILT IN TYPES
 ${PRELUDE.split("\n").map(l => "  " + l).join("\n")}
 
-RULES  single assignment. no mutation. no loops. no shadowing (builtins and type names included).
+RULES  single assignment. no mutation. no loops. no shadowing (builtins and type names included; field names are free).
        tail calls are free. other calls nest at most ${MAXDEPTH} deep (E9).
        Num is finite only: Inf or NaN = E17. a literal too big for a double = E12.
        = compares Num exactly. same compares any two values structurally.
        cmp orders any two values of one type. maps keep their keys in cmp order.
-       functions compare by identity and have no order: two lambdas are never the same.
+       functions compare by identity and have no order.
        and / or take exactly two args and evaluate both.
        vectors, maps and repeats are capped at ${MAXLEN} items (E17).
        io.print is the one effect in the core. the rest live in packs.
@@ -288,8 +288,7 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
        that must run, is reported. the rest wait for the run.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
-HOST   a program that embeds tact can give it typed functions and types. calls to them are checked
-       like builtins and wait for the run. tact --host H.js --spec lists them.
+HOST   an embedding program can add typed functions and types, checked like builtins: tact --host H.js --spec
 
 CLI    tact FILE [args ..] | -e SRC | --check FILE | --spec [PACK|all] | --sigs FILE | --fmt FILE | --host H.js .. | --readme has the rest`;
 
@@ -401,17 +400,17 @@ vmin vnum 1 @Vec.Num Num E10 empty
 mean vnum 1 @Vec.Num Num E10 empty
 dot mat 2 @Vec.Num,@Vec.Num Num E11
 sort vnum 1 @Vec.Num @Vec.Num asc
-map hof 2 @fn,@Vec.@T @Vec.@T !
-map2 hof 3 @fn,@Vec.@T,@Vec.@T @Vec.@T E11
-fold hof 3 @fn,@T,@Vec.@T @T !
-scan hof 3 @fn,@T,@Vec.@T @Vec.@T every fold step
+map hof 2 @fn,@Vec.@A @Vec.@B f a gives b
+map2 hof 3 @fn,@Vec.@A,@Vec.@B @Vec.@C E11
+fold hof 3 @fn,@B,@Vec.@A @B f acc item
+scan hof 3 @fn,@B,@Vec.@A @Vec.@B every fold step
 filter hof 2 @fn,@Vec.@T @Vec.@T !
 find hof 2 @fn,@Vec.@T @Opt.@T first that holds
 any hof 2 @fn,@Vec.@T Bool !
 all hof 2 @fn,@Vec.@T Bool !
 count hof 2 @fn,@Vec.@T Num how many hold
-sortby hof 2 @fn,@Vec.@T @Vec.@T asc by cmp of key. stable
-group hof 2 @fn,@Vec.@T @Map key to items in order
+sortby hof 2 @fn,@Vec.@A @Vec.@A asc by cmp of key. stable
+group hof 2 @fn,@Vec.@A @Map key to items in order
 iter hof 3 @fn,@T,Num @T f applied n times
 else opt 2 @Opt.@T,@T @T value or fallback
 need opt 2 @Opt.@T,Str @T value or E16 with msg
@@ -3726,6 +3725,7 @@ function infer(e, sc, C) {
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
       en.used = true;
       if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) { C.deps.impure = true; if (en.host) C.reach.host.add(e.name); else if (e.name.startsWith("io.")) C.reach.io.add(e.name); }
+      if (en.host && C.host.fns[e.name].ahead) errs.push(E("E14", `${e.name} is read by the host before the program runs: call it directly, with its arguments written as literals`, e.line));
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
     }
@@ -3810,6 +3810,12 @@ function infer(e, sc, C) {
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
         en.used = true;
         if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) { C.deps.impure = true; if (en.host) C.reach.host.add(label); else if (label.startsWith("io.")) C.reach.io.add(label); }
+        if (en.host && C.host.fns[label].ahead) {
+          const lit = x => x.t === "num" || x.t === "str" || x.t === "bool" ? { v: x.v } : x.t === "vec" ? (xs => xs.every(Boolean) ? { v: xs.map(y => y.v) } : null)(x.items.map(lit)) : null;
+          const vals = e.args.map(lit);
+          vals.forEach((v, i) => { if (!v) errs.push(E("E14", `arg ${i + 1} of ${label} must be written out as a literal: the host reads it before the program runs`, e.args[i].line)); });
+          if (vals.every(Boolean)) C.reach.calls.push({ name: label, args: vals.map(v => v.v), line: e.line });
+        }
         if (en.kind === "fn") C.deps.fns.add(label); else if (en.kind === "let") C.deps.lets.add(label);
         ft = inst(en.type);
         if (en.kind === "builtin" && label.startsWith("re.") && e.args.length && e.args[0].t === "str") {
@@ -3844,7 +3850,7 @@ function infer(e, sc, C) {
 }
 function checkProgram(tops, errs, packs, H) {
   TV = 0; TWORK = 0;
-  const reach = { host: new Set(), io: new Set() };       // every effect the program names, known before it runs
+  const reach = { host: new Set(), io: new Set(), calls: [] };       // every effect the program names, known before it runs
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
   for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
   if (H) for (const [name, h] of Object.entries(H.fns)) g.set(name, { kind: "builtin", type: h.type, line: 0, host: true });
@@ -3888,7 +3894,7 @@ function checkProgram(tops, errs, packs, H) {
     g.set(t.name, { kind: "fn", type: rigidToGen(t.sig), line: t.line });
   }
   for (const t of tops) {
-    const C = { g, decls, errs, letLines, packs, reach, deps: { fns: new Set(), lets: new Set() } };
+    const C = { g, decls, errs, letLines, packs, reach, host: H, deps: { fns: new Set(), lets: new Set() } };
     const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
     CURLINE = t.line;
     t.deps = C.deps;
@@ -4256,7 +4262,7 @@ function hostTable(host) {
     if (!h || typeof h.fn !== "function" || typeof h.sig !== "string") bad(`${name}: needs { sig: "A B -> R", fn }`);
     let type; try { type = parseSig(h.sig); } catch (x) { bad(`${name}: signature ${h.sig}: ${x.message}`); }
     if (type.k !== "fn") type = fnT([], type);
-    fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "", writes: !!h.writes };
+    fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "", writes: !!h.writes, ahead: !!h.ahead };
   }
   const T = { types, tops, fns, shape };
   HOSTS.set(host, T);
@@ -4290,7 +4296,7 @@ function hostCall(name, h, S) {
 }
 function hostSpec(host) {
   const S = hostTable(host); if (!S) return "";
-  const rows = Object.entries(S.fns).map(([n, h]) => `${n} : ${h.sig}` + (h.note ? `. ${h.note}` : ""));
+  const rows = Object.entries(S.fns).map(([n, h]) => `${n} : ${h.sig}` + (h.note ? `. ${h.note}` : "") + (h.ahead ? ". write its arguments as literals" : ""));
   return ["HOST   functions and types this host gives. no (use ..) needed. a call is an effect: it waits for the run.\n       a host function that fails = E19, and try catches it.", S.types, ...rows].filter(Boolean).join("\n");
 }
 const hostHelp = {                          // for host authors: build tact values
@@ -4329,7 +4335,7 @@ function run(src, opts = {}) {
   const io = opts.io || memHost(), file = opts.file || "", H = hostTable(opts.host);
   const deny = new Set([...(opts.deny || []), ...(opts.host && opts.host.deny || [])]);
   for (const p of deny) if (!own(PACKS, p)) throw new TypeError(`tact: deny names ${p}, which is not a pack. packs: ${Object.keys(PACKS).join(" ")}`);
-  let uses = { packs: [], host: [], io: [], writes: [] };      // what the program can reach. an app can show this and ask before running
+  let uses = { packs: [], host: [], io: [], writes: [], calls: [] };      // what the program can reach. an app can show this and ask before running
   const emit = s => { out.push(s); if (opts.onOut) opts.onOut(s); };
   const place = e => { const l = e.line || 0, r = { code: e.code, msg: e.msg, line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
   let info = [];
@@ -4346,7 +4352,7 @@ function run(src, opts = {}) {
       for (const t of mine) if (t.t === "use") for (const q of [t.pack, ...(PACKS[t.pack].needs || [])]) if (deny.has(q)) errs.push(E("E13", `pack ${q} is not offered by this host` + (q === t.pack ? "" : `, and ${t.pack} needs it`), t.line));
       const tops = [...preludeTops(packs, H), ...mine];
       info = checkProgram(tops, errs, packs, H);
-      uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort() };
+      uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort(), calls: info.reach.calls.map(c => ({ name: c.name, args: c.args, line: c.line % LINEBASE })) };
       if (!errs.length) { dryProgram(tops, errs, H); foldProgram(tops, errs); }
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
@@ -4699,6 +4705,9 @@ const TESTS = [
   ["img: draw, write, read back, change","(use draw)\n(let im (img.draw 40 20 [(Box 0 0 40 20 \"white\") (Line 0 0 39 19 \"red\") (Box 30 2 6 6 \"blue\")]))\n(show (img.size im))\n(show (img.at im 31 3))\n(check (img.read (img.png im)) im)\n(show (img.size (img.crop im 30 2 6 6)))\n(show (img.at (img.crop im 30 2 6 6) 0 0))\n(show (img.at (img.gray im) 31 3))\n(show (img.at (img.map (fun [r g b] [b g (+ r 300)]) im) 31 3))\n(show (img.size (img.resize im 20 10)))\n(show (img.at (img.resize (img.draw 2 2 [(Box 0 0 1 2 \"black\") (Box 1 0 1 2 \"white\")]) 1 1) 0 0))\n(show (img.ascii (img.resize im 20 10) 20))\n(show (same im (img.draw 40 20 [(Box 0 0 40 20 \"white\")])))","[40 20]\n[0 0 255]\n[6 6]\n[0 0 255]\n[29 29 29]\n[255 0 255]\n[20 10]\n[128 128 128]\n==:=:          @@@\n    :=:=:      @@@\n        :=:=:\n            :=:=:\n                :=:=\nfalse"],
   ["img errors before running","(use draw)\n(use bytes)\n(let im (img.draw 40 20 [(Box 0 0 40 20 \"white\") (Line 0 0 39 19 \"red\") (Box 30 2 6 6 \"blue\")]))\n(show (img.read (utf8 \"not a png\")))\n(show (img.read (take (img.png im) 40)))\n(show (img.at im 40 0))\n(show (img.crop im 30 2 20 6))\n(show (img.map (fun [r g b] [r g]) im))\n(show (img.resize im 0 5))\n(show (img.draw 0 5 []))","check!E15,E15,E10,E10,E11,E17,E17"],
   ["Image has no ctor","(use draw)\n(show (Image 1 1 \"x\"))","!E1"],
+  ["host: a call known ahead runs as usual","(show (map Ticket.title (app.search \"type = Bug\" 5)))","[\"type = Bug\"]",null,null,true],
+  ["E14 host: a call known ahead needs literal arguments","(let q \"type = Bug\")\n(show (len (app.search q 5)))\n(show (len (app.search (cat \"a\" \"b\") (+ 1 2))))\n(show (len (map (fun [s] (app.search s 1)) [\"a\"])))\n(let f app.search)","check!E14,E14,E14,E14,E14",null,null,true],
+  ["field names are free names","(rec P [x Num len Num])\n(let x 5)\n(fn f [y Num] Num (+ y (P.len (P x 2))))\n(show (f x))","7"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -4712,6 +4721,7 @@ const h = hostHelp, DEMO_HOST = {
     "app.down": { sig: "-> Num", fn: () => { throw new Error("database is down"); } },
     "app.no": { sig: "Str -> Num", fn: ([s]) => h.fail("not-found", s) },
     "app.close": { sig: "Num -> Bool", fn: () => true, writes: true },
+    "app.search": { sig: "Str Num -> (Vec Ticket)", fn: ([q, n]) => [h.rec("Ticket", n, q)], ahead: true },
   },
   deny: ["re"],
 };
@@ -4735,7 +4745,9 @@ function runTests() {
   const fc = format("; top\n(let x   1) ; one\n\n\n(fn f [a Num\n b Num] Num ; sum\n (+ a\n b))");
   rs.push({ name: "format keeps meaning, comments and blank lines", ok: fbad === "" && fc.text === "; top\n(let x 1)  ; one\n\n(fn f [a Num b Num] Num\n  ; sum\n  (+ a b))\n", got: fbad || fc.text, want: "", src: "; formats every test program twice", errors: [] });
   const u = run('(use io)\n(use csv)\n(fn f [n Num] Bool (if (> n 0) (app.close n) false))\n(do (io.print (app.greet "x")))\n(show (len (app.all)))', { host: DEMO_HOST, checkOnly: true });
-  const ug = JSON.stringify(u.uses), uw = '{"packs":["csv","io"],"host":["app.all","app.close","app.greet"],"io":["io.print"],"writes":["app.close"]}';
+  const ug = JSON.stringify(u.uses), uw = '{"packs":["csv","io"],"host":["app.all","app.close","app.greet"],"io":["io.print"],"writes":["app.close"],"calls":[]}';
+  const ua = JSON.stringify(run('(let a (app.search "type = Bug" 5))\n(fn f [] Num (len (app.search "open" 2)))\n(show (len a))', { host: DEMO_HOST, checkOnly: true }).uses.calls), ux = '[{"name":"app.search","args":["type = Bug",5],"line":1},{"name":"app.search","args":["open",2],"line":2}]';
+  rs.push({ name: "a check lists the host calls that must be known ahead, with their arguments", ok: ua === ux, got: ua, want: ux, src: "; run with checkOnly and a host", errors: [] });
   rs.push({ name: "a check says what the program can reach, before it runs", ok: ug === uw && u.output.length === 0, got: ug, want: uw, src: "; run with checkOnly and a host", errors: [] });
   const size = specText().length;
   rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
@@ -4864,11 +4876,16 @@ function readme() {
   return `TACT. READ THIS FIRST. it is written for a language model.
 
 IN ONE BREATH
-  tact lives in your context and you run it yourself. the runtime (one file, tact.js), the spec and
-  this text came with the conversation, as uploads or as pasted text. nothing is installed anywhere
-  else. there is no tact server and no service to call. nobody runs it for you.
-  you write one whole program, run it once in your own code sandbox, and read what comes back.
-  "in context" means exactly that: everything tact is, and everything you know about it, is here.
+  tact lives in your context. the spec and this text came with the conversation, and usually the
+  runtime too (one file, tact.js). nothing is installed anywhere else. there is no tact server and
+  no service to call. "in context" means exactly that: everything tact is, is here with you.
+  you write one whole program and it is run once. there are two ways to run it:
+  - with the interpreter:  node tact.js program.tact  in your own code sandbox. checked and exact.
+  - in your own reasoning: with no interpreter, you are the runtime. you check the program
+    against the spec, then work it out form by form. tact is built so that this can be done
+    exactly: nothing changes once bound, there are no loops to lose track of, every builtin has
+    one row that says what it does.
+  always say which way a result was produced.
 
 WHAT TACT IS
   a small programming language made to be written by a language model, in one pass,
@@ -4929,8 +4946,6 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   there is no setup step. tact.js is one file with no dependencies. run it where you run code:
       node tact.js program.tact        or        node tact.js -e '(show (+ 1 2))'
   the aim is a single run: errors come up front so that one generation and one run are enough.
-  if you have no way to run code, you can still write tact and read it against the spec, but
-  then nothing was checked and nothing ran. say so. never report output you did not get.
   what a program can reach is only what its host gives it:
   - memory host (the default when tact is embedded, and the browser page): files live in
     memory, there is no shell and no network. asking for those is E13, a normal error.
@@ -4942,8 +4957,24 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   - a host can refuse packs (a regex has no time bound, so an app may leave re out). (use re)
     is then E13 before anything runs. tact --check FILE also lists every io and host function
     the program names, so an app can show that list and ask before it runs anything.
+  - a host function may need its arguments written as literals (its spec row says so). the
+    check then lists each such call with its arguments, so the host can fetch the data first.
   effects exist only in io.* and in host functions. everything else is pure and repeatable:
   the same program gives the same answer on every machine.
+
+RUNNING IT IN YOUR REASONING. when there is no interpreter, or you are told to run nothing
+  1 be the checker first. every name is known and its pack is loaded. every call has the right
+    number and types of arguments. every match covers every case. nothing is bound twice.
+    if anything fails, list every error as  CODE line N: what is wrong  and stop. nothing ran.
+  2 then be the interpreter. take the top forms in order. a name's value never changes, so work
+    it out once, write it down, and reuse it.
+  3 keep numbers exact. write intermediate values down instead of holding them in mind. a date
+    is ms since 1970 utc: use the time pack's rules, and take care at month and year ends.
+  4 print what show would print: a Str bare, anything else as tact writes it.
+  5 say plainly that the result was worked out in reasoning and not by the interpreter.
+  what is known: models of three sizes ran programs over 120 records this way and matched the
+  interpreter exactly. it costs many times the tokens, nothing double-checks you, and larger
+  data is untested. when an interpreter is at hand, use it, or use it to check yourself.
 
 WHAT COMES BACK
   - show prints a value. io.print prints a line from inside an expression.
@@ -5012,7 +5043,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
       case "--fmt": { const r = format(src(a[1])); return { out: r.text.replace(/\n$/, ""), err: errLines(r), code: r.ok ? 0 : 1 }; }
       case "--check": {               // nothing runs. says what the program would reach if it did
         const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools, deny }), u = r.uses;
-        const reach = [u.io.length ? "reaches io: " + u.io.join(" ") : "", u.host.length ? "reaches host: " + u.host.join(" ") : "", u.writes.length ? "writes through: " + u.writes.join(" ") : ""].filter(Boolean);
+        const reach = [u.io.length ? "reaches io: " + u.io.join(" ") : "", u.host.length ? "reaches host: " + u.host.join(" ") : "", u.writes.length ? "writes through: " + u.writes.join(" ") : "", ...u.calls.map(c => `calls ahead: (${[c.name, ...c.args.map(x => fmt(x, false))].join(" ")})`)].filter(Boolean);
         return { out: r.errors.length ? "" : ["ok", ...reach].join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
       }
       case "--sigs": {                 // what a side loaded tact file offers, without its source

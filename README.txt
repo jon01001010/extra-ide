@@ -1,11 +1,16 @@
 TACT. READ THIS FIRST. it is written for a language model.
 
 IN ONE BREATH
-  tact lives in your context and you run it yourself. the runtime (one file, tact.js), the spec and
-  this text came with the conversation, as uploads or as pasted text. nothing is installed anywhere
-  else. there is no tact server and no service to call. nobody runs it for you.
-  you write one whole program, run it once in your own code sandbox, and read what comes back.
-  "in context" means exactly that: everything tact is, and everything you know about it, is here.
+  tact lives in your context. the spec and this text came with the conversation, and usually the
+  runtime too (one file, tact.js). nothing is installed anywhere else. there is no tact server and
+  no service to call. "in context" means exactly that: everything tact is, is here with you.
+  you write one whole program and it is run once. there are two ways to run it:
+  - with the interpreter:  node tact.js program.tact  in your own code sandbox. checked and exact.
+  - in your own reasoning: with no interpreter, you are the runtime. you check the program
+    against the spec, then work it out form by form. tact is built so that this can be done
+    exactly: nothing changes once bound, there are no loops to lose track of, every builtin has
+    one row that says what it does.
+  always say which way a result was produced.
 
 WHAT TACT IS
   a small programming language made to be written by a language model, in one pass,
@@ -66,8 +71,6 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   there is no setup step. tact.js is one file with no dependencies. run it where you run code:
       node tact.js program.tact        or        node tact.js -e '(show (+ 1 2))'
   the aim is a single run: errors come up front so that one generation and one run are enough.
-  if you have no way to run code, you can still write tact and read it against the spec, but
-  then nothing was checked and nothing ran. say so. never report output you did not get.
   what a program can reach is only what its host gives it:
   - memory host (the default when tact is embedded, and the browser page): files live in
     memory, there is no shell and no network. asking for those is E13, a normal error.
@@ -79,8 +82,24 @@ WHERE IT RUNS: IN YOUR OWN SANDBOX, FROM WHAT IS IN YOUR CONTEXT
   - a host can refuse packs (a regex has no time bound, so an app may leave re out). (use re)
     is then E13 before anything runs. tact --check FILE also lists every io and host function
     the program names, so an app can show that list and ask before it runs anything.
+  - a host function may need its arguments written as literals (its spec row says so). the
+    check then lists each such call with its arguments, so the host can fetch the data first.
   effects exist only in io.* and in host functions. everything else is pure and repeatable:
   the same program gives the same answer on every machine.
+
+RUNNING IT IN YOUR REASONING. when there is no interpreter, or you are told to run nothing
+  1 be the checker first. every name is known and its pack is loaded. every call has the right
+    number and types of arguments. every match covers every case. nothing is bound twice.
+    if anything fails, list every error as  CODE line N: what is wrong  and stop. nothing ran.
+  2 then be the interpreter. take the top forms in order. a name's value never changes, so work
+    it out once, write it down, and reuse it.
+  3 keep numbers exact. write intermediate values down instead of holding them in mind. a date
+    is ms since 1970 utc: use the time pack's rules, and take care at month and year ends.
+  4 print what show would print: a Str bare, anything else as tact writes it.
+  5 say plainly that the result was worked out in reasoning and not by the interpreter.
+  what is known: models of three sizes ran programs over 120 records this way and matched the
+  interpreter exactly. it costs many times the tokens, nothing double-checks you, and larger
+  data is untested. when an interpreter is at hand, use it, or use it to check yourself.
 
 WHAT COMES BACK
   - show prints a value. io.print prints a line from inside an expression.
