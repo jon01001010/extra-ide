@@ -192,6 +192,7 @@ function _sprToolOpen(ctx){
       d.errors.forEach(function(e){msgs.push('line '+e.line+': '+e.msg)});
     }else{S=newSprite(name||freeName());loaded=null}
     color=Math.min(Math.max(1,color),S.palette.length)||0;
+    if(!text&&color&&_sprLum(S.palette[color-1])<0.25){for(var bi=0;bi<S.palette.length;bi++)if(_sprLum(S.palette[bi])>=0.45){color=bi+1;break}}
     undo=[];redo=[];fitDone=false;setDirty(false);
     try{ctx.title('Sprite — '+S.name)}catch(e){}
     refreshAll();
@@ -385,7 +386,7 @@ function _sprToolOpen(ctx){
     // transparent = a checkerboard behind the sprite
     var cs=Math.max(4,Math.round(zoom>=8?zoom/2:8));
     g.save();g.beginPath();g.rect(ox,oy,W,H);g.clip();
-    g.fillStyle='#3a3f52';g.fillRect(ox,oy,W,H);g.fillStyle='#2a2e3d';
+    g.fillStyle='#6a6f82';g.fillRect(ox,oy,W,H);g.fillStyle='#585d70';
     for(var yy=0;yy*cs<H;yy++)for(var xx=(yy&1);xx*cs<W;xx+=2)g.fillRect(ox+xx*cs,oy+yy*cs,cs,cs);
     g.restore();
     if(onion&&S.cur>0){paintInto(onionImg,og,S.frames[S.cur-1].px,L);g.globalAlpha=0.3;g.drawImage(onionImg,ox,oy,W,H);g.globalAlpha=1}

@@ -3923,6 +3923,7 @@ compile=(function(c){return function(source,target){
 // The pixels travel to the runtime as imports.spriteData (JSON), like imports.regionMeta.
 // A program without sprite blocks is not touched at all (same bytes).
 var _SPR_CHARS='.123456789abcdefghijklmnopqrstuvwxyz';
+function _sprLum(h){h=String(h||'').replace('#','');if(h.length===3)h=h.replace(/./g,'$&$&');var n=parseInt(h,16);if(isNaN(n))return 1;return(0.2126*((n>>16)&255)+0.7152*((n>>8)&255)+0.0722*(n&255))/255}
 var _SPR_DEFAULT_PAL=['1a1c2c','5d275d','b13e53','ef7d57','ffcd75','a7f070','38b764','257179','29366f','3b5dc9','41a6f6','73eff7','f4f4f4','94b0c2','566c86','333c57']; // "Sweetie 16"
 var _SPR_MAX=256,_SPR_ROWS_MAX_W=64,_SPR_DEFAULT_FPS=8;
 var _SPR_FNS={draw:1,drawEx:1,anim:1,spriteW:1,spriteH:1,blit:1};
@@ -14088,6 +14089,7 @@ function _sprToolOpen(ctx){
       d.errors.forEach(function(e){msgs.push('line '+e.line+': '+e.msg)});
     }else{S=newSprite(name||freeName());loaded=null}
     color=Math.min(Math.max(1,color),S.palette.length)||0;
+    if(!text&&color&&_sprLum(S.palette[color-1])<0.25){for(var bi=0;bi<S.palette.length;bi++)if(_sprLum(S.palette[bi])>=0.45){color=bi+1;break}}
     undo=[];redo=[];fitDone=false;setDirty(false);
     try{ctx.title('Sprite — '+S.name)}catch(e){}
     refreshAll();
@@ -14281,7 +14283,7 @@ function _sprToolOpen(ctx){
     // transparent = a checkerboard behind the sprite
     var cs=Math.max(4,Math.round(zoom>=8?zoom/2:8));
     g.save();g.beginPath();g.rect(ox,oy,W,H);g.clip();
-    g.fillStyle='#3a3f52';g.fillRect(ox,oy,W,H);g.fillStyle='#2a2e3d';
+    g.fillStyle='#6a6f82';g.fillRect(ox,oy,W,H);g.fillStyle='#585d70';
     for(var yy=0;yy*cs<H;yy++)for(var xx=(yy&1);xx*cs<W;xx+=2)g.fillRect(ox+xx*cs,oy+yy*cs,cs,cs);
     g.restore();
     if(onion&&S.cur>0){paintInto(onionImg,og,S.frames[S.cur-1].px,L);g.globalAlpha=0.3;g.drawImage(onionImg,ox,oy,W,H);g.globalAlpha=1}
@@ -17140,8 +17142,8 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     var api=spriteTool();if(!api)return null;
     var S=api.state(),names=blocks('sprite').map(function(b){return b.name}),saved=names.indexOf(S.name)>=0&&!api.isDirty();
     if(second&&saved&&painted().some(function(p){return p.name===S.name}))return{el:q('#drawer .spt select'),say:'Pick “New sprite…” in the list at the top.'};
-    if(/^sprite\d+$/.test(S.name))return{el:q('#drawer .spt input[aria-label="Sprite name"]'),say:'Type '+want+' in the name box (then tap the picture).'};
-    if(!curPixels(api))return{el:q('#drawer .spt-stage canvas'),say:'Paint: drag a finger (or the mouse) over the grid.'};
+    if(/^sprite\d+$/.test(S.name))return{el:q('#drawer .spt input[aria-label="Sprite name"]'),say:'Type '+want+' in the name box.'};
+    if(!curPixels(api))return{el:q('#drawer .spt-stage canvas'),say:'Paint: tap a colour in the palette below the grid, then drag a finger over the grid.'};
     return{el:q('#drawer .spt-save'),say:'Tap Save.'};
   }
   function lgState(){try{return toolId()==='logic'&&window._lgTool&&_lgTool.state?_lgTool.state:null}catch(e){return null}}
@@ -17158,12 +17160,14 @@ EX.mote="// Mote — scripts in a small Lua-like language, run by your Emit prog
     {id:'hero',pure:true,title:'Paint the hero',
       html:'<p>Open <b>🧰 → Sprite</b>. Type <b>hero</b> as the name, paint a small character with your finger (any pixels will do), then tap <b>Save</b>.</p>',
       check:function(){var p=painted();return p.length?{ok:true,msg:'✓ sprite '+p[0].name+' is in sprites.emit ('+p[0].n+' pixels).'}:{ok:false,msg:'Not yet: no sprite block with painted pixels.'}},
+      keep:function(){return T.tgt&&!/^(INPUT|SELECT)$/.test(T.tgt.tagName)?[q('#drawer .spt-pal'),q('#drawer .spt-tools'),q('#drawer .spt-stage canvas')]:[]},
       target:function(){return spriteTarget('hero',false)},
       doIt:function(){write('sprite','hero',HERO);reopen('sprite')}},
     {id:'coin',pure:true,title:'Paint a coin',
       html:'<p>Still in <b>Sprite</b>: pick <b>New sprite…</b> in the list at the top, name it <b>coin</b>, paint a coin and <b>Save</b>.</p>',
       deps:['hero'],
       check:function(){var p=painted();return p.length>=2?{ok:true,msg:'✓ Two sprites: '+p[0].name+' and '+p[1].name+'.'}:{ok:false,msg:'Not yet: '+(p.length?'one painted sprite ('+p[0].name+'); paint a second one.':'no painted sprite yet.')}},
+      keep:function(){return T.tgt&&!/^(INPUT|SELECT)$/.test(T.tgt.tagName)?[q('#drawer .spt-pal'),q('#drawer .spt-tools'),q('#drawer .spt-stage canvas')]:[]},
       target:function(){return spriteTarget('coin',true)},
       doIt:function(){write('sprite',painted().some(function(p){return lc(p.name)==='coin'})?'coin2':'coin',COIN);reopen('sprite')}},
     {id:'sound',pure:true,title:'A sound',

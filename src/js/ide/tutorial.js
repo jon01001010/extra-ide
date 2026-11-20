@@ -149,8 +149,8 @@
     var api=spriteTool();if(!api)return null;
     var S=api.state(),names=blocks('sprite').map(function(b){return b.name}),saved=names.indexOf(S.name)>=0&&!api.isDirty();
     if(second&&saved&&painted().some(function(p){return p.name===S.name}))return{el:q('#drawer .spt select'),say:'Pick “New sprite…” in the list at the top.'};
-    if(/^sprite\d+$/.test(S.name))return{el:q('#drawer .spt input[aria-label="Sprite name"]'),say:'Type '+want+' in the name box (then tap the picture).'};
-    if(!curPixels(api))return{el:q('#drawer .spt-stage canvas'),say:'Paint: drag a finger (or the mouse) over the grid.'};
+    if(/^sprite\d+$/.test(S.name))return{el:q('#drawer .spt input[aria-label="Sprite name"]'),say:'Type '+want+' in the name box.'};
+    if(!curPixels(api))return{el:q('#drawer .spt-stage canvas'),say:'Paint: tap a colour in the palette below the grid, then drag a finger over the grid.'};
     return{el:q('#drawer .spt-save'),say:'Tap Save.'};
   }
   function lgState(){try{return toolId()==='logic'&&window._lgTool&&_lgTool.state?_lgTool.state:null}catch(e){return null}}
@@ -167,12 +167,14 @@
     {id:'hero',pure:true,title:'Paint the hero',
       html:'<p>Open <b>🧰 → Sprite</b>. Type <b>hero</b> as the name, paint a small character with your finger (any pixels will do), then tap <b>Save</b>.</p>',
       check:function(){var p=painted();return p.length?{ok:true,msg:'✓ sprite '+p[0].name+' is in sprites.emit ('+p[0].n+' pixels).'}:{ok:false,msg:'Not yet: no sprite block with painted pixels.'}},
+      keep:function(){return T.tgt&&!/^(INPUT|SELECT)$/.test(T.tgt.tagName)?[q('#drawer .spt-pal'),q('#drawer .spt-tools'),q('#drawer .spt-stage canvas')]:[]},
       target:function(){return spriteTarget('hero',false)},
       doIt:function(){write('sprite','hero',HERO);reopen('sprite')}},
     {id:'coin',pure:true,title:'Paint a coin',
       html:'<p>Still in <b>Sprite</b>: pick <b>New sprite…</b> in the list at the top, name it <b>coin</b>, paint a coin and <b>Save</b>.</p>',
       deps:['hero'],
       check:function(){var p=painted();return p.length>=2?{ok:true,msg:'✓ Two sprites: '+p[0].name+' and '+p[1].name+'.'}:{ok:false,msg:'Not yet: '+(p.length?'one painted sprite ('+p[0].name+'); paint a second one.':'no painted sprite yet.')}},
+      keep:function(){return T.tgt&&!/^(INPUT|SELECT)$/.test(T.tgt.tagName)?[q('#drawer .spt-pal'),q('#drawer .spt-tools'),q('#drawer .spt-stage canvas')]:[]},
       target:function(){return spriteTarget('coin',true)},
       doIt:function(){write('sprite',painted().some(function(p){return lc(p.name)==='coin'})?'coin2':'coin',COIN);reopen('sprite')}},
     {id:'sound',pure:true,title:'A sound',

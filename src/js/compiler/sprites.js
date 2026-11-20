@@ -20,6 +20,7 @@
 // The pixels travel to the runtime as imports.spriteData (JSON), like imports.regionMeta.
 // A program without sprite blocks is not touched at all (same bytes).
 var _SPR_CHARS='.123456789abcdefghijklmnopqrstuvwxyz';
+function _sprLum(h){h=String(h||'').replace('#','');if(h.length===3)h=h.replace(/./g,'$&$&');var n=parseInt(h,16);if(isNaN(n))return 1;return(0.2126*((n>>16)&255)+0.7152*((n>>8)&255)+0.0722*(n&255))/255}
 var _SPR_DEFAULT_PAL=['1a1c2c','5d275d','b13e53','ef7d57','ffcd75','a7f070','38b764','257179','29366f','3b5dc9','41a6f6','73eff7','f4f4f4','94b0c2','566c86','333c57']; // "Sweetie 16"
 var _SPR_MAX=256,_SPR_ROWS_MAX_W=64,_SPR_DEFAULT_FPS=8;
 var _SPR_FNS={draw:1,drawEx:1,anim:1,spriteW:1,spriteH:1,blit:1};
