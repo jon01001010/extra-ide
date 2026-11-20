@@ -70,6 +70,7 @@ WHAT COMES BACK
   - exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
 
 THE PACKS. 167 rows are core, the rest load with (use name)
+  query join group-sum pivot top rank
   dec   exact decimals of any size: money, big whole numbers
   diff  edits as here it is, there it should be: make apply unified
   chart line scatter bar hist and f(x) graphs as Draw shapes. loads draw

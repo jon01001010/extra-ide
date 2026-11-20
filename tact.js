@@ -14,6 +14,7 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  query: { say: "join group-sum pivot top rank", types: "", notes: "a table is a (Vec Row) with Row a rec. a column is its reader: Row.price. a key is any function of a row,\nso a wrong column name or a key of two different types is a check error (E1, E4) before anything runs.\nwhere = filter. select = map. order by = sortby. limit = take drop. distinct = uniq. group by = group.\na key may be any value that cmp orders: a Num, a Str, a vector or a Pair for a key of several columns.\na result Map lists its keys in cmp order. q.join and q.left keep the order of the first table.\na key on 2 rows of one side and 3 of the other gives 6 pairs." },
   dec: { say: "exact decimals of any size: money, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
     notes: "a Dec is exact: (dec \"0.1\") + (dec \"0.2\") is (dec \"0.3\"). it is made by dec and dec.of, never by a ctor.\nsame, cmp, order and sortby see a Dec by its value. nothing rounds unless told how:\ndec.div and dec.round take places and a mode: half-up half-even down up floor ceil." },
   diff: { say: "edits as here it is, there it should be: make apply unified", types: "(rec Edit [here Str there Str])",
@@ -43,7 +44,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.` 
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme
 
@@ -385,6 +386,26 @@ dec.idiv dec 2 Dec,Dec Dec whole part of a/b, toward zero
 dec.rem dec 2 Dec,Dec Dec a - b * idiv. sign of a
 dec.pow dec 2 Dec,Num Dec whole power >= 0
 dec.sum dec 1 @Vec.Dec Dec exact
+q.join query 4 @fn,@fn,@Vec.@A,@Vec.@B @Vec.@Pair keya keyb as bs. inner join: Pair a b for every a and b with the same key. as order, then bs order. E17 over the cap
+q.left query 4 @fn,@fn,@Vec.@A,@Vec.@B @Vec.@Pair keya keyb as bs. left join: Pair a (Some b) per match, Pair a None when no b has the key
+q.miss query 4 @fn,@fn,@Vec.@A,@Vec.@B @Vec.@A keya keyb as bs. the as whose key no b has: orphan rows, a broken reference
+q.sum query 3 @fn,@fn,@Vec.@T @Map key num rows. group by key, add the numbers. E17 nonfinite
+q.mean query 3 @fn,@fn,@Vec.@T @Map key num rows. mean per key
+q.min query 3 @fn,@fn,@Vec.@T @Map key num rows. smallest per key
+q.max query 3 @fn,@fn,@Vec.@T @Map key num rows. largest per key
+q.count query 2 @fn,@Vec.@T @Map key rows. rows per key
+q.pivot query 4 @fn,@fn,@fn,@Vec.@T @Map rowkey colkey num rows. sums. every row has every column: 0 where no rows. E17 over 1000000 cells
+q.top query 3 Num,@fn,@Vec.@T @Vec.@T n key rows. the n rows with the largest key, largest first. ties in row order. fewer if short. E17 bad n
+q.rank query 2 @fn,@Vec.@T @Vec.Num key rows. a rank per row, in row order: 1 = largest key, ties share, then a gap: 1 2 2 4
+q.first query 2 @fn,@Vec.@T @Vec.@T key rows. the first row of each key, in row order
+json.at json 2 Json,@Vec.Str @Opt.Json path. a part is a key of a JObj, or a whole number as text into a JArr: ["items" "0" "id"]. None when a part is missing
+json.need json 2 Json,@Vec.Str Json json.at that must find it. E10 names the missing part and the keys that are there
+json.num json 1 Json @Opt.Num the number of a JNum. None for any other
+json.text json 1 Json @Opt.Str the text of a JStr
+json.bool json 1 Json @Opt.Bool the value of a JBool
+json.arr json 1 Json @Opt.@Vec.Json the items of a JArr
+json.obj json 1 Json @Opt.@Map the map of a JObj
+csv.cols csv 2 Str,@Vec.Str @Vec.@Vec.Str text names. the data rows, each with just the named columns in that order. E15 no such column: nearest and the header. E15 short row
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -2035,6 +2056,135 @@ def("dec.pow", "Dec Num -> Dec", ([x, n]) => {
 });
 def("dec.sum", "(Vec Dec) -> Dec", ([v]) => { let n = 0n, s = 0; for (const x of v) { const [a, b, t] = decAlign({ n, s }, decOf(x)); n = a + b; s = t; } return decMake(n, s, "dec.sum"); });
 
+/* ---- query pack: joins, group aggregates, pivot, top, rank over a (Vec row). keys of any type, through cmp */
+function qKeys(f, v, cx) { return v.map(x => { const k = cx.apply(f, [x]); rank(k); return k; }); }
+function qIndex(keys) {                // key -> the places it is at, in order
+  let t = null;
+  keys.forEach((k, i) => { const had = tget(t, k); if (had) had.val.push(i); else t = tput(t, k, [i]); });
+  return t;
+}
+function qJoin(op, left, anti) {
+  return ([fa, fb, a, b], cx) => {
+    const ka = qKeys(fa, a, cx), t = qIndex(qKeys(fb, b, cx)), out = [];
+    for (let i = 0; i < a.length; i++) {
+      const hit = tget(t, ka[i]);
+      if (anti) { if (!hit) out.push(a[i]); continue; }
+      if (!hit) { if (left) out.push(RV("Pair", [a[i], NONE])); continue; }
+      if (out.length + hit.val.length > MAXLEN) R("E17", `${op}: the result is over the ${MAXLEN} item cap. a key is on many rows of both sides`);
+      for (const j of hit.val) out.push(RV("Pair", [a[i], left ? SOME(b[j]) : b[j]]));
+    }
+    return out;
+  };
+}
+def("q.join", "(Fn a c) (Fn b c) (Vec a) (Vec b) -> (Vec (Pair a b))", qJoin("q.join", false, false));
+def("q.left", "(Fn a c) (Fn b c) (Vec a) (Vec b) -> (Vec (Pair a (Opt b)))", qJoin("q.left", true, false));
+def("q.miss", "(Fn a c) (Fn b c) (Vec a) (Vec b) -> (Vec a)", qJoin("q.miss", false, true));
+function qAgg(op, step, done) {        // per key: fold the numbers in row order
+  return ([fk, fv, v], cx) => {
+    let t = null, n = 0;
+    for (const x of v) {
+      const k = cx.apply(fk, [x]), y = cx.apply(fv, [x]); rank(k);
+      const had = tget(t, k);
+      if (had) { had.val[0] = step(had.val[0], y); had.val[1]++; } else { t = tput(t, k, [y, 1]); n++; }
+    }
+    let m = EMPTY;
+    for (const nd of tnodes(t)) m = mput(m, nd.key, fin(done(nd.val[0], nd.val[1]), op));
+    return m;
+  };
+}
+def("q.sum", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.sum", (s, y) => s + y, s => s));
+def("q.mean", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.mean", (s, y) => s + y, (s, n) => s / n));
+def("q.min", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.min", (s, y) => Math.min(s, y), s => s));
+def("q.max", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.max", (s, y) => Math.max(s, y), s => s));
+def("q.count", "(Fn a b) (Vec a) -> (Map b Num)", ([f, v], cx) => {
+  const t = qIndex(qKeys(f, v, cx)); let m = EMPTY;
+  for (const nd of tnodes(t)) m = mput(m, nd.key, nd.val.length);
+  return m;
+});
+def("q.pivot", "(Fn a b) (Fn a c) (Fn a Num) (Vec a) -> (Map b (Map c Num))", ([fr, fc, fv, v], cx) => {
+  let rows = null, cols = null, nr = 0, nc = 0;
+  for (const x of v) {
+    const r = cx.apply(fr, [x]), c = cx.apply(fc, [x]), y = cx.apply(fv, [x]); rank(r); rank(c);
+    if (!tget(cols, c)) { cols = tput(cols, c, 1); nc++; }
+    let row = tget(rows, r);
+    if (!row) { rows = tput(rows, r, { t: null }); nr++; row = tget(rows, r); }
+    const cell = tget(row.val.t, c);
+    if (cell) cell.val[0] += y; else row.val.t = tput(row.val.t, c, [y]);
+  }
+  if (nr * nc > MAXLEN) R("E17", `q.pivot: ${nr} rows by ${nc} columns is over the ${MAXLEN} cell cap`);
+  const cs = tnodes(cols).map(n => n.key); let m = EMPTY;
+  for (const rn of tnodes(rows)) {
+    let line = EMPTY;
+    for (const c of cs) { const cell = tget(rn.val.t, c); line = mput(line, c, cell ? fin(cell.val[0], "q.pivot") : 0); }
+    m = mput(m, rn.key, line);
+  }
+  return m;
+});
+function qDesc(keys) {                 // places, largest key first. equal keys stay in row order
+  return keys.map((_, i) => i).sort((i, j) => cmp(keys[j], keys[i]) || i - j);
+}
+def("q.top", "Num (Fn a b) (Vec a) -> (Vec a)", ([n, f, v], cx) => {
+  count(n, "q.top");
+  return qDesc(qKeys(f, v, cx)).slice(0, n).map(i => v[i]);
+});
+def("q.rank", "(Fn a b) (Vec a) -> (Vec Num)", ([f, v], cx) => {
+  const keys = qKeys(f, v, cx), ord = qDesc(keys), out = new Array(v.length); let r = 0;
+  ord.forEach((i, p) => { if (p === 0 || cmp(keys[ord[p - 1]], keys[i]) !== 0) r = p + 1; out[i] = r; });
+  return out;
+});
+def("q.first", "(Fn a b) (Vec a) -> (Vec a)", ([f, v], cx) => {
+  let t = null; const out = [];
+  qKeys(f, v, cx).forEach((k, i) => { if (!tget(t, k)) { t = tput(t, k, 1); out.push(v[i]); } });
+  return out;
+});
+
+/* ---- json by path: a part is a key of a JObj, or a whole number into a JArr */
+const JKIND = { JNull: "null", JBool: "a bool", JNum: "a number", JStr: "text", JArr: "an array", JObj: "an object" };
+function jStep(j, p) {                 // the Json under one path part, or null
+  if (j.name === "JObj") { const n = tget(j.vals[0].root, p); return n ? n.val : null; }
+  if (j.name === "JArr" && /^(0|[1-9][0-9]*)$/.test(p)) { const i = Number(p); return i < j.vals[0].length ? j.vals[0][i] : null; }
+  return null;
+}
+def("json.at", "Json (Vec Str) -> (Opt Json)", ([j, path]) => { for (const p of path) { j = jStep(j, p); if (!j) return NONE; } return SOME(j); });
+def("json.need", "Json (Vec Str) -> Json", ([j, path]) => {
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i], nx = jStep(j, p);
+    if (nx) { j = nx; continue; }
+    const at = i ? "at " + path.slice(0, i).map(quote).join(" ") : "at the top";
+    if (j.name === "JObj") {
+      const keys = tnodes(j.vals[0].root).map(n => n.key), near = nearest(p, keys.slice(0, 2000));
+      R("E10", `json.need: no key ${quote(p)} ${at}.` + (near !== null ? ` nearest: ${quote(near)}.` : "") + (keys.length ? ` keys there: ${keys.slice(0, 30).map(quote).join(" ")}` + (keys.length > 30 ? ` and ${keys.length - 30} more` : "") : " the object there is empty"));
+    }
+    if (j.name === "JArr") {
+      const n = j.vals[0].length;
+      R("E10", `json.need: ${quote(p)} ${at} ` + (/^(0|[1-9][0-9]*)$/.test(p) ? `is outside the array there: ` + (n ? `it has places "0".."${n - 1}"` : "it is empty") : `is not a place in the array there. an array takes a whole number as text: "0"..` + (n ? `"${n - 1}"` : " and this one is empty")));
+    }
+    R("E10", `json.need: cannot read ${quote(p)} ${at}: the value there is ${JKIND[j.name]}, not an object or an array`);
+  }
+  return j;
+});
+const jRead = name => ([j]) => j.name === name ? SOME(j.vals[0]) : NONE;
+def("json.num", "Json -> (Opt Num)", jRead("JNum"));
+def("json.text", "Json -> (Opt Str)", jRead("JStr"));
+def("json.bool", "Json -> (Opt Bool)", jRead("JBool"));
+def("json.arr", "Json -> (Opt (Vec Json))", jRead("JArr"));
+def("json.obj", "Json -> (Opt (Map Str Json))", jRead("JObj"));
+
+/* ---- csv.cols: the named columns, checked against the header */
+def("csv.cols", "Str (Vec Str) -> (Vec (Vec Str))", ([s, names]) => {
+  const [head, ...rows] = csvParse(s);
+  if (!head) R("E15", "csv.cols: the text is empty: it has no header row");
+  const list = () => head.slice(0, 40).map(quote).join(" ") + (head.length > 40 ? ` and ${head.length - 40} more` : "");
+  const at = names.map(nm => {
+    const i = head.indexOf(nm);
+    if (i < 0) { const near = nearest(nm, head.slice(0, 2000)); R("E15", `csv.cols: no column ${quote(nm)}.` + (near !== null ? ` nearest: ${quote(near)}.` : "") + ` the header is: ${list()}`); }
+    if (head.indexOf(nm, i + 1) >= 0) R("E15", `csv.cols: column ${quote(nm)} is in the header more than once (places ${i + 1} and ${head.indexOf(nm, i + 1) + 1}). use csv.parse and take it by place`);
+    return i;
+  });
+  if (rows.length * names.length > MAXLEN) R("E17", "csv.cols: over the item cap");
+  return rows.map((r, n) => { if (r.length !== head.length) R("E15", `csv.cols: row ${n + 2} has ${r.length} fields, the header has ${head.length}`); return at.map(i => r[i]); });
+});
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -3062,6 +3212,27 @@ const TESTS = [
   ["dec: errors before running","(use dec)\n(show (dec \"1,5\"))\n(show (dec.fix (dec \"1.005\") 2))\n(show (dec.div (dec \"1\") (dec \"0\") 2 \"half-up\"))\n(show (dec.round (dec \"1.5\") 0 \"bankers\"))\n(show (dec.pow (dec \"9\") 100000))\n(show (dec \"\"))","check!E15,E17,E17,E14,E17,E15"],
   ["dec: the type has no ctor","(use dec)\n(show (Dec \"x\"))","!E1"],
   ["a user rec named Dec is an ordinary rec","(rec Dec [text Str])\n(show (order [(Dec \"10\") (Dec \"9\")]))","[(Dec \"10\") (Dec \"9\")]"],
+  ["q.join keeps the left order and every match","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(show (map (fun [p] (cat (U.name (Pair.a p)) \" \" (O.item (Pair.b p)))) (q.join U.id O.uid us os)))\n(show (len (q.join O.uid U.id os us)))\n(show (q.join U.id O.uid [] os))\n(show (q.join U.id O.uid us []))","[\"ann ink\" \"ann ink\" \"bo pen\" \"bo pad\"]\n4\n[]\n[]"],
+  ["q.join many to many is every pair","(use query)\n(show (q.join (fun [x] (mod x 2)) (fun [y] (mod y 2)) [1 2 3] [10 11 12 13]))\n(show (q.join slen slen [\"a\" \"bb\"] [\"x\" \"yy\" \"zz\" \"www\"]))","[(Pair 1 11) (Pair 1 13) (Pair 2 10) (Pair 2 12) (Pair 3 11) (Pair 3 13)]\n[(Pair \"a\" \"x\") (Pair \"bb\" \"yy\") (Pair \"bb\" \"zz\")]"],
+  ["q.left gives None for no match","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(show (map (fun [p] (cat (U.name (Pair.a p)) \":\" (match (Pair.b p) (Some o) (O.item o) None \"-\"))) (q.left U.id O.uid us os)))\n(show (q.left U.id O.uid us []))\n(show (q.left (fun [x] x) (fun [x] x) [] [1]))","[\"ann:ink\" \"ann:ink\" \"bo:pen\" \"bo:pad\" \"cy:-\"]\n[(Pair (U 1 \"ann\") None) (Pair (U 2 \"bo\") None) (Pair (U 3 \"cy\") None)]\n[]"],
+  ["q.miss finds orphans","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(show (q.miss O.uid U.id os us))\n(show (map U.name (q.miss U.id O.uid us os)))\n(show (q.miss O.uid U.id os []))\n(check (q.miss O.uid U.id [] us) [])","[(O 9 \"gum\" 1)]\n[\"cy\"]\n[(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)]"],
+  ["q aggregates by key","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(show (q.sum O.uid O.amt os))\n(show (q.mean O.uid O.amt os))\n(show (q.min O.uid O.amt os))\n(show (q.max O.uid O.amt os))\n(show (q.count O.item os))\n(show (q.sum O.item O.amt []))\n(show (q.count O.item []))\n(show (q.sum (fun [o] [(O.uid o) (slen (O.item o))]) O.amt os))\n(show (q.count (fun [o] (Pair (O.item o) (> (O.amt o) 2))) os))","{1 12 2 7.5 9 1}\n{1 6 2 3.75 9 1}\n{1 2 2 3 9 1}\n{1 10 2 4.5 9 1}\n{\"gum\" 1 \"ink\" 2 \"pad\" 1 \"pen\" 1}\n{}\n{}\n{[1 3] 12 [2 3] 7.5 [9 3] 1}\n{(Pair \"gum\" false) 1 (Pair \"ink\" false) 1 (Pair \"ink\" true) 1 (Pair \"pad\" true) 1 (Pair \"pen\" true) 1}"],
+  ["q.pivot is dense","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(let p (q.pivot O.uid O.item O.amt os))\n(show p)\n(show (mkeys p))\n(show (map mvals (mvals p)))\n(show (q.pivot O.uid O.item O.amt []))","{1 {\"gum\" 0 \"ink\" 12 \"pad\" 0 \"pen\" 0} 2 {\"gum\" 0 \"ink\" 0 \"pad\" 4.5 \"pen\" 3} 9 {\"gum\" 1 \"ink\" 0 \"pad\" 0 \"pen\" 0}}\n[1 2 9]\n[[0 12 0 0] [0 0 4.5 3] [1 0 0 0]]\n{}"],
+  ["q.top and q.rank and q.first","(use query)\n(rec U [id Num name Str])\n(rec O [uid Num item Str amt Num])\n(let us [(U 1 \"ann\") (U 2 \"bo\") (U 3 \"cy\")])\n(let os [(O 2 \"pen\" 3) (O 1 \"ink\" 10) (O 2 \"pad\" 4.5) (O 9 \"gum\" 1) (O 1 \"ink\" 2)])\n(show (map O.amt (q.top 3 O.amt os)))\n(show (map O.item (q.top 2 O.uid os)))\n(show (q.top 0 O.amt os))\n(show (len (q.top 99 O.amt os)))\n(show (q.rank O.amt os))\n(show (q.rank (fun [x] x) [5 7 7 1 7 5]))\n(show (q.rank slen []))\n(show (map O.item (q.first O.uid os)))\n(show (q.first (fun [s] (lower s)) [\"A\" \"b\" \"a\" \"B\" \"c\"]))\n(show (q.top 2 (fun [s] s) [\"b\" \"é\" \"a\"]))","[10 4.5 3]\n[\"gum\" \"pen\"]\n[]\n5\n[3 1 2 5 4]\n[4 1 1 6 1 4]\n[]\n[\"pen\" \"ink\" \"gum\"]\n[\"A\" \"b\" \"c\"]\n[\"é\" \"b\"]"],
+  ["q with one row and unicode keys","(use query)\n(show (q.join (fun [s] s) (fun [s] s) [\"日本\"] [\"日本\" \"😀\"]))\n(show (q.count (fun [s] s) [\"😀\" \"é\" \"😀\"]))\n(show (q.sum (fun [_] true) (fun [x] x) [-1.5]))\n(show (q.pivot (fun [x] (< x 0)) (fun [x] (isint x)) (fun [x] x) [-1 2.5 -3 4]))","[(Pair \"日本\" \"日本\")]\n{\"é\" 1 \"😀\" 2}\n{true -1.5}\n{false {false 2.5 true 4} true {false 0 true -4}}"],
+  ["q errors","(use query)\n(show (q.top -1 (fun [x] x) [1 2]))\n(show (q.top 1.5 (fun [x] x) [1 2]))\n(show (q.sum (fun [_] 1) (fun [x] x) [1e308 1e308]))\n(show (q.count (fun [x] (fun [y] x)) [1 2]))\n(show (q.join (fun [x] (fun [y] x)) (fun [x] (fun [y] x)) [1] [1]))","check!E17,E17,E17,E17,E17"],
+  ["q.join over the cap","(use query)\n(let big (range 2000))\n(show (len (q.join (fun [_] 1) (fun [_] 1) big big)))","check!E17"],
+  ["q keys must agree in type","(use query)\n(rec U [id Num name Str])\n(show (q.join U.id U.name [(U 1 \"a\")] [(U 1 \"a\")]))","check!E4"],
+  ["q value column must be Num","(use query)\n(rec U [id Num name Str])\n(show (q.sum U.id U.name [(U 1 \"a\")]))\n(show (q.pivot U.id U.name U.nme [(U 1 \"a\")]))","check!E4,E1"],
+  ["q needs use query","(show (q.count (fun [x] x) [1 1]))","check!E1"],
+  ["q.pivot over the cell cap","(use query)\n(let v (range 1001))\n(show (mlen (q.pivot (fun [x] x) (fun [x] (+ x 1)) (fun [x] x) (concat v v))))","check!E17"],
+  ["json.at walks keys and places","(use json)\n(let j (json.parse \"{\\\"user\\\": {\\\"name\\\": \\\"ann\\\", \\\"tags\\\": [\\\"a\\\", {\\\"k\\\": 7}], \\\"0\\\": true}, \\\"n\\\": null}\"))\n(show (json.at j [\"user\" \"name\"]))\n(show (json.at j [\"user\" \"tags\" \"1\" \"k\"]))\n(show (json.at j [\"user\" \"0\"]))\n(show (json.at j []))\n(show (json.at j [\"user\" \"tags\" \"2\"]))\n(show (json.at j [\"user\" \"tags\" \"01\"]))\n(show (json.at j [\"user\" \"tags\" \"-1\"]))\n(show (json.at j [\"user\" \"name\" \"x\"]))\n(show (json.at j [\"n\" \"x\"]))\n(show (json.at j [\"n\"]))\n(check (json.at j [\"user\"]) (json.get j \"user\"))\n(show (json.need j [\"user\" \"tags\" \"1\" \"k\"]))\n(check (json.need j []) j)","(Some (JStr \"ann\"))\n(Some (JNum 7))\n(Some (JBool true))\n(Some (JObj {\"n\" JNull \"user\" (JObj {\"0\" (JBool true) \"name\" (JStr \"ann\") \"tags\" (JArr [(JStr \"a\") (JObj {\"k\" (JNum 7)})])})}))\nNone\nNone\nNone\nNone\nNone\n(Some JNull)\n(JNum 7)"],
+  ["json typed readers","(use json)\n(let j (json.parse \"{\\\"a\\\": 1.5, \\\"b\\\": \\\"t\\\", \\\"c\\\": false, \\\"d\\\": [1], \\\"e\\\": {}, \\\"f\\\": null}\"))\n(show (map (fun [k] (json.num (json.need j [k]))) [\"a\" \"b\" \"f\"]))\n(show (map (fun [k] (json.text (json.need j [k]))) [\"a\" \"b\"]))\n(show (map (fun [k] (json.bool (json.need j [k]))) [\"c\" \"f\"]))\n(show (map (fun [k] (json.arr (json.need j [k]))) [\"d\" \"e\"]))\n(show (map (fun [k] (json.obj (json.need j [k]))) [\"d\" \"e\"]))\n(show (+ 1 (need (json.num (json.need j [\"a\"])) \"a is not a number\")))","[(Some 1.5) None None]\n[None (Some \"t\")]\n[(Some false) None]\n[(Some [(JNum 1)]) None]\n[None (Some {})]\n2.5"],
+  ["json.need names the missing key","(use json)\n(let j (json.parse \"{\\\"user\\\": {\\\"name\\\": \\\"ann\\\", \\\"tags\\\": [1, 2]}, \\\"e\\\": {}}\"))\n(show (try (json.need j [\"user\" \"nmae\"])))\n(show (try (json.need j [\"usr\"])))\n(show (try (json.need j [\"user\" \"tags\" \"2\"])))\n(show (try (json.need j [\"user\" \"tags\" \"first\"])))\n(show (try (json.need j [\"user\" \"name\" \"len\"])))\n(show (try (json.need j [\"e\" \"zzzzzzzz\"])))\n(show (try (json.need (JArr []) [\"0\"])))","(Err \"E10\" \"json.need: no key \\\"nmae\\\" at \\\"user\\\". nearest: \\\"name\\\". keys there: \\\"name\\\" \\\"tags\\\"\")\n(Err \"E10\" \"json.need: no key \\\"usr\\\" at the top. nearest: \\\"user\\\". keys there: \\\"e\\\" \\\"user\\\"\")\n(Err \"E10\" \"json.need: \\\"2\\\" at \\\"user\\\" \\\"tags\\\" is outside the array there: it has places \\\"0\\\"..\\\"1\\\"\")\n(Err \"E10\" \"json.need: \\\"first\\\" at \\\"user\\\" \\\"tags\\\" is not a place in the array there. an array takes a whole number as text: \\\"0\\\"..\\\"1\\\"\")\n(Err \"E10\" \"json.need: cannot read \\\"len\\\" at \\\"user\\\" \\\"name\\\": the value there is text, not an object or an array\")\n(Err \"E10\" \"json.need: no key \\\"zzzzzzzz\\\" at \\\"e\\\". the object there is empty\")\n(Err \"E10\" \"json.need: \\\"0\\\" at the top is outside the array there: it is empty\")"],
+  ["json.need fails in the check phase","(use json)\n(show (json.need (JObj {\"a\" JNull}) [\"b\"]))","check!E10"],
+  ["csv.cols picks columns by name","(use csv)\n(let t \"id,name,price\\n1,pen,2.5\\n2,\\\"big, pad\\\",4\\n\")\n(show (csv.cols t [\"price\" \"id\"]))\n(show (csv.cols t [\"name\"]))\n(show (csv.cols t []))\n(show (csv.cols \"a,b\\n\" [\"b\"]))\n(rec Item [id Num price Num])\n(show (map (fun [r] (Item (snum (get r 0)) (snum (get r 1)))) (csv.cols t [\"id\" \"price\"])))","[[\"2.5\" \"1\"] [\"4\" \"2\"]]\n[[\"pen\"] [\"big, pad\"]]\n[[] []]\n[]\n[(Item 1 2.5) (Item 2 4)]"],
+  ["csv.cols names a missing column","(use csv)\n(show (try (csv.cols \"id,name,price\\n1,pen,2\" [\"id\" \"prise\"])))\n(show (try (csv.cols \"id,name\\n1,pen\" [\"quantity\"])))\n(show (try (csv.cols \"\" [\"id\"])))\n(show (try (csv.cols \"id,id\\n1,2\" [\"id\"])))\n(show (try (csv.cols \"id,name\\n1\" [\"id\"])))\n(show (try (csv.cols \"id,\\\"na\" [\"id\"])))","(Err \"E15\" \"csv.cols: no column \\\"prise\\\". nearest: \\\"price\\\". the header is: \\\"id\\\" \\\"name\\\" \\\"price\\\"\")\n(Err \"E15\" \"csv.cols: no column \\\"quantity\\\". the header is: \\\"id\\\" \\\"name\\\"\")\n(Err \"E15\" \"csv.cols: the text is empty: it has no header row\")\n(Err \"E15\" \"csv.cols: column \\\"id\\\" is in the header more than once (places 1 and 2). use csv.parse and take it by place\")\n(Err \"E15\" \"csv.cols: row 2 has 1 fields, the header has 2\")\n(Err \"E15\" \"csv.parse: a quoted field is never closed, row 1\")"],
+  ["csv.cols fails in the check phase","(use csv)\n(show (csv.cols \"a,b\\n1,2\" [\"c\"]))","check!E15"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

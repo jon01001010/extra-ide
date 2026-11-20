@@ -32,10 +32,10 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [x] **diff**: edits as "here it is, there it should be", found by their text,
       never a line number. make, apply (E14 when here is missing or not found
       once, with a hint), and a unified diff for people.
-- [ ] **table**: group by with sum/mean/count, join on a key, pivot, multi-key
+- [x] **table**: (built as the query pack) group by with sum/mean/count, join on a key, pivot, multi-key
       sort, select columns, over `(Vec (Map Str Str))` or recs. Each is a fold a
       model can write, but long and easy to get subtly wrong. May fold into query.
-- [ ] **query**: the idea behind SQL and JQL, not their syntax: ask for data by
+- [x] **query**: (in memory and JSON done; SQL through a host is not built) the idea behind SQL and JQL, not their syntax: ask for data by
       saying what you want (select, where, join, group, order, limit, paths into
       JSON), and have it checked against a schema before anything runs. Unknown
       columns or fields get the nearest name; comparing a text column with a
