@@ -29,8 +29,9 @@ index line (~70 chars). Merge into existing packs where it fits.
       offsets only, so results never depend on the machine.
 - [ ] **dec**: exact decimals for money (no 0.1 + 0.2 drift), rounding modes,
       big integers.
-- [ ] **diff**: line diff of two texts (LCS), unified patch out, apply a patch,
-      with a clear error when a patch does not fit.
+- [x] **diff**: edits as "here it is, there it should be", found by their text,
+      never a line number. make, apply (E14 when here is missing or not found
+      once, with a hint), and a unified diff for people.
 - [ ] **table**: group by with sum/mean/count, join on a key, pivot, multi-key
       sort, select columns, over `(Vec (Map Str Str))` or recs. Each is a fold a
       model can write, but long and easy to get subtly wrong.

@@ -14,6 +14,8 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  diff: { say: "edits as here it is, there it should be: make apply unified", types: "(rec Edit [here Str there Str])",
+    notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
   chart: { say: "line scatter bar hist and f(x) graphs as Draw shapes. loads draw", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
   math: { say: "trig, gcd lcm clamp hypot, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
@@ -38,7 +40,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.` 
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -350,6 +352,10 @@ chart.scatter chart 4 Num,Num,Str,@Vec.Series @Vec.Draw w h title series. a mark
 chart.bar chart 5 Num,Num,Str,@Vec.Str,@Vec.Num @Vec.Draw w h title labels values. from 0. E11
 chart.hist chart 5 Num,Num,Str,@Vec.Num,Num @Vec.Draw w h title values bins. equal width bins
 chart.fn chart 6 Num,Num,Str,@fn,Num,Num @Vec.Draw w h title f lo hi. f at every pixel. an f error stops it
+Edit diff ! ! ! Edit here there
+diff.make diff 2 Str,Str @Vec.Edit a b. edits that turn a into b
+diff.apply diff 2 Str,@Vec.Edit Str text edits. in order. E14 here missing or not once
+diff.unified diff 2 Str,Str Str a b. unified diff for people. 3 lines of context
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -1773,6 +1779,107 @@ def("chart.fn", "Num Num Str (Fn Num Num) Num Num -> (Vec Draw)", ([w, h, title,
   return F.out;
 });
 
+/* ---- diff: an Edit says here it is, there it should be. it finds its place by its text, never by a line number */
+function splitKeep(s) { const out = []; let i = 0; while (i < s.length) { const j = s.indexOf("\n", i); if (j < 0) { out.push(s.slice(i)); break; } out.push(s.slice(i, j + 1)); i = j + 1; } return out; }
+function lineOps(A, B, op) {          // e same, d gone from a, i new in b. lcs on what is left after the shared ends
+  let p = 0; while (p < A.length && p < B.length && A[p] === B[p]) p++;
+  let sa = A.length, sb = B.length; while (sa > p && sb > p && A[sa - 1] === B[sb - 1]) { sa--; sb--; }
+  const n = sa - p, m = sb - p, W = m + 1;
+  if ((n + 1) * W > 1e7) R("E17", `${op}: ${n} by ${m} changed lines is too many to compare`);
+  const L = new Int32Array((n + 1) * W);
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * W + j] = A[p + i] === B[p + j] ? L[(i + 1) * W + j + 1] + 1 : Math.max(L[(i + 1) * W + j], L[i * W + j + 1]);
+  const ops = []; for (let k = 0; k < p; k++) ops.push("e");
+  for (let i = 0, j = 0; i < n || j < m;) {
+    if (i < n && j < m && A[p + i] === B[p + j]) { ops.push("e"); i++; j++; }
+    else if (i < n && (j === m || L[(i + 1) * W + j] >= L[i * W + j + 1])) { ops.push("d"); i++; }
+    else { ops.push("i"); j++; }
+  }
+  for (let k = sa; k < A.length; k++) ops.push("e");
+  return ops;
+}
+const timesIn = (t, s) => { const i = t.indexOf(s); return i < 0 ? 0 : t.indexOf(s, i + 1) < 0 ? 1 : 2; };
+function diffMake(a, b) {
+  if (a === b) return [];
+  const A = splitKeep(a), B = splitKeep(b), ops = lineOps(A, B, "diff.make");
+  if (A.length > MAXLEN || B.length > MAXLEN) R("E17", "diff.make: over the line cap");
+  const bmin = new Array(A.length + 1).fill(Infinity), bmax = new Array(A.length + 1).fill(-1), H = [];
+  let x = 0, y = 0;
+  const note = () => { bmin[x] = Math.min(bmin[x], y); bmax[x] = Math.max(bmax[x], y); };
+  for (let k = 0; k < ops.length; k++) {
+    note();
+    if (ops[k] !== "e" && (k === 0 || ops[k - 1] === "e")) H.push({ a0: x, a1: x });
+    if (ops[k] === "e") { x++; y++; } else if (ops[k] === "d") { x++; H[H.length - 1].a1 = x; } else y++;
+  }
+  note();
+  if (!A.length) return [RV("Edit", ["", b])];
+  const edits = []; let cur = a;
+  for (let hi = 0; hi < H.length;) {
+    let s = H[hi].a0, e = H[hi].a1, used = hi + 1, up = false;
+    const absorb = () => { while (used < H.length && H[used].a0 <= e) { e = Math.max(e, H[used].a1); used++; } };
+    absorb();
+    for (;;) {
+      const floor = edits.length ? edits[edits.length - 1].e + 1 : 0;
+      if (s < e && timesIn(cur, A.slice(s, e).join("")) === 1) break;
+      up = !up;                                                     // grow by a line of context, below and above in turn
+      if ((!up || s <= floor) && e < A.length) { e++; absorb(); }
+      else if (s > floor) s--;
+      else if (edits.length) { const p = edits.pop(); cur = p.before; s = p.s; }     // no room: join the edit before
+      else break;
+    }
+    const here = A.slice(s, e).join(""), there = B.slice(bmin[s], bmax[e]).join(""), i = cur.indexOf(here);
+    edits.push({ s, e, here, there, before: cur });
+    cur = cur.slice(0, i) + there + cur.slice(i + here.length);
+    hi = used;
+  }
+  if (cur !== b) throw new Error("diff.make did not rebuild b");
+  return edits.map(d => RV("Edit", [d.here, d.there]));
+}
+function diffApply(t, edits) {
+  edits.forEach((d, k) => {
+    const [here, there] = d.vals, at = `diff.apply: edit ${k + 1}`;
+    if (here === "") { if (t !== "") R("E14", `${at}: here is empty, which only fits an empty text`); t = there; return; }
+    const i = t.indexOf(here);
+    if (i < 0) {
+      const first = (here.split("\n").find(l => l.trim()) || here).trim(), lines = t.split("\n");
+      let best = -1, bd = Infinity;
+      if (lines.length <= 5000 && first.length <= 300) lines.forEach((l, n) => { const dd = lev(chars(first), chars(l.trim().slice(0, 600))); if (dd < bd) { bd = dd; best = n; } });
+      R("E14", `${at}: here is not in the text. its first line ${quote(first.slice(0, 80))}` + (best >= 0 ? ` is nearest to line ${best + 1}: ${quote(lines[best].trim().slice(0, 80))}` : ""));
+    }
+    if (t.indexOf(here, i + 1) >= 0) {
+      const at2 = []; for (let j = i; j >= 0 && at2.length < 5; j = t.indexOf(here, j + 1)) at2.push(t.slice(0, j).split("\n").length);
+      R("E14", `${at}: here is in the text more than once, at lines ${at2.join(" ")}. add a line around it so it is found once`);
+    }
+    t = t.slice(0, i) + there + t.slice(i + here.length);
+  });
+  return t;
+}
+function diffUnified(a, b) {
+  if (a === b) return "";
+  const A = splitKeep(a), B = splitKeep(b), ops = lineOps(A, B, "diff.unified"), C = 3, out = ["--- a", "+++ b"];
+  const ch = []; ops.forEach((o, k) => { if (o !== "e") ch.push(k); });
+  const pos = []; let x = 0, y = 0; for (const o of ops) { pos.push([x, y]); if (o !== "d") y++; if (o !== "i") x++; } pos.push([x, y]);
+  const line = (s, mark) => mark + s.replace(/\n$/, "") + (s.endsWith("\n") ? "" : "\n\\ No newline at end of file");
+  for (let g = 0; g < ch.length;) {
+    let h = g; while (h + 1 < ch.length && ch[h + 1] - ch[h] <= 2 * C + 1) h++;
+    const k0 = Math.max(0, ch[g] - C), k1 = Math.min(ops.length, ch[h] + C + 1);
+    let na = 0, nb = 0; for (let k = k0; k < k1; k++) { if (ops[k] !== "i") na++; if (ops[k] !== "d") nb++; }
+    const [sa, sb] = pos[k0];
+    out.push(`@@ -${na ? sa + 1 : sa},${na} +${nb ? sb + 1 : sb},${nb} @@`);
+    for (let k = k0; k < k1;) {
+      if (ops[k] === "e") { out.push(line(A[pos[k][0]], " ")); k++; continue; }
+      let r = k; while (r < k1 && ops[r] !== "e") r++;
+      for (let q = k; q < r; q++) if (ops[q] === "d") out.push(line(A[pos[q][0]], "-"));
+      for (let q = k; q < r; q++) if (ops[q] === "i") out.push(line(B[pos[q][1]], "+"));
+      k = r;
+    }
+    g = h + 1;
+  }
+  return out.join("\n") + "\n";
+}
+def("diff.make", "Str Str -> (Vec Edit)", ([a, b]) => diffMake(a, b));
+def("diff.apply", "Str (Vec Edit) -> Str", ([t, v]) => diffApply(t, v));
+def("diff.unified", "Str Str -> Str", ([a, b]) => diffUnified(a, b));
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -2708,6 +2815,10 @@ const TESTS = [
   ["chart errors before running","(use chart)\n(show (chart.line 200 100 \"\" [(Series \"a\" [0 1] [0])]))\n(show (chart.line 50 100 \"\" [(Series \"a\" [0] [0])]))\n(show (chart.scatter 200 100 \"\" [(Series \"a\" [] [])]))\n(show (chart.bar 200 100 \"\" [\"a\"] [1 2]))\n(show (chart.hist 200 100 \"\" [1] 0))\n(show (chart.fn 200 100 \"\" (fun [x] x) 1 1))\n(show (chart.fn 200 100 \"\" log -1 1))","check!E11,E17,E10,E11,E17,E17,E17"],
   ["text and svg","(use draw)\n(check (ascii 40 8 [(Text 0 0 1 \"abc?\" \"white\")] 40) (ascii 40 8 [(Text 0 0 1 \"ABC?\" \"white\")] 40))\n(show (same (ascii 8 8 [(Text 0 0 1 \"A\" \"white\")] 8) (ascii 8 8 [(Text 0 0 1 \"B\" \"white\")] 8)))\n(show (shas (svg 10 10 [(Text 0 0 1 \"a<b & \\\"c\\\"\" \"red\")]) \"a&lt;b &amp; &quot;c&quot;\"))\n(show (lines (svg 4 4 [(Box 0 0 2 2 \"#0f0\") (Box 0 0 0 2 \"red\")])))","false\ntrue\n[\"<svg xmlns=\\\"http://www.w3.org/2000/svg\\\" width=\\\"4\\\" height=\\\"4\\\" viewBox=\\\"0 0 4 4\\\">\" \"<rect x=\\\"0\\\" y=\\\"0\\\" width=\\\"2\\\" height=\\\"2\\\" fill=\\\"#00ff00\\\"/>\" \"</svg>\"]"],
   ["ascii reads dark ink on light","(use draw)\n(show (ascii 8 8 [(Box 0 0 8 8 \"white\") (Line 0 0 7 7 \"black\")] 8))","@@\n  @@\n    @@\n      @@"],
+  ["diff: here it is, there it should be","(use diff)\n(let a \"def f(x):\\n    return x\\n\\ndef g(x):\\n    return x\\n\")\n(let b \"def f(x):\\n    return x + 1\\n\\ndef g(x):\\n    return x\\n\")\n(show (diff.make a b))\n(check (diff.apply a (diff.make a b)) b)\n(check (diff.make a a) [])\n(check (diff.apply \"\" (diff.make \"\" \"new\\n\")) \"new\\n\")\n(check (diff.apply \"x\\n\" (diff.make \"x\\n\" \"\")) \"\")\n(show (diff.apply \"a b c\" [(Edit \"b\" \"B\") (Edit \"a B\" \"A\")]))","[(Edit \"def f(x):\\n    return x\\n\" \"def f(x):\\n    return x + 1\\n\")]\nA c"],
+  ["diff: many random pairs rebuild","(use diff)\n(use text)\n(fn txt [seed Num n Num] Str (join (map (fun [u] (get [\"x\" \"y\" \"\" \"}\"] (floor (* 4 u)))) (rand seed n)) \"\\n\"))\n(show (all (fun [s] (with [a (txt s 12) b (txt (+ s 1000) 9)] (same (diff.apply a (diff.make a b)) b))) (range 300)))","true"],
+  ["E14 diff: here missing or not once, known before running","(use diff)\n(let a \"one\\ntwo\\none\\n\")\n(show (diff.apply a [(Edit \"one\\n\" \"1\\n\")]))\n(show (diff.apply a [(Edit \"thre\" \"3\")]))\n(show (diff.apply a [(Edit \"\" \"x\")]))","check!E14,E14,E14"],
+  ["diff.unified","(use diff)\n(show (diff.unified \"a\\nb\\nc\\n\" \"a\\nB\\nc\"))\n(show (diff.unified \"same\" \"same\"))","--- a\n+++ b\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n\n"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
