@@ -10,8 +10,9 @@ writes well as plain text (markdown, html pages, prose templates, known
 formulas) stays out.
 
 Rule for every pack: loaded only by `(use name)`, one index line in the core
-spec, errors before running wherever the input is known, a result `check` can
-test, and a file a person can open where that makes sense.
+spec, errors before running wherever the input is known, a result the model can
+read back (text, `ascii`, or a value `check` can test), and a file a person can
+open where that makes sense.
 
 Budget: the core spec is about 11,500 of 12,000 characters. Each pack costs one
 index line (~70 chars). Merge into existing packs where it fits.
@@ -31,20 +32,22 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [ ] **diff**: line diff of two texts (LCS), unified patch out, apply a patch,
       with a clear error when a patch does not fit.
 - [ ] **table**: group by with sum/mean/count, join on a key, pivot, multi-key
-      sort over `(Vec (Map Str Str))`. Each is a fold a model can write, but long
-      and easy to get subtly wrong.
+      sort, select columns, over `(Vec (Map Str Str))` or recs. Each is a fold a
+      model can write, but long and easy to get subtly wrong.
 - [ ] **math** (extend): find a root of f, minimize f on a range, integrate f,
-      seeded normal / int range / weighted pick / sample. Covers loans, IRR and
-      most finance asks without a finance pack.
+      seeded normal / int range / weighted pick / sample without replacement, for
+      simulations and test data. Covers loans, IRR and most finance asks without
+      a finance pack.
 
 ## 2. Binary formats a model cannot write as text
 
 - [ ] **zip**: write and read zip archives, gzip. Uses the deflate in draw.
 - [ ] **xlsx**: spreadsheets people open in Excel: sheets, numbers vs text,
       header row. Built on zip.
-- [ ] **img**: read PNG to pixels, crop, resize, grayscale, write back.
+- [ ] **img**: read PNG to pixels, crop, resize, grayscale, write back. Needs inflate.
 - [ ] **gif**: frames to one animated GIF, for people to watch.
-- [ ] **wav**: samples to a WAV file.
+- [ ] **wav**: samples to a WAV file, tones and envelopes. Sound for people,
+      numbers the model can check.
 - [ ] **pdf**: text and shapes to a simple PDF. Largest; last.
 
 ## 3. Small helpers, folded into existing packs
@@ -53,8 +56,8 @@ index line (~70 chars). Merge into existing packs where it fits.
       Escaping is the part of html a model gets wrong; the page it writes itself.
 - [ ] **prop**: property checks: a predicate over N seeded inputs, report the
       first failing input, shrunk. A model testing its own code beyond examples.
-- [ ] **graph**: shortest path, BFS order, topological sort with cycle report,
-      connected parts.
+- [ ] **graph**: shortest path, BFS/DFS order, topological sort with cycle report,
+      connected parts. Scheduling, dependencies, routes, puzzles.
 
 ## Dropped: a model writes these directly
 
