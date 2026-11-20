@@ -184,23 +184,23 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
   query: { say: "join group-sum pivot top rank", types: "", notes: "a table is a (Vec Row) with Row a rec. a column is its reader: Row.price. a key is any function of a row,\nso a wrong column name or a key of two different types is a check error (E1, E4) before anything runs.\nwhere = filter. select = map. order by = sortby. limit = take drop. distinct = uniq. group by = group.\na key may be any value that cmp orders: a Num, a Str, a vector or a Pair for a key of several columns.\na result Map lists its keys in cmp order. q.join and q.left keep the order of the first table.\na key on 2 rows of one side and 3 of the other gives 6 pairs." },
-  dec: { say: "exact decimals of any size: money, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
+  dec: { say: "exact decimals, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
     notes: "a Dec is exact: (dec \"0.1\") + (dec \"0.2\") is (dec \"0.3\"). it is made by dec and dec.of, never by a ctor.\nsame, cmp, order and sortby see a Dec by its value. nothing rounds unless told how:\ndec.div and dec.round take places and a mode: half-up half-even down up floor ceil." },
-  diff: { say: "edits as here it is, there it should be: make apply unified", types: "(rec Edit [here Str there Str])",
+  diff: { say: "edits by text: here it is, there it should be", types: "(rec Edit [here Str there Str])",
     notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
-  chart: { say: "line scatter bar hist and f(x) graphs as Draw shapes. loads draw", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
+  chart: { say: "charts and graphs as Draw shapes", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
-  math: { say: "trig gcd lcm clamp, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
-  text: { say: "pad repeat wrap words, edit distance", types: "", notes: "" },
-  csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
-  re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
-  json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
-  time: { say: "dates: parts, add months right, days between, format", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
+  math: { say: "trig gcd stats seeded shuffle", types: "", notes: "" },
+  text: { say: "pad wrap words edit distance", types: "", notes: "" },
+  csv: { say: "csv rows, maps, named columns", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
+  re: { say: "regex", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
+  json: { say: "Json sum, read by path", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
+  time: { say: "dates and calendar math, utc", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
     notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
-  bit: { say: "whole number bit ops", types: "", notes: "" },
-  bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
-  mat: { say: "vectors, matrices: svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes to pixels: text pictures, png sheets, svg", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+  bit: { say: "bit ops", types: "", notes: "" },
+  bytes: { say: "utf8 base64 sha256 radix", types: "", notes: "" },
+  mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
+  draw: { say: "shapes: ascii png svg frames", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -208,7 +208,7 @@ shapes become pixels in the core: the same picture on every host.
 to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
 to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
 as one png grid, left to right, top to bottom: a whole animation in one image.` },
-  io: { say: "files, paths, stdin, args, env, shell, http, clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
+  io: { say: "files paths shell http clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
     notes: `effects. args evaluate left to right, forms top to bottom.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
