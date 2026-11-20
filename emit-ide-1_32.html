@@ -11254,24 +11254,6 @@ function addLibUse(name){
   _projSetEntrySource(lines.join('\n'));
   renderLibs();  // refresh the panel to show it as active now
 }
-function insertMethod(globalName,methodSig){
-  // Build the snippet to insert. Strip the params from the signature for a clean insertion
-  // but leave the parens so the user can fill in args.
-  var paren=methodSig.indexOf('(');
-  var name=paren>=0?methodSig.substring(0,paren):methodSig;
-  var args=paren>=0?methodSig.substring(paren):'()';
-  // Strip any " — description" tail from args (e.g., "format(str) — ..." → "format(str)")
-  var tail=args.indexOf(' —');
-  if(tail>=0)args=args.substring(0,tail);
-  var snippet=(globalName?globalName+'.':'')+name+args;
-  var pos=ed.selectionStart;
-  var before=ed.value.substring(0,pos);
-  var after=ed.value.substring(pos);
-  ed.value=before+snippet+after;
-  ed.selectionStart=ed.selectionEnd=pos+snippet.length;
-  toggleLibs();
-  updGutter();hlCode();ed.focus();
-}
 function renderSnippets(){
   var el=document.getElementById('snipContent');
   var html='<h1 style="font-family:var(--mono);color:var(--cyan);font-size:18px;margin-bottom:12px">Snippets</h1>';
@@ -14578,8 +14560,6 @@ _drawerRegister({id:'sprite',label:'Sprite',icon:'🎨',desc:'Paint pixel sprite
 //       hero 2,3
 //       slime 12,8 speed 0.5
 //   controls pad: stick left, buttons A "jump" B, size 1.0, opacity 0.5
-var _ST_KINDS={map:1,controls:1};
-var _ST_HEAD=/^(map|controls)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/i;
 // The blocks of a source text: [{kind, name, line (0-based first line), end (0-based last line), lines:[text]}].
 // Only lines that start outside a comment or string count.
 function _stFindBlocks(src){
@@ -16609,7 +16589,6 @@ function _tlToggle(on){
   _tlUi(true);
 }
 // ── the bar ──
-function _tlEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function _tlBar(){
   var out=document.getElementById('tab-output');if(!out)return null;
   if(_tl.bar&&_tl.bar.isConnected)return _tl.bar;
