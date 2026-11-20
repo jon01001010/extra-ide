@@ -85,3 +85,26 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [ ] Short spec mode (~1,500 tokens) for 8k-context models.
 - [ ] Measure the spec in real tokens (Llama and Claude tokenizers).
 - [ ] Rerun the adversarial agent on everything added since its last pass.
+
+## Context-only: the model is the runtime
+
+Findings (Nov 20): exact over 120 records on three model sizes. Over 2,000
+records with messy values, Haiku in chunks of ~288 got about half the final
+values wrong by small amounts and reported them as finished. The limit is the
+number of steps, and timestamp conversion is the riskiest step.
+
+- [x] Readme and spec say first that Tact is context-only; packs that need the
+      interpreter are marked `*`.
+- [x] Readme states the measured limits and the habits that follow: count the
+      steps, reconcile every tally and report both numbers, keep a written
+      table, compare text exactly, keep dates as iso text.
+- [x] `date.daynum` for day counts from iso text, with the by-hand method in
+      the time pack's notes.
+- [ ] Audit every spec row for precision: ties, rounding, order, empty input,
+      so two models cannot reasonably work out different answers.
+- [ ] A reasoning procedure for large data that can be checked: fixed small
+      batches, a written running table, a reconciliation line per batch.
+      Test whether it makes Haiku exact at 2,000 records.
+- [ ] Test Sonnet and Opus in context at 2,000 records.
+- [ ] Data shaped for reasoning: a guide for whoever supplies the data (iso
+      dates, day numbers, trimmed and cased values, no duplicates).

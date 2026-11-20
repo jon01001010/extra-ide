@@ -66,9 +66,25 @@ WHAT CANNOT BE DONE IN REASONING
   - pixels, sound and files: the draw chart wav zip xlsx and io packs
   - heavy numeric kernels: svd, eig, pinv, and root or integrate on anything but a simple function
   the pack list marks such packs with *.
-  what is known about the rest: models of three sizes worked programs over 120 records out in
-  reasoning and matched the interpreter exactly. it costs tokens, nothing double-checks you,
-  and larger data is untested. be careful, and say so when you are unsure of a step.
+
+HOW FAR REASONING GOES. measured, not guessed
+  - over 120 records, models of three sizes worked programs out and matched the interpreter exactly.
+  - over 2,000 records with messy values, a small model working in chunks of about 300 got about
+    half the final values wrong, each by a little: a count off by one, a date put in the
+    neighbouring month, an age off by a day. it understood every rule. it slipped over hundreds
+    of steps, and it reported the results as finished.
+  so the limit is the number of steps, not understanding. act on that:
+  - count the steps first: records times the work on each. a few hundred is the edge. past it,
+    say the result is unchecked and needs the interpreter or a second pass. never present it as done.
+  - reconcile every tally. add the parts and compare with the number of records, and report
+    both numbers. if they differ the result is wrong: say so, do not adjust it to fit.
+  - keep a written table and update it in small batches. never hold a running total in mind.
+  - compare text exactly. "Done " is not "Done". "bug" is not "Bug". do not tidy values as you read.
+  - the riskiest step is turning a timestamp into a date. do not divide a 13 digit ms number by
+    hand when the date can be given as iso text. in "2026-09-30T23:59:59Z" the month is the
+    first 7 characters, (ssub s 0 7), and the day is the first 10. for a count of days use
+    date.daynum on each date and subtract: the time pack's notes give the method by hand.
+  - a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.

@@ -206,7 +206,7 @@ const PACKS = {
   re: { say: "regex", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
   json: { say: "Json sum, read by path", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
   time: { say: "dates and calendar math, utc", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
-    notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
+    notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known.\nworking in reasoning? keep dates as iso text, not ms. the month of \"2026-09-30T23:59:59Z\" is (ssub s 0 7).\ndays between two iso dates = (- (date.daynum b) (date.daynum a)). date.daynum by hand, for year y month m day d:\n  365 * (y - 1970)  +  leap years from 1972 up to y - 1 (every 4th; not 2100 2200 2300)\n  +  days before the month: 0 31 59 90 120 151 181 212 243 273 304 334, and 1 more from march on in a leap year\n  +  d - 1.   2024-03-01 = 365 * 54 + 13 + (59 + 1) + 0 = 19783." },
   bit: { say: "bit ops", types: "", notes: "" },
   bytes: { machine: true, say: "utf8 base64 hex url html.esc sha256", types: "", notes: "" },
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
@@ -490,6 +490,7 @@ date.of time 3 Num,Num,Num Num y m d. midnight utc. E17 not a day
 date.parts time 1 Num Parts !
 date.add time 3 Num,Num,Str Num ms n unit. ms sec min hour day week month year
 date.days time 2 Num,Num Num a b. calendar days from a to b
+date.daynum time 1 Str Num iso text. days from 1970-01-01 to the date it starts with. E15. E17 not a day
 date.start time 2 Num,Str Num ms unit. start of that sec .. year. week = monday
 date.fmt time 2 Num,Str Str YYYY MM DD HH mm ss SSS MMM MMMM ddd dddd. the rest as is
 date.span time 1 Num Str ms as 2d 3h 4m 5s
@@ -1729,6 +1730,11 @@ def("date.add", "Num Num Str -> Num", ([ms, n, u]) => {
   }
   if (!own(UNIT, u)) R("E14", `date.add: unit ${quote(u)}. write ms sec min hour day week month or year`);
   const r = ms + n * UNIT[u]; when(r, "date.add"); return r;
+});
+def("date.daynum", "Str -> Num", ([t]) => {
+  const m = /^(-?\d{4,6})-(\d{2})-(\d{2})(?:$|[T ])/.exec(t.trim());
+  if (!m) R("E15", `date.daynum cannot read ${quote(t)}. it starts with a date written 2026-09-30`);
+  return dayOf(+m[1], +m[2], +m[3], "date.daynum") / DAY;
 });
 def("date.days", "Num Num -> Num", ([a, b]) => { when(a, "date.days"); when(b, "date.days"); return Math.floor(b / DAY) - Math.floor(a / DAY); });
 def("date.start", "Num Str -> Num", ([ms, u]) => {
@@ -4708,6 +4714,8 @@ const TESTS = [
   ["host: a call known ahead runs as usual","(show (map Ticket.title (app.search \"type = Bug\" 5)))","[\"type = Bug\"]",null,null,true],
   ["E14 host: a call known ahead needs literal arguments","(let q \"type = Bug\")\n(show (len (app.search q 5)))\n(show (len (app.search (cat \"a\" \"b\") (+ 1 2))))\n(show (len (map (fun [s] (app.search s 1)) [\"a\"])))\n(let f app.search)","check!E14,E14,E14,E14,E14",null,null,true],
   ["field names are free names","(rec P [x Num len Num])\n(let x 5)\n(fn f [y Num] Num (+ y (P.len (P x 2))))\n(show (f x))","7"],
+  ["time: dates as text, for working out in reasoning","(use time)\n(show (date.daynum \"2024-03-01\"))\n(show (date.daynum \"1970-01-01T05:00:00Z\"))\n(show (date.daynum \"1969-12-31\"))\n(check (* 86400000 (date.daynum \"2026-09-30T23:59:59Z\")) (date.of 2026 9 30))\n(show (- (date.daynum \"2026-10-01T00:00:01Z\") (date.daynum \"2026-09-30T23:59:59Z\")))\n(show (ssub \"2026-09-30T23:59:59Z\" 0 7))\n(show (- (date.daynum \"2024-03-01\") (date.daynum \"2024-02-01\")))","19783\n0\n-1\n1\n2026-09\n29"],
+  ["E time: daynum on text that is not a date","(use time)\n(show (date.daynum \"30/09/2026\"))\n(show (date.daynum \"2023-02-29\"))\n(show (date.daynum \"2026-9-3\"))","check!E15,E17,E15"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -4941,9 +4949,25 @@ WHAT CANNOT BE DONE IN REASONING
   - pixels, sound and files: the draw chart wav zip xlsx and io packs
   - heavy numeric kernels: svd, eig, pinv, and root or integrate on anything but a simple function
   the pack list marks such packs with *.
-  what is known about the rest: models of three sizes worked programs over 120 records out in
-  reasoning and matched the interpreter exactly. it costs tokens, nothing double-checks you,
-  and larger data is untested. be careful, and say so when you are unsure of a step.
+
+HOW FAR REASONING GOES. measured, not guessed
+  - over 120 records, models of three sizes worked programs out and matched the interpreter exactly.
+  - over 2,000 records with messy values, a small model working in chunks of about 300 got about
+    half the final values wrong, each by a little: a count off by one, a date put in the
+    neighbouring month, an age off by a day. it understood every rule. it slipped over hundreds
+    of steps, and it reported the results as finished.
+  so the limit is the number of steps, not understanding. act on that:
+  - count the steps first: records times the work on each. a few hundred is the edge. past it,
+    say the result is unchecked and needs the interpreter or a second pass. never present it as done.
+  - reconcile every tally. add the parts and compare with the number of records, and report
+    both numbers. if they differ the result is wrong: say so, do not adjust it to fit.
+  - keep a written table and update it in small batches. never hold a running total in mind.
+  - compare text exactly. "Done " is not "Done". "bug" is not "Bug". do not tidy values as you read.
+  - the riskiest step is turning a timestamp into a date. do not divide a 13 digit ms number by
+    hand when the date can be given as iso text. in "2026-09-30T23:59:59Z" the month is the
+    first 7 characters, (ssub s 0 7), and the day is the first 10. for a count of days use
+    date.daynum on each date and subtract: the time pack's notes give the method by hand.
+  - a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.
