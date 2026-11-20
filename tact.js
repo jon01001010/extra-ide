@@ -14,12 +14,15 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  math: { say: "trig, gcd lcm clamp hypot, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
+  text: { say: "pad repeat wrap words, edit distance", types: "", notes: "" },
+  csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
   re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
   json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
   time: { say: "dates to and from ms", types: "", notes: "" },
   bit: { say: "whole number bit ops", types: "", notes: "" },
-  bytes: { say: "utf8 bytes, base64, other bases", types: "", notes: "" },
-  mat: { say: "matrices: multiply, svd, rank, det, solve, pinv, eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
+  bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
+  mat: { say: "vector math, matrices: multiply svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
   draw: { say: "shapes to pixels: text pictures, frames, png sheets", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color).
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -27,12 +30,12 @@ shapes become pixels in the core: the same picture on every host.
 to look at a frame:  (ascii w h shapes cols)  gives text, one char per cell, contrast stretched. pure. check works on it.
 to keep the frames:  (io.frame w h shapes) adds one. (io.sheet "f.png" cols) writes them all
 as one png grid, left to right, top to bottom: a whole animation in one image.` },
-  io: { say: "files, stdin, args, env, shell, http, clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
+  io: { say: "files, paths, stdin, args, env, shell, http, clock", types: "(rec Sh [code Num out Str err Str])\n(rec Http [status Num body Str])",
     notes: `effects. args evaluate left to right, forms top to bottom.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -144,11 +147,11 @@ exp num 1 Num Num E17 overflow
 log num 1 Num Num E17 nonpos
 sin num 1 Num Num !
 cos num 1 Num Num !
-tan num 1 Num Num !
-asin num 1 Num Num E17 outside -1..1
-acos num 1 Num Num E17 outside -1..1
-atan num 1 Num Num !
-atan2 num 2 Num,Num Num y x
+tan math 1 Num Num !
+asin math 1 Num Num E17 outside -1..1
+acos math 1 Num Num E17 outside -1..1
+atan math 1 Num Num !
+atan2 math 2 Num,Num Num y x
 floor num 1 Num Num !
 ceil num 1 Num Num !
 round num 1 Num Num half goes up
@@ -193,16 +196,16 @@ zip vec 2 @Vec.@A,@Vec.@B @Vec.@Pair E11
 enum vec 1 @Vec.@T @Vec.@Pair Pair i x
 order vec 1 @Vec.@T @Vec.@T asc by cmp. stable
 range vnum 1 Num @Vec.Num 0..n-1
-onehot vnum 2 Num,Num @Vec.Num n zeros 1 at i
-vadd vnum 2 @Vec.Num,@Vec.Num @Vec.Num E11
-vsub vnum 2 @Vec.Num,@Vec.Num @Vec.Num E11
-scale vnum 2 @Vec.Num,Num @Vec.Num !
+onehot mat 2 Num,Num @Vec.Num n zeros 1 at i
+vadd mat 2 @Vec.Num,@Vec.Num @Vec.Num E11
+vsub mat 2 @Vec.Num,@Vec.Num @Vec.Num E11
+scale mat 2 @Vec.Num,Num @Vec.Num !
 vsum vnum 1 @Vec.Num Num !
-vnorm vnum 1 @Vec.Num Num !
+vnorm mat 1 @Vec.Num Num !
 vmax vnum 1 @Vec.Num Num E10 empty
 vmin vnum 1 @Vec.Num Num E10 empty
 mean vnum 1 @Vec.Num Num E10 empty
-dot vnum 2 @Vec.Num,@Vec.Num Num E11
+dot mat 2 @Vec.Num,@Vec.Num Num E11
 sort vnum 1 @Vec.Num @Vec.Num asc
 map hof 2 @fn,@Vec.@T @Vec.@T !
 map2 hof 3 @fn,@Vec.@T,@Vec.@T @Vec.@T E11
@@ -252,9 +255,9 @@ ends str 2 Str,Str Bool s suffix
 shas str 2 Str,Str Bool s part
 sfind str 2 Str,Str @Opt.Num by char. first place
 sreplace str 3 Str,Str,Str Str s old new. every one
-srep str 2 Str,Num Str n copies
-padl str 3 Str,Num,Str Str to width. fill on the left
-padr str 3 Str,Num,Str Str to width. fill on the right
+srep text 2 Str,Num Str n copies
+padl text 3 Str,Num,Str Str to width. fill on the left
+padr text 3 Str,Num,Str Str to width. fill on the right
 snum str 1 Str Num E15
 pnum str 1 Str @Opt.Num snum that cannot fail
 fix str 2 Num,Num Str x with d decimals
@@ -317,6 +320,26 @@ io.rand io 0 ! Num 0..1. not seeded
 io.sleep io 1 Num Num ms
 io.frame draw 3 Num,Num,@Vec.Draw Num width height shapes. frames so far. E14 bad color
 io.sheet draw 2 Str,Num Num path cols. every frame so far as one png grid
+gcd math 2 Num,Num Num whole numbers
+lcm math 2 Num,Num Num whole numbers
+clamp math 3 Num,Num,Num Num x lo hi
+hypot math 2 Num,Num Num no overflow on the way
+median math 1 @Vec.Num Num E10 empty
+quantile math 2 @Vec.Num,Num Num q in 0..1. linear between
+sd math 1 @Vec.Num Num sample. E10 under 2
+corr math 2 @Vec.Num,@Vec.Num Num pearson. E11 E17 flat
+shuffle math 2 Num,@Vec.@T @Vec.@T seed v. same seed same order
+words text 1 Str @Vec.Str split on whitespace. no empties
+wrap text 2 Str,Num @Vec.Str lines of at most width. long words alone
+edits text 2 Str,Str Num edit distance by char
+csv.parse csv 1 Str @Vec.@Vec.Str rows of fields
+csv.str csv 1 @Vec.@Vec.Str Str quotes where needed. a newline per row
+csv.maps csv 1 Str @Vec.@Map first row = keys. E15 short row
+sha256 bytes 1 Str Str utf8 then hex
+path.join io 2 Str,Str Str b absolute wins. normalized
+path.dir io 1 Str Str "." if none
+path.base io 1 Str Str last part
+path.ext io 1 Str Str ".txt" or ""
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -1604,6 +1627,86 @@ function nodeHost() {                // the real machine: files, processes, netw
   };
 }
 
+/* ---- v2 packs: math text csv, and more in bytes and io */
+def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
+def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
+def("clamp", "Num Num Num -> Num", ([x, lo, hi]) => lo > hi ? R("E17", `clamp: low ${fmtNum(lo)} is over high ${fmtNum(hi)}`) : Math.min(hi, Math.max(lo, x)));
+def("hypot", N2, ([a, b]) => fin(Math.hypot(a, b), "hypot"));
+const sorted = (v, op) => nonEmpty(v, op).slice().sort((x, y) => x - y);
+const at = (s, q) => { const p = q * (s.length - 1), i = Math.floor(p); return i + 1 < s.length ? s[i] + (s[i + 1] - s[i]) * (p - i) : s[i]; };
+def("median", "(Vec Num) -> Num", ([v]) => at(sorted(v, "median"), 0.5));
+def("quantile", "(Vec Num) Num -> Num", ([v, q]) => { if (!(q >= 0 && q <= 1)) R("E17", `quantile: q ${fmtNum(q)} outside 0..1`); return at(sorted(v, "quantile"), q); });
+const meanOf = v => { let s = 0; for (const x of v) s += x; return s / v.length; };
+def("sd", "(Vec Num) -> Num", ([v]) => { if (v.length < 2) R("E10", "sd needs 2 or more numbers"); const m = meanOf(v); let s = 0; for (const x of v) s += (x - m) * (x - m); return fin(Math.sqrt(s / (v.length - 1)), "sd"); });
+def("corr", "(Vec Num) (Vec Num) -> Num", ([a, b]) => {
+  sameLen(a, b, "corr"); if (a.length < 2) R("E10", "corr needs 2 or more pairs");
+  const ma = meanOf(a), mb = meanOf(b); let sab = 0, saa = 0, sbb = 0;
+  for (let i = 0; i < a.length; i++) { const x = a[i] - ma, y = b[i] - mb; sab += x * y; saa += x * x; sbb += y * y; }
+  if (!saa || !sbb) R("E17", "corr: one side does not vary"); return fin(sab / Math.sqrt(saa * sbb), "corr");
+});
+def("shuffle", "Num (Vec a) -> (Vec a)", ([seed, v]) => { ints("shuffle", seed); const r = mulberry32(seed), out = v.slice(); for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; } return out; });
+
+def("words", "Str -> (Vec Str)", ([s]) => capped(s.split(/\s+/).filter(Boolean), "words"));
+def("wrap", "Str Num -> (Vec Str)", ([s, w]) => {
+  if (!isInt(w) || w < 1) R("E17", `wrap: width ${fmtNum(w)} must be a whole number >= 1`);
+  const out = []; let line = "";
+  for (const word of s.split(/\s+/).filter(Boolean)) {
+    if (line && chars(line).length + 1 + chars(word).length > w) { out.push(line); line = word; } else line = line ? line + " " + word : word;
+  }
+  if (line) out.push(line); return out;
+});
+def("edits", "Str Str -> Num", ([a, b]) => { const x = chars(a), y = chars(b); if (x.length * y.length > 1e8) R("E17", "edits: texts too long"); return lev(x, y); });
+
+function csvParse(s) {
+  const rows = []; let row = [], f = "", i = 0, q = false, any = false;
+  const end = () => { row.push(f); f = ""; }, line = () => { end(); rows.push(row); row = []; any = false; if (rows.length > MAXLEN) R("E17", "csv.parse: over the item cap"); };
+  while (i < s.length) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i + 1] === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; } f += c; i++; continue; }
+    if (c === '"') { if (f !== "") R("E15", `csv.parse: a quote in the middle of a field, row ${rows.length + 1}`); q = true; any = true; i++; continue; }
+    if (c === ",") { end(); any = true; i++; continue; }
+    if (c === "\r" && s[i + 1] === "\n") { line(); i += 2; continue; }
+    if (c === "\n") { line(); i++; continue; }
+    f += c; any = true; i++;
+  }
+  if (q) R("E15", `csv.parse: a quoted field is never closed, row ${rows.length + 1}`);
+  if (any || f !== "" || row.length) line();
+  return rows;
+}
+const csvField = f => /[",\r\n]/.test(f) ? '"' + f.replace(/"/g, '""') + '"' : f;
+def("csv.parse", "Str -> (Vec (Vec Str))", ([s]) => csvParse(s));
+def("csv.str", "(Vec (Vec Str)) -> Str", ([v]) => v.map(r => r.map(csvField).join(",") + "\n").join(""));
+def("csv.maps", "Str -> (Vec (Map Str Str))", ([s]) => {
+  const [head, ...rows] = csvParse(s); if (!head) return [];
+  return rows.map((r, n) => { if (r.length !== head.length) R("E15", `csv.maps: row ${n + 2} has ${r.length} fields, the header has ${head.length}`); let m = EMPTY; head.forEach((h, i) => { m = mput(m, h, r[i]); }); return m; });
+});
+
+function sha256(bytes) {                 // FIPS 180-4, over utf8 bytes
+  const K = [], H = [], isP = n => { for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
+  for (let n = 2, k = 0; k < 64; n++) if (isP(n)) { if (k < 8) H[k] = (Math.pow(n, 1 / 2) % 1) * 4294967296 | 0; K[k++] = (Math.pow(n, 1 / 3) % 1) * 4294967296 | 0; }
+  const len = bytes.length, total = ((len + 9 + 63) >> 6) << 6, m = new Uint8Array(total);
+  m.set(bytes); m[len] = 0x80;
+  const bits = len * 8; for (let i = 0; i < 8; i++) m[total - 1 - i] = Math.floor(bits / Math.pow(2, 8 * i)) & 255;
+  const W = new Int32Array(64), rr = (x, n) => x >>> n | x << (32 - n);
+  for (let o = 0; o < total; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = m[o + 4 * i] << 24 | m[o + 4 * i + 1] << 16 | m[o + 4 * i + 2] << 8 | m[o + 4 * i + 3];
+    for (let i = 16; i < 64; i++) { const a = W[i - 15], b = W[i - 2]; W[i] = (rr(a, 7) ^ rr(a, 18) ^ a >>> 3) + W[i - 16] + (rr(b, 17) ^ rr(b, 19) ^ b >>> 10) + W[i - 7] | 0; }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + (e & f ^ ~e & g) + K[i] + W[i] | 0, t2 = (rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + (a & b ^ a & c ^ b & c) | 0;
+      h = g; g = f; f = e; e = d + t1 | 0; d = c; c = b; b = a; a = t1 + t2 | 0;
+    }
+    [a, b, c, d, e, f, g, h].forEach((x, i) => { H[i] = H[i] + x | 0; });
+  }
+  return H.map(x => (x >>> 0).toString(16).padStart(8, "0")).join("");
+}
+def("sha256", "Str -> Str", ([s]) => { if (s.length > 1e8) R("E17", "sha256: text too long"); return sha256(new TextEncoder().encode(s)); });
+
+def("path.join", "Str Str -> Str", ([a, b]) => b[0] === "/" ? normPath(b) : normPath(a === "" ? b : a + "/" + b));
+def("path.dir", "Str -> Str", ([p]) => { const n = normPath(p), i = n.lastIndexOf("/"); return i < 0 ? "." : i === 0 ? "/" : n.slice(0, i); });
+def("path.base", "Str -> Str", ([p]) => { const n = normPath(p); return n.slice(n.lastIndexOf("/") + 1); });
+def("path.ext", "Str -> Str", ([p]) => { const b = normPath(p).split("/").pop(), i = b.lastIndexOf("."); return i > 0 ? b.slice(i) : ""; });
+
 /* ---- which pack owns which name: builtins by their matrix kind, pack types by their prelude */
 const PACKOF = new Map();
 {
@@ -1614,7 +1717,14 @@ const PACKOF = new Map();
     if (t.t === "rec") for (const [f] of t.fields) PACKOF.set(t.name + "." + f, p); else for (const [c] of t.ctors) PACKOF.set(c, p);
   }
 }
-const packHint = (name, C) => PACKOF.has(name) && !C.packs.has(PACKOF.get(name)) ? `${name} is in pack ${PACKOF.get(name)}: add (use ${PACKOF.get(name)})` : null;
+const ROWNOTE = new Map(MATRIX.split("\n").slice(1).map(l => l.split(" ")).map(p => [p[0], p.slice(5).join(" ")]));
+function packHint(name, C) {
+  const p = PACKOF.get(name); if (!p || C.packs.has(p)) return null;
+  let what = "";
+  if (own(B, name)) { const note = ROWNOTE.get(name); what = `. ${name} : ${B[name].sig}` + (note && note !== "!" ? `. ${note}` : ""); }
+  else { const decl = PACKS[p].types.split("\n").find(l => new RegExp("[ \\[(]" + name.split(".")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[ \\])]").test(l)); if (decl) what = ". " + decl; }
+  return `${name} is in pack ${p}: add (use ${p})${what}`;
+}
 
 /* ------------------------------------------------------------------ checker */
 class Scope { constructor(p) { this.m = new Map(); this.p = p; } }
@@ -2287,7 +2397,7 @@ const TESTS = [
   ["iroot exact","(show (iroot 27 3))\n(show (iroot 26 3))\n(show (iroot 1000000000000 2))\n(show (iroot 9007199254740993 1))","3\n2\n1000000\n9007199254740992"],
   ["bits","(use bit)\n(show (bxor 5 3))\n(show (band 6 3))\n(show (bor 4 1))","6\n2\n5"],
   ["uniq flat","(show (uniq [3 1 3 2 1]))\n(show (flat [[1] [] [2 3]]))\n(show (uniq [[1 2] [1 2] [2]]))","[3 1 2]\n[1 2 3]\n[[1 2] [2]]"],
-  ["vector ops","(show (rep 3 \"x\"))\n(show (onehot 3 1))\n(show (sort [3 -1 2]))\n(show (slice [1 2 3] 1 3))\n(show (concat [1] [2 3]))\n(show (dot [1 2] [3 4]))\n(show (vnorm [3 4]))\n(show (scale [1 2] 3))\n(show (vsub [5 5] [1 2]))","[\"x\" \"x\" \"x\"]\n[0 1 0]\n[-1 2 3]\n[2 3]\n[1 2 3]\n11\n5\n[3 6]\n[4 3]"],
+  ["vector ops","(use mat)\n(show (rep 3 \"x\"))\n(show (onehot 3 1))\n(show (sort [3 -1 2]))\n(show (slice [1 2 3] 1 3))\n(show (concat [1] [2 3]))\n(show (dot [1 2] [3 4]))\n(show (vnorm [3 4]))\n(show (scale [1 2] 3))\n(show (vsub [5 5] [1 2]))","[\"x\" \"x\" \"x\"]\n[0 1 0]\n[-1 2 3]\n[2 3]\n[1 2 3]\n11\n5\n[3 6]\n[4 3]"],
   ["matrix","(use mat)\n(show (matmul [[1 2] [3 4]] [[0 1] [1 0]]))\n(show (tpose [[1 2 3]]))","[[2 1] [4 3]]\n[[1] [2] [3]]"],
   ["svdvals","(use mat)\n(check (svdvals [[3 0] [0 4]]) [4 3])\n(check (svdvals [[1 2] [3 4]]) [(sqrt (+ 15 (sqrt 221))) (sqrt (- 15 (sqrt 221)))])\n(show (len (svdvals [[1 2 3]])))","1"],
   ["kernels js","(use mat)\n(show (k.backend))\n(show (k.rank [[1 2] [2 4]]))\n(show (k.rank [[1 0] [0 1]]))\n(check (k.det [[1 2] [3 4]]) -2)\n(check (k.solve [[2 0] [0 4]] [[2] [8]]) [[1] [2]])\n(check (k.randn 2 3 7) (k.randn 2 3 7))\n(show (len (get (k.randn 2 3 7) 0)))","js\n1\n2\n3"],
@@ -2316,7 +2426,7 @@ const TESTS = [
   ["E8 let inside","(show (let x 1))","!E8"],
   ["E10 get","(show (get [1 2] 5))","!E10"],
   ["E10 slice","(show (slice [1 2 3] 2 1))","!E10"],
-  ["E11 vadd","(show (vadd [1 2] [1]))","!E11"],
+  ["E11 vadd","(use mat)\n(show (vadd [1 2] [1]))","!E11"],
   ["E11 map2","(show (map2 + [1 2] [1]))","!E11"],
   ["E11 matmul","(use mat)\n(show (matmul [[1 2]] [[1 2]]))","!E11"],
   ["E12 unclosed","(show (+ 1 2)","!E12"],
@@ -2364,9 +2474,9 @@ const TESTS = [
   ["E17 fn as key","(show (mput {1 len} 2 len))\n(show (mput {} len 1))","!E17"],
   ["vectors v2","(show (zip [1 2] [\"a\" \"b\"]))\n(show (enum [\"x\"]))\n(show (sortby (fun [s] (slen s)) [\"ccc\" \"a\" \"bb\"]))\n(show (order [\"b\" \"a\"]))\n(show (take [1 2 3] 2))\n(show (drop [1 2 3] 2))\n(show (any (fun [x] (> x 2)) [1 3]))\n(show (all (fun [x] (>= x 2)) [1 3]))\n(show (index [5 6] 6))\n(show (chunk [1 2 3] 2))\n(show (scan + 0 [1 2 3]))\n(show (iter (fun [x] (* x 2)) 1 10))\n(show (cmp [1 2] [1 3]))\n(show (push [1] 2))\n(show (has [\"a\"] \"a\"))\n(show (count isint [1 1.5 2]))\n(show (mean [1 2 6]))\n(show (vmax [1 5 2]))","[(Pair 1 \"a\") (Pair 2 \"b\")]\n[(Pair 0 \"x\")]\n[\"a\" \"bb\" \"ccc\"]\n[\"a\" \"b\"]\n[1 2]\n[3]\ntrue\nfalse\n(Some 1)\n[[1 2] [3]]\n[1 3 6]\n1024\n-1\n[1 2]\ntrue\n2\n3\n5"],
   ["E10 vmax empty","(show (vmax []))","!E10"],
-  ["numbers v2","(use bit)\n(show (round 2.5))\n(show (ceil 1.2))\n(show (trunc -1.7))\n(show (idiv 7 2))\n(show (mod -1 3))\n(show (fix pi 2))\n(show (sign -3))\n(show (shl 1 10))\n(show (shr 1024 3))\n(check (atan2 1 1) (/ pi 4))\n(check (tan (atan 2)) 2)\n(show (len (rand 1 5)))\n(check (rand 7 3) (rand 7 3))","3\n2\n-1\n3\n2\n3.14\n-1\n1024\n128\n5"],
-  ["E17 asin","(show (asin 2))","!E17"],
-  ["strings v2","(use bytes)\n(show (upper \"ab\"))\n(show (trim \"  x \"))\n(show (sfind \"hello\" \"ll\"))\n(show (sreplace \"a-b-c\" \"-\" \"+\"))\n(show (starts \"hello\" \"he\"))\n(show (lines \"a\\nb\\n\"))\n(show (padl \"7\" 3 \"0\"))\n(show (padr \"ab\" 4 \".\"))\n(show (pnum \"x\"))\n(show (pnum \"2.5\"))\n(show (radix 255 16))\n(show (pradix \"ff\" 16))\n(show (pradix \"12\" 2))\n(show (srep \"ab\" 2))","AB\nx\n(Some 2)\na+b+c\ntrue\n[\"a\" \"b\"]\n007\nab..\nNone\n(Some 2.5)\nff\n(Some 255)\nNone\nabab"],
+  ["numbers v2","(use math)\n(use bit)\n(show (round 2.5))\n(show (ceil 1.2))\n(show (trunc -1.7))\n(show (idiv 7 2))\n(show (mod -1 3))\n(show (fix pi 2))\n(show (sign -3))\n(show (shl 1 10))\n(show (shr 1024 3))\n(check (atan2 1 1) (/ pi 4))\n(check (tan (atan 2)) 2)\n(show (len (rand 1 5)))\n(check (rand 7 3) (rand 7 3))","3\n2\n-1\n3\n2\n3.14\n-1\n1024\n128\n5"],
+  ["E17 asin","(use math)\n(show (asin 2))","!E17"],
+  ["strings v2","(use text)\n(use bytes)\n(show (upper \"ab\"))\n(show (trim \"  x \"))\n(show (sfind \"hello\" \"ll\"))\n(show (sreplace \"a-b-c\" \"-\" \"+\"))\n(show (starts \"hello\" \"he\"))\n(show (lines \"a\\nb\\n\"))\n(show (padl \"7\" 3 \"0\"))\n(show (padr \"ab\" 4 \".\"))\n(show (pnum \"x\"))\n(show (pnum \"2.5\"))\n(show (radix 255 16))\n(show (pradix \"ff\" 16))\n(show (pradix \"12\" 2))\n(show (srep \"ab\" 2))","AB\nx\n(Some 2)\na+b+c\ntrue\n[\"a\" \"b\"]\n007\nab..\nNone\n(Some 2.5)\nff\n(Some 255)\nNone\nabab"],
   ["regex","(use re)\n(show (re.test \"^a+$\" \"aaa\"))\n(show (re.find \"(\\\\d+)-(\\\\d+)\" \"1-2 30-40\"))\n(show (re.replace \"\\\\s+\" \"a  b   c\" \" \"))\n(show (re.split \",\\\\s*\" \"a, b,c\"))\n(show (re.replace \"(\\\\w)(\\\\w)\" \"ab\" \"$2$1\"))","true\n[[\"1-2\" \"1\" \"2\"] [\"30-40\" \"30\" \"40\"]]\na b c\n[\"a\" \"b\" \"c\"]\nba"],
   ["E12 regex literal is checked first","(use re)\n(show 1)\n(show (re.test \"(\" \"a\"))","!E12"],
   ["E14 regex built at run time","(use re)\n(show (re.test (scat \"(\" \"\") \"a\"))","!E14"],
@@ -2428,7 +2538,7 @@ const TESTS = [
   ["solve and svd at the edges of scale","(use mat)\n(check (k.solve [[1e-20 0] [0 1]] [[1] [1]]) [[1e20] [1]])\n(check (k.solve [[1 0] [0 1e-13]] [[1] [1]]) [[1] [1e13]])\n(show (svdvals [[1e200 0] [0 1]]))\n(show (svdvals [[1 0] [0 1e-170]]))\n(show (vnorm [3e200 4e200]))","[1e+200 1]\n[1 1e-170]\n5e+200"],
   ["dates are iso and never the host zone","(use time)\n(show (date.parse \"2020-01-01T00:00:00Z\"))\n(show (date.parse \"2020-01-01\"))\n(show (date.parse \"2020-01-01T01:00:00+01:00\"))\n(show (map (fun [s] (match (try (date.parse s)) (Ok _) \"ok\" (Err c _) c)) [\"2020-01-01T00:00\" \"Jan 1 2020\" \"2\" \"2020-02-30\"]))","1577836800000\n1577836800000\n1577836800000\n[\"E15\" \"E15\" \"E15\" \"E15\"]"],
   ["json keys come out in cmp order","(use json)\n(show (json.str (JObj {\"10\" (JNum 1) \"9\" (JNum 2) \"a\" (JArr [])})))\n(check (json.parse (json.pretty (JObj {\"k\" (JArr [(JNum 1) JNull (JObj {})])}))) (JObj {\"k\" (JArr [(JNum 1) JNull (JObj {})])}))","{\"10\":1,\"9\":2,\"a\":[]}"],
-  ["rows that were wrong","(use bytes)\n(show [(mod -1 3) (mod 1 -3) (mod -1e-20 3)])\n(show (try (unutf8 [300])))\n(show (utf8 (unutf8 [239 187 191 97])))\n(show (try (fix 1e21 2)))\n(show (atan2 0 -0))\n(show (slt \"😀\" \"ｚ\"))\n(show (order [\"ｚ\" \"😀\" \"a\"]))\n(show (try (chr 55357)))","[2 -2 0]\n(Err \"E15\" \"unutf8: 300 is not a byte 0..255\")\n[239 187 191 97]\n(Err \"E17\" \"fix: 1e+21 is too big to write out\")\n0\nfalse\n[\"a\" \"ｚ\" \"😀\"]\n(Err \"E17\" \"chr: 55357 is not a code point\")"],
+  ["rows that were wrong","(use math)\n(use bytes)\n(show [(mod -1 3) (mod 1 -3) (mod -1e-20 3)])\n(show (try (unutf8 [300])))\n(show (utf8 (unutf8 [239 187 191 97])))\n(show (try (fix 1e21 2)))\n(show (atan2 0 -0))\n(show (slt \"😀\" \"ｚ\"))\n(show (order [\"ｚ\" \"😀\" \"a\"]))\n(show (try (chr 55357)))","[2 -2 0]\n(Err \"E15\" \"unutf8: 300 is not a byte 0..255\")\n[239 187 191 97]\n(Err \"E17\" \"fix: 1e+21 is too big to write out\")\n0\nfalse\n[\"a\" \"ｚ\" \"😀\"]\n(Err \"E17\" \"chr: 55357 is not a code point\")"],
   ["a line longer than the canvas is solid","(use draw)\n(check (ascii 60 2 [(Line 0 0 100000 0 \"white\")] 60) (ascii 60 2 [(Line 0 0 59 0 \"white\")] 60))\n(show (ascii 8 8 [(Line -500 -500 500 500 \"white\")] 8))\n(show (ascii 8 8 [(Line 20 0 30 5 \"white\")] 8))","@@\n  @@\n    @@\n      @@\n\n\n\n"],
   ["memory host: made dirs exist, .. resolves","(use io)\n(use \"lib/a.tact\")\n(use \"lib/../lib/a.tact\")\n(do (io.mkdir \"d\") (io.write \"d/../e.txt\" \"x\"))\n(show [(io.isdir \"d\") (io.exists \"e.txt\")])\n(show z)","[true true]\n1",{"lib/a.tact":"(use \"../z.tact\")","z.tact":"(let z 1)"}],
   ["tried before running: errors in fn bodies, all at once","(fn at [v (Vec Num) i Num] Num (get v i))\n(show 1)\n(show (at [1] 4))\n(show (at [1 2] 9))","check!E10,E10"],
@@ -2439,6 +2549,14 @@ const TESTS = [
   ["io waits for the run","(use io)\n(let n (len (io.args)))\n(show 1)\n(show (/ 1 n))","run!E17"],
   ["a regex waits for the run","(use re)\n(fn m [s Str] Num (len (re.find \"a\" s)))\n(show (get [] (m \"b\")))","run!E10"],
   ["the budget spent is not an error up front","(fn spin [n Num acc Num] Num (if (= n 0) acc (spin (- n 1) (+ acc 1))))\n(show (spin 1000000 0))","1000000"],
+  ["E1 for an unloaded pack gives the call","(show (csv.parse \"a\"))","!E1"],
+  ["math","(use math)\n(show [(gcd 12 18) (lcm 4 6) (clamp 5 0 3) (hypot 3e200 4e200)])\n(show [(median [3 1 2]) (median [4 1 3 2]) (quantile [1 2 3 4 5] 0.25)])\n(check (sd [2 4 4 4 5 5 7 9]) 2.13808993529939)\n(check (corr [1 2 3] [2 4 6]) 1)\n(check (corr [1 2 3] [3 2 1]) -1)\n(check (shuffle 7 (range 10)) (shuffle 7 (range 10)))\n(show (order (shuffle 3 (range 6))))\n(check (atan2 1 1) (/ pi 4))","[6 12 3 5e+200]\n[2 2.5 2]\n[0 1 2 3 4 5]"],
+  ["E math edges","(use math)\n(fn id [x ?a] ?a x)\n(show (map (fun [r] (match r (Ok _) \"ok\" (Err c _) c)) [(try (median (id []))) (try (sd (id [1]))) (try (corr (id [1 1]) [1 2])) (try (quantile [1] (id 2))) (try (clamp 1 (id 3) 2)) (try (gcd (id 1.5) 2))]))","[\"E10\" \"E10\" \"E17\" \"E17\" \"E17\" \"E17\"]"],
+  ["text","(use text)\n(show (words \"  a  b\\tc\\n\"))\n(show (wrap \"the quick brown fox jumps\" 10))\n(show (wrap \"supercalifragilistic x\" 5))\n(show [(edits \"kitten\" \"sitting\") (edits \"\" \"abc\") (edits \"é\" \"e\")])\n(show (padl \"7\" 3 \"0\"))","[\"a\" \"b\" \"c\"]\n[\"the quick\" \"brown fox\" \"jumps\"]\n[\"supercalifragilistic\" \"x\"]\n[3 3 1]\n007"],
+  ["csv","(use csv)\n(let t \"name,note\\r\\nann,\\\"says \\\"\\\"hi\\\"\\\", ok\\\"\\nbo,\\\"two\\nlines\\\"\\n\")\n(show (csv.parse t))\n(check (csv.parse (csv.str (csv.parse t))) (csv.parse t))\n(show (csv.str [[\"a\" \"b,c\"] [\"\" \"q\\\"\"]]))\n(show (map (fun [m] (else (mget m \"name\") \"?\")) (csv.maps t)))\n(show (csv.parse \"\"))\n(show (csv.parse \"a,\"))","[[\"name\" \"note\"] [\"ann\" \"says \\\"hi\\\", ok\"] [\"bo\" \"two\\nlines\"]]\na,\"b,c\"\n,\"q\"\"\"\n\n[\"ann\" \"bo\"]\n[]\n[[\"a\" \"\"]]"],
+  ["E15 csv","(use csv)\n(fn id [x ?a] ?a x)\n(show (map (fun [s] (match (try (csv.maps s)) (Ok _) \"ok\" (Err c _) c)) [(id \"a,\\\"b\") (id \"a,b\\\"c\") (id \"h1,h2\\n1\")]))","[\"E15\" \"E15\" \"E15\"]"],
+  ["sha256","(use text)\n(use bytes)\n(show (sha256 \"\"))\n(show (sha256 \"abc\"))\n(show (sha256 \"héllo 😀\"))\n(show (slen (sha256 (srep \"a\" 1000))))","e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na53c56966616f0ec3ed9db7ea07a6034430149528bbaba8966c284f9373669c2\n64"],
+  ["paths","(use io)\n(show [(path.join \"a/b\" \"../c.txt\") (path.join \"a\" \"/x\") (path.dir \"a/b/c.txt\") (path.dir \"c.txt\") (path.base \"a/b/c.txt\") (path.ext \"a/b/c.tar.gz\") (path.ext \".bashrc\") (path.ext \"a.b/c\")])","[\"a/c.txt\" \"/x\" \"a/b\" \".\" \"c.txt\" \".gz\" \"\" \"\"]"],
 ];
 function runTests() {
   const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
@@ -2490,8 +2608,8 @@ function specText(which) {
   const [head, ...rows] = MATRIX.split("\n"), packOf = r => KINDPACK[r.split(" ")[1]] || "core";
   const core = rows.filter(r => packOf(r) === "core");
   const pack = p => { const d = PACKS[p], rs = rows.filter(r => packOf(r) === p); return [`PACK ${p}. (use ${p}). ${d.say}. ${rs.length} rows`, d.notes, d.types, head, ...rs].filter(Boolean).join("\n"); };
-  const index = "PACKS  not loaded until a program says (use name). a pack name used without it = E1 that names the pack.\n       tact --spec NAME prints one. tact --spec all prints everything.\n" +
-    Object.keys(PACKS).map(p => `  ${p.padEnd(6)} ${String(rows.filter(r => packOf(r) === p).length).padStart(2)} rows  ${PACKS[p].say}`).join("\n");
+  const index = "PACKS  (use name) loads one. a name from an unloaded pack = E1 with the pack and the call. tact --spec NAME.\n" +
+    Object.keys(PACKS).map(p => `  ${p.padEnd(6)}${PACKS[p].say}`).join("\n");
   const base = SYNTAX + "\n\n" + index + "\n\nMATRIX core " + core.length + " rows\n" + head + "\n" + core.join("\n");
   if (which === undefined) return base;
   if (which === "all") return base + "\n\n" + Object.keys(PACKS).map(pack).join("\n\n");
