@@ -41,7 +41,7 @@ Run a few suites at a time, not all in one command (`timeout 900 node tests/run-
 are: run-examples, run-interop, run-modules, run-project, run-regions, run-memtab, run-memory, run-loader,
 run-autocomplete, run-combined, run-registry, run-drawer, run-sound, run-bytes, run-sprites, run-sprite-tool,
 run-maps, run-stage-tool, run-integ, run-rules, run-logic-tool, run-rough, run-timeline, run-mote,
-run-mote-page, run-mote-emit, run-tutorial, run-live, run-nocase, run-export (long; read its last lines: a
+run-mote-page, run-mote-emit, run-tutorial, run-live, run-nocase, run-hud, run-particles, run-export (long; read its last lines: a
 failing category may not change the exit code). Some suites read older commits with `git show`, so run them
 in the git checkout. Suites rewrite screenshots in `tests/`; `git checkout -- tests/*.png` afterwards
 unless the change is meant to alter them.
