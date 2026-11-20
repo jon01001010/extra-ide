@@ -67,7 +67,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 
 ## Lua-like tooling
 
-- [ ] **Host functions**: a host program registers its own functions with Tact
+- [x] **Host functions**: a host program registers its own functions with Tact
       types, and the checker checks calls to them like builtins. This is what
       makes Tact embeddable the way Lua is: the host gives the model a typed,
       checked set of tools.

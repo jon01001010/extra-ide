@@ -271,7 +271,10 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
        that must run, is reported. the rest wait for the run.
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK.
 
-CLI    tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
+HOST   a program that embeds tact can give it typed functions and types. calls to them are checked
+       like builtins and wait for the run. tact --host H.js --spec lists them.
+
+CLI    tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE | --show FILE`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -1797,6 +1800,7 @@ function nodeHost() {                // the real machine: files, processes, netw
     env: n => own(process.env, n) ? process.env[n] : null,
     sh: c => spawn(c, [], "", true),
     exec: (f, a, input) => spawn(f, a, input, false),
+    load: p => { const m = require(require("path").resolve(p)); return m && m.default || m; },
     http: (method, url, headers, body) => {
       const a = ["-sS", "-X", method, "--max-time", "300", "-w", "\n%{http_code}"];
       for (const [k, v] of headers) a.push("-H", `${k}: ${v}`);
@@ -2226,7 +2230,7 @@ function infer(e, sc, C) {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
       en.used = true;
-      if (en.kind === "builtin" && /^(io|re)\./.test(e.name)) C.deps.impure = true;
+      if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) C.deps.impure = true;
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
       return inst(en.type);
     }
@@ -2310,7 +2314,7 @@ function infer(e, sc, C) {
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
         en.used = true;
-        if (en.kind === "builtin" && /^(io|re)\./.test(label)) C.deps.impure = true;
+        if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) C.deps.impure = true;
         if (en.kind === "fn") C.deps.fns.add(label); else if (en.kind === "let") C.deps.lets.add(label);
         ft = inst(en.type);
         if (en.kind === "builtin" && label.startsWith("re.") && e.args.length && e.args[0].t === "str") {
@@ -2343,10 +2347,11 @@ function infer(e, sc, C) {
   }
   return fresh();
 }
-function checkProgram(tops, errs, packs) {
+function checkProgram(tops, errs, packs, H) {
   TV = 0; TWORK = 0;
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
   for (const [name, b] of Object.entries(B)) if (!b.pack || packs.has(b.pack)) g.set(name, { kind: "builtin", type: b.type, line: 0 });
+  if (H) for (const [name, h] of Object.entries(H.fns)) g.set(name, { kind: "builtin", type: h.type, line: 0, host: true });
   decls.set("Map", { name: "Map", params: ["?k", "?v"], ctors: [], line: 0 });
   tops.forEach((t, i) => { t.pos = i; if (t.t === "let" && !letLines.has(t.name)) letLines.set(t.name, t.line); });
   const taken = n => RESERVED.has(n) || g.has(n) || decls.has(n);
@@ -2532,8 +2537,9 @@ function callPrim(f, args, depth) {
   }
   throw new Error("not callable");
 }
-function makeEnv(tops) {
+function makeEnv(tops, H) {
   const G = new Env(null);
+  if (H) for (const [name, h] of Object.entries(H.fns)) G.m.set(name, { k: "bi", name, fn: hostCall(name, h, H) });
  for (const n of Object.keys(B)) G.m.set(n, B[n].fn ? { k: "bi", name: n, fn: B[n].fn } : B[n].val);
   for (const t of tops) {
     if (t.t === "rec") {
@@ -2546,7 +2552,7 @@ function makeEnv(tops) {
 }
 function runProgram(tops, emit, st, opts) {
   steps = 0; budget = opts.maxSteps || 2e8; HOST = opts.io; EMIT = emit; FRAMES = [];
-  const G = makeEnv(tops);
+  const G = makeEnv(tops, opts.host);
   for (const t of tops) {
     try {
       switch (t.t) {
@@ -2691,7 +2697,7 @@ function normPath(p) {              // a/./b and a/x/../b are a/b, so one file h
    a small budget, and a run error it ends in is reported in the check phase: every such error at once,
    where the run phase would stop at the first. */
 const DRY = 2e5;
-function dryProgram(tops, errs) {
+function dryProgram(tops, errs, H) {
   const fnTop = new Map(), letTop = new Map(), mine = tops.filter(t => t.deps);
   for (const t of tops) { if (t.t === "fn") fnTop.set(t.name, t); else if (t.t === "let") letTop.set(t.name, t); }
   for (const t of mine) { t.dirty = !!t.deps.impure; t.lets = new Set(t.deps.lets); }
@@ -2706,7 +2712,7 @@ function dryProgram(tops, errs) {
     }
   }
   HOST = null; EMIT = () => {}; FRAMES = [];
-  const G = makeEnv(tops), unknown = new Set();
+  const G = makeEnv(tops, H), unknown = new Set();
   for (const t of tops) {
     if (t.t !== "let" && t.t !== "show" && t.t !== "check" && t.t !== "dotop") continue;
     if (t.dirty || [...t.lets].some(l => unknown.has(l))) { if (t.t === "let") unknown.add(t.name); continue; }
@@ -2725,6 +2731,76 @@ function dryProgram(tops, errs) {
     }
   }
 }
+/* ------------------------------------------------------------------ host functions
+   like lua's c api: the program that embeds tact hands it typed functions and types.
+   the checker checks every call to them like a builtin; a call is an effect, so it waits for the run.
+   host = { types: "(rec Ticket [id Num title Str]) ..", fns: { "app.find": { sig: "Num -> (Opt Ticket)", fn: (args, cx) => value, note: "..." } } } */
+const HOSTS = new WeakMap();
+function hostTable(host) {
+  if (!host) return null;
+  if (HOSTS.has(host)) return HOSTS.get(host);
+  const bad = m => { throw new TypeError("tact host: " + m); };
+  const errs = [], types = host.types || "";
+  const tops = parse(lex(types, errs), errs).map(s => lowerTop(s, errs)).filter(Boolean);
+  if (errs.length) bad(`types: ${errs[0].msg}`);
+  for (const t of tops) if (t.t !== "rec" && t.t !== "sum") bad("types may hold only (rec ..) and (sum ..)");
+  const taken = new Set([...Object.keys(B), ...RESERVED, ...PACKOF.keys()]), shape = new Map();
+  for (const text of [PRELUDE, ...Object.values(PACKS).map(p => p.types), types])
+    for (const s of parse(lex(text, []), [])) {
+      const t = lowerTop(s, []); if (!t) continue;
+      if (t.t === "rec") shape.set(t.name, { owner: t.name, n: t.fields.length, rec: true });
+      else for (const [c, v] of t.ctors) shape.set(c, { owner: t.name, n: v.items.length, rec: false });
+    }
+  for (const t of tops) { if (taken.has(t.name)) bad(`type ${t.name} is already a tact name`); taken.add(t.name); }
+  const fns = {};
+  for (const [name, h] of Object.entries(host.fns || {})) {
+    if (!/^[a-z_][\w.-]*$/i.test(name) || taken.has(name) || shape.has(name)) bad(`${name}: not a free tact name. pick another, like app.${name.replace(/\W/g, "_")}`);
+    if (!h || typeof h.fn !== "function" || typeof h.sig !== "string") bad(`${name}: needs { sig: "A B -> R", fn }`);
+    let type; try { type = parseSig(h.sig); } catch (x) { bad(`${name}: signature ${h.sig}: ${x.message}`); }
+    if (type.k !== "fn") type = fnT([], type);
+    fns[name] = { sig: h.sig, type, fn: h.fn, note: h.note || "" };
+  }
+  const T = { types, tops, fns, shape };
+  HOSTS.set(host, T);
+  return T;
+}
+function fits(v, t, S) {                    // a host's answer must be what its signature says
+  switch (t.k) {
+    case "num": return typeof v === "number" && Number.isFinite(v);
+    case "str": return typeof v === "string";
+    case "bool": return typeof v === "boolean";
+    case "vec": return Array.isArray(v) && v.length <= MAXLEN && v.every(x => fits(x, t.e, S));
+    case "fn": return !!v && typeof v === "object" && ["clo", "bi", "ctor", "rd"].includes(v.k);
+    case "rec": {
+      if (t.name === "Map") return !!v && v.k === "map";
+      const c = v && v.k === "rv" && S.shape.get(v.name);
+      if (!c || c.owner !== t.name || !Array.isArray(v.vals) || v.vals.length !== c.n) return false;
+      if (!c.rec && c.n === 0) v.nul = true;
+      return true;
+    }
+  }
+  return true;                              // a type variable takes anything
+}
+function hostCall(name, h, S) {
+  return (args, cx) => {
+    let r;
+    try { r = h.fn(args, cx); }
+    catch (x) { if (x instanceof TErr) throw x; R("E19", `${name}: ${String(x && x.message || x).split("\n")[0]}`); }
+    if (!fits(r, h.type.r, S)) R("E19", `${name} gave back ${typeof r === "object" && r ? (Array.isArray(r) ? "a vector" : r.k === "rv" ? r.name : "an object") : typeof r} where its signature says ${showT(h.type.r)}. the host has a bug`);
+    return r === 0 ? 0 : r;
+  };
+}
+function hostSpec(host) {
+  const S = hostTable(host); if (!S) return "";
+  const rows = Object.entries(S.fns).map(([n, h]) => `${n} : ${h.sig}` + (h.note ? `. ${h.note}` : ""));
+  return ["HOST   functions and types this host gives. no (use ..) needed. a call is an effect: it waits for the run.\n       a host function that fails = E19, and try catches it.", S.types, ...rows].filter(Boolean).join("\n");
+}
+const hostHelp = {                          // for host authors: build tact values
+  rec: (name, ...vals) => RV(name, vals), some: x => SOME(x), none: NONE, ok: x => RV("Ok", [x]), err: (code, msg) => RV("Err", [code, msg]),
+  map: pairs => pairs.reduce((m, [k, v]) => mput(m, k, v), EMPTY), entries: m => tnodes(m.root).map(n => [n.key, n.val]),
+  fail: (code, msg) => raise(code, msg),
+};
+
 const dirOf = p => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i + 1); };
 const headOf = s => s.t === "list" && s.items.length && isSym(s.items[0]) ? s.items[0].v : null;
 function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn rec sum check forms, in place, once
@@ -2744,15 +2820,15 @@ function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn
   }
   return out;
 }
-function preludeTops(packs) {
-  const errs = [], text = [PRELUDE, ...[...packs].map(p => PACKS[p].types)].join("\n"), tops = parse(lex(text, errs), errs).map(s => lowerTop(s, errs));
+function preludeTops(packs, H) {
+  const errs = [], text = [PRELUDE, ...[...packs].map(p => PACKS[p].types), H ? H.types : ""].join("\n"), tops = parse(lex(text, errs), errs).map(s => lowerTop(s, errs));
   if (errs.length) throw new Error("prelude: " + errs[0].msg);
   for (const t of tops) { t.prelude = true; t.line = 0; }
   return tops;
 }
 function run(src, opts = {}) {
   const errs = [], st = { checks: 0 }, out = [];
-  const io = opts.io || memHost(), file = opts.file || "";
+  const io = opts.io || memHost(), file = opts.file || "", H = hostTable(opts.host);
   const emit = s => { out.push(s); if (opts.onOut) opts.onOut(s); };
   const place = e => { const l = e.line || 0, r = { code: e.code, msg: e.msg, line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
   let info = [];
@@ -2766,12 +2842,12 @@ function run(src, opts = {}) {
       const mine = [], packs = new Set();
       for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
       for (const p of [...packs]) for (const q of PACKS[p].needs || []) packs.add(q);
-      const tops = [...preludeTops(packs), ...mine];
-      info = checkProgram(tops, errs, packs);
-      if (!errs.length) { dryProgram(tops, errs); foldProgram(tops, errs); }
+      const tops = [...preludeTops(packs, H), ...mine];
+      info = checkProgram(tops, errs, packs, H);
+      if (!errs.length) { dryProgram(tops, errs, H); foldProgram(tops, errs); }
       for (const i of info) if (i.line >= LINEBASE) { i.file = files[Math.floor(i.line / LINEBASE)]; i.line %= LINEBASE; }
       if (!errs.length) {
-        if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io });
+        if (!opts.checkOnly) runProgram(tops, emit, st, { maxSteps: opts.maxSteps, io, host: H });
         return { phase: "ok", errors: [], output: out, checks: st.checks, info };
       }
     }
@@ -2988,10 +3064,29 @@ const TESTS = [
   ["diff: many random pairs rebuild","(use diff)\n(use text)\n(fn txt [seed Num n Num] Str (join (map (fun [u] (get [\"x\" \"y\" \"\" \"}\"] (floor (* 4 u)))) (rand seed n)) \"\\n\"))\n(show (all (fun [s] (with [a (txt s 12) b (txt (+ s 1000) 9)] (same (diff.apply a (diff.make a b)) b))) (range 300)))","true"],
   ["E14 diff: here missing or not once, known before running","(use diff)\n(let a \"one\\ntwo\\none\\n\")\n(show (diff.apply a [(Edit \"one\\n\" \"1\\n\")]))\n(show (diff.apply a [(Edit \"thre\" \"3\")]))\n(show (diff.apply a [(Edit \"\" \"x\")]))","check!E14,E14,E14"],
   ["diff.unified","(use diff)\n(show (diff.unified \"a\\nb\\nc\\n\" \"a\\nB\\nc\"))\n(show (diff.unified \"same\" \"same\"))","--- a\n+++ b\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n\n"],
+  ["host: typed calls","(show (app.greet \"bo\"))\n(show (app.find 1))\n(show (match (app.find 2) (Some t) (Ticket.title t) None \"none\"))\n(show (map Ticket.id (app.all)))\n(show (app.tags))\n(show (app.each (fun [x] (* x 10))))","hi bo\n(Some (Ticket 1 \"printer on fire\"))\nnone\n[1 2]\n{\"x\" 1 \"y\" 2}\n50",null,null,true],
+  ["host: calls are checked before running","(show (app.greet 5))\n(show (app.gret \"x\"))\n(show (app.find 1 2))\n(show (+ 1 (app.find 1)))\n(fn f [t Ticket] Str (Ticket.titel t))","check!E4,E1,E2,E4,E1",null,null,true],
+  ["host: a host bug or failure is E19, try catches it","(show (try (app.bad)))\n(show (try (app.down)))\n(show (try (app.no \"ticket 9\")))","(Err \"E19\" \"app.bad gave back string where its signature says Num. the host has a bug\")\n(Err \"E19\" \"app.down: database is down\")\n(Err \"not-found\" \"ticket 9\")",null,null,true],
+  ["host: a failure outside try stops the run","(show 1)\n(show (app.down))","run!E19",null,null,true],
+  ["host: a call waits for the run","(show 1)\n(show (get [] (app.each (fun [x] x))))","run!E10",null,null,true],
+  ["host names are unknown without the host","(show (app.greet \"x\"))","!E1"],
 ];
+const h = hostHelp, DEMO_HOST = {
+  types: "(rec Ticket [id Num title Str])",
+  fns: {
+    "app.greet": { sig: "Str -> Str", fn: ([s]) => "hi " + s, note: "says hi" },
+    "app.find": { sig: "Num -> (Opt Ticket)", fn: ([id]) => id === 1 ? h.some(h.rec("Ticket", 1, "printer on fire")) : h.none },
+    "app.all": { sig: "-> (Vec Ticket)", fn: () => [h.rec("Ticket", 1, "a"), h.rec("Ticket", 2, "b")] },
+    "app.tags": { sig: "-> (Map Str Num)", fn: () => h.map([["x", 1], ["y", 2]]) },
+    "app.each": { sig: "(Fn Num Num) -> Num", fn: ([f], cx) => cx.apply(f, [2]) + cx.apply(f, [3]) },
+    "app.bad": { sig: "-> Num", fn: () => "oops" },
+    "app.down": { sig: "-> Num", fn: () => { throw new Error("database is down"); } },
+    "app.no": { sig: "Str -> Num", fn: ([s]) => h.fail("not-found", s) },
+  },
+};
 function runTests() {
-  const rs = TESTS.map(([name, src, want, files, maxSteps]) => {
-    const r = run(src, { io: memHost(files || {}), maxSteps });
+  const rs = TESTS.map(([name, src, want, files, maxSteps, withHost]) => {
+    const r = run(src, { io: memHost(files || {}), maxSteps, host: withHost ? DEMO_HOST : undefined });
     let got = r.errors.length ? (/^(check|run)!/.test(want) ? r.phase : "") + "!" + r.errors.map(e => e.code).join(",") : r.output.join("\n");
     if (want.includes("@") && r.errors.length) got += "@" + r.errors.map(e => `${e.file}:${e.line}`).join(",");
     let ok = got === want;
@@ -3049,18 +3144,25 @@ function specText(which) {
 }
 
 /* ------------------------------------------------------------------ cli */
-const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
+const USAGE = "usage: tact FILE [args ..] | -e SRC | - | --host H.js .. | --spec [PACK|all] | --check FILE | --sigs FILE | --test | --fuzz N SEED | --list [PACK|all] | --run FILE [args ..] | --show FILE";
 function errLines(r) { return r.errors.map(e => `${e.code} ${e.file ? e.file + " " : ""}line ${e.line}: ${e.msg}`).join("\n"); }
 function cli(args, host) {           // host = the io host. it also needs read and stdin to load the program itself
   const a = args.slice();
+  let tools = null;                    // --host H.js: a module whose export is a tact host: { types, fns }
+  while (a[0] === "--host") {
+    if (!a[1]) return { out: "", err: "--host needs a .js file", code: 2 };
+    if (typeof host.load !== "function") return { out: "", err: "--host needs node", code: 2 };
+    try { tools = host.load(a[1]); hostTable(tools); } catch (x) { return { out: "", err: `--host ${a[1]}: ${String(x.message || x).split("\n")[0]}`, code: 2 }; }
+    a.splice(0, 2);
+  }
   const runIt = (src, showTypes, file, rest) => {
     const io = Object.assign({}, host, { args: () => rest || [] });
     if (showTypes) {
-      const r = run(src, { io, file, checkOnly: true });
+      const r = run(src, { io, file, checkOnly: true, host: tools });
       const txt = r.info.map(i => `${i.file ? i.file + " " : ""}line ${String(i.line).padEnd(4)} ${i.text}\n          ${i.code}`).join("\n");
       return { out: txt, err: errLines(r), code: r.errors.length ? 1 : 0, result: r };
     }
-    const r = run(src, { io, file, onOut: host.out });
+    const r = run(src, { io, file, onOut: host.out, host: tools });
     return { out: host.out ? "" : r.output.join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0, result: r };
   };
   const src = p => { if (p === undefined) throw new Error("missing FILE"); return p === "-" ? host.stdin() : host.read(p); };
@@ -3068,10 +3170,10 @@ function cli(args, host) {           // host = the io host. it also needs read a
   try {
     switch (a[0]) {
       case undefined: case "-h": case "--help": return { out: USAGE, err: "", code: a[0] ? 0 : 2 };
-      case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t, err: "", code: 0 }; }
-      case "--check": { const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true }); return { out: r.errors.length ? "" : "ok", err: errLines(r), code: r.errors.length ? 1 : 0 }; }
+      case "--spec": { const t = specText(a[1]); return t === null ? { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 } : { out: t + (tools ? "\n\n" + hostSpec(tools) : ""), err: "", code: 0 }; }
+      case "--check": { const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools }); return { out: r.errors.length ? "" : "ok", err: errLines(r), code: r.errors.length ? 1 : 0 }; }
       case "--sigs": {                 // what a side loaded tact file offers, without its source
-        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true });
+        const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools });
         return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
       }
       case "--list": return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
@@ -3100,7 +3202,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
   } catch (x) { return { out: "", err: String(x.message || x), code: 2 }; }
 }
 
-const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png, PACKS, specText };
+const TACT = { VERSION, SYNTAX, MATRIX, PRELUDE, TESTS, run, runTests, fuzz, cli, builtins: B, fmt, memHost, nodeHost, png, PACKS, specText, hostSpec, host: hostHelp };
 if (typeof module === "object" && module.exports) {
   module.exports = TACT;
   if (typeof require === "function" && require.main === module) {
