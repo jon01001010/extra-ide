@@ -183,6 +183,10 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  xlsx: { say: "write .xlsx workbooks", types: "(sum Cell [XNum [Num] XStr [Str] XBool [Bool] XBlank []])\n(rec Sheet [name Str rows (Vec (Vec Cell))])",
+    notes: "(io.writeb \"out.xlsx\" (xlsx.pack [(Sheet \"Data\" [[(XStr \"id\") (XStr \"n\")] [(XStr \"007\") (XNum 1.5)]])]))\nrows top to bottom, cells left to right from A1. rows may differ in length. XBlank leaves a cell empty.\na cell keeps its type: (XStr \"007\") (XStr \"1e5\") (XStr \"=A1\") stay text, never a number or a formula.\nno formulas, dates, styles or widths. a date goes in as text, or as a number. reading xlsx is not here." },
+  zip: { say: "read and write zip and gzip", types: "(rec Entry [name Str data (Vec Num)])",
+    notes: "bytes are a (Vec Num) of 0..255: (use io) io.readb and io.writeb move them, (use bytes) utf8 and unutf8 turn text into them.\nzip.pack gives the same bytes for the same entries on every host. a name is a relative path with / between parts.\nzip.unpack and gunzip check every crc. what they hand back is capped at 33554432 bytes (E17).\nnot read: encrypted, zip64 or split archives, methods other than stored and deflate. E15 says which." },
   wav: { say: "sound: samples to wav and back", types: "(rec Sound [rate Num left (Vec Num) right (Vec Num)])",
     notes: "a sound is a (Vec Num) of samples -1..1, rate of them a second. all of it is pure: check works on it.\nto keep one: (io.writeb \"a.wav\" (wav.pack 44100 samples)). 16 bit pcm: sample x is stored as round(x*32767).\na sample outside -1..1 is E17 with its place, never clipped in silence. (wav.mix [v]) scales a sound to fit.\nwav.tone starts at 0 and stops where the time ends, mostly not at 0: that is a click. wav.env fades the ends:\ngain i/attack over the first attack samples, (n-1-i)/release over the last release, so both ends are 0.\na vector holds 1000000 samples: 22 seconds at 44100, 125 at 8000. for a long sound use a lower rate.\nthe bytes of a wav are 44 + 2 a sample a channel, so they may pass 1000000: hand them straight to io.writeb.\na note after a rest: (concat (rep n 0) note). wav.read gives back what wav.pack stored, within 1/32767." },
   prop: { say: "seeded random tests that shrink", types: "",
@@ -220,7 +224,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js. new here? tact --readme\nyou run it yourself, from your context, in your own sandbox: node tact.js FILE. no server, no setup.
 
@@ -618,6 +622,14 @@ url.build bytes 1 @Map Str a Map Str Str to k=v&k=v, both sides url.enc, keys in
 hex.enc bytes 1 @Vec.Num Str bytes to lower case hex. E17 not a byte
 hex.dec bytes 1 Str @Vec.Num hex of either case to bytes. E15 odd length or not hex
 html.esc bytes 1 Str Str & < > " ' escaped: safe as html text and inside a quoted attribute
+Entry zip ! ! ! Entry name data. data = bytes 0..255
+zip.pack zip 1 @Vec.Entry @Vec.Num a .zip. deflate or stored, the smaller. E14 a name twice, empty, absolute, with .. or \\. E17 not a byte, over 65535 entries
+zip.unpack zip 1 @Vec.Num @Vec.Entry files in archive order. directories skipped. E15 damaged, crc, unsupported, unsafe name. E17 too big
+gzip zip 1 @Vec.Num @Vec.Num a .gz of the bytes. E17 not a byte
+gunzip zip 1 @Vec.Num @Vec.Num E15 not gzip, damaged, crc. E17 too big
+Cell xlsx ! ! ! XNum n. XStr s. XBool b. XBlank
+Sheet xlsx ! ! ! Sheet name rows
+xlsx.pack xlsx 1 @Vec.Sheet @Vec.Num a .xlsx. E10 no sheets. E14 sheet name: 1..31 chars, none of : \\ / ? * [ ], no ' at an end, unique ignoring case. E17 over 1048576 rows, 16384 columns, 32767 chars in a cell
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -3088,6 +3100,326 @@ def("hex.dec", "Str -> (Vec Num)", ([s]) => {
 const HTML_ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" };
 def("html.esc", "Str -> Str", ([s]) => s.replace(/[&<>"']/g, c => HTML_ESC[c]));
 
+/* ---- zip gzip xlsx: inflate and deflate in plain js, the same bytes on every host.
+   for reuse:  crc32(u8, crc = 0)  adler32(u8)  inflateRaw(u8, op, max)  zlibInflate(u8, op, max)  deflateRaw(u8)  zlibDeflate(u8)
+   all take and give a Uint8Array. a bad stream = E15, more than max bytes out = E17. */
+const ZCAP = 1 << 28, ZVEC = 1 << 25;     // inflate stops at 256 MB. a builtin hands back at most 32 MB as a (Vec Num)
+const ZLB = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258], ZLX = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+const ZDB = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577], ZDX = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+let ZCRC = null, ZTAB = null;
+function crc32(u8, crc = 0) {            // crc = the crc32 of what came before, to go on from there
+  if (!ZCRC) { ZCRC = new Int32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c >>> 1 ^ (c & 1 ? 0xEDB88320 : 0); ZCRC[i] = c; } }
+  let c = ~crc;
+  for (let i = 0; i < u8.length; i++) c = c >>> 8 ^ ZCRC[(c ^ u8[i]) & 255];
+  return ~c >>> 0;
+}
+function adler32(u8) {
+  let a = 1, b = 0;
+  for (let i = 0; i < u8.length;) { const e = Math.min(u8.length, i + 5552); for (; i < e; i++) { a += u8[i]; b += a; } a %= 65521; b %= 65521; }
+  return (b << 16 | a) >>> 0;
+}
+function zHuff(lens, what, loose, bad) {  // code lengths to a lookup table: next bits (lsb first) -> symbol * 16 + length
+  const cnt = new Uint16Array(16); let mx = 0;
+  for (let i = 0; i < lens.length; i++) { cnt[lens[i]]++; if (lens[i] > mx) mx = lens[i]; }
+  if (mx === 0) { if (!loose) bad(`no ${what} codes`); return { tab: new Uint16Array(1), mask: 0, bits: 0 }; }
+  let left = 1;
+  for (let l = 1; l <= 15; l++) { left = left * 2 - cnt[l]; if (left < 0) bad(`too many ${what} codes`); }
+  if (left > 0 && !(loose && mx === 1)) bad(`the ${what} codes leave gaps`);
+  const next = new Uint16Array(16); let c = 0;
+  for (let l = 1; l <= 15; l++) { c = c + cnt[l - 1] << 1; next[l] = c; }
+  next[1] = 0;
+  const size = 1 << mx, tab = new Uint16Array(size);
+  for (let s = 0; s < lens.length; s++) {
+    const l = lens[s]; if (!l) continue;
+    const code = next[l]++; let r = 0;
+    for (let i = 0; i < l; i++) r |= (code >> i & 1) << l - 1 - i;
+    for (let j = r; j < size; j += 1 << l) tab[j] = s << 4 | l;
+  }
+  return { tab, mask: size - 1, bits: mx };
+}
+function zTables() {
+  if (ZTAB) return ZTAB;
+  const rev = (c, n) => { let r = 0; for (let i = 0; i < n; i++) r |= (c >> i & 1) << n - 1 - i; return r; };
+  const lc = new Uint16Array(288), ll = new Uint8Array(288), lsym = new Uint8Array(259), dsym = new Uint8Array(512), dc = new Uint8Array(30);
+  for (let s = 0; s < 288; s++) { const n = s < 144 ? 8 : s < 256 ? 9 : s < 280 ? 7 : 8; lc[s] = rev(s < 144 ? 0x30 + s : s < 256 ? 0x190 + s - 144 : s < 280 ? s - 256 : 0xC0 + s - 280, n); ll[s] = n; }
+  for (let k = 0; k < 29; k++) for (let l = ZLB[k]; l <= (k < 28 ? ZLB[k + 1] - 1 : 258); l++) lsym[l] = k;
+  for (let k = 0; k < 30; k++) { dc[k] = rev(k, 5); for (let d = ZDB[k]; d <= (k < 29 ? ZDB[k + 1] - 1 : 32768); d++) dsym[d <= 256 ? d - 1 : 256 + (d - 1 >> 7)] = k; }
+  const never = () => { throw new Error("fixed tables"); };
+  return ZTAB = { lc, ll, lsym, dsym, dc, lit: zHuff(ll, "literal", true, never), dist: zHuff(new Uint8Array(32).fill(5), "distance", true, never) };
+}
+function inflateAt(u8, pos, op, max, tight) {       // raw deflate from u8[pos]. gives { out, pos }: the bytes and where the stream ended
+  const n = u8.length, bad = why => R("E15", `${op}: ${why}`), F = zTables();
+  let out = new Uint8Array(Math.min(max, Math.max(1024, (n - pos) * 4))), o = 0, bb = 0, bc = 0;
+  const grow = need => {
+    if (need > max) tight ? bad(`the data is longer than its stated size of ${max} bytes`) : R("E17", `${op}: the data unpacks to more than ${max} bytes`);
+    let c = Math.max(out.length, 1024); while (c < need) c *= 2;
+    const t = new Uint8Array(Math.min(c, max)); t.set(out.subarray(0, o)); out = t;
+  };
+  const bits = k => { while (bc < k) { if (pos >= n) bad("the compressed data ends early"); bb |= u8[pos++] << bc; bc += 8; } const v = bb & (1 << k) - 1; bb >>>= k; bc -= k; return v; };
+  const sym = t => {
+    while (bc < t.bits && pos < n) { bb |= u8[pos++] << bc; bc += 8; }
+    const e = t.tab[bb & t.mask], l = e & 15;
+    if (l === 0) bad("a code that stands for nothing");
+    if (l > bc) bad("the compressed data ends early");
+    bb >>>= l; bc -= l; return e >>> 4;
+  };
+  for (let last = 0; !last;) {
+    last = bits(1); const type = bits(2);
+    if (type === 3) bad("block type 3 does not exist");
+    if (type === 0) {
+      bb >>>= bc & 7; bc -= bc & 7;
+      const len = bits(16), nlen = bits(16);
+      if ((len ^ nlen) !== 0xFFFF) bad("a stored block whose length check fails");
+      if (pos + len > n) bad("the compressed data ends early");
+      if (o + len > out.length) grow(o + len);
+      out.set(u8.subarray(pos, pos + len), o); o += len; pos += len;
+      continue;
+    }
+    let lt = F.lit, dt = F.dist;
+    if (type === 2) {
+      const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;
+      if (hlit > 286 || hdist > 30) bad("too many length or distance codes");
+      const cl = new Uint8Array(19), ORD = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+      for (let i = 0; i < hclen; i++) cl[ORD[i]] = bits(3);
+      const ct = zHuff(cl, "code length", false, bad), lens = new Uint8Array(hlit + hdist);
+      for (let i = 0; i < lens.length;) {
+        const s = sym(ct);
+        if (s < 16) { lens[i++] = s; continue; }
+        let v = 0, r;
+        if (s === 16) { if (i === 0) bad("a repeat with nothing before it"); v = lens[i - 1]; r = 3 + bits(2); } else r = s === 17 ? 3 + bits(3) : 11 + bits(7);
+        if (i + r > lens.length) bad("a repeat past the last code");
+        while (r--) lens[i++] = v;
+      }
+      if (!lens[256]) bad("a block with no end code");
+      lt = zHuff(lens.subarray(0, hlit), "literal", true, bad); dt = zHuff(lens.subarray(hlit), "distance", true, bad);
+    }
+    for (;;) {
+      let s = sym(lt);
+      if (s < 256) { if (o >= out.length) grow(o + 1); out[o++] = s; continue; }
+      if (s === 256) break;
+      s -= 257; if (s >= 29) bad("a length code that does not exist");
+      const len = ZLB[s] + bits(ZLX[s]), d = sym(dt);
+      if (d >= 30) bad("a distance code that does not exist");
+      const dist = ZDB[d] + bits(ZDX[d]);
+      if (dist > o) bad("a copy from before the start of the data");
+      if (o + len > out.length) grow(o + len);
+      for (let e = o + len, f = o - dist; o < e;) out[o++] = out[f++];
+    }
+  }
+  return { out: o === out.length ? out : out.slice(0, o), pos: pos - (bc >> 3) };
+}
+function inflateRaw(u8, op = "inflate", max = ZCAP) { return inflateAt(u8, 0, op, max, false).out; }
+function zlibInflate(u8, op = "zlib", max = ZCAP) {
+  const bad = why => R("E15", `${op}: ${why}`);
+  if (u8.length < 6) bad("too short to be zlib data");
+  if ((u8[0] & 15) !== 8 || u8[0] >> 4 > 7 || (u8[0] << 8 | u8[1]) % 31) bad("not zlib data: bad header");
+  if (u8[1] & 32) bad("zlib data that needs a preset dictionary is not supported");
+  const r = inflateAt(u8, 2, op, max, false), p = r.pos;
+  if (p + 4 > u8.length) bad("the adler32 check at the end is missing");
+  if (((u8[p] << 24 | u8[p + 1] << 16 | u8[p + 2] << 8 | u8[p + 3]) >>> 0) !== adler32(r.out)) bad("the adler32 check fails: the data is damaged");
+  return r.out;
+}
+function deflateRaw(u8) {                // lz77 over a 32k window, fixed codes. stored blocks when those are smaller
+  const n = u8.length, T = zTables(), blocks = Math.max(1, Math.ceil(n / 65535));
+  const out = new Uint8Array(n + (n >> 3) + 16); let o = 0, acc = 0, nb = 0;
+  const put = (v, k) => { acc |= v << nb; nb += k; while (nb >= 8) { out[o++] = acc & 255; acc >>>= 8; nb -= 8; } };
+  const head = new Int32Array(32768).fill(-1), prev = new Int32Array(32768);
+  const hash = i => (u8[i] << 10 ^ u8[i + 1] << 5 ^ u8[i + 2]) & 32767;
+  put(1, 1); put(1, 2);
+  for (let i = 0; i < n;) {
+    let bl = 0, bd = 0;
+    if (i + 2 < n) {
+      const h = hash(i), maxl = Math.min(258, n - i);
+      for (let p = head[h], chain = 64; p >= 0 && i - p <= 32768 && chain--;) {
+        if (u8[p + bl] === u8[i + bl]) { let l = 0; while (l < maxl && u8[p + l] === u8[i + l]) l++; if (l > bl) { bl = l; bd = i - p; if (l === maxl) break; } }
+        const q = prev[p & 32767]; if (q >= p) break; p = q;
+      }
+      prev[i & 32767] = head[h]; head[h] = i;
+    }
+    if (bl < 3 || (bl === 3 && bd > 4096)) { const s = u8[i++]; put(T.lc[s], T.ll[s]); continue; }
+    const k = T.lsym[bl], d = T.dsym[bd <= 256 ? bd - 1 : 256 + (bd - 1 >> 7)];
+    put(T.lc[257 + k], T.ll[257 + k]); put(bl - ZLB[k], ZLX[k]); put(T.dc[d], 5); put(bd - ZDB[d], ZDX[d]);
+    for (let j = i + 1, e = i + bl; j < e; j++) if (j + 2 < n) { const h = hash(j); prev[j & 32767] = head[h]; head[h] = j; }
+    i += bl;
+  }
+  put(T.lc[256], 7); if (nb) put(0, 8 - nb);
+  if (o <= n + 5 * blocks) return out.slice(0, o);
+  const st = new Uint8Array(n + 5 * blocks);
+  for (let b = 0, p = 0, q = 0; b < blocks; b++) {
+    const len = Math.min(65535, n - p);
+    st[q] = b === blocks - 1 ? 1 : 0; st[q + 1] = len & 255; st[q + 2] = len >> 8; st[q + 3] = ~len & 255; st[q + 4] = ~len >> 8 & 255;
+    st.set(u8.subarray(p, p + len), q + 5); p += len; q += 5 + len;
+  }
+  return st;
+}
+function zlibDeflate(u8) { const a = adler32(u8); return join8([Uint8Array.of(0x78, 0x9C), deflateRaw(u8), Uint8Array.of(a >>> 24, a >>> 16 & 255, a >>> 8 & 255, a & 255)]); }
+const zLE = (n, k) => { const b = new Uint8Array(k); for (let i = 0; i < k; i++) { b[i] = n & 255; n = Math.floor(n / 256); } return b; };
+const zU16 = (u8, p) => u8[p] | u8[p + 1] << 8, zU32 = (u8, p) => (u8[p] | u8[p + 1] << 8 | u8[p + 2] << 16 | u8[p + 3] << 24) >>> 0;
+const zIn = (v, op) => { if (v.length > ZVEC) R("E17", `${op}: ${v.length} bytes is over the ${ZVEC} byte cap`); return bytes(v, op); };
+function gzipBytes(u8) { return join8([Uint8Array.of(0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 255), deflateRaw(u8), zLE(crc32(u8), 4), zLE(u8.length % 4294967296, 4)]); }
+function gunzipBytes(u8, op = "gunzip", max = ZCAP) {
+  const bad = why => R("E15", `${op}: ${why}`), n = u8.length, parts = [];
+  let p = 0, total = 0;
+  for (;;) {
+    if (n - p < 18) bad(p ? "bytes after the gzip data that are not gzip" : "too short to be gzip data");
+    if (u8[p] !== 0x1F || u8[p + 1] !== 0x8B) bad(p ? "bytes after the gzip data that are not gzip" : "not gzip data: it does not start with 1f 8b");
+    if (u8[p + 2] !== 8) bad(`compression method ${u8[p + 2]} is not supported, only deflate (8)`);
+    const flg = u8[p + 3], h0 = p; if (flg & 0xE0) bad("reserved header flags are set");
+    p += 10;
+    if (flg & 4) { if (p + 2 > n) bad("the header ends early"); p += 2 + zU16(u8, p); }
+    for (const f of [8, 16]) if (flg & f) { while (p < n && u8[p]) p++; p++; }
+    if (flg & 2) { if (p + 2 > n) bad("the header ends early"); if (zU16(u8, p) !== (crc32(u8.subarray(h0, p)) & 0xFFFF)) bad("the header check fails"); p += 2; }
+    if (p > n) bad("the header ends early");
+    const r = inflateAt(u8, p, op, max - total, false); p = r.pos;
+    if (p + 8 > n) bad("the crc32 and size at the end are missing");
+    if (zU32(u8, p) !== crc32(r.out)) bad("the crc32 check fails: the data is damaged");
+    if (zU32(u8, p + 4) !== r.out.length % 4294967296) bad("the size check fails: the data is damaged");
+    parts.push(r.out); total += r.out.length; p += 8;
+    let z = p; while (z < n && u8[z] === 0) z++;
+    if (z === n) return parts.length === 1 ? parts[0] : join8(parts);
+  }
+}
+const ZCP437 = "\u00c7\u00fc\u00e9\u00e2\u00e4\u00e0\u00e5\u00e7\u00ea\u00eb\u00e8\u00ef\u00ee\u00ec\u00c4\u00c5\u00c9\u00e6\u00c6\u00f4\u00f6\u00f2\u00fb\u00f9\u00ff\u00d6\u00dc\u00a2\u00a3\u00a5\u20a7\u0192\u00e1\u00ed\u00f3\u00fa\u00f1\u00d1\u00aa\u00ba\u00bf\u2310\u00ac\u00bd\u00bc\u00a1\u00ab\u00bb\u2591\u2592\u2593\u2502\u2524\u2561\u2562\u2556\u2555\u2563\u2551\u2557\u255d\u255c\u255b\u2510\u2514\u2534\u252c\u251c\u2500\u253c\u255e\u255f\u255a\u2554\u2569\u2566\u2560\u2550\u256c\u2567\u2568\u2564\u2565\u2559\u2558\u2552\u2553\u256b\u256a\u2518\u250c\u2588\u2584\u258c\u2590\u2580\u03b1\u00df\u0393\u03c0\u03a3\u03c3\u00b5\u03c4\u03a6\u0398\u03a9\u03b4\u221e\u03c6\u03b5\u2229\u2261\u00b1\u2265\u2264\u2320\u2321\u00f7\u2248\u00b0\u2219\u00b7\u221a\u207f\u00b2\u25a0\u00a0";
+const zLone = s => /[\uD800-\uDFFF]/u.test(s);        // half of a surrogate pair: utf8 cannot carry it
+function zipName(name, op) {
+  const no = why => R("E14", `${op}: the name ${quote(name)} ${why}`);
+  if (name === "") R("E14", `${op}: an entry has an empty name. give each entry a path like "dir/file.txt"`);
+  if (name.includes("\\")) no("has a backslash. zip paths use /");
+  if (name.includes("\0") || zLone(name)) no("has a character a zip name cannot hold");
+  if (name[0] === "/" || /^[A-Za-z]:/.test(name)) no("is absolute. write it relative, like \"dir/file.txt\"");
+  if (name.endsWith("/")) no("ends in /: that is a directory. entries are files, their directories need no entry");
+  for (const part of name.split("/")) { if (part === "..") no("has a .. part"); if (part === "" || part === ".") no("has an empty or . part"); }
+  const b = new TextEncoder().encode(name);
+  if (b.length > 65535) no("is over 65535 bytes");
+  return b;
+}
+function zipBytes(files, op) {           // files: [{ name, data: Uint8Array }]. one .zip, the same bytes every time
+  if (files.length > 65535) R("E17", `${op}: ${files.length} entries is over the 65535 a plain zip holds`);
+  const seen = new Set(), parts = [], cd = []; let off = 0, total = 0;
+  for (const f of files) {
+    const nb = zipName(f.name, op);
+    if (seen.has(f.name)) R("E14", `${op}: the name ${quote(f.name)} is there twice. every entry needs its own name`);
+    seen.add(f.name);
+    total += f.data.length; if (total > ZVEC) R("E17", `${op}: the entries together are over the ${ZVEC} byte cap`);
+    const z = deflateRaw(f.data), small = z.length < f.data.length, body = small ? z : f.data;
+    // version 20, flags: utf8 name, method, time 0:00:00, date 1980-01-01, crc, sizes, name length, extra length
+    const mid = join8([zLE(small ? 20 : 10, 2), zLE(0x800, 2), zLE(small ? 8 : 0, 2), zLE(0, 2), zLE(0x21, 2), zLE(crc32(f.data), 4), zLE(body.length, 4), zLE(f.data.length, 4), zLE(nb.length, 2), zLE(0, 2)]);
+    parts.push(zLE(0x04034B50, 4), mid, nb, body);
+    cd.push(zLE(0x02014B50, 4), zLE(20, 2), mid, zLE(0, 2), zLE(0, 2), zLE(0, 2), zLE(0, 4), zLE(off, 4), nb);
+    off += 30 + nb.length + body.length;
+  }
+  const dir = join8(cd);
+  return join8([...parts, dir, zLE(0x06054B50, 4), zLE(0, 4), zLE(files.length, 2), zLE(files.length, 2), zLE(dir.length, 4), zLE(off, 4), zLE(0, 2)]);
+}
+function unzipBytes(u8, op) {            // gives [{ name, data: Uint8Array }], in the order of the central directory
+  const bad = why => R("E15", `${op}: ${why}`), n = u8.length, out = [];
+  if (n < 22) bad(n >= 2 && u8[0] === 0x1F && u8[1] === 0x8B ? "this is gzip data, not a zip. use gunzip" : "too short to be a zip archive");
+  let e = -1;
+  for (let p = n - 22, lo = Math.max(0, n - 22 - 65535); p >= lo; p--) if (u8[p] === 0x50 && u8[p + 1] === 0x4B && u8[p + 2] === 5 && u8[p + 3] === 6 && p + 22 + zU16(u8, p + 20) <= n) { e = p; break; }
+  if (e < 0) bad("not a zip archive: no end of central directory record");
+  if (e >= 20 && zU32(u8, e - 20) === 0x07064B50) bad("zip64 archives are not supported");
+  const count = zU16(u8, e + 10), size = zU32(u8, e + 12), start = zU32(u8, e + 16);
+  if (zU16(u8, e + 4) || zU16(u8, e + 6) || zU16(u8, e + 8) !== count) bad("archives split over several disks are not supported");
+  if (size === 0xFFFFFFFF || start === 0xFFFFFFFF) bad("zip64 archives are not supported");
+  const shift = e - size - start;        // bytes put in front of the archive move every offset
+  if (shift < 0) bad("the central directory does not fit in the file");
+  const name8 = (p, len, utf) => {
+    const b = u8.subarray(p, p + len); let s = null;
+    try { s = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(b); } catch (x) { if (utf) bad("an entry name is not utf8"); }
+    if (s === null) { s = ""; for (const c of b) s += c < 128 ? String.fromCharCode(c) : ZCP437[c - 128]; }
+    return s;
+  };
+  let p = start + shift, total = 0;
+  for (let i = 0; i < count; i++) {
+    if (p + 46 > e || zU32(u8, p) !== 0x02014B50) bad(`the central directory is damaged at entry ${i + 1} of ${count}`);
+    const flags = zU16(u8, p + 8), method = zU16(u8, p + 10), crc = zU32(u8, p + 16), csize = zU32(u8, p + 20), usize = zU32(u8, p + 24);
+    const nl = zU16(u8, p + 28), xl = zU16(u8, p + 30), kl = zU16(u8, p + 32), lo = zU32(u8, p + 42);
+    if (p + 46 + nl + xl + kl > e) bad(`the central directory is damaged at entry ${i + 1} of ${count}`);
+    const name = name8(p + 46, nl, flags & 0x800), q = quote(name);
+    p += 46 + nl + xl + kl;
+    if (name.endsWith("/")) continue;
+    if (flags & 0x41) bad(`the entry ${q} is encrypted. encrypted archives are not supported`);
+    if (flags & 0x20) bad(`the entry ${q} is patch data, which is not supported`);
+    if (csize === 0xFFFFFFFF || usize === 0xFFFFFFFF || lo === 0xFFFFFFFF) bad(`the entry ${q} needs zip64, which is not supported`);
+    if (method !== 0 && method !== 8) bad(`the entry ${q} uses compression method ${method}${{ 1: " (shrink)", 6: " (implode)", 9: " (deflate64)", 12: " (bzip2)", 14: " (lzma)", 93: " (zstd)", 95: " (xz)", 98: " (ppmd)", 99: " (aes encryption)" }[method] || ""}. only stored (0) and deflate (8) are supported`);
+    if (name === "" || name.includes("\0")) bad(`entry ${i + 1} has no usable name`);
+    if (/^[\/\\]|^[A-Za-z]:/.test(name) || name.split(/[\/\\]/).includes("..")) bad(`the entry ${q} has an absolute path or a .. part: unsafe to write out, refused`);
+    const h = lo + shift;
+    if (h + 30 > e || zU32(u8, h) !== 0x04034B50) bad(`the entry ${q} points at no local header`);
+    const d = h + 30 + zU16(u8, h + 26) + zU16(u8, h + 28);
+    if (d + csize > e) bad(`the data of the entry ${q} runs past the end of the archive`);
+    total += usize; if (total > ZVEC) R("E17", `${op}: the entries unpack to more than the ${ZVEC} byte cap`);
+    let data;
+    if (method === 0) { if (csize !== usize) bad(`the stored entry ${q} states two different sizes`); data = u8.slice(d, d + csize); }
+    else { data = inflateAt(u8.subarray(d, d + csize), 0, `${op}: entry ${q}`, usize, true).out; if (data.length !== usize) bad(`the entry ${q} unpacks to ${data.length} bytes, not its stated ${usize}`); }
+    if (crc32(data) !== crc) bad(`the entry ${q} fails its crc32 check: the data is damaged`);
+    out.push({ name, data });
+  }
+  return out;
+}
+def("zip.pack", "(Vec Entry) -> (Vec Num)", ([v]) => Array.from(zipBytes(v.map(e => ({ name: e.vals[0], data: bytes(e.vals[1], "zip.pack") })), "zip.pack")));
+def("zip.unpack", "(Vec Num) -> (Vec Entry)", ([v]) => unzipBytes(bytes(v, "zip.unpack", "E15"), "zip.unpack").map(f => RV("Entry", [f.name, Array.from(f.data)])));
+def("gzip", "(Vec Num) -> (Vec Num)", ([v]) => Array.from(gzipBytes(zIn(v, "gzip"))));
+def("gunzip", "(Vec Num) -> (Vec Num)", ([v]) => Array.from(gunzipBytes(bytes(v, "gunzip", "E15"), "gunzip", ZVEC)));
+
+const XMAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main", XREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships", XPKG = "http://schemas.openxmlformats.org/package/2006", XCT = "application/vnd.openxmlformats-officedocument.spreadsheetml.";
+const xmlAttr = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// cell text. what xml 1.0 cannot hold goes in as _xHHHH_ the way the format says, and a literal _xHHHH_ is guarded. \r goes in as &#13; or a parser makes it \n
+const xlsxText = s => s.replace(/_(?=x[0-9A-Fa-f]{4}_)/g, "_x005F_").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])).replace(/[\x00-\x08\x0B-\x1F\ufffe\uffff]/g, c => c === "\r" ? "&#13;" : "_x" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + "_");
+function xlsxBytes(sheets, op) {
+  const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n', enc = s => new TextEncoder().encode(head + s);
+  if (!sheets.length) R("E10", `${op}: no sheets. a workbook needs at least one`);
+  if (sheets.length > 1000) R("E17", `${op}: ${sheets.length} sheets is over the cap of 1000`);
+  const seen = new Set(), sst = new Map(), texts = [], colName = [], files = []; let cells = 0, refs = 0, tlen = 0;
+  const col = k => { if (!colName[k]) { let s = ""; for (let c = k + 1; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + (c - 1) % 26) + s; colName[k] = s; } return colName[k]; };
+  sheets.forEach((sh, si) => {
+    const [name, rows] = sh.vals, no = why => R("E14", `${op}: the sheet name ${quote(name)} ${why}`);
+    if (name === "") R("E14", `${op}: sheet ${si + 1} has an empty name. a sheet name is 1 to 31 characters`);
+    if (name.length > 31) no(`is ${name.length} characters. a sheet name is 1 to 31 characters`);
+    if (/[:\\\/?*\[\]]/.test(name)) no("has one of : \\ / ? * [ ] which a sheet name cannot hold");
+    if (/[\x00-\x1F\ufffe\uffff]/.test(name) || zLone(name)) no("has a control character");
+    if (name[0] === "'" || name.endsWith("'")) no("starts or ends with ' which a sheet name cannot");
+    if (seen.has(name.toLowerCase())) no("is there twice. sheet names differ, and upper or lower case does not count");
+    seen.add(name.toLowerCase());
+    if (rows.length > 1048576) R("E17", `${op}: sheet ${quote(name)} has ${rows.length} rows. a sheet holds 1048576`);
+    const xml = [];
+    rows.forEach((row, r) => {
+      if (row.length > 16384) R("E17", `${op}: sheet ${quote(name)} row ${r + 1} has ${row.length} cells. a row holds 16384`);
+      let line = "";
+      row.forEach((c, k) => {
+        if (c.name === "XBlank") return;
+        if (++cells > 2e6) R("E17", `${op}: over the cap of 2000000 filled cells`);
+        const at = `<c r="${col(k)}${r + 1}"`, x = c.vals[0];
+        if (c.name === "XNum") line += `${at}><v>${x}</v></c>`;
+        else if (c.name === "XBool") line += `${at} t="b"><v>${x ? 1 : 0}</v></c>`;
+        else {
+          let id = sst.get(x);
+          if (id === undefined) {
+            if (x.length > 32767) R("E17", `${op}: sheet ${quote(name)} cell ${col(k)}${r + 1} has ${x.length} characters of text. a cell holds 32767`);
+            if (zLone(x)) R("E14", `${op}: sheet ${quote(name)} cell ${col(k)}${r + 1} has half of a surrogate pair, which no file can hold`);
+            tlen += x.length + 40; if (tlen > ZVEC) R("E17", `${op}: the text is over the ${ZVEC} byte cap`);
+            id = texts.length; sst.set(x, id); texts.push(`<si><t xml:space="preserve">${xlsxText(x)}</t></si>`);
+          }
+          refs++; line += `${at} t="s"><v>${id}</v></c>`;
+        }
+      });
+      if (line) xml.push(`<row r="${r + 1}">${line}</row>`);
+    });
+    files.push({ name: `xl/worksheets/sheet${si + 1}.xml`, data: enc(`<worksheet xmlns="${XMAIN}"><sheetData>${xml.join("")}</sheetData></worksheet>`) });
+  });
+  const ns = sheets.length, has = texts.length > 0, rel = (id, type, target) => `<Relationship Id="rId${id}" Type="${XREL}/${type}" Target="${target}"/>`;
+  return zipBytes([
+    { name: "[Content_Types].xml", data: enc(`<Types xmlns="${XPKG}/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${XCT}sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${XCT}worksheet+xml"/>`).join("")}<Override PartName="/xl/styles.xml" ContentType="${XCT}styles+xml"/>${has ? `<Override PartName="/xl/sharedStrings.xml" ContentType="${XCT}sharedStrings+xml"/>` : ""}</Types>`) },
+    { name: "_rels/.rels", data: enc(`<Relationships xmlns="${XPKG}/relationships">${rel(1, "officeDocument", "xl/workbook.xml")}</Relationships>`) },
+    { name: "xl/workbook.xml", data: enc(`<workbook xmlns="${XMAIN}" xmlns:r="${XREL}"><sheets>${sheets.map((sh, i) => `<sheet name="${xmlAttr(sh.vals[0])}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`) },
+    { name: "xl/_rels/workbook.xml.rels", data: enc(`<Relationships xmlns="${XPKG}/relationships">${sheets.map((_, i) => rel(i + 1, "worksheet", `worksheets/sheet${i + 1}.xml`)).join("")}${rel(ns + 1, "styles", "styles.xml")}${has ? rel(ns + 2, "sharedStrings", "sharedStrings.xml") : ""}</Relationships>`) },
+    ...files,
+    { name: "xl/styles.xml", data: enc(`<styleSheet xmlns="${XMAIN}"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`) },
+    ...(has ? [{ name: "xl/sharedStrings.xml", data: enc(`<sst xmlns="${XMAIN}" count="${refs}" uniqueCount="${texts.length}">${texts.join("")}</sst>`) }] : []),
+  ], op);
+}
+def("xlsx.pack", "(Vec Sheet) -> (Vec Num)", ([v]) => Array.from(xlsxBytes(v, "xlsx.pack")));
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -4213,6 +4545,21 @@ const TESTS = [
   ["hex.enc hex.dec","(use bytes)\n(show (hex.enc [0 1 15 16 255]))\n(show (hex.enc (utf8 \"hé\")))\n(show (hex.enc (slice [1] 0 0)))\n(show (hex.dec \"00010f10ff\"))\n(show (hex.dec \"DEADbeef\"))\n(show (hex.dec \"\"))\n(show (unutf8 (hex.dec (hex.enc (utf8 \"中😀\")))))\n(show (try (hex.dec \"abc\")))\n(show (try (hex.dec \"0g\")))\n(show (match (try (hex.dec \" 0a\")) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (hex.dec \"0x0a\")) (Ok _) \"ok\" (Err c _) c))\n(show (try (hex.enc [1 256])))\n(show (match (try (hex.enc [-1])) (Ok _) \"ok\" (Err c _) c))\n(show (match (try (hex.enc [1.5])) (Ok _) \"ok\" (Err c _) c))","00010f10ff\n68c3a9\n\n[0 1 15 16 255]\n[222 173 190 239]\n[]\n中😀\n(Err \"E15\" \"hex.dec: 3 hex digits is an odd count. every byte is two digits\")\n(Err \"E15\" \"hex.dec: \\\"0g\\\" at 0 is not two hex digits 0-9 a-f\")\nE15\nE15\n(Err \"E17\" \"hex.enc: 256 is not a byte 0..255\")\nE17\nE17"],
   ["html.esc","(use bytes)\n(show (html.esc \"<a href=\\\"x\\\">Tom & 'Jerry'</a>\"))\n(show (html.esc \"plain é 😀\"))\n(show (html.esc \"\"))\n(show (html.esc \"&amp;\"))\n(show (html.esc \"<<>>\"))","&lt;a href=&quot;x&quot;&gt;Tom &amp; &#x27;Jerry&#x27;&lt;/a&gt;\nplain é 😀\n\n&amp;amp;\n&lt;&lt;&gt;&gt;"],
   ["numeric names need their pack","(show (root cos 1 2))\n(show (url.enc \"a\"))","!E1,E1"],
+  ["zip: pack is the same bytes everywhere, unpack gives them back","(use zip)\n(use bytes)\n(let z (zip.pack [(Entry \"a\" [1 2 3])]))\n(show z)\n(let big (zip.pack [(Entry \"dir/téxt.txt\" (utf8 (join (rep 50 \"hello zip \") \"\"))) (Entry \"e\" []) (Entry \"b.bin\" [0 255 7])]))\n(show (len big))\n(show (map (fun [e] (Pair (Entry.name e) (len (Entry.data e)))) (zip.unpack big)))\n(check (zip.unpack z) [(Entry \"a\" [1 2 3])])\n(check (zip.unpack (zip.pack [])) [])\n(show (len (zip.pack [])))","[80 75 3 4 10 0 0 8 0 0 0 0 33 0 29 128 188 85 3 0 0 0 3 0 0 0 1 0 0 0 97 1 2 3 80 75 1 2 20 0 10 0 0 8 0 0 0 0 33 0 29 128 188 85 3 0 0 0 3 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 97 80 75 5 6 0 0 0 0 1 0 1 0 47 0 0 0 34 0 0 0 0 0]\n307\n[(Pair \"dir/téxt.txt\" 500) (Pair \"e\" 0) (Pair \"b.bin\" 3)]\n22"],
+  ["zip: reads what python wrote: deflate, stored, a utf8 name, a directory skipped","(use zip)\n(use bytes)\n(show (map (fun [e] (Pair (Entry.name e) (unutf8 (Entry.data e)))) (zip.unpack [80 75 3 4 20 0 0 0 0 0 102 162 116 93 0 0 0 0 0 0 0 0 0 0 0 0 2 0 0 0 100 47 80 75 3 4 20 0 0 8 8 0 102 162 116 93 129 252 177 72 7 0 0 0 30 0 0 0 8 0 0 0 100 47 195 169 46 116 120 116 75 76 74 78 196 141 0 80 75 3 4 20 0 0 0 0 0 102 162 116 93 172 42 147 216 2 0 0 0 2 0 0 0 1 0 0 0 115 104 105 80 75 1 2 20 3 20 0 0 0 0 0 102 162 116 93 0 0 0 0 0 0 0 0 0 0 0 0 2 0 0 0 0 0 0 0 0 0 16 0 253 65 0 0 0 0 100 47 80 75 1 2 20 3 20 0 0 8 8 0 102 162 116 93 129 252 177 72 7 0 0 0 30 0 0 0 8 0 0 0 0 0 0 0 0 0 0 0 128 1 32 0 0 0 100 47 195 169 46 116 120 116 80 75 1 2 20 3 20 0 0 0 0 0 102 162 116 93 172 42 147 216 2 0 0 0 2 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 128 1 77 0 0 0 115 80 75 5 6 0 0 0 0 3 0 3 0 149 0 0 0 110 0 0 0 0 0])))","[(Pair \"d/é.txt\" \"abcabcabcabcabcabcabcabcabcabc\") (Pair \"s\" \"hi\")]"],
+  ["zip: pack refuses bad names, up front","(use zip)\n(show (zip.pack [(Entry \"a\" []) (Entry \"a\" [1])]))\n(show (zip.pack [(Entry \"\" [])]))\n(show (zip.pack [(Entry \"/etc/x\" [])]))\n(show (zip.pack [(Entry \"a/../b\" [])]))\n(show (zip.pack [(Entry \"a\\\\b\" [])]))\n(show (zip.pack [(Entry \"c:/x\" [])]))\n(show (zip.pack [(Entry \"dir/\" [])]))\n(show (zip.pack [(Entry \"a\" [256])]))\n(show (zip.pack [(Entry \"a\" [1.5])]))","check!E14,E14,E14,E14,E14,E14,E14,E17,E17"],
+  ["zip: pack says why","(use zip)\n(show (try (zip.pack [(Entry \"a\" []) (Entry \"a\" [1])])))\n(show (try (zip.pack [(Entry \"x/../y\" [])])))\n(show (try (zip.pack [(Entry \"a\\\\b\" [])])))","(Err \"E14\" \"zip.pack: the name \\\"a\\\" is there twice. every entry needs its own name\")\n(Err \"E14\" \"zip.pack: the name \\\"x/../y\\\" has a .. part\")\n(Err \"E14\" \"zip.pack: the name \\\"a\\\\\\\\b\\\" has a backslash. zip paths use /\")"],
+  ["zip: unpack refuses damage and what it cannot read","(use zip)\n(fn patch [v (Vec Num) i Num b Num] (Vec Num) (concat (push (take v i) b) (drop v (+ i 1))))\n(let z (zip.pack [(Entry \"a\" [1 2 3])]))\n(show (try (zip.unpack [])))\n(show (try (zip.unpack (take z 60))))\n(show (try (zip.unpack (patch z 31 9))))\n(show (try (zip.unpack (patch z 44 12))))\n(show (try (zip.unpack (patch z 42 1))))\n(show (try (zip.unpack (patch z 61 127))))\n(show (try (zip.unpack (patch (patch (patch (patch z 54 255) 55 255) 56 255) 57 255))))\n(show (try (zip.unpack (patch z 34 0))))\n(show (try (zip.unpack (patch z 0 0))))\n(show (try (zip.unpack (patch (zip.pack [(Entry \"ab\" [])]) 78 47))))\n(show (try (zip.unpack (patch (zip.pack [(Entry \"a./b\" [])]) 80 46))))\n(show (zip.unpack (patch z 80 47)))\n(show (try (zip.unpack [1 2 300])))\n(show (try (zip.unpack (gzip [1 2 3]))))","(Err \"E15\" \"zip.unpack: too short to be a zip archive\")\n(Err \"E15\" \"zip.unpack: not a zip archive: no end of central directory record\")\n(Err \"E15\" \"zip.unpack: the entry \\\"a\\\" fails its crc32 check: the data is damaged\")\n(Err \"E15\" \"zip.unpack: the entry \\\"a\\\" uses compression method 12 (bzip2). only stored (0) and deflate (8) are supported\")\n(Err \"E15\" \"zip.unpack: the entry \\\"a\\\" is encrypted. encrypted archives are not supported\")\n(Err \"E17\" \"zip.unpack: the entries unpack to more than the 33554432 byte cap\")\n(Err \"E15\" \"zip.unpack: the entry \\\"a\\\" needs zip64, which is not supported\")\n(Err \"E15\" \"zip.unpack: the central directory is damaged at entry 1 of 1\")\n(Err \"E15\" \"zip.unpack: the entry \\\"a\\\" points at no local header\")\n(Err \"E15\" \"zip.unpack: the entry \\\"/b\\\" has an absolute path or a .. part: unsafe to write out, refused\")\n(Err \"E15\" \"zip.unpack: the entry \\\"../b\\\" has an absolute path or a .. part: unsafe to write out, refused\")\n[]\n(Err \"E15\" \"zip.unpack: 300 is not a byte 0..255\")\n(Err \"E15\" \"zip.unpack: not a zip archive: no end of central directory record\")"],
+  ["zip: a deflated entry that lies about its size or is cut","(use zip)\n(fn patch [v (Vec Num) i Num b Num] (Vec Num) (concat (push (take v i) b) (drop v (+ i 1))))\n(let z (zip.pack [(Entry \"t\" (rep 500 65))]))\n(let size (- (len z) 45))\n(show (len z))\n(show (try (zip.unpack (patch z size 100))))\n(show (try (zip.unpack (patch z size 250))))\n(show (try (zip.unpack (patch z 33 0))))\n(show (try (zip.unpack (patch z 31 7))))\n(show (len (Entry.data (need (first (zip.unpack z)) \"none\"))))","107\n(Err \"E15\" \"zip.unpack: entry \\\"t\\\": the data is longer than its stated size of 356 bytes\")\n(Err \"E15\" \"zip.unpack: the entry \\\"t\\\" unpacks to 500 bytes, not its stated 506\")\n(Err \"E15\" \"zip.unpack: entry \\\"t\\\": a copy from before the start of the data\")\n(Err \"E15\" \"zip.unpack: entry \\\"t\\\": block type 3 does not exist\")\n500"],
+  ["zip: unpack errors are check errors","(use zip)\n(show (zip.unpack [80 75 5 6]))\n(show (gunzip [31 139 8 0]))","check!E15,E15"],
+  ["gzip: there and back, and what python wrote","(use zip)\n(use bytes)\n(show (gzip []))\n(show (gzip (utf8 \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")))\n(check (gunzip (gzip [])) [])\n(check (unutf8 (gunzip (gzip (utf8 \"héllo 数据\")))) \"héllo 数据\")\n(let big (map (fun [i] (mod (* i i) 251)) (range 70000)))\n(check (gunzip (gzip big)) big)\n(show (< (len (gzip (rep 100000 7))) 1000))\n(show (unutf8 (gunzip [31 139 8 0 0 0 0 0 2 255 203 72 205 201 201 87 200 64 144 0 128 136 249 229 17 0 0 0])))\n(show (unutf8 (gunzip (concat (gzip (utf8 \"two \")) (gzip (utf8 \"members\"))))))","[31 139 8 0 0 0 0 0 0 255 3 0 0 0 0 0 0 0 0 0]\n[31 139 8 0 0 0 0 0 0 255 75 36 15 0 0 78 227 223 170 55 0 0 0]\ntrue\nhello hello hello\ntwo members"],
+  ["gzip: errors","(use zip)\n(fn patch [v (Vec Num) i Num b Num] (Vec Num) (concat (push (take v i) b) (drop v (+ i 1))))\n(let g (gzip [1 2 3 4 5]))\n(show (try (gunzip [1 2 3])))\n(show (try (gunzip (patch g 0 30))))\n(show (try (gunzip (patch g 2 9))))\n(show (try (gunzip (take g 14))))\n(show (try (gunzip (patch g 12 99))))\n(show (try (gunzip (patch g (- (len g) 6) 0))))\n(show (try (gunzip (patch g (- (len g) 2) 9))))\n(show (try (gunzip (concat g [7 7 7]))))\n(show (try (gunzip (patch g 10 7))))\n(show (try (gzip [1 -2])))\n(show (try (gunzip [1 2.5])))\n(let zeros (gzip (rep 100000 0)))\n(let bomb (concat (take zeros 23) (flat (rep 17000 (slice zeros 23 36)))))\n(show (len bomb))\n(show (try (gunzip bomb)))","(Err \"E15\" \"gunzip: too short to be gzip data\")\n(Err \"E15\" \"gunzip: not gzip data: it does not start with 1f 8b\")\n(Err \"E15\" \"gunzip: compression method 9 is not supported, only deflate (8)\")\n(Err \"E15\" \"gunzip: too short to be gzip data\")\n(Err \"E15\" \"gunzip: the crc32 check fails: the data is damaged\")\n(Err \"E15\" \"gunzip: the crc32 check fails: the data is damaged\")\n(Err \"E15\" \"gunzip: the size check fails: the data is damaged\")\n(Err \"E15\" \"gunzip: bytes after the gzip data that are not gzip\")\n(Err \"E15\" \"gunzip: block type 3 does not exist\")\n(Err \"E17\" \"gzip: -2 is not a byte 0..255\")\n(Err \"E15\" \"gunzip: 2.5 is not a byte 0..255\")\n221023\n(Err \"E17\" \"gunzip: the data unpacks to more than 33554432 bytes\")"],
+  ["xlsx: a workbook is a zip of xml, cells keep their types","(use xlsx)\n(use zip)\n(use bytes)\n(let wb (xlsx.pack [(Sheet \"Data\" [[(XStr \"id\") (XStr \"n\") (XStr \"ok\")] [(XStr \"007\") (XNum 1.5) (XBool true)] [] [XBlank (XStr \"=A1\") (XNum -2e-7) (XStr \"007\")]]) (Sheet \"R&D <2>\" [])]))\n(let parts (zip.unpack wb))\n(show (map Entry.name parts))\n(fn part [name Str] Str (unutf8 (Entry.data (need (find (fun [e] (same (Entry.name e) name)) parts) name))))\n(show (get (lines (part \"xl/worksheets/sheet1.xml\")) 1))\n(show (get (lines (part \"xl/sharedStrings.xml\")) 1))\n(show (get (lines (part \"xl/workbook.xml\")) 1))\n(show (get (lines (part \"xl/worksheets/sheet2.xml\")) 1))\n(check (xlsx.pack [(Sheet \"Data\" [])]) (xlsx.pack [(Sheet \"Data\" [[] [XBlank]])]))\n(show (< 1000 (len (xlsx.pack [(Sheet \"1234567890123456789012345678901\" [[(XStr (join (rep 32767 \"a\") \"\"))] (rep 16384 XBlank)])]))))","[\"[Content_Types].xml\" \"_rels/.rels\" \"xl/workbook.xml\" \"xl/_rels/workbook.xml.rels\" \"xl/worksheets/sheet1.xml\" \"xl/worksheets/sheet2.xml\" \"xl/styles.xml\" \"xl/sharedStrings.xml\"]\n<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"C1\" t=\"s\"><v>2</v></c></row><row r=\"2\"><c r=\"A2\" t=\"s\"><v>3</v></c><c r=\"B2\"><v>1.5</v></c><c r=\"C2\" t=\"b\"><v>1</v></c></row><row r=\"4\"><c r=\"B4\" t=\"s\"><v>4</v></c><c r=\"C4\"><v>-2e-7</v></c><c r=\"D4\" t=\"s\"><v>3</v></c></row></sheetData></worksheet>\n<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"6\" uniqueCount=\"5\"><si><t xml:space=\"preserve\">id</t></si><si><t xml:space=\"preserve\">n</t></si><si><t xml:space=\"preserve\">ok</t></si><si><t xml:space=\"preserve\">007</t></si><si><t xml:space=\"preserve\">=A1</t></si></sst>\n<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"R&amp;D &lt;2&gt;\" sheetId=\"2\" r:id=\"rId2\"/></sheets></workbook>\n<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData></sheetData></worksheet>\ntrue"],
+  ["xlsx: text that xml cannot hold as it is","(use xlsx)\n(use zip)\n(use bytes)\n(fn strings [rows (Vec (Vec Cell))] (Vec Str) (drop (lines (unutf8 (Entry.data (need (find (fun [e] (same (Entry.name e) \"xl/sharedStrings.xml\")) (zip.unpack (xlsx.pack [(Sheet \"s\" rows)]))) \"no strings\")))) 1))\n(show (strings [[(XStr \"a<b>&\\\"c'\") (XStr (cat \"bell\" (chr 7) \"cr\\r\\nlf\\ttab\")) (XStr \"_x0041_ _x41_\") (XStr \" lead\") (XStr \"\")]]))","[\"<sst xmlns=\\\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\\\" count=\\\"5\\\" uniqueCount=\\\"5\\\"><si><t xml:space=\\\"preserve\\\">a&lt;b&gt;&amp;\\\"c'</t></si><si><t xml:space=\\\"preserve\\\">bell_x0007_cr&#13;\" \"lf\\ttab</t></si><si><t xml:space=\\\"preserve\\\">_x005F_x0041_ _x41_</t></si><si><t xml:space=\\\"preserve\\\"> lead</t></si><si><t xml:space=\\\"preserve\\\"></t></si></sst>\"]"],
+  ["xlsx: sheet name rules and limits, up front","(use xlsx)\n(show (xlsx.pack []))\n(show (xlsx.pack [(Sheet \"\" [])]))\n(show (xlsx.pack [(Sheet \"a/b\" [])]))\n(show (xlsx.pack [(Sheet \"12345678901234567890123456789012\" [])]))\n(show (xlsx.pack [(Sheet \"Data\" []) (Sheet \"DATA\" [])]))\n(show (xlsx.pack [(Sheet \"'x\" [])]))\n(show (xlsx.pack [(Sheet \"a[1]\" [])]))\n(show (xlsx.pack [(Sheet \"s\" [[(XStr (join (rep 32768 \"a\") \"\"))]])]))\n(show (xlsx.pack [(Sheet \"s\" [(rep 16385 XBlank)])]))","check!E10,E14,E14,E14,E14,E14,E14,E17,E17"],
+  ["xlsx: errors say the rule","(use xlsx)\n(show (try (xlsx.pack [])))\n(show (try (xlsx.pack [(Sheet \"a:b\" [])])))\n(show (try (xlsx.pack [(Sheet \"Data\" []) (Sheet \"data\" [])])))\n(show (try (xlsx.pack [(Sheet \"\" [])])))","(Err \"E10\" \"xlsx.pack: no sheets. a workbook needs at least one\")\n(Err \"E14\" \"xlsx.pack: the sheet name \\\"a:b\\\" has one of : \\\\ / ? * [ ] which a sheet name cannot hold\")\n(Err \"E14\" \"xlsx.pack: the sheet name \\\"data\\\" is there twice. sheet names differ, and upper or lower case does not count\")\n(Err \"E14\" \"xlsx.pack: sheet 1 has an empty name. a sheet name is 1 to 31 characters\")"],
+  ["zip xlsx: written and read back through files","(use zip)\n(use xlsx)\n(use io)\n(use bytes)\n(do (io.writeb \"o/a.zip\" (zip.pack [(Entry \"n.txt\" (utf8 \"note\")) (Entry \"t.gz\" (gzip (utf8 \"inner\")))])))\n(show (map (fun [e] (Entry.name e)) (zip.unpack (io.readb \"o/a.zip\"))))\n(show (unutf8 (gunzip (Entry.data (get (zip.unpack (io.readb \"o/a.zip\")) 1)))))\n(show (io.writeb \"o/b.xlsx\" (xlsx.pack [(Sheet \"One\" [[(XNum 1)]])])))\n(show (take (io.readb \"o/b.xlsx\") 4))","[\"n.txt\" \"t.gz\"]\ninner\n2182\n[80 75 3 4]"],
+  ["zip the pack and zip the builtin live together","(use zip)\n(show (zip [1 2] [\"a\" \"b\"]))\n(show (len (zip.pack [(Entry \"a\" [])])))","[(Pair 1 \"a\") (Pair 2 \"b\")]\n100"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

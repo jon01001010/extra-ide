@@ -85,6 +85,8 @@ WHAT COMES BACK
   - exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
 
 THE PACKS. 167 rows are core, the rest load with (use name)
+  xlsx  write .xlsx workbooks
+  zip   read and write zip and gzip
   wav   sound: samples to wav and back
   prop  seeded random tests that shrink
   graph cheapest path, topo order, parts
