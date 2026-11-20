@@ -200,7 +200,7 @@ const PACKS = {
   bit: { say: "bit ops", types: "", notes: "" },
   bytes: { say: "utf8 base64 sha256 radix", types: "", notes: "" },
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes: ascii png svg frames", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+  draw: { say: "shapes: ascii png svg pdf frames", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -446,6 +446,8 @@ radix bytes 2 Num,Num Str whole n in base 2..36
 pradix bytes 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
 svg draw 3 Num,Num,@Vec.Draw Str w h shapes. an svg file as text
+pdf.pack draw 3 Num,Num,@Vec.@Vec.Draw @Vec.Num w h pages. a pdf, one picture a page. sizes in points: a4 = 595 842
+pdf.flow draw 4 Num,Num,Num,Str @Vec.@Vec.Draw w h size text. text wrapped onto pages with a margin, for pdf.pack
 rgb draw 3 Num,Num,Num Str #rrggbb. each clamped to 0..255
 ascii draw 4 Num,Num,@Vec.Draw,Num Str w h shapes cols. text picture. rows = cols*h/w/2. background = space. most ink = @
 utf8 bytes 1 Str @Vec.Num bytes
@@ -2354,6 +2356,60 @@ def("csv.cols", "Str (Vec Str) -> (Vec (Vec Str))", ([s, names]) => {
   return rows.map((r, n) => { if (r.length !== head.length) R("E15", `csv.cols: row ${n + 2} has ${r.length} fields, the header has ${head.length}`); return at.map(i => r[i]); });
 });
 
+/* ---- pdf: the same shapes as a document people can print. one picture a page, text as real text */
+function pdfBytes(w, h, pages) {
+  if (!(w >= 10 && h >= 10 && w <= 14400 && h <= 14400)) R("E17", `pdf.pack: page ${fmtNum(w)} x ${fmtNum(h)} must be 10..14400 points a side (a4 is 595 x 842)`);
+  if (!pages.length) R("E10", "pdf.pack: no pages. give at least one picture");
+  if (pages.length > 2000) R("E17", "pdf.pack: over 2000 pages");
+  const n = x => String(Math.round(x * 100) / 100), rgb = c => c.map(x => n(x / 255)).join(" ");
+  const esc = s => Array.from(s, ch => { const c = ch.codePointAt(0); return ch === "(" || ch === ")" || ch === "\\" ? "\\" + ch : (c >= 32 && c <= 126) || (c >= 160 && c <= 255) ? ch : "?"; }).join("");
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", null, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"], kids = [];
+  let size = 0;
+  for (const shapes of pages) {
+    const ops = ["2 J 1 w"];
+    for (const s of shapes) {
+      const v = s.vals, c = rgb(color(v[v.length - 1]));
+      if (s.name === "Box") { if (v[2] > 0 && v[3] > 0) ops.push(`${c} rg ${n(v[0])} ${n(h - v[1] - v[3])} ${n(v[2])} ${n(v[3])} re f`); }
+      else if (s.name === "Dot") ops.push(`${c} rg ${Math.floor(v[0])} ${n(h - Math.floor(v[1]) - 1)} 1 1 re f`);
+      else if (s.name === "Line") ops.push(`${c} RG ${n(v[0] + .5)} ${n(h - v[1] - .5)} m ${n(v[2] + .5)} ${n(h - v[3] - .5)} l S`);
+      else { const z = textSize(v[2]); ops.push(`BT /F1 ${n(z * 20 / 3)} Tf ${c} rg ${n(v[0])} ${n(h - v[1] - 5 * z)} Td (${esc(v[3])}) Tj ET`); }
+    }
+    const body = ops.join("\n");
+    if ((size += body.length) > 2e7) R("E17", "pdf.pack: over 20 million bytes");
+    kids.push(objs.length + 1);
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(w)} ${n(h)}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objs.length + 2} 0 R >>`);
+    objs.push(`<< /Length ${body.length} >>\nstream\n${body}\nendstream`);
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.map(k => k + " 0 R").join(" ")}] /Count ${kids.length} >>`;
+  let out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"; const at = [];
+  objs.forEach((o, i) => { at.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + at.map(a => String(a).padStart(10, "0") + " 00000 n \n").join("") + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Array.from(out, ch => ch.charCodeAt(0));          // every char above is one latin-1 byte
+}
+function pdfFlow(w, h, size, text) {      // text onto pages: fixed width, wrapped at words, a margin all round
+  const z = textSize(size), m = Math.min(36, Math.floor(Math.min(w, h) / 10)), cols = Math.floor((w - 2 * m) / (4 * z)), rows = Math.floor((h - 2 * m) / (8 * z));
+  if (!(w >= 10 && h >= 10 && w <= 14400 && h <= 14400) || cols < 1 || rows < 1) R("E17", `pdf.flow: a ${fmtNum(w)} x ${fmtNum(h)} page has no room for text of size ${fmtNum(size)}`);
+  if (text.length > 2e6) R("E17", "pdf.flow: text too long");
+  const lines = [];
+  for (const para of text.replace(/\r\n?/g, "\n").replace(/\t/g, "  ").split("\n")) {
+    let line = "";
+    for (let word of para.split(" ").filter(x => x !== "")) {
+      let cs = chars(word);
+      while (cs.length > cols) { if (line) { lines.push(line); line = ""; } lines.push(cs.slice(0, cols).join("")); cs = cs.slice(cols); }
+      word = cs.join("");
+      if (line && chars(line).length + 1 + cs.length > cols) { lines.push(line); line = word; } else line = line ? line + " " + word : word;
+    }
+    lines.push(line);
+  }
+  if (lines.length / rows > 2000) R("E17", "pdf.flow: over 2000 pages");
+  const pages = [];
+  for (let i = 0; i < Math.max(1, lines.length); i += rows) pages.push(lines.slice(i, i + rows).map((t, r) => RV("Text", [m, m + r * 8 * z, z, t, "black"])).filter(s => s.vals[3] !== ""));
+  return pages;
+}
+def("pdf.pack", "Num Num (Vec (Vec Draw)) -> (Vec Num)", ([w, h, pages]) => pdfBytes(w, h, pages));
+def("pdf.flow", "Num Num Num Str -> (Vec (Vec Draw))", ([w, h, size, text]) => pdfFlow(w, h, size, text));
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -3402,6 +3458,9 @@ const TESTS = [
   ["csv.cols picks columns by name","(use csv)\n(let t \"id,name,price\\n1,pen,2.5\\n2,\\\"big, pad\\\",4\\n\")\n(show (csv.cols t [\"price\" \"id\"]))\n(show (csv.cols t [\"name\"]))\n(show (csv.cols t []))\n(show (csv.cols \"a,b\\n\" [\"b\"]))\n(rec Item [id Num price Num])\n(show (map (fun [r] (Item (snum (get r 0)) (snum (get r 1)))) (csv.cols t [\"id\" \"price\"])))","[[\"2.5\" \"1\"] [\"4\" \"2\"]]\n[[\"pen\"] [\"big, pad\"]]\n[[] []]\n[]\n[(Item 1 2.5) (Item 2 4)]"],
   ["csv.cols names a missing column","(use csv)\n(show (try (csv.cols \"id,name,price\\n1,pen,2\" [\"id\" \"prise\"])))\n(show (try (csv.cols \"id,name\\n1,pen\" [\"quantity\"])))\n(show (try (csv.cols \"\" [\"id\"])))\n(show (try (csv.cols \"id,id\\n1,2\" [\"id\"])))\n(show (try (csv.cols \"id,name\\n1\" [\"id\"])))\n(show (try (csv.cols \"id,\\\"na\" [\"id\"])))","(Err \"E15\" \"csv.cols: no column \\\"prise\\\". nearest: \\\"price\\\". the header is: \\\"id\\\" \\\"name\\\" \\\"price\\\"\")\n(Err \"E15\" \"csv.cols: no column \\\"quantity\\\". the header is: \\\"id\\\" \\\"name\\\"\")\n(Err \"E15\" \"csv.cols: the text is empty: it has no header row\")\n(Err \"E15\" \"csv.cols: column \\\"id\\\" is in the header more than once (places 1 and 2). use csv.parse and take it by place\")\n(Err \"E15\" \"csv.cols: row 2 has 1 fields, the header has 2\")\n(Err \"E15\" \"csv.parse: a quoted field is never closed, row 1\")"],
   ["csv.cols fails in the check phase","(use csv)\n(show (csv.cols \"a,b\\n1,2\" [\"c\"]))","check!E15"],
+  ["pdf: pictures to pages","(use draw)\n(use bytes)\n(let b (pdf.pack 200 100 [[(Box 0 0 200 100 \"white\") (Text 10 10 2 \"Hi (there) \\\\ ok\" \"black\") (Line 0 0 199 99 \"red\") (Dot 3 3 \"#00f\")] []]))\n(show (unutf8 (take b 8)))\n(show (shas (unutf8 (filter (fun [x] (< x 128)) b)) \"(Hi \\\\(there\\\\) \\\\\\\\ ok) Tj\"))\n(show (shas (unutf8 (filter (fun [x] (< x 128)) b)) \"/Count 2\"))\n(check (pdf.pack 200 100 [[]]) (pdf.pack 200 100 [[]]))","%PDF-1.4\ntrue\ntrue"],
+  ["pdf.flow wraps and pages","(use draw)\n(fn texts [p (Vec Draw)] (Vec Str) (map (fun [s] (match s (Text _ _ _ t _) t _ \"\")) p))\n(let pages (pdf.flow 100 80 2 \"one two three four five six seven\\n\\nlast supercalifragilistic\"))\n(show (len pages))\n(show (map texts pages))\n(show (len (pdf.flow 100 80 2 \"\")))\n(show (all (fun [t] (<= (slen t) 10)) (flat (map texts pages))))","2\n[[\"one two\" \"three four\" \"five six\" \"seven\"] [\"last\" \"supercalif\" \"ragilistic\"]]\n1\ntrue"],
+  ["pdf errors before running","(use draw)\n(show (len (pdf.pack 200 100 [])))\n(show (len (pdf.pack 5 100 [[]])))\n(show (len (pdf.flow 20 20 8 \"x\")))\n(show (len (pdf.pack 200 100 [[(Dot 0 0 \"nocolor\")]])))","check!E10,E17,E17,E14"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
