@@ -14,21 +14,23 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  dec: { say: "exact decimals of any size: money, big whole numbers", types: "", opaque: "(rec Dec [text Str])",
+    notes: "a Dec is exact: (dec \"0.1\") + (dec \"0.2\") is (dec \"0.3\"). it is made by dec and dec.of, never by a ctor.\nsame, cmp, order and sortby see a Dec by its value. nothing rounds unless told how:\ndec.div and dec.round take places and a mode: half-up half-even down up floor ceil." },
   diff: { say: "edits as here it is, there it should be: make apply unified", types: "(rec Edit [here Str there Str])",
     notes: "an Edit finds its place by its text, never a line number. when it is applied, here must be in the text\nexactly once, else E14 naming the edit, with the nearest line or every place it was found.\nedits apply in order, each to the text the one before left. diff.make gives few edits, each with just\nenough context to be found once, and (diff.apply a (diff.make a b)) is b." },
   chart: { say: "line scatter bar hist and f(x) graphs as Draw shapes. loads draw", needs: ["draw"], types: "(rec Series [name Str xs (Vec Num) ys (Vec Num)])",
     notes: "a chart is a (Vec Draw): read it with ascii, keep it with svg, io.frame or io.sheet.\nsize w h 80..4096. light background, ticks on nice numbers, a legend for 2 or more series." },
-  math: { say: "trig, gcd lcm clamp hypot, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
+  math: { say: "trig gcd lcm clamp, stats: median quantile sd corr, seeded shuffle", types: "", notes: "" },
   text: { say: "pad repeat wrap words, edit distance", types: "", notes: "" },
   csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
   re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
   json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
-  time: { say: "dates: build, parts, add months right, days between, start of, format", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
+  time: { say: "dates: parts, add months right, days between, format", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
     notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
   bit: { say: "whole number bit ops", types: "", notes: "" },
   bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
-  mat: { say: "vector math, matrices: multiply svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { say: "shapes to pixels: text pictures, frames, png sheets", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+  mat: { say: "vectors, matrices: svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
+  draw: { say: "shapes to pixels: text pictures, png sheets, svg", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
     notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
@@ -41,7 +43,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.` 
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. one file = spec + checker + interpreter + tests. backend here: js.
 
@@ -368,6 +370,21 @@ Edit diff ! ! ! Edit here there
 diff.make diff 2 Str,Str @Vec.Edit a b. edits that turn a into b
 diff.apply diff 2 Str,@Vec.Edit Str text edits. in order. E14 here missing or not once
 diff.unified diff 2 Str,Str Str a b. unified diff for people. 3 lines of context
+Dec dec ! ! ! exact decimal. shown as (dec "1.5")
+dec dec 1 Str Dec digits . sign. E15
+dec.of dec 1 Num Dec the number as written. 0.1 is 0.1
+dec.str dec 1 Dec Str no padding
+dec.fix dec 2 Dec,Num Str padded to places. E17 if digits would drop
+dec.num dec 1 Dec Num nearest float
+dec.add dec 2 Dec,Dec Dec exact
+dec.sub dec 2 Dec,Dec Dec exact
+dec.mul dec 2 Dec,Dec Dec exact
+dec.div dec 4 Dec,Dec,Num,Str Dec a b places mode. E17 zero
+dec.round dec 3 Dec,Num,Str Dec x places mode
+dec.idiv dec 2 Dec,Dec Dec whole part of a/b, toward zero
+dec.rem dec 2 Dec,Dec Dec a - b * idiv. sign of a
+dec.pow dec 2 Dec,Num Dec whole power >= 0
+dec.sum dec 1 @Vec.Dec Dec exact
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -421,7 +438,7 @@ function fmt1(v, top) {
   if (typeof v === "string") return top ? v : quote(v);
   if (Array.isArray(v)) return "[" + v.map(x => fmt1(x, false)).join(" ") + "]";
   switch (v.k) {
-    case "rv": return v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => fmt1(x, false))].join(" ") + ")";
+    case "rv": return v.dec ? `(dec ${quote(v.vals[0])})` : v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => fmt1(x, false))].join(" ") + ")";
     case "map": return "{" + tnodes(v.root).map(n => fmt1(n.key, false) + " " + fmt1(n.val, false)).join(" ") + "}";
     case "clo": return v.name ? `<fn ${v.name}>` : "<fun>";
     case "bi": return `<builtin ${v.name}>`;
@@ -885,7 +902,7 @@ function cmp(a, b) {
       for (let i = 0; i < n; i++) { const c = cmp(a[i], b[i]); if (c) return c; }
       return a.length < b.length ? -1 : a.length > b.length ? 1 : 0;
     }
-    case 4: return a.name < b.name ? -1 : a.name > b.name ? 1 : cmp(a.vals, b.vals);
+    case 4: return a.dec && b.dec ? decCmp(a, b) : a.name < b.name ? -1 : a.name > b.name ? 1 : cmp(a.vals, b.vals);
   }
   return cmp(tnodes(a.root).map(n => [n.key, n.val]), tnodes(b.root).map(n => [n.key, n.val]));
 }
@@ -1951,6 +1968,73 @@ def("diff.make", "Str Str -> (Vec Edit)", ([a, b]) => diffMake(a, b));
 def("diff.apply", "Str (Vec Edit) -> Str", ([t, v]) => diffApply(t, v));
 def("diff.unified", "Str Str -> Str", ([a, b]) => diffUnified(a, b));
 
+/* ---- dec: exact decimals of any size. a value is its canonical text, so same works; cmp and show know it by its flag */
+const DECMAX = 10000;
+function decParse(s, op) {
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(s.trim());
+  if (!m || (m[2] === "" && (m[3] || "") === "")) R("E15", `${op} cannot read ${quote(s)} as a decimal. write digits, with at most one . and a sign`);
+  return { n: BigInt((m[1] === "-" ? "-" : "") + (m[2] || "0") + (m[3] || "")), s: (m[3] || "").length };
+}
+const P10 = k => 10n ** BigInt(k);
+function decMake(n, s, op) {
+  while (s > 0 && n % 10n === 0n) { n /= 10n; s--; }
+  const neg = n < 0n, d = (neg ? -n : n).toString().padStart(s + 1, "0");
+  if (d.length > DECMAX) R("E17", `${op}: over ${DECMAX} digits`);
+  const v = RV("Dec", [(neg ? "-" : "") + (s ? d.slice(0, d.length - s) + "." + d.slice(d.length - s) : d)]); v.dec = true; return v;
+}
+const decOf = v => { const t = v.vals[0], i = t.indexOf("."); return i < 0 ? { n: BigInt(t), s: 0 } : { n: BigInt(t.slice(0, i) + t.slice(i + 1)), s: t.length - i - 1 }; };
+const decAlign = (a, b) => { const s = Math.max(a.s, b.s); return [a.n * P10(s - a.s), b.n * P10(s - b.s), s]; };
+function decCmp(x, y) { const [a, b] = decAlign(decOf(x), decOf(y)); return a < b ? -1 : a > b ? 1 : 0; }
+const MODES = ["half-up", "half-even", "down", "up", "floor", "ceil"];
+function roundDiv(N, D, mode, op) {        // N / D to a whole number, the way mode says
+  if (!MODES.includes(mode)) R("E14", `${op}: mode ${quote(mode)}. write ${MODES.join(" ")}`);
+  if (D < 0n) { N = -N; D = -D; }
+  const q = N / D, r = N - q * D;
+  if (r === 0n) return q;
+  const sign = N < 0n ? -1n : 1n, twice = 2n * (r < 0n ? -r : r);
+  switch (mode) {
+    case "down": return q;
+    case "up": return q + sign;
+    case "floor": return sign < 0n ? q - 1n : q;
+    case "ceil": return sign > 0n ? q + 1n : q;
+    case "half-up": return twice >= D ? q + sign : q;
+  }
+  return twice > D || (twice === D && q % 2n !== 0n) ? q + sign : q;
+}
+const places = (p, op) => { if (!isInt(p) || p < 0 || p > DECMAX) R("E17", `${op}: ${fmtNum(p)} places must be whole and 0..${DECMAX}`); return p; };
+def("dec", "Str -> Dec", ([s]) => { const d = decParse(s, "dec"); return decMake(d.n, d.s, "dec"); });
+def("dec.of", "Num -> Dec", ([v]) => {
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(String(v)), f = m[3] || "", s = f.length - Number(m[4] || 0);
+  const n = BigInt(m[1] + m[2] + f); return s < 0 ? decMake(n * P10(-s), 0, "dec.of") : decMake(n, s, "dec.of");
+});
+def("dec.str", "Dec -> Str", ([d]) => d.vals[0]);
+def("dec.num", "Dec -> Num", ([d]) => fin(Number(d.vals[0]), "dec.num"));
+def("dec.fix", "Dec Num -> Str", ([d, p]) => {
+  const x = decOf(d); places(p, "dec.fix");
+  if (x.s > p) R("E17", `dec.fix: ${d.vals[0]} has more than ${p} places. round it first, with dec.round and a mode`);
+  const t = d.vals[0]; return p === 0 ? t : (x.s ? t : t + ".") + "0".repeat(p - x.s);
+});
+def("dec.add", "Dec Dec -> Dec", ([x, y]) => { const [a, b, s] = decAlign(decOf(x), decOf(y)); return decMake(a + b, s, "dec.add"); });
+def("dec.sub", "Dec Dec -> Dec", ([x, y]) => { const [a, b, s] = decAlign(decOf(x), decOf(y)); return decMake(a - b, s, "dec.sub"); });
+def("dec.mul", "Dec Dec -> Dec", ([x, y]) => { const a = decOf(x), b = decOf(y); return decMake(a.n * b.n, a.s + b.s, "dec.mul"); });
+def("dec.div", "Dec Dec Num Str -> Dec", ([x, y, p, mode]) => {
+  const a = decOf(x), b = decOf(y); places(p, "dec.div");
+  if (b.n === 0n) R("E17", "dec.div: division by zero");
+  return decMake(roundDiv(a.n * P10(p + b.s), b.n * P10(a.s), mode, "dec.div"), p, "dec.div");
+});
+def("dec.round", "Dec Num Str -> Dec", ([x, p, mode]) => {
+  const a = decOf(x); places(p, "dec.round"); if (!MODES.includes(mode)) R("E14", `dec.round: mode ${quote(mode)}. write ${MODES.join(" ")}`);
+  return a.s <= p ? x : decMake(roundDiv(a.n, P10(a.s - p), mode, "dec.round"), p, "dec.round");
+});
+def("dec.idiv", "Dec Dec -> Dec", ([x, y]) => { const [a, b] = decAlign(decOf(x), decOf(y)); if (b === 0n) R("E17", "dec.idiv: division by zero"); return decMake(a / b, 0, "dec.idiv"); });
+def("dec.rem", "Dec Dec -> Dec", ([x, y]) => { const [a, b, s] = decAlign(decOf(x), decOf(y)); if (b === 0n) R("E17", "dec.rem: division by zero"); return decMake(a % b, s, "dec.rem"); });
+def("dec.pow", "Dec Num -> Dec", ([x, n]) => {
+  const a = decOf(x); if (!isInt(n) || n < 0) R("E17", `dec.pow: power ${fmtNum(n)} must be a whole number >= 0`);
+  if (x.vals[0].length * n > 2 * DECMAX) R("E17", `dec.pow: over ${DECMAX} digits`);
+  return decMake(a.n ** BigInt(n), a.s * n, "dec.pow");
+});
+def("dec.sum", "(Vec Dec) -> Dec", ([v]) => { let n = 0n, s = 0; for (const x of v) { const [a, b, t] = decAlign({ n, s }, decOf(x)); n = a + b; s = t; } return decMake(n, s, "dec.sum"); });
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -2032,10 +2116,11 @@ def("path.base", "Str -> Str", ([p]) => { const n = normPath(p); return n.slice(
 def("path.ext", "Str -> Str", ([p]) => { const b = normPath(p).split("/").pop(), i = b.lastIndexOf("."); return i > 0 ? b.slice(i) : ""; });
 
 /* ---- which pack owns which name: builtins by their matrix kind, pack types by their prelude */
-const PACKOF = new Map();
+const PACKOF = new Map(), OPAQUE = new Set();
 {
   const kindOf = new Map(MATRIX.split("\n").slice(1).map(l => l.split(" ")).map(p => [p[0], p[1]]));
   for (const n of Object.keys(B)) { const p = KINDPACK[kindOf.get(n)]; if (p) { B[n].pack = p; PACKOF.set(n, p); } }
+  for (const [p, d] of Object.entries(PACKS)) for (const s of parse(lex(d.opaque || "", []), [])) { const t = lowerTop(s, []); PACKOF.set(t.name, p); OPAQUE.add(t.name); }
   for (const [p, d] of Object.entries(PACKS)) for (const s of parse(lex(d.types, []), [])) {
     const t = lowerTop(s, []); PACKOF.set(t.name, p);
     if (t.t === "rec") for (const [f] of t.fields) PACKOF.set(t.name + "." + f, p); else for (const [c] of t.ctors) PACKOF.set(c, p);
@@ -2271,6 +2356,7 @@ function checkProgram(tops, errs, packs, H) {
     if (d.isRec) { const seen = new Set(); for (const [f, , l] of d.top.fields) { if (seen.has(f)) errs.push(E("E3", `field ${f} appears twice in ${name}`, l)); seen.add(f); } }
     for (const c of d.ctors) {
       const fts = c.tys.map(ty => parseType(ty, ctx, errs));
+      if (d.top.prelude && OPAQUE.has(name)) continue;               // a pack's own type: no ctor, no readers
       if (d.isRec ? g.has(c.name) : taken(c.name)) { dup(c.name, c.line); c.dead = true; continue; }
       const nul = !d.isRec && !fts.length, ty = rigidToGen(nul ? rt : fnT(fts, rt));
       g.set(c.name, { kind: "ctor", type: ty, line: c.line, decl: name, nul });
@@ -2643,7 +2729,7 @@ function hostTable(host) {
   if (errs.length) bad(`types: ${errs[0].msg}`);
   for (const t of tops) if (t.t !== "rec" && t.t !== "sum") bad("types may hold only (rec ..) and (sum ..)");
   const taken = new Set([...Object.keys(B), ...RESERVED, ...PACKOF.keys()]), shape = new Map();
-  for (const text of [PRELUDE, ...Object.values(PACKS).map(p => p.types), types])
+  for (const text of [PRELUDE, ...Object.values(PACKS).map(p => p.types + "\n" + (p.opaque || "")), types])
     for (const s of parse(lex(text, []), [])) {
       const t = lowerTop(s, []); if (!t) continue;
       if (t.t === "rec") shape.set(t.name, { owner: t.name, n: t.fields.length, rec: true });
@@ -2719,7 +2805,7 @@ function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn
   return out;
 }
 function preludeTops(packs, H) {
-  const errs = [], text = [PRELUDE, ...[...packs].map(p => PACKS[p].types), H ? H.types : ""].join("\n"), tops = parse(lex(text, errs), errs).map(s => lowerTop(s, errs));
+  const errs = [], text = [PRELUDE, ...[...packs].map(p => PACKS[p].types + "\n" + (PACKS[p].opaque || "")), H ? H.types : ""].join("\n"), tops = parse(lex(text, errs), errs).map(s => lowerTop(s, errs));
   if (errs.length) throw new Error("prelude: " + errs[0].msg);
   for (const t of tops) { t.prelude = true; t.line = 0; }
   return tops;
@@ -2971,6 +3057,11 @@ const TESTS = [
   ["time: months and leap years","(use time)\n(fn d [ms Num] Str (date.fmt ms \"YYYY-MM-DD\"))\n(show (d (date.add (date.of 2024 1 31) 1 \"month\")))\n(show (d (date.add (date.of 2023 1 31) 1 \"month\")))\n(show (d (date.add (date.of 2024 2 29) 1 \"year\")))\n(show (d (date.add (date.of 2024 3 31) -1 \"month\")))\n(show (d (date.add (date.of 2024 12 15) 2 \"month\")))\n(show (d (date.add (date.of 2000 2 28) 1 \"day\")))\n(show (d (date.add (date.of 1900 2 28) 1 \"day\")))","2024-02-29\n2023-02-28\n2025-02-28\n2024-02-29\n2025-02-15\n2000-02-29\n1900-03-01"],
   ["time: parts, days, start, format, span","(use time)\n(fn d [ms Num] Str (date.fmt ms \"YYYY-MM-DD\"))\n(let t (date.add (date.add (date.of 2024 1 7) 13 \"hour\") 5 \"min\"))\n(show (date.parts t))\n(show (date.days (date.of 2024 3 1) (date.of 2024 2 1)))\n(show (date.days (date.of 2023 12 31) t))\n(show (d (date.start t \"week\")))\n(show (d (date.start t \"month\")))\n(show (date.fmt t \"dddd D MMM YYYY, HH:mm:ss.SSS\"))\n(show (map date.span [0 999 61000 (+ (* 3 86400000) 3600000) -90000]))\n(check (date.parse (date.iso t)) t)\n(show (date.fmt (date.of 5 3 9) \"YYYY-MM-DD\"))","(Parts 2024 1 7 13 5 0 0 7 7)\n-29\n7\n2024-01-01\n2024-01-01\nSunday D Jan 2024, 13:05:00.000\n[\"0ms\" \"999ms\" \"1m 1s\" \"3d 1h\" \"-1m 30s\"]\n0005-03-09"],
   ["time: errors before running","(use time)\n(show (date.of 2023 2 29))\n(show (date.add 0 1 \"fortnight\"))\n(show (date.add 0 1.5 \"month\"))\n(show (date.start 0 \"decade\"))\n(show (date.of 2024 13 1))","check!E17,E14,E17,E14,E17"],
+  ["dec: exact","(use dec)\n(show (dec.add (dec \"0.1\") (dec \"0.2\")))\n(check (dec.add (dec \"0.1\") (dec \"0.2\")) (dec \"0.30\"))\n(show (dec.fix (dec.round (dec.mul (dec \"19.99\") (dec \"1.0825\")) 2 \"half-up\") 2))\n(show (dec.str (dec.pow (dec \"2\") 200)))\n(show (order [(dec \"10\") (dec \"9\") (dec \"-1.5\")]))\n(show [(dec.of 0.1) (dec.of 1e21) (dec.of 1.5e-7) (dec.of -3)])\n(show (dec.sum (map dec [\"0.1\" \"0.2\" \"0.3\"])))\n(show [(dec.idiv (dec \"-7\") (dec \"2\")) (dec.rem (dec \"-7\") (dec \"2\")) (dec.rem (dec \"5.5\") (dec \"2\"))])\n(show (dec.num (dec \"2.5\")))\n(show (mget {(dec \"1.50\") \"a\"} (dec \"1.5\")))","(dec \"0.3\")\n21.64\n1606938044258990275541962092341162602522202993782792835301376\n[(dec \"-1.5\") (dec \"9\") (dec \"10\")]\n[(dec \"0.1\") (dec \"1000000000000000000000\") (dec \"0.00000015\") (dec \"-3\")]\n(dec \"0.6\")\n[(dec \"-3\") (dec \"-1\") (dec \"1.5\")]\n2.5\n(Some \"a\")"],
+  ["dec: rounding is asked for","(use dec)\n(fn r [x Str m Str] Str (dec.str (dec.round (dec x) 0 m)))\n(show (map (fun [m] [(r \"2.5\" m) (r \"-2.5\" m) (r \"3.5\" m)]) [\"half-up\" \"half-even\" \"down\" \"up\" \"floor\" \"ceil\"]))\n(show (dec.div (dec \"10\") (dec \"3\") 2 \"half-up\"))\n(show (dec.div (dec \"2\") (dec \"3\") 4 \"half-even\"))\n(show (dec.fix (dec \"12.5\") 2))\n(show (dec.fix (dec \"7\") 0))","[[\"3\" \"-3\" \"4\"] [\"2\" \"-2\" \"4\"] [\"2\" \"-2\" \"3\"] [\"3\" \"-3\" \"4\"] [\"2\" \"-3\" \"3\"] [\"3\" \"-2\" \"4\"]]\n(dec \"3.33\")\n(dec \"0.6667\")\n12.50\n7"],
+  ["dec: errors before running","(use dec)\n(show (dec \"1,5\"))\n(show (dec.fix (dec \"1.005\") 2))\n(show (dec.div (dec \"1\") (dec \"0\") 2 \"half-up\"))\n(show (dec.round (dec \"1.5\") 0 \"bankers\"))\n(show (dec.pow (dec \"9\") 100000))\n(show (dec \"\"))","check!E15,E17,E17,E14,E17,E15"],
+  ["dec: the type has no ctor","(use dec)\n(show (Dec \"x\"))","!E1"],
+  ["a user rec named Dec is an ordinary rec","(rec Dec [text Str])\n(show (order [(Dec \"10\") (Dec \"9\")]))","[(Dec \"10\") (Dec \"9\")]"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

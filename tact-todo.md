@@ -27,7 +27,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 - [x] **time** (extend): date parts, weekday, add days and months (month ends,
       leap years), days between, format with a pattern, durations. UTC and fixed
       offsets only, so results never depend on the machine.
-- [ ] **dec**: exact decimals for money (no 0.1 + 0.2 drift), rounding modes,
+- [x] **dec**: exact decimals for money (no 0.1 + 0.2 drift), rounding modes,
       big integers.
 - [x] **diff**: edits as "here it is, there it should be", found by their text,
       never a line number. make, apply (E14 when here is missing or not found
