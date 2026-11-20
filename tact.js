@@ -23,7 +23,8 @@ const PACKS = {
   csv: { say: "csv to rows or to maps by header, and back", types: "", notes: "rfc 4180: quotes, \"\" inside quotes, newlines inside quotes. a bad quote = E15." },
   re: { say: "regex: test find replace split", types: "", notes: "js unicode regex. a pattern written as a literal is checked before anything runs (E12).\na pattern like (a+)+ can take forever on some text: no budget stops a regex." },
   json: { say: "parse and print json as the Json sum", types: "(sum Json [JNull [] JBool [Bool] JNum [Num] JStr [Str] JArr [(Vec Json)] JObj [(Map Str Json)]])", notes: "match on Json has to face every case." },
-  time: { say: "dates to and from ms", types: "", notes: "" },
+  time: { say: "dates: build, parts, add months right, days between, start of, format", types: "(rec Parts [year Num month Num day Num hour Num min Num sec Num ms Num weekday Num yearday Num])",
+    notes: "a date is a Num: ms since 1970, utc. there are no zones: for a fixed offset add (* minutes 60000).\nadding months keeps the day, or takes the month's last day: jan 31 + 1 month = feb 28 or 29.\nweekday 1 monday .. 7 sunday. a week starts monday. a bad day or unit is an error, up front when known." },
   bit: { say: "whole number bit ops", types: "", notes: "" },
   bytes: { say: "utf8 bytes, base64, sha256, other bases", types: "", notes: "" },
   mat: { say: "vector math, matrices: multiply svd rank det solve pinv eig", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
@@ -287,6 +288,14 @@ json.parse json 1 Str Json E15
 json.str json 1 Json Str compact. keys in cmp order
 json.pretty json 1 Json Str 2 space indent
 json.get json 2 Json,Str @Opt.Json field of a JObj
+Parts time ! ! ! year month day hour min sec ms weekday yearday
+date.of time 3 Num,Num,Num Num y m d. midnight utc. E17 not a day
+date.parts time 1 Num Parts !
+date.add time 3 Num,Num,Str Num ms n unit. ms sec min hour day week month year
+date.days time 2 Num,Num Num a b. calendar days from a to b
+date.start time 2 Num,Str Num ms unit. start of that sec .. year. week = monday
+date.fmt time 2 Num,Str Str YYYY MM DD HH mm ss SSS MMM MMMM ddd dddd. the rest as is
+date.span time 1 Num Str ms as 2d 3h 4m 5s
 date.iso time 1 Num Str ms since 1970 to iso utc
 date.parse time 1 Str Num iso only. a time needs Z or +hh:mm. E15
 bxor bit 2 Num,Num Num ints
@@ -1419,6 +1428,64 @@ function jser(j, pad, at) {
 def("json.str", "Json -> Str", ([j]) => jser(j, "", ""));
 def("json.pretty", "Json -> Str", ([j]) => jser(j, "  ", ""));
 def("json.get", "Json Str -> (Opt Json)", ([j, k]) => { const n = j.name === "JObj" ? tget(j.vals[0].root, k) : null; return n ? SOME(n.val) : NONE; });
+/* ---- time: a date is ms since 1970, utc. no zones, so a result never depends on the machine */
+const DAY = 864e5, MON = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WDAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const when = (ms, op) => { if (!(Math.abs(ms) <= 8.64e15)) R("E17", `${op}: ${fmtNum(ms)} is outside the calendar`); return new Date(ms); };
+const daysIn = (y, m) => { const d = new Date(0); d.setUTCFullYear(y, m, 0); return d.getUTCDate(); };      // m is 1..12
+function dayOf(y, m, d, op) {
+  if (!isInt(y) || !isInt(m) || !isInt(d) || m < 1 || m > 12 || d < 1 || Math.abs(y) > 275000 || d > daysIn(y, m))
+    R("E17", `${op}: ${fmtNum(y)}-${fmtNum(m)}-${fmtNum(d)} is not a day` + (isInt(m) && m >= 1 && m <= 12 && isInt(y) && d > daysIn(y, m) ? `. ${MON[m - 1]} ${fmtNum(y)} has ${daysIn(y, m)} days` : ""));
+  const t = new Date(0); t.setUTCFullYear(y, m - 1, d); return t.getTime();
+}
+const isoWd = t => (t.getUTCDay() + 6) % 7 + 1;                 // 1 monday .. 7 sunday
+def("date.of", "Num Num Num -> Num", ([y, m, d]) => dayOf(y, m, d, "date.of"));
+def("date.parts", "Num -> Parts", ([ms]) => {
+  const t = when(ms, "date.parts"), y = t.getUTCFullYear(), jan1 = new Date(0); jan1.setUTCFullYear(y, 0, 1);
+  return RV("Parts", [y, t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes(), t.getUTCSeconds(), t.getUTCMilliseconds(), isoWd(t), Math.floor((ms - jan1.getTime()) / DAY) + 1]);
+});
+const UNIT = { ms: 1, sec: 1e3, min: 6e4, hour: 36e5, day: DAY, week: 7 * DAY };
+def("date.add", "Num Num Str -> Num", ([ms, n, u]) => {
+  const t = when(ms, "date.add");
+  if (u === "month" || u === "year") {
+    if (!isInt(n)) R("E17", `date.add: ${fmtNum(n)} ${u}s must be whole`);
+    const k = t.getUTCMonth() + (u === "year" ? 12 * n : n), y = t.getUTCFullYear() + Math.floor(k / 12), m = ((k % 12) + 12) % 12 + 1;
+    const d = Math.min(t.getUTCDate(), daysIn(y, m));             // the same day, or the month's last
+    return dayOf(y, m, d, "date.add") + (ms - dayOf(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), "date.add"));
+  }
+  if (!own(UNIT, u)) R("E14", `date.add: unit ${quote(u)}. write ms sec min hour day week month or year`);
+  const r = ms + n * UNIT[u]; when(r, "date.add"); return r;
+});
+def("date.days", "Num Num -> Num", ([a, b]) => { when(a, "date.days"); when(b, "date.days"); return Math.floor(b / DAY) - Math.floor(a / DAY); });
+def("date.start", "Num Str -> Num", ([ms, u]) => {
+  const t = when(ms, "date.start"), y = t.getUTCFullYear(), m = t.getUTCMonth() + 1, day = Math.floor(ms / DAY) * DAY;
+  switch (u) {
+    case "sec": return Math.floor(ms / 1e3) * 1e3;
+    case "min": return Math.floor(ms / 6e4) * 6e4;
+    case "hour": return Math.floor(ms / 36e5) * 36e5;
+    case "day": return day;
+    case "week": return day - (isoWd(t) - 1) * DAY;
+    case "month": return dayOf(y, m, 1, "date.start");
+    case "year": return dayOf(y, 1, 1, "date.start");
+  }
+  return R("E14", `date.start: unit ${quote(u)}. write sec min hour day week month or year`);
+});
+def("date.fmt", "Num Str -> Str", ([ms, p]) => {
+  const t = when(ms, "date.fmt"), two = n => String(n).padStart(2, "0"), y = t.getUTCFullYear();
+  return p.replace(/YYYY|MMMM|MMM|MM|DD|dddd|ddd|HH|mm|ss|SSS/g, k => ({
+    YYYY: y < 0 ? "-" + String(-y).padStart(4, "0") : String(y).padStart(4, "0"), MMMM: MON[t.getUTCMonth()], MMM: MON[t.getUTCMonth()].slice(0, 3), MM: two(t.getUTCMonth() + 1),
+    DD: two(t.getUTCDate()), dddd: WDAY[isoWd(t) - 1], ddd: WDAY[isoWd(t) - 1].slice(0, 3), HH: two(t.getUTCHours()), mm: two(t.getUTCMinutes()), ss: two(t.getUTCSeconds()),
+    SSS: String(t.getUTCMilliseconds()).padStart(3, "0"),
+  })[k]);
+});
+def("date.span", "Num -> Str", ([ms]) => {
+  if (!Number.isFinite(ms)) R("E17", "date.span: not a length of time");
+  const s = ms < 0 ? "-" : "", a = Math.abs(ms);
+  if (a < 1000) return s + fmtNum(Math.round(a)) + "ms";
+  const parts = [], d = Math.floor(a / DAY), h = Math.floor(a % DAY / 36e5), m = Math.floor(a % 36e5 / 6e4), sec = Math.floor(a % 6e4 / 1e3);
+  if (d) parts.push(d + "d"); if (h) parts.push(h + "h"); if (m) parts.push(m + "m"); if (sec) parts.push(sec + "s");
+  return s + parts.join(" ");
+});
 def("date.iso", "Num -> Str", ([ms]) => { const d = new Date(ms); return Number.isNaN(d.getTime()) ? R("E17", `date.iso: ${fmtNum(ms)} is outside the calendar`) : d.toISOString(); });
 def("date.parse", "Str -> Num", ([s]) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/.exec(s.trim());
@@ -2901,6 +2968,9 @@ const TESTS = [
   ["host: a failure outside try stops the run","(show 1)\n(show (app.down))","run!E19",null,null,true],
   ["host: a call waits for the run","(show 1)\n(show (get [] (app.each (fun [x] x))))","run!E10",null,null,true],
   ["host names are unknown without the host","(show (app.greet \"x\"))","!E1"],
+  ["time: months and leap years","(use time)\n(fn d [ms Num] Str (date.fmt ms \"YYYY-MM-DD\"))\n(show (d (date.add (date.of 2024 1 31) 1 \"month\")))\n(show (d (date.add (date.of 2023 1 31) 1 \"month\")))\n(show (d (date.add (date.of 2024 2 29) 1 \"year\")))\n(show (d (date.add (date.of 2024 3 31) -1 \"month\")))\n(show (d (date.add (date.of 2024 12 15) 2 \"month\")))\n(show (d (date.add (date.of 2000 2 28) 1 \"day\")))\n(show (d (date.add (date.of 1900 2 28) 1 \"day\")))","2024-02-29\n2023-02-28\n2025-02-28\n2024-02-29\n2025-02-15\n2000-02-29\n1900-03-01"],
+  ["time: parts, days, start, format, span","(use time)\n(fn d [ms Num] Str (date.fmt ms \"YYYY-MM-DD\"))\n(let t (date.add (date.add (date.of 2024 1 7) 13 \"hour\") 5 \"min\"))\n(show (date.parts t))\n(show (date.days (date.of 2024 3 1) (date.of 2024 2 1)))\n(show (date.days (date.of 2023 12 31) t))\n(show (d (date.start t \"week\")))\n(show (d (date.start t \"month\")))\n(show (date.fmt t \"dddd D MMM YYYY, HH:mm:ss.SSS\"))\n(show (map date.span [0 999 61000 (+ (* 3 86400000) 3600000) -90000]))\n(check (date.parse (date.iso t)) t)\n(show (date.fmt (date.of 5 3 9) \"YYYY-MM-DD\"))","(Parts 2024 1 7 13 5 0 0 7 7)\n-29\n7\n2024-01-01\n2024-01-01\nSunday D Jan 2024, 13:05:00.000\n[\"0ms\" \"999ms\" \"1m 1s\" \"3d 1h\" \"-1m 30s\"]\n0005-03-09"],
+  ["time: errors before running","(use time)\n(show (date.of 2023 2 29))\n(show (date.add 0 1 \"fortnight\"))\n(show (date.add 0 1.5 \"month\"))\n(show (date.start 0 \"decade\"))\n(show (date.of 2024 13 1))","check!E17,E14,E17,E14,E17"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",

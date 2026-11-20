@@ -24,7 +24,7 @@ index line (~70 chars). Merge into existing packs where it fits.
 
 ## 1. Models get these wrong; high value
 
-- [ ] **time** (extend): date parts, weekday, add days and months (month ends,
+- [x] **time** (extend): date parts, weekday, add days and months (month ends,
       leap years), days between, format with a pattern, durations. UTC and fixed
       offsets only, so results never depend on the machine.
 - [ ] **dec**: exact decimals for money (no 0.1 + 0.2 drift), rounding modes,
