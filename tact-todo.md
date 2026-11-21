@@ -102,9 +102,17 @@ number of steps, and timestamp conversion is the riskiest step.
       the time pack's notes.
 - [ ] Audit every spec row for precision: ties, rounding, order, empty input,
       so two models cannot reasonably work out different answers.
-- [ ] A reasoning procedure for large data that can be checked: fixed small
-      batches, a written running table, a reconciliation line per batch.
-      Test whether it makes Haiku exact at 2,000 records.
+- [x] A reasoning procedure for large data, from the measurements: batches of
+      about 50, mergeable partial results (`q.merge`), a second pass, one date
+      per batch checked against an anchor, a reconciliation. In the readme.
+      Measured before these changes: Haiku at ~50 per batch was exact on 38 of
+      40 batches and 22 of 25 final values; at ~288 on no batch.
+- [ ] Retest Haiku at 2,000 records with the readme's procedure, iso dates
+      and the anchors. The two errors that survived batches of 50 were a
+      record with two traps at once and a wrong month table for one batch.
+- [ ] Try a batch size between 50 and 288, and repeat runs to measure
+      variance: each setup has run once.
+- [ ] Test Haiku on writing programs.
 - [ ] Test Sonnet and Opus in context at 2,000 records.
 - [ ] Data shaped for reasoning: a guide for whoever supplies the data (iso
       dates, day numbers, trimmed and cased values, no duplicates).

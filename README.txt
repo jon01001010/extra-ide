@@ -68,23 +68,39 @@ WHAT CANNOT BE DONE IN REASONING
   the pack list marks such packs with *.
 
 HOW FAR REASONING GOES. measured, not guessed
-  - over 120 records, models of three sizes worked programs out and matched the interpreter exactly.
-  - over 2,000 records with messy values, a small model working in chunks of about 300 got about
-    half the final values wrong, each by a little: a count off by one, a date put in the
-    neighbouring month, an age off by a day. it understood every rule. it slipped over hundreds
-    of steps, and it reported the results as finished.
-  so the limit is the number of steps, not understanding. act on that:
-  - count the steps first: records times the work on each. a few hundred is the edge. past it,
-    say the result is unchecked and needs the interpreter or a second pass. never present it as done.
-  - reconcile every tally. add the parts and compare with the number of records, and report
-    both numbers. if they differ the result is wrong: say so, do not adjust it to fit.
-  - keep a written table and update it in small batches. never hold a running total in mind.
-  - compare text exactly. "Done " is not "Done". "bug" is not "Bug". do not tidy values as you read.
-  - the riskiest step is turning a timestamp into a date. do not divide a 13 digit ms number by
-    hand when the date can be given as iso text. in "2026-09-30T23:59:59Z" the month is the
-    first 7 characters, (ssub s 0 7), and the day is the first 10. for a count of days use
-    date.daynum on each date and subtract: the time pack's notes give the method by hand.
-  - a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
+  - 120 records: models of three sizes worked programs out and matched the interpreter exactly.
+  - 2,000 messy records, a small model, batches of about 288: no batch was fully right, and
+    about half the final values were wrong by a little.
+  - the same, in batches of about 50 with a second pass: 38 of 40 batches exact, 22 of 25 final
+    values right.
+  the model understood every rule. each error was a slip on one record: a record with two odd
+  things at once (lower case type and an odd status) had them swapped; a record was dropped
+  from a long list; a month was placed by feel; and once a wrong month table was used for a
+  whole batch, which checking again by the same method did not catch.
+  so the limit is the number of steps taken at once, not understanding.
+
+LARGE DATA. the procedure that was measured
+  1 work on at most about 50 records at a time. past that, slips come from load alone.
+  2 for each batch write down a partial result that can be merged, not a final one:
+    a count per key; a sum and a count per key, never a mean; every value per key when a
+    median is wanted. q.merge in the query pack joins two such results.
+  3 go over the batch a second time. read text values character by character:
+    "Done " is not "Done", "bug" is not "Bug". do not tidy values as you read.
+    any record with more than one odd thing about it: do that record again on its own.
+  4 never place a date by feel. work it out, and in every batch check one date from scratch
+    against the anchors in the time pack's notes. a second look that uses the same method
+    cannot catch a wrong method; an anchor can.
+  5 reconcile. the parts add up to the number of records. report both numbers. if they differ
+    the result is wrong: say so, do not adjust it to fit.
+  6 a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
+  7 one wrong value in a sorted list shifts every value after it. if many values look off by
+    one place, look for one bad record, not many.
+  8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
+    never present it as finished. it costs many times the tokens of the interpreter, so when
+    someone has the interpreter, the right use of your work is to be checked by it.
+  dates are the riskiest step. when the date can be given as iso text, keep it: in
+  "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
+  first 10. for a count of days use date.daynum on each date and subtract.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.

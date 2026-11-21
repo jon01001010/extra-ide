@@ -426,6 +426,7 @@ q.pivot query 4 @fn,@fn,@fn,@Vec.@T @Map rowkey colkey num rows. sums. every row
 q.top query 3 Num,@fn,@Vec.@T @Vec.@T n key rows. the n rows with the largest key, largest first. ties in row order. fewer if short. E17 bad n
 q.rank query 2 @fn,@Vec.@T @Vec.Num key rows. a rank per row, in row order: 1 = largest key, ties share, then a gap: 1 2 2 4
 q.first query 2 @fn,@Vec.@T @Vec.@T key rows. the first row of each key, in row order
+q.merge query 3 @fn,@Map,@Map @Map f a b. every key of both. f joins the two values of a key both have: + for counts and sums, concat for lists
 json.at json 2 Json,@Vec.Str @Opt.Json path. a part is a key of a JObj, or a whole number as text into a JArr: ["items" "0" "id"]. None when a part is missing
 json.need json 2 Json,@Vec.Str Json json.at that must find it. E10 names the missing part and the keys that are there
 json.num json 1 Json @Opt.Num the number of a JNum. None for any other
@@ -1573,6 +1574,8 @@ def("date.daynum", "Str -> Num", ([t]) => {
   if (!m) R("E15", `date.daynum cannot read ${quote(t)}. it starts with a date written 2026-09-30`);
   return dayOf(+m[1], +m[2], +m[3], "date.daynum") / DAY;
 });
+PACKS.time.notes += "\na date in ms, by hand: whole days = floor(ms / 86400000), the rest is the time of day. take the latest jan 1 below\nthat is not over it, subtract, and walk the month table. check one date in every batch this way.\njan 1 as a day number: " +
+  Array.from({ length: 16 }, (_, k) => 2018 + k).map(y => `${y} ${dayOf(y, 1, 1, "notes") / DAY}`).join(". ") + ".";
 def("date.days", "Num Num -> Num", ([a, b]) => { when(a, "date.days"); when(b, "date.days"); return Math.floor(b / DAY) - Math.floor(a / DAY); });
 def("date.start", "Num Str -> Num", ([ms, u]) => {
   const t = when(ms, "date.start"), y = t.getUTCFullYear(), m = t.getUTCMonth() + 1, day = Math.floor(ms / DAY) * DAY;
@@ -2188,6 +2191,10 @@ def("q.sum", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.sum", (s, y) 
 def("q.mean", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.mean", (s, y) => s + y, (s, n) => s / n));
 def("q.min", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.min", (s, y) => Math.min(s, y), s => s));
 def("q.max", "(Fn a b) (Fn a Num) (Vec a) -> (Map b Num)", qAgg("q.max", (s, y) => Math.max(s, y), s => s));
+def("q.merge", "(Fn b b b) (Map a b) (Map a b) -> (Map a b)", ([f, x, y], cx) => {      // partial results from two batches into one
+  let m = x; for (const n of tnodes(y.root)) { const had = tget(m.root, n.key); m = mput(m, n.key, had ? cx.apply(f, [had.val, n.val]) : n.val); }
+  return m;
+});
 def("q.count", "(Fn a b) (Vec a) -> (Map b Num)", ([f, v], cx) => {
   const t = qIndex(qKeys(f, v, cx)); let m = EMPTY;
   for (const nd of tnodes(t)) m = mput(m, nd.key, nd.val.length);
@@ -4611,6 +4618,8 @@ const TESTS = [
   ["chart: a range that cannot be drawn is E17","(use chart)\n(fn id [x ?a] ?a x)\n(show (map (fun [r] (match r (Ok _) \"ok\" (Err c _) c)) [(try (len (chart.scatter 100 100 \"\" [(Series \"a\" [1] [(id 1e308)])]))) (try (len (chart.line 100 100 \"\" [(Series \"a\" [0 1] [(id 5e-324) 1e-323])]))) (try (len (chart.bar 100 100 \"\" [\"a\" \"b\"] [(id 1e308) -1e308]))) (try (len (chart.fn 100 100 \"\" (fun [x] x) 0 (id 5e-324))))]))","[\"E17\" \"E17\" \"E17\" \"E17\"]"],
   ["dec.pow counts digits, not factors","(use dec)\n(show (slen (dec.str (dec.pow (dec \"2\") 30000))))\n(show (dec.str (dec.pow (dec \"1\") 20001)))\n(show (dec.str (dec.pow (dec \"-1\") 20001)))\n(show (try (dec.str (dec.pow (dec \"10\") 20000))))","9031\n1\n-1\n(Err \"E17\" \"dec.pow: over 10000 digits\")"],
   ["csv: a byte order mark is not part of the header; svg drops control characters","(use csv)\n(use draw)\n(use bytes)\n(show (csv.maps (scat (chr 65279) \"a,b\\n1,2\\n\")))\n(show (shas (svg 10 10 [(Text 0 0 1 (unutf8 [65 1 66]) \"red\")]) \">AB<\"))","[{\"a\" \"1\" \"b\" \"2\"}]\ntrue"],
+  ["q.merge joins partial results from batches","(use query)\n(rec T [who Str days Num])\n(let b1 [(T \"ann\" 3) (T \"bo\" 5) (T \"ann\" 1)])\n(let b2 [(T \"bo\" 2) (T \"cy\" 9)])\n(fn sums [b (Vec T)] (Map Str Num) (q.sum T.who T.days b))\n(fn counts [b (Vec T)] (Map Str Num) (q.count T.who b))\n(fn ages [b (Vec T)] (Map Str (Vec Num)) (mmap (fun [ts] (map T.days ts)) (group T.who b)))\n(check (q.merge + (sums b1) (sums b2)) (sums (concat b1 b2)))\n(check (q.merge + (counts b1) (counts b2)) (counts (concat b1 b2)))\n(check (q.merge concat (ages b1) (ages b2)) (ages (concat b1 b2)))\n(show (q.merge + (counts b1) (counts b2)))\n(check (vsum (mvals (q.merge + (counts b1) (counts b2)))) (+ (len b1) (len b2)))\n(show (q.merge + {} (counts b2)))","{\"ann\" 2 \"bo\" 2 \"cy\" 1}\n{\"bo\" 1 \"cy\" 1}"],
+  ["time: the anchors in the notes are the calendar's own","(use time)\n(show [(date.daynum \"2020-01-01\") (date.daynum \"2026-01-01\") (date.daynum \"2033-01-01\")])\n(check (* 86400000 (date.daynum \"2026-01-01\")) (date.of 2026 1 1))","[18262 20454 23011]"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -4666,6 +4675,8 @@ function runTests() {
     const fm = ['(let v [1 2\n  ; 3\n])', '(show (+ 1 2) ; sum\n)', '(let m {"a" 1 ; one\n})', '(fn f [x Num ; the x\n] Num x)'].map(x => { const f = format(x); return f.ok && format(f.text).text === f.text && f.text.includes(";"); });
     rs.push({ name: "format: a comment last inside brackets", ok: fm.every(Boolean), got: JSON.stringify(fm), want: "all true", src: "; four programs", errors: [] });
   }
+  const an = ["2020 18262", "2026 20454", "2033 23011"].every(a => specText("time").includes(a));
+  rs.push({ name: "the time pack's notes carry the jan 1 anchors", ok: an, got: String(an), want: "true", src: "; reads the pack spec", errors: [] });
   const size = specText().length;
   rs.push({ name: `core spec fits the context budget`, ok: size <= CORE_BUDGET, got: `${size} chars`, want: `<= ${CORE_BUDGET} chars`, src: "; tact --spec must stay short. new things go in packs or in side loaded .tact files", errors: [] });
   return rs;
@@ -4860,23 +4871,39 @@ WHAT CANNOT BE DONE IN REASONING
   the pack list marks such packs with *.
 
 HOW FAR REASONING GOES. measured, not guessed
-  - over 120 records, models of three sizes worked programs out and matched the interpreter exactly.
-  - over 2,000 records with messy values, a small model working in chunks of about 300 got about
-    half the final values wrong, each by a little: a count off by one, a date put in the
-    neighbouring month, an age off by a day. it understood every rule. it slipped over hundreds
-    of steps, and it reported the results as finished.
-  so the limit is the number of steps, not understanding. act on that:
-  - count the steps first: records times the work on each. a few hundred is the edge. past it,
-    say the result is unchecked and needs the interpreter or a second pass. never present it as done.
-  - reconcile every tally. add the parts and compare with the number of records, and report
-    both numbers. if they differ the result is wrong: say so, do not adjust it to fit.
-  - keep a written table and update it in small batches. never hold a running total in mind.
-  - compare text exactly. "Done " is not "Done". "bug" is not "Bug". do not tidy values as you read.
-  - the riskiest step is turning a timestamp into a date. do not divide a 13 digit ms number by
-    hand when the date can be given as iso text. in "2026-09-30T23:59:59Z" the month is the
-    first 7 characters, (ssub s 0 7), and the day is the first 10. for a count of days use
-    date.daynum on each date and subtract: the time pack's notes give the method by hand.
-  - a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
+  - 120 records: models of three sizes worked programs out and matched the interpreter exactly.
+  - 2,000 messy records, a small model, batches of about 288: no batch was fully right, and
+    about half the final values were wrong by a little.
+  - the same, in batches of about 50 with a second pass: 38 of 40 batches exact, 22 of 25 final
+    values right.
+  the model understood every rule. each error was a slip on one record: a record with two odd
+  things at once (lower case type and an odd status) had them swapped; a record was dropped
+  from a long list; a month was placed by feel; and once a wrong month table was used for a
+  whole batch, which checking again by the same method did not catch.
+  so the limit is the number of steps taken at once, not understanding.
+
+LARGE DATA. the procedure that was measured
+  1 work on at most about 50 records at a time. past that, slips come from load alone.
+  2 for each batch write down a partial result that can be merged, not a final one:
+    a count per key; a sum and a count per key, never a mean; every value per key when a
+    median is wanted. q.merge in the query pack joins two such results.
+  3 go over the batch a second time. read text values character by character:
+    "Done " is not "Done", "bug" is not "Bug". do not tidy values as you read.
+    any record with more than one odd thing about it: do that record again on its own.
+  4 never place a date by feel. work it out, and in every batch check one date from scratch
+    against the anchors in the time pack's notes. a second look that uses the same method
+    cannot catch a wrong method; an anchor can.
+  5 reconcile. the parts add up to the number of records. report both numbers. if they differ
+    the result is wrong: say so, do not adjust it to fit.
+  6 a record that appears twice is counted twice unless the program says otherwise (uniq, q.first).
+  7 one wrong value in a sorted list shifts every value after it. if many values look off by
+    one place, look for one bad record, not many.
+  8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
+    never present it as finished. it costs many times the tokens of the interpreter, so when
+    someone has the interpreter, the right use of your work is to be checked by it.
+  dates are the riskiest step. when the date can be given as iso text, keep it: in
+  "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
+  first 10. for a count of days use date.daynum on each date and subtract.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.
