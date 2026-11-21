@@ -17,7 +17,7 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
   db: { say: "state between runs, as a tact file", types: "",
-    notes: "run, db, run, db. one run works on one batch, with a fresh context. what it hands to the next run goes in a db file.\na db file is tact: one (let name value) a line. the next run begins with (use \"state.tact\"), so every name and type\nin it is checked before anything is worked out, and a value that does not fit the program is an error up front.\nwriting it: (io.write \"state.tact\" (db.text [(db.let \"counts\" c) (db.let \"done\" n)])). or write those lines yourself:\na value is written as tact reads it: every digit of a number, text in quotes with \\n \\\" \\\\ escaped, a map as {k v ..}\nwith its keys in cmp order, a rec as (Name a b). two writers given the same values write the same file.\nthe whole file, exactly: the line  ; tact db. (use \"this file\") loads these names  then (use dec) if a Dec is kept,\nthen the let lines in the order given. every line ends with a newline, the last one too.\nthe first file is written by hand: (let counts {}) (let done 0).\nkeep in it what can be merged (q.merge): counts, sums with their counts, lists of values. and how many records are done.\nany one run can be done again from the db before it and compared with the db after it: a slip is found at its batch." },
+    notes: "run, db, run, db. one run works on one batch, with a fresh context, and writes what it found to a db file.\nno run needs another: run n reads only its batch and writes only its own part-n.tact. so runs go in any order or all\nat once, no file grows, a slip stays in its own part, and any part can be done again alone. a merge step then folds\neach part into total.tact: only adding and joining, the same total in any order. chain runs (each reads the db the\nlast one wrote) only when a batch truly needs an earlier result.\na db file is tact: one (let name value) a line. a program loads it with (use \"part.tact\"), so every name and type\nin it is checked before anything is worked out, and a value that does not fit the program is an error up front.\nwriting it: (io.write (cat \"part-\" n \".tact\") (db.text [(db.let \"p-n\" n) (db.let \"p-counts\" c) (db.let \"p-done\" k)])). or write those lines yourself:\na value is written as tact reads it: every digit of a number, text in quotes with \\n \\\" \\\\ escaped, a map as {k v ..}\nwith its keys in cmp order, a rec as (Name a b). two writers given the same values write the same file.\nthe whole file, exactly: the line  ; tact db. (use \"this file\") loads these names  then (use dec) if a Dec is kept,\nthen the let lines in the order given. every line ends with a newline, the last one too.\na part and the total use different names (p-counts, counts), since a merge loads both and a name is bound once.\nthe first total is written by hand: (let parts []) (let counts {}) (let done 0).\nkeep in a part what can be merged (q.merge): counts, sums with their counts, lists of values (sorted when merged, so\norder cannot matter). and the batch number and how many records it held. the total keeps the list of parts merged:\nat the end (check parts [1 2 .. n]) shows none is missing or merged twice.\nany one run can be done again alone and its part compared: a slip is found at its batch." },
   xlsx: { machine: true, say: "write .xlsx workbooks", types: "(sum Cell [XNum [Num] XStr [Str] XBool [Bool] XBlank []])\n(rec Sheet [name Str rows (Vec (Vec Cell))])",
     notes: "(io.writeb \"out.xlsx\" (xlsx.pack [(Sheet \"Data\" [[(XStr \"id\") (XStr \"n\")] [(XStr \"007\") (XNum 1.5)]])]))\nrows top to bottom, cells left to right from A1. rows may differ in length. XBlank leaves a cell empty.\na cell keeps its type: (XStr \"007\") (XStr \"1e5\") (XStr \"=A1\") stay text, never a number or a formula.\nno formulas, dates, styles or widths. a date goes in as text, or as a number. reading xlsx is not here." },
   zip: { machine: true, say: "read and write zip and gzip", types: "(rec Entry [name Str data (Vec Num)])",
@@ -4648,6 +4648,8 @@ const TESTS = [
   ["time: the anchors in the notes are the calendar's own","(use time)\n(show [(date.daynum \"2020-01-01\") (date.daynum \"2026-01-01\") (date.daynum \"2033-01-01\")])\n(check (* 86400000 (date.daynum \"2026-01-01\")) (date.of 2026 1 1))","[18262 20454 23011]"],
   ["db: values are written exactly","(use db)\n(use dec)\n(rec P [x Num y Str])\n(show (db.let \"a\" (/ 1 3)))\n(show (db.let \"b\" (+ 0.1 0.2)))\n(show (db.let \"c\" [1e21 -0.5]))\n(show (db.let \"d\" {\"z\" [1 2] \"a\" []}))\n(show (db.let \"e\" [(P 1 \"q\\\"\\n\") ]))\n(show (db.let \"f\" [(Some 1) None]))\n(show (db.text [(db.let \"n\" 1) (db.let \"m\" (dec \"1.50\"))]))","(let a 0.3333333333333333)\n(let b 0.30000000000000004)\n(let c [1e+21 -0.5])\n(let d {\"a\" [] \"z\" [1 2]})\n(let e [(P 1 \"q\\\"\\n\")])\n(let f [(Some 1) None])\n; tact db. (use \"this file\") loads these names\n(use dec)\n(let n 1)\n(let m (dec \"1.5\"))\n"],
   ["db: run, db, run","(use query)\n(use io)\n(use db)\n(use \"state.tact\")\n(let batch [\"bo\" \"cy\" \"bo\"])\n(let now (q.merge + counts (q.count (fun [w] w) batch)))\n(do (io.write \"state.tact\" (db.text [(db.let \"done\" (+ done (len batch))) (db.let \"counts\" now) (db.let \"mean\" (/ 1 3))])))\n(show (io.read \"state.tact\"))\n(check (vsum (mvals now)) (+ done (len batch)))","; tact db. (use \"this file\") loads these names\n(let done 5)\n(let counts {\"ann\" 2 \"bo\" 2 \"cy\" 1})\n(let mean 0.3333333333333333)\n",{"state.tact":"; by hand\n(let done 2)\n(let counts {\"ann\" 2})\n"}],
+  ["db: parts merge, 1 then 2","(use query)\n(use io)\n(use db)\n(use \"total.tact\")\n(use \"part.tact\")\n(do (io.write \"total.tact\" (db.text [(db.let \"parts\" (order (push parts p-n))) (db.let \"done\" (+ done p-done)) (db.let \"counts\" (q.merge + counts p-counts)) (db.let \"ages\" (q.merge (fun [a b] (sort (concat a b))) ages (mmap sort p-ages)))])))\n(show (io.read \"total.tact\"))","; tact db. (use \"this file\") loads these names\n(let parts [1 2])\n(let done 5)\n(let counts {\"ann\" 2 \"bo\" 2 \"cy\" 1})\n(let ages {\"t\" [1 3 4 9]})\n",{"total.tact":"(let parts [1])\n(let done 2)\n(let counts {\"ann\" 2})\n(let ages {\"t\" [3 9]})\n","part.tact":"(let p-n 2)\n(let p-done 3)\n(let p-counts {\"bo\" 2 \"cy\" 1})\n(let p-ages {\"t\" [4 1]})\n"}],
+  ["db: parts merge, 2 then 1 gives the same total","(use query)\n(use io)\n(use db)\n(use \"total.tact\")\n(use \"part.tact\")\n(do (io.write \"total.tact\" (db.text [(db.let \"parts\" (order (push parts p-n))) (db.let \"done\" (+ done p-done)) (db.let \"counts\" (q.merge + counts p-counts)) (db.let \"ages\" (q.merge (fun [a b] (sort (concat a b))) ages (mmap sort p-ages)))])))\n(show (io.read \"total.tact\"))","; tact db. (use \"this file\") loads these names\n(let parts [1 2])\n(let done 5)\n(let counts {\"ann\" 2 \"bo\" 2 \"cy\" 1})\n(let ages {\"t\" [1 3 4 9]})\n",{"total.tact":"(let parts [2])\n(let done 3)\n(let counts {\"bo\" 2 \"cy\" 1})\n(let ages {\"t\" [1 4]})\n","part.tact":"(let p-n 1)\n(let p-done 2)\n(let p-counts {\"ann\" 2})\n(let p-ages {\"t\" [9 3]})\n"}],
   ["db: the first file may hold empty values","(use query)\n(use \"state.tact\")\n(show (q.merge + counts {\"a\" 1}))\n(show (q.merge concat ages {\"t\" [3]}))\n(show (+ done 1))","{\"a\" 1}\n{\"t\" [3]}\n1",{"state.tact":"(let done 0)\n(let counts {})\n(let ages {})\n"}],
   ["db: what is in the file is checked with the program","(use \"state.tact\")\n(show (+ done 1))\n(show (mget counts \"a\"))","!E4@undefined:2",{"state.tact":"(let done \"three\")\n(let counts {\"a\" 1})\n"}],
   ["E14 db","(use db)\n(show (db.let \"f\" len))\n(show (db.let \"two words\" 1))\n(show (db.let \"let\" 1))\n(show (db.text [(db.let \"a\" 1) (db.let \"a\" 2)]))\n(show (db.text [\"(show 1)\"]))","check!E14,E14,E14,E14,E14"],
@@ -4932,27 +4934,37 @@ LARGE DATA. the procedure that was measured
   8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
     never present it as finished. it costs many times the tokens of the interpreter, so when
     someone has the interpreter, the right use of your work is to be checked by it.
-  9 between batches, hand the partial results on in a db file. see below.
+  9 give each batch its own run and its own db file, and merge the files after. see below.
   dates are the riskiest step. when the date can be given as iso text, keep it: in
   "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
   first 10. for a count of days use date.daynum on each date and subtract.
 
 RUN, DB, RUN, DB. how tact scales
-  one run works on one batch, in a fresh context. nothing is remembered between runs except
-  a db file, so load never builds up and every run is as easy as the first.
+  one run works on one batch, in a fresh context, and writes what it found to a db file.
+  load never builds up, so every run is as easy as the first.
+  - no run needs another. run n reads only batch n and writes only its own file, part-n.tact.
+    so the runs can go in any order, or all at once. no file grows. a slip in one batch stays
+    in that batch's part. any one part can be done again alone.
   - a db file is tact: one (let name value) a line. for example
-        (let counts {"ann" 12 "bo" 7})
-        (let done 100)
-  - a run begins with (use "state.tact"). its names and types are checked with the program,
-    before anything is worked out. it then does its batch, and writes the file again with the
-    new values. the db pack's notes say exactly how a value is written, so that two writers
-    given the same values write the same file.
-  - keep in it what can be merged: counts, sums with their counts, lists of values, and how
-    many records are done. never a mean or a median: those are worked out at the end.
-  - the first file is written by hand with empty values: (let counts {}) (let done 0).
-  - why this is safe to trust more than one long run: any single run can be done again, by
-    you or by the interpreter, from the db before it, and compared with the db after it.
-    a slip is found at the batch where it happened, not at the end.
+        (let p-n 7)
+        (let p-counts {"ann" 12 "bo" 7})
+        (let p-done 50)
+  - a merge step folds each part into total.tact. it begins (use "total.tact") (use "part.tact"),
+    so the names and types of both are checked with the program before anything is worked
+    out, and writes the total again. merging is only adding and joining (q.merge): there is
+    no judgement in it, and any order of parts gives the same total.
+  - a part and the total use different names (p-counts, counts): a name is bound once.
+  - keep in a part what can be merged: counts, sums with their counts, lists of values, the
+    batch number, and how many records it held. never a mean or a median: those are worked
+    out at the end, from the total.
+  - the first total is written by hand with empty values: (let parts []) (let counts {}).
+    the total keeps the list of parts merged, so the end can check none is missing or twice.
+  - the db pack's notes say exactly how a value is written, so that two writers given the
+    same values write the same file.
+  - why this is safe to trust more than one long run: any single part can be done again, by
+    you or by the interpreter, and compared. a slip is found at the batch where it happened.
+  - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
+    an earlier result. then a slip travels, and the runs cannot go at once.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.

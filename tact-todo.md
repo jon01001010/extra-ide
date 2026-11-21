@@ -118,12 +118,21 @@ number of steps, and timestamp conversion is the riskiest step.
       against the interpreter redoing each step. One sample per batch; 300
       of 2,015 records; "no code" rests on the models' own tool reports.
 - [ ] Run all 41 batches, and repeat, to get a rate and not one sample.
-- [ ] The db grows: the lists kept for medians are copied by every run
-      (about 1,000 numbers by the last). Decide: a file per batch merged at
-      the end, or keep only what a median needs.
-- [ ] Run the db loop with a model as the runtime: each run reads the db
+- [x] The db grew: the lists kept for medians were copied by every run
+      (about 1,000 numbers by the last). Decided: no run needs another.
+      Run n reads only its batch and writes only `part-n.tact` (300 to 600
+      bytes here); a merge step folds parts into `total.tact`, adding and
+      joining only. Runs go in any order or at once, a slip stays in its
+      part, any part is redone alone. Shown on the interpreter: 41 runs at
+      once, merged in scrambled order, same answers as one run. Chaining is
+      kept only for a batch that truly needs an earlier result.
+- [ ] Run the independent parts with a model as the runtime (the Haiku
+      runs so far used the chained design). Each part is compared with the
+      interpreter's part for that batch alone.
+- [x] Run the db loop with a model as the runtime: each run reads the db
       file, works one batch in reasoning, writes the db file. Compare each
       db file with the interpreter's, to find the batch where a slip happens.
+      (Done for six chained runs, above.)
 - [ ] Retest Haiku at 2,000 records with the readme's procedure, iso dates
       and the anchors. The two errors that survived batches of 50 were a
       record with two traps at once and a wrong month table for one batch.

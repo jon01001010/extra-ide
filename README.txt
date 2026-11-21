@@ -98,27 +98,37 @@ LARGE DATA. the procedure that was measured
   8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
     never present it as finished. it costs many times the tokens of the interpreter, so when
     someone has the interpreter, the right use of your work is to be checked by it.
-  9 between batches, hand the partial results on in a db file. see below.
+  9 give each batch its own run and its own db file, and merge the files after. see below.
   dates are the riskiest step. when the date can be given as iso text, keep it: in
   "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
   first 10. for a count of days use date.daynum on each date and subtract.
 
 RUN, DB, RUN, DB. how tact scales
-  one run works on one batch, in a fresh context. nothing is remembered between runs except
-  a db file, so load never builds up and every run is as easy as the first.
+  one run works on one batch, in a fresh context, and writes what it found to a db file.
+  load never builds up, so every run is as easy as the first.
+  - no run needs another. run n reads only batch n and writes only its own file, part-n.tact.
+    so the runs can go in any order, or all at once. no file grows. a slip in one batch stays
+    in that batch's part. any one part can be done again alone.
   - a db file is tact: one (let name value) a line. for example
-        (let counts {"ann" 12 "bo" 7})
-        (let done 100)
-  - a run begins with (use "state.tact"). its names and types are checked with the program,
-    before anything is worked out. it then does its batch, and writes the file again with the
-    new values. the db pack's notes say exactly how a value is written, so that two writers
-    given the same values write the same file.
-  - keep in it what can be merged: counts, sums with their counts, lists of values, and how
-    many records are done. never a mean or a median: those are worked out at the end.
-  - the first file is written by hand with empty values: (let counts {}) (let done 0).
-  - why this is safe to trust more than one long run: any single run can be done again, by
-    you or by the interpreter, from the db before it, and compared with the db after it.
-    a slip is found at the batch where it happened, not at the end.
+        (let p-n 7)
+        (let p-counts {"ann" 12 "bo" 7})
+        (let p-done 50)
+  - a merge step folds each part into total.tact. it begins (use "total.tact") (use "part.tact"),
+    so the names and types of both are checked with the program before anything is worked
+    out, and writes the total again. merging is only adding and joining (q.merge): there is
+    no judgement in it, and any order of parts gives the same total.
+  - a part and the total use different names (p-counts, counts): a name is bound once.
+  - keep in a part what can be merged: counts, sums with their counts, lists of values, the
+    batch number, and how many records it held. never a mean or a median: those are worked
+    out at the end, from the total.
+  - the first total is written by hand with empty values: (let parts []) (let counts {}).
+    the total keeps the list of parts merged, so the end can check none is missing or twice.
+  - the db pack's notes say exactly how a value is written, so that two writers given the
+    same values write the same file.
+  - why this is safe to trust more than one long run: any single part can be done again, by
+    you or by the interpreter, and compared. a slip is found at the batch where it happened.
+  - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
+    an earlier result. then a slip travels, and the runs cannot go at once.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.
