@@ -32,6 +32,18 @@ WHY IT EXISTS
   the language is small on purpose. the whole core spec is about 3400 tokens, short enough to
   stay in your context all the time. everything beyond the core is a pack you load by name.
 
+THE ONE RULE OF ITS DESIGN: small pieces that stand alone
+  everything in tact is modular, and the rest falls out of that.
+  - the spec is a core and pieces. the core is always in context; a pack is read only by the
+    program that says (use name). so the spec never outgrows a context.
+  - a program is files. each names its own packs and is checked alone.
+  - a large job is runs. each run does one batch and writes its own part; no run needs another.
+  - a form is one step. nothing changes once bound, so a step never reaches back.
+  what this buys: a broken part stays small. an error is in one form, one file, one pack or
+  one batch, it is named there, and that piece alone is done again. nothing else is touched.
+  when you add to a tact program or plan a job, keep to it: if a piece needs another piece to
+  be checked or redone, cut it differently.
+
 HOW TO USE IT
   1 the spec is the contract: the syntax, the rules, every builtin as one row (name kind arity
     in out note), every error code. it is in your context. it is all you need.
