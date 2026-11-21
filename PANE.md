@@ -5,7 +5,7 @@ paints them on a canvas, and follows links between them.
 
 * Browser: `pane.html` (one file, offline, phone-friendly). It inlines `pane.js` and the sample pages in
   `pages/`; after editing either, rebuild it with `node tools/build-pane-html.js` (`--check` verifies it is current).
-* Engine: `pane.js`, one file (~1750 lines). `<script src="pane.js">` defines `window.Pane`;
+* Engine: `pane.js`, one file (~1900 lines). `<script src="pane.js">` defines `window.Pane`;
   in Node, `require('./pane.js')` gives the parser, the expression evaluator, layout and the script runtime
   (no canvas needed). Page scripts run in `mote.js`, which `pane.html` also inlines
   (`node tools/build-mote-html.js`).
@@ -15,8 +15,9 @@ paints them on a canvas, and follows links between them.
 
 The grammar and the look of every widget come from the UI mode of `tiny-v3-8.html`. Two phases of a longer
 plan are here: pages you can read and move between, and pages that run a script inside limits the browser
-enforces, as a Mote script or as a compiled WebAssembly app. Styled text runs and a real text field are
-not here yet.
+enforces, as a Mote script or as a compiled WebAssembly app; and the first part of a third: paragraphs with
+styles and links inside, tables that fit their text, a real text field, and sending. Still to come: forms
+without a script, images with captions, and painting only what changed.
 
 ---
 
@@ -59,7 +60,7 @@ if tap 1=1 do set n n+1
 | `scl [size]` | a column that scrolls when its content is taller than it is |
 | `grid N` | N equal columns; each row is as tall as its tallest cell |
 | `lst` | a numbered list |
-| `tbl` | a table: each child is a `txt` line with `|` between cells; the first row is the header |
+| `tbl` | a table: each child is a `txt` line with `|` between cells; the first row is the header. Columns are as wide as their text needs, cells wrap, and a row is as tall as its tallest cell |
 | `tab A, B, C` | tabs; each child is one panel, in order |
 | `acc Title` | a header that opens and closes its body |
 | `dlg Title` | a dialog over the page; open at the start, closed with its cross |
@@ -90,9 +91,10 @@ Written before any container, a property sets the page (for example `align cente
 | word | shows |
 |---|---|
 | `txt text` | text, wrapped to its width |
+| `par text` | a paragraph with styles inside it (below) |
 | `lnk text address` | a link; the last word is the address |
 | `btn label [id]` | a button; `tap id` is 1 while its click is handled |
-| `inp id` | a one-line text field |
+| `inp id [hint]` | a one-line text field; the hint shows while it is empty |
 | `tog id`, `chk id label` | a switch, a checkbox |
 | `sel id A, B, C` | a choice; a click steps to the next option |
 | `sld min max id` | a slider |
@@ -122,6 +124,23 @@ end
 A text that is exactly a variable's name shows the variable. `{expression}` inside a text is replaced by its
 value: `txt Hello, {str 1}`, `txt Total: {price*qty}`. Layout follows the text, so a value that grows longer
 wraps and moves what is below it.
+
+### Paragraphs
+
+`par` is `txt` with marks inside the text:
+
+| written | shows |
+|---|---|
+| `**words**` | bold |
+| `*words*` | italic |
+| `` `words` `` | code: shown exactly as written, with no marks or `{expression}` read inside |
+| `[words](address)` | a link in the line; it wraps with the text and opens like `lnk` |
+| `\*`, `` \` ``, `\[`, `\]`, `\\` | that character itself |
+
+Styles can sit inside each other, and bold can start in the middle of a word (`mid**dle**`). A mark only
+counts when it can be one:
+`2 * 3`, `4*5*6` and a `*` with no partner stay as written. `{expression}` is replaced inside each run, and
+what it gives is text: marks in a value do nothing. A `par` shows a variable only through `{name}`.
 
 ### Statements
 
@@ -178,6 +197,7 @@ The script sees two tables and nothing else of the browser.
 | `page.go(address)` | open a page; only while a click or key of the user is being handled |
 | `page.after(ms, fn)`, `page.every(ms, fn)`, `page.cancel(id)` | timers |
 | `page.fetch(address, fn)` | GET; later calls `fn(status, text)` (status 0: no answer, or not allowed) |
+| `page.post(address, body, fn)` | POST; text is sent as text, a table as JSON; the answer comes back like `fetch` |
 
 An element has seven fields: `name` and `kind` (read-only), `text`, `value`, `checked`, `hidden`, `open`.
 `value` is the text of an `inp`, the number of a `sld`, `rat` or `prg`, the chosen option of a `sel` or the
@@ -199,8 +219,8 @@ true / false. What a page stores belongs to its site (below) and stays on the de
 Every call into a script (the first run, each handler, each timer tick, each answer) has a budget of
 2,000,000 VM steps and an 8 MB allocation estimate. A call that runs out ends with a message in the status
 line; the page and its other handlers go on, and a repeating timer that ran out is stopped. A page can have
-5,000 elements, 500 handlers, 32 timers, 4 requests at once, answers up to 1 MB, text up to 20,000
-characters per element.
+5,000 elements, 500 handlers, 32 timers, 4 requests at once, answers up to 1 MB, 100,000 characters per
+`post`, text up to 20,000 characters per element.
 
 ---
 
@@ -262,9 +282,9 @@ site. Storage and permissions go by site.
 |---|---|
 | show and change its own elements and variables | always |
 | read and write `store` | its own site's keys only; 100 KB per site |
-| load from its own site (`img`, `avt`, `app`, `snd`, `web`, `page.fetch`) | always; no cookies are sent |
+| load from or send to its own site (`img`, `avt`, `app`, `snd`, `web`, `page.fetch`, `page.post`) | always; no cookies are sent |
 | run an app from a `data:` address | always: it is part of the page |
-| load from another site, or a font from a font service | not until the user presses **Allow** in the bar that names both sites; kept until the window closes |
+| load from or send to another site, or a font from a font service | not until the user presses **Allow** in the bar that names both sites; kept until the window closes |
 | open another page (`go`, `page.go`) | only while a click or key of the user is being handled; never at load or from a timer |
 | play a sound | same rule as opening a page |
 | reach the browser around it (DOM, other pages, cookies, the address bar) | never: none of it exists in the script's world |
@@ -308,6 +328,9 @@ do not make it instant), and the permission bar trusts the user's answer.
 * Fetching another site is subject to that site allowing it (CORS), as for any web page.
 * The status line shows the last thing a page printed, a script error, or what was blocked.
 * The page text is also kept in a hidden text-only copy for screen readers, built with text nodes only.
+* **Text fields.** While an `inp` is being typed in, a real text field is laid over it, so the caret,
+  selection, copy and paste, the phone's keyboard and input methods all work. It goes away on Enter, Escape
+  or a click elsewhere. What is typed reaches the page (text, `if` lines, `"change"` handlers) as it happens.
 
 ## 7. Embedding
 
@@ -320,6 +343,7 @@ const view = Pane.createView(canvas, {
   allow: (kind, url, site) => bool,  // asked before every request a page causes; absent: all allowed
   storage: site => ({ get, set, remove, keys }),   // what `store` uses; absent: scripts have no store
   mirror: element,                   // optional: receives the text-only copy
+  overlay: element,                  // optional: where text fields go while typed in (default: the canvas's parent)
 });
 view.load(source, { site });         // drops the previous page's state, script, timers and requests
 view.destroy();
@@ -338,5 +362,7 @@ with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line
 * `lnk` opens the page in the browser instead of a new window; `go` does the same from a statement.
 * `dlg` sits over the window and takes all clicks while open.
 * `if` lines run after every control changes, not only after button clicks.
-* New: `title`, `id`, `script`, `app`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
+* Tables size their columns from their text and wrap their cells (Tiny: equal columns, one line per cell).
+* Text fields are real ones while typed in (Tiny: Backspace and printable keys only).
+* New: `title`, `id`, `script`, `app`, `par`, a hint for `inp`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
 * Not carried over: Tiny's canvas and GPU modes, the debug panel, export.

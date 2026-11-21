@@ -44,7 +44,7 @@ function parseSize(s) {
 }
 
 const NAME = /^[a-z_][a-z0-9_]*$/;
-const LIMITS = { nodes: 5000, text: 20000, steps: 2e6, memory: 8e6, handlers: 500, timers: 32, requests: 4, body: 1e6, key: 100, value: 20000 };
+const LIMITS = { nodes: 5000, text: 20000, steps: 2e6, memory: 8e6, handlers: 500, timers: 32, requests: 4, body: 1e6, send: 1e5, key: 100, value: 20000 };
 
 function newPage() {
   const rootNode = {
@@ -153,12 +153,13 @@ function parseInto(page, container, lines, fragment) {
       case 'title': if (fragment) warn(lineNo, 'title belongs at the top of a page'); else page.title = rest; break;
       // elements
       case 'txt': add({ type: 'txt', text: rest }, lineNo); break;
+      case 'par': add({ type: 'par', text: rest }, lineNo); break;
       case 'btn': {
         const hasId = parts.length > 2 && /^\d+$/.test(parts[parts.length - 1]);
         add({ type: 'btn', label: hasId ? parts.slice(1, -1).join(' ') : rest, id: hasId ? int(parts[parts.length - 1], 0) : 0 }, lineNo);
         break;
       }
-      case 'inp': add({ type: 'inp', id: int(parts[1], 0) }, lineNo); break;
+      case 'inp': add({ type: 'inp', id: int(parts[1], 0), hint: parts.slice(2).join(' ') }, lineNo); break;
       case 'tog': add({ type: 'tog', id: int(parts[1], 0) }, lineNo); break;
       case 'chk': add({ type: 'chk', id: int(parts[1], 0), label: parts.slice(2).join(' ') }, lineNo); break;
       case 'sel': add({ type: 'sel', id: int(parts[1], 0), opts: parts.slice(2).join(' ').split(',').map(s => s.trim()).filter(Boolean) }, lineNo); break;
@@ -304,6 +305,33 @@ const textOf = n => (n.type === 'btn' || n.type === 'chk' ? n.label : n.type ===
 /** What an element shows. Text a script put there is shown as it is: no variable, no {expr}. */
 const shownText = (n, st) => n.raw ? textOf(n) : display(textOf(n), st);
 
+/** Replace every {expr} in a text by its value. */
+const interp = (text, st) => text.indexOf('{') < 0 ? text : text.replace(/\{([^{}]*)\}/g, (_, e) => fmt(evalExpr(e, st)));
+
+/**
+ * The text of a `par` → runs of one style each: { t, b, i, c, url }.
+ * **bold**, *italic*, `code`, [words](address); a backslash before * ` [ ] or \ makes it an ordinary character.
+ * A * or ** only starts a style when something other than a space follows it and its partner comes later, and a
+ * single * also not right after a letter or digit: "2 * 3" and "4*5*6" stay as they are.
+ */
+function parseRuns(text) {
+  const runs = [];
+  let b = false, i = false, buf = '';
+  const flush = () => { if (buf) runs.push({ t: buf, b, i }); buf = ''; };
+  const opens = (k, mark) => { const next = text[k + mark.length]; return next !== undefined && next !== ' ' && next !== '*' && text.indexOf(mark, k + mark.length + 1) > 0; };
+  for (let k = 0; k < text.length; k++) {
+    const ch = text[k];
+    if (ch === '\\' && k + 1 < text.length && '*`[]\\'.indexOf(text[k + 1]) >= 0) { buf += text[++k]; continue; }
+    if (ch === '*' && text[k + 1] === '*' && (b ? text[k - 1] !== ' ' : opens(k, '**'))) { flush(); b = !b; k++; continue; }
+    if (ch === '*' && text[k + 1] !== '*' && (i ? text[k - 1] !== ' ' : !/[A-Za-z0-9]/.test(text[k - 1] || ' ') && opens(k, '*'))) { flush(); i = !i; continue; }
+    if (ch === '`') { const end = text.indexOf('`', k + 1); if (end > k + 1) { flush(); runs.push({ t: text.slice(k + 1, end), b, i, c: true }); k = end; continue; } }
+    if (ch === '[') { const m = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(text.slice(k)); if (m) { flush(); runs.push({ t: m[1], b, i, url: m[2] }); k += m[0].length - 1; continue; } }
+    buf += ch;
+  }
+  flush();
+  return runs;
+}
+
 /** One action of a statement. host: { navigate(url), sound(url), web(url, name) }, each optional. */
 function execAction(a, st, host) {
   a = a.trim();
@@ -349,30 +377,104 @@ function resolve(v, of) { return v == null ? null : typeof v === 'number' ? v : 
 function layout(page, vw, vh, env) {
   const st = env.state || newState();
   const cache = env.cache || (env.cache = new Map());
-  const widthOf = (text, size, family, bold) => {
-    const key = size + '|' + (family || '') + '|' + (bold ? 1 : 0) + '|' + text;
+  const widthOf = (text, size, family, bold, italic) => {
+    const key = size + '|' + (family || '') + '|' + (bold ? 1 : 0) + (italic ? 2 : 0) + '|' + text;
     let w = cache.get(key);
-    if (w === undefined) { w = env.measure(text, size, family, !!bold); if (cache.size > 20000) cache.clear(); cache.set(key, w); }
+    if (w === undefined) { w = env.measure(text, size, family, !!bold, !!italic); if (cache.size > 20000) cache.clear(); cache.set(key, w); }
     return w;
   };
-  const tw = (n, text, bold) => widthOf(text, px(n), fam(n), bold);
+  const tw = (n, text, bold, italic) => widthOf(text, px(n), fam(n), bold, italic);
 
   /** Break text into lines no wider than maxW. A word wider than the line is broken between characters. */
-  function wrap(n, text, maxW) {
+  function wrap(n, text, maxW, bold) {
     const lines = []; let line = '';
     for (const word of text.split(' ')) {
       const test = line ? line + ' ' + word : word;
-      if (tw(n, test) <= maxW || !line && tw(n, word) <= maxW) { line = test; continue; }
+      if (tw(n, test, bold) <= maxW || !line && tw(n, word, bold) <= maxW) { line = test; continue; }
       if (line) { lines.push(line); line = ''; }
-      if (tw(n, word) <= maxW) { line = word; continue; }
+      if (tw(n, word, bold) <= maxW) { line = word; continue; }
       let part = '';
       for (const ch of word) {
-        if (part && tw(n, part + ch) > maxW) { lines.push(part); part = ch; } else part += ch;
+        if (part && tw(n, part + ch, bold) > maxW) { lines.push(part); part = ch; } else part += ch;
       }
       line = part;
     }
     if (line || !lines.length) lines.push(line);
     return lines;
+  }
+
+  // ── a `par`: words made of pieces, each piece in the style of its run ──
+  function richWords(n) {
+    if (n._rw) return n._rw;
+    // text a script put there is one plain run; in page text, {expr} is replaced inside each run (never in code or addresses)
+    const runs = n.raw ? [{ t: n.text }] : parseRuns(n.text).map(r => r.c ? r : Object.assign({}, r, { t: interp(r.t, st) }));
+    const words = []; let cur = null;
+    for (const r of runs) {
+      r.t.split(' ').forEach((part, idx) => {
+        if (idx > 0) cur = null;                                      // a space ends the word
+        if (!part) return;
+        if (!cur) { cur = { pieces: [], w: 0 }; words.push(cur); }
+        const w = tw(n, part, r.b, r.i);
+        cur.pieces.push({ t: part, r, w }); cur.w += w;
+      });
+    }
+    n.runs = runs;
+    return (n._rw = words);
+  }
+  /** Lines of segments { t, x, w, r, sp }: x from the left edge of the text, sp when a space comes before it. */
+  function richLines(n, maxW) {
+    const sp = tw(n, ' '), lines = [];
+    let line = [], x = 0;
+    const put = (piece, spaced) => {
+      const last = line[line.length - 1];
+      if (spaced && line.length) x += sp;
+      if (last && last.r === piece.r) { last.t += (spaced ? ' ' : '') + piece.t; last.w = x + piece.w - last.x; }   // same run: one segment
+      else line.push({ t: piece.t, x, w: piece.w, r: piece.r, sp: spaced && line.length > 0 });
+      x += piece.w;
+    };
+    const newLine = () => { lines.push(line); line = []; x = 0; };
+    for (const word of richWords(n)) {
+      if (line.length && x + sp + word.w > maxW) newLine();
+      if (word.w <= maxW || word.pieces.length > 1) { word.pieces.forEach((p, i) => put(p, i === 0)); continue; }
+      // one piece wider than the line: break it between characters
+      const p = word.pieces[0]; let part = '', first = true;
+      for (const ch of p.t) {
+        if (part && tw(n, part + ch, p.r.b, p.r.i) > maxW) { put({ t: part, r: p.r, w: tw(n, part, p.r.b, p.r.i) }, first); newLine(); part = ch; first = false; } else part += ch;
+      }
+      if (part) put({ t: part, r: p.r, w: tw(n, part, p.r.b, p.r.i) }, first);
+    }
+    if (line.length || !lines.length) lines.push(line);
+    return lines;
+  }
+
+  // ── a table: column widths from what is in the cells, cells wrapped, rows as tall as their tallest cell ──
+  function tableCols(n) {
+    if (n._tc) return n._tc;
+    const rows = flow(n).map(cellsOf), count = rows.reduce((m, r) => Math.max(m, r.length), 1);
+    const nat = new Array(count).fill(24), min = new Array(count).fill(24);
+    rows.forEach((cells, ri) => cells.forEach((c, ci) => {
+      nat[ci] = Math.max(nat[ci], tw(n, c, ri === 0) + 12);
+      min[ci] = Math.max(min[ci], c.split(' ').reduce((m, word) => Math.max(m, tw(n, word, ri === 0)), 0) + 12);
+    }));
+    const sum = a => a.reduce((t, v) => t + v, 0);
+    return (n._tc = { rows, nat, min, sumNat: sum(nat), sumMin: sum(min) });
+  }
+  function tableLayout(n, w) {
+    const key = Math.round(w * 100);
+    if (n._tk === key) return n._tv;
+    const t = tableCols(n), f = px(n);
+    // room to spare: every column grows in proportion; too little: columns give up what they have above their longest word
+    const cw = t.sumNat <= w ? t.nat.map(v => v * w / t.sumNat)
+      : t.sumMin >= w ? t.min.map(v => v * w / t.sumMin)
+      : t.min.map((m, i) => m + (t.nat[i] - m) * (w - t.sumMin) / (t.sumNat - t.sumMin));
+    let x = 0;
+    const cols = cw.map(v => { const c = { x, w: v }; x += v; return c; });
+    const rows = t.rows.map((cells, ri) => {
+      const lines = cells.map((c, ci) => wrap(n, c, Math.max(1, cols[ci].w - 12), ri === 0));
+      return { cells, lines, h: lines.reduce((m, l) => Math.max(m, l.length), 1) * (f + 3) + 9 };
+    });
+    n._tk = key;
+    return (n._tv = { cols, rows });
   }
   const longestWord = (n, text) => text.split(' ').reduce((m, w) => Math.max(m, tw(n, w)), 0);
   const shown = n => shownText(n, st);
@@ -386,6 +488,12 @@ function layout(page, vw, vh, env) {
     let mn, mx;
     switch (n.type) {
       case 'txt': case 'lnk': { const t = shown(n); mx = tw(n, t) + 4; mn = Math.min(mx, Math.max(longestWord(n, t), f) + 4); break; }
+      case 'par': {
+        const words = richWords(n), sp = tw(n, ' ');
+        mx = words.reduce((t, w) => t + w.w, 0) + sp * Math.max(0, words.length - 1) + 4;
+        mn = Math.min(mx, Math.max(words.reduce((m, w) => Math.max(m, w.w), 0), f) + 4);
+        break;
+      }
       case 'btn': mn = mx = tw(n, shown(n)) + 24; break;
       case 'inp': mn = 80; mx = 200; break;
       case 'tog': mn = mx = 44; break;
@@ -413,11 +521,7 @@ function layout(page, vw, vh, env) {
         mn = a * n.cols + gap * (n.cols - 1); mx = b * n.cols + gap * (n.cols - 1);
         break;
       }
-      case 'tbl': {
-        mn = mx = 0;
-        for (const r of k) { const cells = cellsOf(r); mx = Math.max(mx, cells.length * (Math.max(...cells.map(c => tw(n, c, true))) + 12)); mn = Math.max(mn, cells.length * 40); }
-        break;
-      }
+      case 'tbl': { const t = tableCols(n); mn = t.sumMin; mx = t.sumNat; break; }
       default: { // col, box, scl, lst, acc, tab, dlg
         mn = mx = 0;
         for (const c of n.type === 'tab' ? k.slice(n.sel, n.sel + 1) : k) {
@@ -467,7 +571,6 @@ function layout(page, vw, vh, env) {
   }
 
   const textH = (n, lines) => (lines - 1) * (px(n) + 3) + px(n) + 4;
-  const tblRowH = n => px(n) + 12;
   const accHeadH = n => Math.max(24, px(n) + 10);
   /** Width a column-like container gives a child. */
   function colChildW(n, c, innerW) {
@@ -485,6 +588,7 @@ function layout(page, vw, vh, env) {
     let h;
     switch (n.type) {
       case 'txt': case 'lnk': h = textH(n, wrap(n, shown(n), Math.max(1, w - 4)).length); break;
+      case 'par': h = textH(n, richLines(n, Math.max(1, w - 4)).length); break;
       case 'btn': case 'inp': case 'sel': h = f + 16; break;
       case 'tog': case 'sld': case 'spn': h = 24; break;
       case 'prg': h = 16; break;
@@ -497,7 +601,7 @@ function layout(page, vw, vh, env) {
       case 'rat': h = 20; break;
       case 'ico': h = f + 4; break;
       case 'tmr': h = 0; break;
-      case 'tbl': h = flow(n).length * tblRowH(n); break;
+      case 'tbl': h = tableLayout(n, w).rows.reduce((t, r) => t + r.h, 0); break;
       case 'row': {
         const k = flow(n), iw = innerWOf(n, w), ws = rowWidths(n, k, iw);
         h = 0; k.forEach((c, i) => { h = Math.max(h, childH(c, ws[i], null)); });
@@ -537,10 +641,16 @@ function layout(page, vw, vh, env) {
   function place(n, x, y, w, h) {
     n.x = x; n.y = y; n.w = w; n.h = h;
     if (n.type === 'txt' || n.type === 'lnk') { n.lines = wrap(n, shown(n), Math.max(1, w - 4)); return; }
+    if (n.type === 'par') { n.rlines = richLines(n, Math.max(1, w - 4)); n.lines = n.rlines.map(l => l.map(s => (s.sp ? ' ' : '') + s.t).join('')); return; }
     if (!n.children) return;
     const p = n.props, pad = p.pad, k = flow(n), iw = innerWOf(n, w), ih = Math.max(0, h - pad * 2);
     const ix = x + pad + (n.type === 'lst' ? LIST_NUM_W : 0), iy = y + pad;
-    if (n.type === 'tbl') { const rh = tblRowH(n); k.forEach((c, i) => { c.x = x; c.y = y + i * rh; c.w = w; c.h = rh; c.cells = cellsOf(c); }); return; }
+    if (n.type === 'tbl') {
+      const t = tableLayout(n, w); let cy = y;
+      n.cols = t.cols;
+      k.forEach((c, i) => { const r = t.rows[i]; c.x = x; c.y = cy; c.w = w; c.h = r.h; c.cells = r.cells; c.cellLines = r.lines; cy += r.h; });
+      return;
+    }
     if (n.type === 'row') {
       const ws = rowWidths(n, k, iw), align = p.align || 'stretch';
       const used = ws.reduce((s, v) => s + v, 0) + Math.max(0, k.length - 1) * p.gap, spare = Math.max(0, iw - used);
@@ -598,7 +708,7 @@ function layout(page, vw, vh, env) {
   // reset what the last layout left, and mark children of rows (a box size is a width there)
   // (an element a script switched off, and everything inside it, is hidden and takes no room)
   (function reset(n, inRow, off) {
-    n._wd = null; n._hk = null; n.hidden = off = off || !!n.off; n._inRow = inRow;
+    n._wd = null; n._hk = null; n._rw = null; n._tc = null; n._tk = null; n.hidden = off = off || !!n.off; n._inRow = inRow;
     if (off) n.x = n.y = n.w = n.h = 0;
     if (n.children) for (const c of n.children) reset(c, n.type === 'row', off);
   })(page.root, false, false);
@@ -667,7 +777,7 @@ function paint(X, page, opts) {
   const st = opts.state, defFont = opts.font || DEFAULT_FONT;
   const hits = [], scrolls = [];
   let spinning = false, dy = 0, clip = { x0: 0, y0: 0, x1: page.vw, y1: page.vh };
-  const font = (n, bold, size) => { X.font = (bold ? 'bold ' : '') + (size || px(n)) + 'px ' + JSON.stringify(n.props.fontFamily || defFont) + ', monospace'; };
+  const font = (n, bold, size, italic) => { X.font = (italic ? 'italic ' : '') + (bold ? 'bold ' : '') + (size || px(n)) + 'px ' + JSON.stringify(n.props.fontFamily || defFont) + ', monospace'; };
   const hit = (n, x, y, w, h, extra) => {
     const r = { n, x0: Math.max(x, clip.x0), y0: Math.max(y + dy, clip.y0), x1: Math.min(x + w, clip.x1), y1: Math.min(y + h + dy, clip.y1) };
     if (r.x1 > r.x0 && r.y1 > r.y0) hits.push(Object.assign(r, extra));
@@ -701,6 +811,22 @@ function paint(X, page, opts) {
         if (n.type === 'lnk') hit(n, x, y, w, h);
         break;
       }
+      case 'par': {
+        const fg = p.fg || [187, 221, 255];
+        X.textBaseline = 'top';
+        n.rlines.forEach((line, li) => {
+          const ly = y + 2 + li * (f + 3);
+          for (const s of line) {
+            const r = s.r, sx = x + 2 + s.x;
+            font(n, r.b, 0, r.i);
+            if (r.c) { X.fillStyle = 'rgba(255,255,255,0.09)'; X.fillRect(sx - 2, ly - 1, s.w + 4, f + 3); }
+            X.fillStyle = css(r.url ? [80, 180, 255] : fg);
+            X.fillText(s.t, sx, ly);
+            if (r.url) { X.fillRect(sx, ly + f, s.w, 1); hit(n, sx, ly, s.w, f + 3, { url: r.url }); }
+          }
+        });
+        break;
+      }
       case 'btn': {
         const bg = p.bg || [40, 55, 85], fg = p.fg || [204, 221, 238];
         X.fillStyle = css(bg); X.fillRect(x, y, w, h);
@@ -721,9 +847,10 @@ function paint(X, page, opts) {
         clipped(x + 1, y + 1, w - 2, h - 2, () => {
           X.fillStyle = v ? css(fg) : 'rgb(60,80,100)'; X.textBaseline = 'middle';
           const vw = X.measureText(v).width, off = Math.min(0, w - 20 - vw);   // keep the caret in view
-          X.fillText(v || (on ? '' : 'type here...'), x + 8 + off, y + h / 2);
-          if (on) { X.fillStyle = css(fg); X.fillRect(x + 8 + off + vw + 1, y + 4, 2, h - 8); }
+          // while it is being typed in, a real text field sits over it and shows the text
+          if (!on) X.fillText(v || n.hint || 'type here...', x + 8 + off, y + h / 2);
         });
+        n._sy = y + dy;                                              // where it is on screen, for that field
         hit(n, x, y, w, h);
         break;
       }
@@ -810,10 +937,15 @@ function paint(X, page, opts) {
       case 'tbl': {
         const fg = p.fg || [187, 221, 255];
         flow(n).forEach((row, ri) => {
-          const cells = row.cells || [], cw = w / Math.max(1, cells.length);
           if (ri > 0) { X.fillStyle = css(scale(fg, 1 / 6)); X.fillRect(x, row.y, w, 1); }
-          X.fillStyle = css(ri === 0 ? fg : scale(fg, .7)); X.textBaseline = 'middle'; font(n, ri === 0);
-          cells.forEach((cell, ci) => clipped(x + ci * cw, row.y, cw, row.h, () => X.fillText(cell, x + ci * cw + 6, row.y + row.h / 2)));
+          X.textBaseline = 'top'; font(n, ri === 0);
+          (row.cellLines || []).forEach((lines, ci) => {
+            const col = n.cols[ci];
+            clipped(x + col.x, row.y, col.w, row.h, () => {
+              X.fillStyle = css(ri === 0 ? fg : scale(fg, .7));
+              lines.forEach((line, li) => X.fillText(line, x + col.x + 6, row.y + 5 + li * (f + 3)));
+            });
+          });
         });
         break;
       }
@@ -1013,6 +1145,13 @@ function createRuntime(page, st, hooks, Mote) {
     return id;
   }
   function cancel(id) { const t = rt.timers.get(id); if (t !== undefined) { hooks.clearTimer(t); rt.timers.delete(id); } }
+  function request(address, fn, send) {
+    if (typeof address !== 'string') throw new Error('expected an address');
+    callback(fn);
+    if (rt.requests >= LIMITS.requests) throw new Error('a page can have ' + LIMITS.requests + ' requests at once');
+    rt.requests++;
+    hooks.fetch(address.slice(0, 2000), (status, body) => { rt.requests--; enter(fn, [status, body]); }, send);
+  }
   const api = {
     find: name => { const n = page.names[nameOf(name)]; return n ? handle(n) : null; },   // null: one nil, not no value
     on: (name, event, fn) => {
@@ -1054,12 +1193,16 @@ function createRuntime(page, st, hooks, Mote) {
     after: (ms, fn) => timer(ms, fn, false),
     every: (ms, fn) => timer(ms, fn, true),
     cancel: id => cancel(id),
-    fetch: (address, fn) => {
-      if (typeof address !== 'string') throw new Error('expected an address');
-      callback(fn);
-      if (rt.requests >= LIMITS.requests) throw new Error('a page can have ' + LIMITS.requests + ' requests at once');
-      rt.requests++;
-      hooks.fetch(address.slice(0, 2000), (status, body) => { rt.requests--; enter(fn, [status, body]); });
+    fetch: (address, fn) => request(address, fn, null),
+    // post(address, body, fn): text is sent as text; a table is sent as JSON
+    post: (address, body, fn) => {
+      let data, type = 'text/plain;charset=UTF-8';
+      if (typeof body === 'string') data = body;
+      else if (typeof body === 'number' || typeof body === 'boolean') data = String(body);
+      else if (body && typeof body === 'object') { data = JSON.stringify(body); type = 'application/json'; }
+      else throw new Error('expected text or a table to send');
+      if (data.length > LIMITS.send) throw new Error('a page can send ' + LIMITS.send + ' characters at a time');
+      request(address, fn, { body: data, type });
     },
   };
   const storage = () => { const s = hooks.storage && hooks.storage(); if (!s) throw new Error('storage is not available here'); return s; };
@@ -1330,6 +1473,8 @@ function appReplay(c, cmds, w, h) {
  *                                                'snd', 'web', 'font' or 'app'. Without it everything is allowed.
  *   storage(site) → { get, set, remove, keys } or null      what `store` in scripts reads and writes
  *   mirror     an element that receives a text-only copy of the page for screen readers
+ *   overlay    the element text fields are put into while typed in (default: the canvas's parent, which must
+ *              be positioned, so that the field can be placed over the canvas)
  *   Mote       the script engine (default: the global Mote); font, fetch, loadFonts
  * view.load(source, { site }) shows a page; site is who the page is, and is handed back to allow and storage.
  */
@@ -1340,7 +1485,7 @@ function createView(canvas, opts) {
   const env = { measure, image: imageSize, state: view.state, cache: new Map() };
   const images = new Map();
   let timers = [], spin = 0, spinTimer = 0, raf = 0, dead = false, drag = null, generation = 0;
-  let site = null, rt = null, userActive = 0, needLayout = false, inputs = Object.create(null);
+  let site = null, rt = null, userActive = 0, needLayout = false;
   const apps = new Map();
   let appUrl = null, appLoop = 0, activeApp = null;
   const defFont = () => opts.font || DEFAULT_FONT;
@@ -1354,8 +1499,8 @@ function createView(canvas, opts) {
     if (opts.allow && !opts.allow(kind, abs, site)) { log('blocked', kind + ' ' + abs); return null; }
     return abs;
   }
-  function measure(text, size, family, bold) {
-    X.font = (bold ? 'bold ' : '') + size + 'px ' + JSON.stringify(family || defFont()) + ', monospace';
+  function measure(text, size, family, bold, italic) {
+    X.font = (italic ? 'italic ' : '') + (bold ? 'bold ' : '') + size + 'px ' + JSON.stringify(family || defFont()) + ', monospace';
     return X.measureText(text).width;
   }
   function image(ref) {
@@ -1370,12 +1515,14 @@ function createView(canvas, opts) {
   }
   function imageSize(url) { const im = image(url); return im ? { w: im.naturalWidth, h: im.naturalHeight } : null; }
 
-  /** GET for a page: no cookies, the answer capped, and done(status, text) is always called later, never at once. */
-  function doFetch(ref, done) {
+  /** GET (or POST, with send = { body, type }) for a page: no cookies, the answer capped, and done(status, text) is always called later, never at once. */
+  function doFetch(ref, done, send) {
     const abs = request('web', ref), gen = generation;
     const finish = (status, text) => { if (gen === generation && !dead) done(status, text); };
     if (!abs) { Promise.resolve().then(() => finish(0, '')); return; }
-    (opts.fetch || root.fetch)(abs, { credentials: 'omit', redirect: 'follow' })
+    const init = { credentials: 'omit', redirect: 'follow' };
+    if (send) { init.method = 'POST'; init.body = send.body; init.headers = { 'content-type': send.type }; }
+    (opts.fetch || root.fetch)(abs, init)
       .then(r => r.text().then(t => finish(r.status, t.slice(0, LIMITS.body))))
       .catch(() => finish(0, ''));
   }
@@ -1490,6 +1637,7 @@ function createView(canvas, opts) {
     X.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
     view.painted = paint(X, view.page, { state: view.state, font: defFont(), image, spin, surface });
     view.paints++;
+    placeField();
     if (view.painted.spinning && !spinTimer) spinTimer = root.setInterval(() => { spin += 0.15; repaint(); }, 50);
     if (!view.painted.spinning && spinTimer) { root.clearInterval(spinTimer); spinTimer = 0; }
   }
@@ -1505,6 +1653,13 @@ function createView(canvas, opts) {
       let e = null;
       switch (n.type) {
         case 'txt': e = el('p', shownText(n, st)); break;
+        case 'par': e = el('p');
+          for (const r of n.runs || []) {
+            const part = el(r.url ? 'a' : r.c ? 'code' : r.b ? 'strong' : r.i ? 'em' : 'span', r.t);
+            if (r.url) { part.setAttribute('href', '#'); part.addEventListener('click', ev => { ev.preventDefault(); follow(n, r.url); }); }
+            e.appendChild(part);
+          }
+          break;
         case 'lnk': e = el('a', shownText(n, st)); e.setAttribute('href', '#'); e.addEventListener('click', ev => { ev.preventDefault(); activate(n, 0); }); break;
         case 'btn': e = el('button', shownText(n, st)); e.addEventListener('click', () => activate(n, 0)); break;
         case 'chk': e = el('button', shownText(n, st), 'checkbox'); e.setAttribute('aria-checked', String(!!st.chks[n.id])); e.addEventListener('click', () => activate(n, 0)); break;
@@ -1548,6 +1703,54 @@ function createView(canvas, opts) {
     p.scrollY = to; repaint();
     return true;
   }
+  // ── the text field: a real one, laid over the page where the `inp` is, for as long as it is being typed in.
+  //    It brings the caret, selection, copy and paste, the phone's keyboard and input methods with it. ──
+  let field = null;
+  function openField(n) {
+    closeField();
+    const holder = opts.overlay || canvas.parentNode;
+    if (!holder) return;
+    const el = canvas.ownerDocument.createElement('input'), p = n.props, st = view.state;
+    const fg = p.fg || [200, 220, 255], bg = p.bg || [10, 16, 30], brd = p.brd || p.fg || [30, 45, 70];
+    el.type = 'text'; el.maxLength = LIMITS.text; el.spellcheck = false;
+    el.setAttribute('autocapitalize', 'off'); el.setAttribute('autocomplete', 'off'); el.setAttribute('aria-label', n.hint || 'text field');
+    if (n.hint) el.placeholder = n.hint;
+    el.value = st.inputs[n.id] || '';
+    el.style.cssText = 'position:absolute;box-sizing:border-box;margin:0;padding:0 7px;border-radius:0;outline:none;z-index:2;' +
+      'border:1px solid ' + css([Math.min(255, brd[0] + 30), Math.min(255, brd[1] + 55), Math.min(255, brd[2] + 90)]) + ';background:' + css([bg[0] + 5, bg[1] + 6, bg[2] + 10]) + ';color:' + css(fg) +
+      ';font:' + px(n) + 'px ' + JSON.stringify(p.fontFamily || defFont()) + ',monospace';
+    field = { el, n };
+    el.addEventListener('input', () => {
+      if (!field || field.el !== el) return;
+      const v = el.value.slice(0, LIMITS.text);
+      if (v !== (st.inputs[n.id] || '')) { st.inputs[n.id] = v; fire(n, 'change', v); }
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeField(); canvas.focus({ preventScroll: true }); } });
+    el.addEventListener('blur', () => { if (field && field.el === el) closeField(); });
+    holder.appendChild(el);
+    placeField();
+    el.focus({ preventScroll: true });
+    try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {}
+  }
+  /** Keep the field on its element (the page may have scrolled or been laid out again) and showing its value. */
+  function placeField() {
+    if (!field) return;
+    const { el, n } = field, v = view.state.inputs[n.id] || '';
+    if (n.hidden || n._sy === undefined) { closeField(); return; }
+    el.style.left = (canvas.offsetLeft + n.x) + 'px'; el.style.top = (canvas.offsetTop + n._sy) + 'px';
+    el.style.width = n.w + 'px'; el.style.height = n.h + 'px';
+    if (el.value !== v) el.value = v;                                // a script changed it
+  }
+  function closeField() {
+    if (!field) return;
+    const f = field; field = null;
+    f.el.remove();
+    if (view.state.activeInput === f.n.id) view.state.activeInput = -1;
+    repaint();
+  }
+  /** Open the page a link or an inline link names: only ever as the answer to a click or key of the user. */
+  function follow(n, address) { userActive++; try { if (rt) rt.dispatch(n, 'click', address); host.navigate(address); } finally { userActive--; } }
+
   /** The user did something to an element: run the page's if lines, then the script's handlers for it. */
   function fire(n, event, value) {
     userActive++;
@@ -1565,6 +1768,7 @@ function createView(canvas, opts) {
   /** What a click on a node does. x is the click position in viewport coordinates (tabs, stars and sliders use it). */
   function activate(n, x, h) {
     const st = view.state;
+    if (n.type !== 'inp') closeField();
     st.activeInput = n.type === 'inp' ? n.id : -1;
     activeApp = n.type === 'app' ? n : null;      // a click on an app gives it the keys
     switch (n.type) {
@@ -1573,18 +1777,19 @@ function createView(canvas, opts) {
       case 'chk': st.chks[n.id] = !st.chks[n.id]; fire(n, 'change', st.chks[n.id]); break;
       case 'sel': st.sels[n.id] = ((st.sels[n.id] || 0) + 1) % Math.max(1, n.opts.length); fire(n, 'change', st.sels[n.id] + 1); break;
       case 'sld': if (h) setSlider(n, x); break;
-      case 'lnk': userActive++; try { if (rt) rt.dispatch(n, 'click', n.url); host.navigate(n.url); } finally { userActive--; } break;
+      case 'lnk': follow(n, n.url); break;
+      case 'par': if (h && h.url) follow(n, h.url); break;
       case 'acc': n.open = !n.open; fire(n, 'change', n.open); break;
       case 'tab': if (h) { n.sel = Math.max(0, Math.min(n.tabs.length - 1, Math.floor((x - n.x) / (n.w / n.tabs.length)))); fire(n, 'change', n.sel + 1); } break;
       case 'rat': if (h) { st.vars['rat' + n.id] = Math.max(0, Math.min(n.max, Math.floor((x - n.x) / 20) + 1)); fire(n, 'change', st.vars['rat' + n.id]); } break;
       case 'dlg': n.open = false; fire(n, 'change', false); break;
-      case 'inp': if (st.inputs[n.id] == null) st.inputs[n.id] = ''; break;
+      case 'inp': if (st.inputs[n.id] == null) st.inputs[n.id] = ''; openField(n); break;
     }
     invalidate();
   }
   function click(x, y) {
     const h = hitAt(x, y);
-    if (!h) { if (view.state.activeInput !== -1 || activeApp) { view.state.activeInput = -1; activeApp = null; repaint(); } return; }
+    if (!h) { closeField(); if (view.state.activeInput !== -1 || activeApp) { view.state.activeInput = -1; activeApp = null; repaint(); } return; }
     activate(h.n, x, h);
   }
   const on = (target, type, fn, o) => { target.addEventListener(type, fn, o); listeners.push([target, type, fn, o]); };
@@ -1622,22 +1827,11 @@ function createView(canvas, opts) {
   }, { passive: false });
   on(canvas, 'keydown', e => {
     if (!view.page || e.ctrlKey || e.metaKey || e.altKey) return;
-    const st = view.state, id = st.activeInput;
     if (activeApp && apps.get(activeApp)) {
       // the app with the keys gets them all, except Escape, which takes them back
       if (e.key === 'Escape') { activeApp = null; repaint(); }
       else apps.get(activeApp).input.keys[e.keyCode] = 1;
       e.preventDefault();
-      return;
-    }
-    if (id >= 0) {
-      const v = st.inputs[id] || '';
-      if (e.key === 'Backspace') st.inputs[id] = Array.from(v).slice(0, -1).join('');
-      else if (e.key === 'Enter' || e.key === 'Escape') st.activeInput = -1;
-      else if (Array.from(e.key).length === 1) st.inputs[id] = (v + e.key).slice(0, LIMITS.text);
-      else return;
-      e.preventDefault();
-      if (st.inputs[id] !== v && inputs[id]) fire(inputs[id], 'change', st.inputs[id]); else invalidate();
       return;
     }
     const page = view.page.vh * 0.9;
@@ -1663,6 +1857,7 @@ function createView(canvas, opts) {
     if (appLoop) { root.cancelAnimationFrame(appLoop); appLoop = 0; }
     if (spinTimer) { root.clearInterval(spinTimer); spinTimer = 0; }
     drag = null; userActive = 0;
+    closeField();
   }
   function loadFont(name) {
     const doc = canvas.ownerDocument, id = 'pane-font-' + name.replace(/ /g, '-');
@@ -1685,8 +1880,6 @@ function createView(canvas, opts) {
     site = info && info.site != null ? info.site : null;
     const page = parse(src), st = newState(), mine = site;
     view.page = page; view.state = st; env.state = st; env.cache.clear(); images.clear();
-    inputs = Object.create(null);
-    (function index(n) { if (n.type === 'inp' && !inputs[n.id]) inputs[n.id] = n; if (n.children) for (const c of n.children) index(c); })(page.root);
     for (const name of page.fonts) loadFont(name);
     runStatements(page, st, 'load', host);
     rt = createRuntime(page, st, {

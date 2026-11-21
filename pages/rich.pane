@@ -1,0 +1,37 @@
+title Rich text
+align center
+col
+  w 100%
+  maxw 640
+  pad 20
+  gap 14
+  fnt 24
+  fg 235 240 255
+  txt Rich text
+  fnt 15
+  fg 190 205 230
+  par A `par` is a paragraph with styles inside it: **bold**, *italic*, `code`, and links such as [the start page](home) that sit in the line and wrap with it.
+  par Styles can be **combined with *italic inside bold*** and a style can start in the mid**dle** of a word. A star with spaces around it, as in 2 * 3, is just a star, and \*a backslash\* keeps the stars.
+  par Values go in as usual: this page has been open for **{tmr1}** seconds. Text between backquotes is never changed: `{tmr1}` stays as written.
+  tmr 1 1000
+  fnt 18
+  fg 235 240 255
+  txt A table that fits its text
+  fnt 14
+  fg 190 205 230
+  tbl
+    txt Word | What it shows | Notes
+    txt txt | plain text | wraps to its width
+    txt par | text with styles and links inside | new in this version; scripts can still set its text, and then it is shown exactly as given
+    txt tbl | rows of cells | columns are as wide as their text needs, cells wrap, and a row is as tall as its tallest cell
+  end
+  fnt 18
+  fg 235 240 255
+  txt A real text field
+  fnt 14
+  fg 190 205 230
+  par Click the field and type. The caret, selection, copy and paste and the phone keyboard all work, because a real text field is laid over the page while you type.
+  inp 1 your name
+  par Hello, **{str 1}**
+  lnk Back to the start page home
+end

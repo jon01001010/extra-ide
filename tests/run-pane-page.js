@@ -39,6 +39,8 @@ const SITE = {
   '/font.pane': { body: 'font pacifico\ntxt fancy' },
   '/go.pane': { body: 'txt page with go\nbtn Leave 1\nid leave\ntmr 1 100\nif tmr1=1 do go https://site.test/b.pane\nscript\npage.go("https://site.test/b.pane")\npage.after(50, function() page.go("https://site.test/b.pane") end)\npage.on("leave", "click", function() page.go("b.pane") end)\nend script' },
   '/loop.pane': { body: 'txt n is {n}\nbtn Hang 1\nid hang\nbtn Count 2\nid count\nscript\npage.on("hang", "click", function() while true do end end)\npage.on("count", "click", function() page.set("n", (page.get("n") or 0) + 1) end)\nend script' },
+  // phase 3: styled paragraphs, the text field, sending
+  '/rich.pane': { body: 'fnt 14\npar Read **the** [second page](b.pane) or [go up](../other/c.pane), not `[code](nope.pane)`.\nid p\npar plain {1+1}\ninp 1 your name\nid field\ninp 2\ntxt Hello, {str 1}!\nbtn Fill 1\nid fill\nbtn Send 2\nid send\ntxt answer\nid out\nscript\npage.on("fill", "click", function() page.find("field").value = "set by script" end)\npage.on("send", "click", function()\n  page.post("save", { name = page.find("field").value }, function(status, body) page.find("out").text = status .. " " .. body end)\n  page.post("https://other.test/save", "x", function(status) page.set("other", status) end)\nend)\nend script\n' + 'txt filler\n'.repeat(60) },
   '/ticker.pane': { body: 'txt t\nscript\npage.every(50, function() print("tick") end)\nend script' },
   '/pic.png': { type: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAYAAACzzX7wAAAAEklEQVR4nGP4z8Dwn4GBgYEBAA8MAgCPu0qEAAAAAElFTkSuQmCC' },
 };
@@ -59,7 +61,7 @@ const OTHER = {
   async function open(opts, hash) {
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 1 }, opts));
     const page = await ctx.newPage();
-    const t = { ctx, page, errors: [], requests: [], dialogs: 0 };
+    const t = { ctx, page, errors: [], requests: [], posts: [], dialogs: 0 };
     page.on('pageerror', e => t.errors.push(e.message));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text())) t.errors.push(m.text()); });
     page.on('dialog', d => { t.dialogs++; d.dismiss(); });
@@ -67,6 +69,11 @@ const OTHER = {
       const u = new URL(r.request().url());
       t.requests.push(r.request().url());
       if (u.hostname === '127.0.0.1') return r.continue();
+      if (r.request().method() !== 'GET') {
+        const q = r.request();
+        t.posts.push({ url: q.url(), method: q.method(), body: q.postData(), type: q.headers()['content-type'], cookie: q.headers().cookie || null });
+        return r.fulfill({ status: u.pathname === '/save' ? 201 : 404, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: 'got ' + q.postData() });
+      }
       const hit = u.host === 'site.test' ? SITE[u.pathname] : u.host === 'other.test' ? OTHER[u.pathname] : null;
       if (!hit) return u.host === 'site.test' ? r.fulfill({ status: 404, contentType: 'text/plain', body: 'not here' }) : r.abort();
       return r.fulfill({ status: 200, contentType: hit.type || 'text/plain; charset=utf-8', headers: { 'access-control-allow-origin': '*' }, body: hit.base64 ? Buffer.from(hit.base64, 'base64') : hit.body });
@@ -439,6 +446,87 @@ const OTHER = {
     await page.waitForTimeout(300);
     eq('leaving: the script of the page before does nothing more', await page.evaluate(() => paneShell.log.length), 0);
     eq('scripts: no errors', t.errors, []);
+    await t.ctx.close();
+  }
+
+  // ───────────── styled paragraphs with links in the line ─────────────
+  {
+    const t = await open({}, 'https://site.test/rich.pane'), page = t.page;
+    const seg = (text) => page.evaluate(text => { const v = paneShell.view, n = v.page.names.p, r = v.canvas.getBoundingClientRect(); for (let li = 0; li < n.rlines.length; li++) for (const s of n.rlines[li]) if (s.t.startsWith(text)) return { x: r.left + n.x + 2 + s.x + 8, y: r.top + n.y + 2 + li * 17 + 7 - v.page.scrollY }; return null; }, text);
+    let at = await seg('second');
+    await page.mouse.click(at.x, at.y); await settled(page);
+    eq('par: a click on a link in the line opens it, read against the page', await url(page), 'https://site.test/b.pane');
+    await page.click('#back'); await settled(page);
+    at = await seg('the'); await page.mouse.click(at.x, at.y); await settled(page);
+    eq('par: a click on other words does nothing', await url(page), 'https://site.test/rich.pane');
+    at = await seg('[code]'); await page.mouse.click(at.x, at.y); await settled(page);
+    eq('par: a link written inside code is not a link', await url(page), 'https://site.test/rich.pane');
+    at = await seg('go up'); await page.mouse.click(at.x, at.y); await settled(page);
+    eq('par: the second link of the same paragraph', await url(page), 'https://site.test/other/c.pane');
+    await page.click('#back'); await settled(page);
+    eq('par: screen readers get the same structure', await page.evaluate(() => { const p = document.querySelector('#mirror p'); return [...p.children].map(c => c.tagName + ':' + c.textContent); }),
+      ['SPAN:Read ', 'STRONG:the', 'SPAN: ', 'A:second page', 'SPAN: or ', 'A:go up', 'SPAN:, not ', 'CODE:[code](nope.pane)', 'SPAN:.']);
+    await page.evaluate(() => [...document.querySelectorAll('#mirror p a')][1].click()); await settled(page);
+    eq('par: and their links work', await url(page), 'https://site.test/other/c.pane');
+    await page.click('#back'); await settled(page);
+    ok('par: pixels are drawn in the link colour where the link is', await page.evaluate(() => { const v = paneShell.view, n = v.page.names.p, s = n.rlines[0].find(s => s.r.url), c = v.canvas, d = c.getContext('2d').getImageData(Math.round(n.x + 2 + s.x), Math.round(n.y + 2), Math.round(s.w), 14).data; let blue = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 120 && d[i + 1] > 140 && d[i + 2] > 220) blue++; return blue > 20; }));
+
+    // ───────────── the text field ─────────────
+    const fieldBox = () => page.evaluate(() => { const el = document.querySelector('#stage input'); if (!el) return null; const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; });
+    const nodeBox = name => page.evaluate(name => { const v = paneShell.view, n = v.page.names[name], r = v.canvas.getBoundingClientRect(); return [Math.round(r.left + n.x), Math.round(r.top + n.y - v.page.scrollY), Math.round(n.w), Math.round(n.h)]; }, name);
+    eq('field: nothing is laid over the page until a field is used', await fieldBox(), null);
+    await clickNode(page, "n.name === 'field'");
+    eq('field: a click puts a real text field exactly over it, with its hint', [await fieldBox(), await page.evaluate(() => [document.activeElement.tagName, document.activeElement.placeholder])], [await nodeBox('field'), ['INPUT', 'your name']]);
+    await page.keyboard.type('Ada Lovelace'); await settled(page);
+    eq('field: typing reaches the page as it happens', [await state(page, 'st.inputs[1]'), (await texts(page)).includes('Hello, Ada Lovelace!')], ['Ada Lovelace', true]);
+    await page.keyboard.press('Home'); await page.keyboard.type('Dr ');
+    await page.keyboard.press('End'); for (let i = 0; i < 8; i++) await page.keyboard.press('Shift+ArrowLeft'); await page.keyboard.type('King');
+    eq('field: the caret moves, and typing over a selection replaces it', await state(page, 'st.inputs[1]'), 'Dr Ada King');
+    await page.keyboard.press('Control+a'); await page.keyboard.press('Control+c'); await page.keyboard.press('End'); await page.keyboard.press('Control+v');
+    ok('field: select all, copy and paste', ['Dr Ada KingDr Ada King', 'Dr Ada King'].includes(await state(page, 'st.inputs[1]')), await state(page, 'st.inputs[1]'));
+    await page.keyboard.press('Control+a'); await page.keyboard.insertText('日本語 text');
+    eq('field: text that arrives whole (paste, an input method) is taken as it is', await state(page, 'st.inputs[1]'), '日本語 text');
+    await clickNode(page, "n.name === 'fill'");
+    eq('field: a click elsewhere takes the field away', [await fieldBox(), await state(page, 'st.activeInput')], [null, -1]);
+    eq('field: a script can set the text', [await state(page, 'st.inputs[1]'), (await texts(page)).includes('Hello, set by script!')], ['set by script', true]);
+    await clickNode(page, "n.name === 'field'");
+    eq('field: opened again, it shows what the script set', await page.evaluate(() => document.querySelector('#stage input').value), 'set by script');
+    await page.evaluate(() => { paneShell.view.state.inputs[1] = 'changed under it'; paneShell.view.relayout(); }); await settled(page);
+    eq('field: and follows a change made while it is open', await page.evaluate(() => document.querySelector('#stage input').value), 'changed under it');
+    await page.mouse.move(180, 500); await page.mouse.wheel(0, 60); await settled(page);
+    eq('field: stays on its element when the page scrolls', [await fieldBox(), await state(page, 'p.scrollY')], [await nodeBox('field'), 60]);
+    await page.keyboard.press('Enter'); await settled(page);
+    eq('field: Enter puts it away and the page has the keys again', [await fieldBox(), await page.evaluate(() => document.activeElement.id)], [null, 'view']);
+    await clickNode(page, "n.type === 'inp' && n.id === 2");
+    eq('field: a field without a hint, and only one field at a time', await page.evaluate(() => [document.querySelectorAll('#stage input').length, document.querySelector('#stage input').placeholder]), [1, '']);
+    await page.keyboard.type('<b onclick=alert(1)>x</b>');
+    eq('field: what is typed is text', [await state(page, 'st.inputs[2]'), t.dialogs], ['<b onclick=alert(1)>x</b>', 0]);
+
+    // ───────────── sending ─────────────
+    await page.evaluate(() => { paneShell.view.page.scrollY = 0; paneShell.view.relayout(); }); await settled(page);
+    await page.context().addCookies([{ name: 'session', value: 'secret', url: 'https://site.test/' }]);
+    await clickNode(page, "n.name === 'send'");
+    await page.waitForFunction(() => /^201/.test(paneShell.view.page.names.out.text)); await settled(page);
+    eq('post: a table is sent to the page\'s own site as JSON, without cookies', t.posts, [{ url: 'https://site.test/save', method: 'POST', body: '{"name":"changed under it"}', type: 'application/json', cookie: null }]);
+    eq('post: the answer comes back', await page.evaluate(() => paneShell.view.page.names.out.text), '201 got {"name":"changed under it"}');
+    eq('post: nothing is sent to another site without asking; the bar asks', [await state(page, 'st.vars.other'), await page.textContent('#permText')], [0, 'https://site.test wants to load from https://other.test.']);
+    await page.fill('#addr', 'home'); await page.press('#addr', 'Enter'); await settled(page);
+    eq('field: leaving the page removes any field', await fieldBox(), null);
+    eq('rich: no errors', t.errors, []);
+    await t.ctx.close();
+  }
+  {
+    // a phone: the field is in the right place at ratio 3, and a tap opens it
+    const t = await open({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true }, 'pane:rich'), page = t.page;
+    await page.evaluate(() => { paneShell.view.page.scrollY = paneShell.view.page.maxScroll; paneShell.view.paintNow(); });
+    const at = await where(page, "n.type === 'inp'");
+    await page.touchscreen.tap(at.x, at.y); await settled(page);
+    const boxes = await page.evaluate(() => { const el = document.querySelector('#stage input'), v = paneShell.view; let n; (function w(x) { if (x.type === 'inp') n = x; if (x.children) x.children.forEach(w); })(v.page.root); const r = el.getBoundingClientRect(), c = v.canvas.getBoundingClientRect(); return [[Math.round(r.left), Math.round(r.top), Math.round(r.width)], [Math.round(c.left + n.x), Math.round(c.top + n.y - v.page.scrollY), Math.round(n.w)], document.activeElement === el]; });
+    ok('field: on a phone at ratio 3, a tap opens the field over its element and gives it the keyboard', JSON.stringify(boxes[0]) === JSON.stringify(boxes[1]) && boxes[2] === true, boxes);
+    await page.keyboard.type('Grace'); await settled(page);
+    ok('field: and the page follows', (await texts(page)).some(s => s.includes('Hello, Grace')), await texts(page));
+    await shot(page, 'rich-phone');
+    eq('rich on a phone: no errors', t.errors, []);
     await t.ctx.close();
   }
 

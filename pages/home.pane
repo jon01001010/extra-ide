@@ -18,6 +18,7 @@ col
   txt Sample pages
   fnt 14
   lnk Article: long text that wraps and scrolls article
+  lnk Rich text: styles and links in a line, tables, a real text field rich
   lnk Settings: rows, switches and a text field settings
   lnk Calculator: buttons and statements calculator
   lnk Table: rows of cells table

@@ -197,6 +197,87 @@ const all = (page, pred) => { const out = []; (function walk(n) { if (pred(n)) o
   ok('layout: follows the state (a variable that grows pushes the page down)', d.page.root.children[0].lines.length > 1 && d.page.root.children[1].y === d.page.root.children[0].h, Pane.dump(d.page));
 }
 
+const Mote = require('../mote.js');
+/** A page with a script, and a host made of plain objects: timers and requests wait until the test fires them. */
+function scripted(src, opt) {
+  const page = Pane.parse(src), st = Pane.newState(), h = { log: [], timers: [], requests: [], went: [], titles: [], changed: 0, store: new Map() };
+  Pane.runStatements(page, st, 'load', {});
+  const hooks = {
+    log: (kind, text) => h.log.push(kind + ': ' + text), changed: () => h.changed++, navigate: a => h.went.push(a), title: t => h.titles.push(t),
+    setTimer: (fn, ms, repeat) => { const t = { fn, ms, repeat, live: true }; h.timers.push(t); return t; }, clearTimer: t => { t.live = false; },
+    fetch: (address, done, send) => h.requests.push({ address, done, send }),
+    storage: opt && opt.noStorage ? () => null : () => ({ get: k => h.store.get(k), set: (k, v) => { h.store.set(k, v); }, remove: k => { h.store.delete(k); }, keys: () => [...h.store.keys()].sort() }),
+  };
+  h.rt = Pane.createRuntime(page, st, hooks, opt && opt.noMote ? null : Mote);
+  h.page = page; h.st = st;
+  h.click = name => h.rt.dispatch(page.names[name], 'click', 0);
+  h.errors = () => h.log.filter(l => l.startsWith('error'));
+  return h;
+}
+// ───────────────────────────── paragraphs with styles, tables ─────────────────────────────
+{
+  const runs = s => { const p = Pane.parse('par ' + s); Pane.layout(p, 2000, 100, { measure, state: Object.assign(Pane.newState(), { vars: Object.assign(Object.create(null), { n: 7, link: '[x](evil)' }) }) }); return p.root.children[0].runs.map(r => r.t + (r.b ? '|b' : '') + (r.i ? '|i' : '') + (r.c ? '|c' : '') + (r.url ? '|→' + r.url : '')); };
+  eq('par: bold, italic, code and links', runs('a **b** *c* `d` [e f](g.pane) h'), ['a ', 'b|b', ' ', 'c|i', ' ', 'd|c', ' ', 'e f|→g.pane', ' h']);
+  eq('par: styles inside each other and inside a word', runs('**x *y* z** mid**dle**'), ['x |b', 'y|b|i', ' z|b', ' mid', 'dle|b']);
+  eq('par: a star that is not a style stays a star', runs('2 * 3 and 4*5*6 and a* b and ** and *never closed'), ['2 * 3 and 4*5*6 and a* b and ** and *never closed']);
+  eq('par: a backslash keeps the next mark', runs('\\*not\\* \\`code\\` \\[x\\](y) back\\\\slash'), ['*not* `code` [x](y) back\\slash']);
+  eq('par: code is kept as written', runs('`**a** {n} [x](y)` b'), ['**a** {n} [x](y)|c', ' b']);
+  eq('par: what does not close or is not a link stays text', runs('a `b and [c] and [d](e f) and [g]()'), ['a `b and [c] and [d](e f) and [g]()']);
+  eq('par: {expr} is replaced inside each run', runs('n is **{n}** and {n+1}'), ['n is ', '7|b', ' and 8']);
+  eq('par: a value is text; marks in it do nothing', runs('see {link} **{link}**'), ['see [x](evil) ', '[x](evil)|b']);
+  eq('par: a text that is a variable\'s name is not replaced (only {expr} is)', runs('n'), ['n']);
+}
+{
+  // 6 px per character at fnt 10; a space is 6 px
+  const { page, relayout } = lay('fnt 10\npar aaa **bbb** ccc [ddd eee](x) fff\ntxt below', 400);
+  const par = page.root.children[0], seg = l => l.map(s => [s.t, s.x, s.w, s.r.b ? 'b' : s.r.url ? 'link' : '']);
+  eq('par: one line, a segment per run, each where its words are', seg(par.rlines[0]), [['aaa', 0, 18, ''], ['bbb', 24, 18, 'b'], ['ccc', 48, 18, ''], ['ddd eee', 72, 42, 'link'], ['fff', 120, 18, '']]);
+  eq('par: its plain text, for the dump and screen readers', [par.lines, par.h, page.root.children[1].y], [['aaa bbb ccc ddd eee fff'], 14, 14]);
+  relayout(100);
+  eq('par: wraps between words, across runs; a link can go over two lines', par.rlines.map(l => l.map(s => s.t + (s.r.url ? '→' : ''))), [['aaa', 'bbb', 'ccc', 'ddd→'], ['eee→', 'fff']]);
+  eq('par: and its box grows with its lines', [par.h, page.root.children[1].y], [27, 27]);
+  relayout(50);
+  eq('par: narrower', par.rlines.map(l => l.map(s => s.t).join(' ')), ['aaa bbb', 'ccc ddd', 'eee fff']);
+  ok('par: no line is wider than its box', par.rlines.every(l => l.length === 0 || l[l.length - 1].x + l[l.length - 1].w <= 46), par.rlines);
+  const w = lay('fnt 10\npar a**b**c d', 400).page.root.children[0];
+  eq('par: a word made of several runs has no gaps inside it', w.rlines[0].map(s => [s.t, s.x, !!s.sp]), [['a', 0, false], ['b', 6, false], ['c d', 12, false]]);
+  eq('par: and reads as one word', w.lines, ['abc d']);
+  const long = lay('fnt 10\npar x https://example.org/a/very/long/address y', 100).page.root.children[0];
+  ok('par: a word wider than the line is broken between characters', long.rlines.length > 2 && long.lines.join('').replace(/ /g, '') === 'xhttps://example.org/a/very/long/addressy' && long.rlines.every(l => l[l.length - 1].x + l[l.length - 1].w <= 96), long.lines);
+  const empty = lay('fnt 10\npar\ntxt after', 100).page;
+  eq('par: empty', [empty.root.children[0].h, empty.root.children[0].lines], [14, ['']]);
+  const row = lay('fnt 10\nrow\npar incomprehensibilities **and** more\npar a\nend', 320).page.root.children[0].children.map(c => c.w);
+  eq('par: in a row, never narrower than its longest word', row, [160, 160]);
+}
+{
+  const h = scripted('par a **b**\nid p\nscript\npage.find("p").text = "now **plain** [x](y) {n}"\nprint(page.find("p").kind, page.find("p").text)\nend script');
+  Pane.layout(h.page, 600, 100, { measure, state: h.st });
+  eq('par: text a script sets is shown exactly as given, with no styles or links', [h.log, h.page.names.p.runs.length, h.page.names.p.lines], [['print: par\tnow **plain** [x](y) {n}'], 1, ['now **plain** [x](y) {n}']]);
+}
+{
+  // widths: each column as wide as its widest cell needs (text + 12), then the spare is shared in proportion
+  const { page, relayout } = lay('fnt 10\ntbl\ntxt Name | Notes\ntxt a | bb bb bb bb bb bb\ntxt cc | d\nend\ntxt after', 200);
+  const t = page.root.children[0];
+  eq('table: with room to spare, columns keep their proportions', t.cols.map(c => [Math.round(c.x), Math.round(c.w)]), [[0, 48], [48, 152]]);
+  eq('table: one line per cell when it fits', [t.children.map(r => r.h), t.h, page.root.children[1].y], [[22, 22, 22], 66, 66]);
+  relayout(100);
+  eq('table: too narrow for one line: the wide column wraps, the narrow one keeps its words', [t.cols.map(c => Math.round(c.w)), t.children[1].cellLines], [[36, 64], [['a'], ['bb bb bb', 'bb bb bb']]]);
+  eq('table: a row is as tall as its tallest cell, and the rows below move down', [t.children.map(r => [r.y, r.h]), t.h, page.root.children[1].y], [[[0, 22], [22, 35], [57, 22]], 79, 79]);
+  ok('table: every cell line fits its column', t.children.every(r => r.cellLines.every((ls, ci) => ls.every(l => measure(l, 10) <= t.cols[ci].w - 12 + 0.01))));
+  const ragged = lay('fnt 10\ntbl\ntxt a | b | c\ntxt only one\ntxt x |\nend', 300).page.root.children[0];
+  eq('table: rows may have fewer cells', [ragged.cols.length, ragged.children.map(r => r.cells)], [3, [['a', 'b', 'c'], ['only one'], ['x', '']]]);
+  eq('table: empty', lay('fnt 10\ntbl\nend\ntxt after', 300).page.root.children[1].y, 0);
+}
+{
+  const h = scripted('txt x\nscript\npage.post("save", "plain words", function(status, body) page.set("s1", status) end)\npage.post("api/items", { name = "Ada", tags = { "a", "b" }, n = 3 }, function(status, body) page.set("got", body) end)\nprint(pcall(page.post, "x", nil, print))\nprint(pcall(page.post, "x", string.rep("y", 100001), print))\nprint(pcall(page.post, 5, "y", print))\nend script');
+  eq('post: text goes as text, a table as JSON', h.requests.map(r => [r.address, r.send && r.send.type, r.send && r.send.body]),
+    [['save', 'text/plain;charset=UTF-8', 'plain words'], ['api/items', 'application/json', '{"name":"Ada","tags":["a","b"],"n":3}']]);
+  h.requests[0].done(201, ''); h.requests[1].done(200, 'ok');
+  eq('post: the answer comes back like a fetch', [h.st.vars.s1, h.st.vars.got], [201, 'ok']);
+  eq('post: wrong calls', h.log.map(l => l.replace(/^print: false\t(page:\d+: )?/, '')), ['expected text or a table to send', 'a page can send 100000 characters at a time', 'expected an address']);
+}
+eq('inp: a hint', [Pane.parse('inp 3 your name here').root.children[0].hint, Pane.parse('inp 3').root.children[0].hint], ['your name here', '']);
+
 // ───────────────────────────── names, adding and removing, hiding ─────────────────────────────
 {
   const p = Pane.parse('col\nid main\n  txt a\n  id first\n  row\n  end\n  id therow\n  id first\n  id 9x\nend\nid Outer\nscript\n  local x = 1\n\nprint(x)\nend script\ntxt after\nscript\nprint(2)\nend script');
@@ -232,23 +313,6 @@ const all = (page, pred) => { const out = []; (function walk(n) { if (pred(n)) o
 }
 
 // ───────────────────────────── scripts ─────────────────────────────
-const Mote = require('../mote.js');
-/** A page with a script, and a host made of plain objects: timers and requests wait until the test fires them. */
-function scripted(src, opt) {
-  const page = Pane.parse(src), st = Pane.newState(), h = { log: [], timers: [], requests: [], went: [], titles: [], changed: 0, store: new Map() };
-  Pane.runStatements(page, st, 'load', {});
-  const hooks = {
-    log: (kind, text) => h.log.push(kind + ': ' + text), changed: () => h.changed++, navigate: a => h.went.push(a), title: t => h.titles.push(t),
-    setTimer: (fn, ms, repeat) => { const t = { fn, ms, repeat, live: true }; h.timers.push(t); return t; }, clearTimer: t => { t.live = false; },
-    fetch: (address, done) => h.requests.push({ address, done }),
-    storage: opt && opt.noStorage ? () => null : () => ({ get: k => h.store.get(k), set: (k, v) => { h.store.set(k, v); }, remove: k => { h.store.delete(k); }, keys: () => [...h.store.keys()].sort() }),
-  };
-  h.rt = Pane.createRuntime(page, st, hooks, opt && opt.noMote ? null : Mote);
-  h.page = page; h.st = st;
-  h.click = name => h.rt.dispatch(page.names[name], 'click', 0);
-  h.errors = () => h.log.filter(l => l.startsWith('error'));
-  return h;
-}
 const BODY = 'txt hello\nid msg\nbtn Go 1\nid go\nbtn Other 2\nid other\ninp 1\nid field\ntog 1\nid sw\nchk 2 Agree\nid agree\nsel 1 A, B, C\nid pick\nsld 0 10 1\nid vol\nrat 3 5\nid stars\nprg 20 100\nid bar\ncol\nid list\nend\nacc More\nid more\ntxt in\nend\ntab X, Y\nid tabs\ncol\nend\ncol\nend\nend\nlnk Home home\nid link\n';
 const run = (lua, opt) => scripted(BODY + 'script\n' + lua + '\nend script', opt);
 {
