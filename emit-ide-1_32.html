@@ -541,7 +541,8 @@ public fn step(dt: num) num {
 <p>A <strong>region</strong> is a fixed block of WebAssembly memory with a name, an element type and a length. Reading and writing it compiles to single load / store instructions &mdash; no call into JavaScript per access &mdash; so it is the fast way to keep big tables, particles, grids and pixel buffers. It is raw memory without C&rsquo;s traps: there are no pointers and no pointer arithmetic, every index is checked, memory starts zeroed, a region can be locked read-only, and the IDE can show what is in it.</p>
 <p><code>struct Ball { x: num, y: num, r: int, alive: bool }</code> &nbsp; <code>region balls: Ball[100]</code> &nbsp; <code>region fb: u8[320 * 200 * 4]</code> &nbsp; <code>region grid: int[64]</code> &mdash; at the top level of a file; <code>public struct</code> / <code>public region</code> make them visible to other modules (<code>physics.balls[i].x</code>, <code>import game.physics.Ball</code>). The size is a constant: int literals with <code>+ - * / %</code> and parentheses.</p>
 <p><strong>Element types:</strong> <code>i8 u8 i16 u16 i32 u32</code>, <code>int</code> (64-bit), <code>f32</code>, <code>num</code> (64-bit float), <code>bool</code> (1 byte) and structs. Reading a narrow integer gives an <code>int</code> (sign- or zero-extended); storing one keeps the low bits &mdash; it wraps the way the machine does (<code>u8</code>: 300 &rarr; 44, <code>i8</code>: 200 &rarr; -56). <code>f32</code> reads as a <code>num</code>; a store rounds to float precision. Storing a <code>num</code> into an integer element, or a number into a <code>bool</code>, is a compile error (round with <code>floor()</code> / <code>round()</code>, or write a comparison).</p>
-<p><strong>Structs</strong> hold fields of those types, other structs by value (<code>pos: Vec</code> &rarr; <code>balls[i].pos.x</code>) and fixed arrays of numbers (<code>hist: i16[3]</code> &rarr; <code>balls[i].hist[2]</code>). The compiler lays them out: fields in order, each at its natural alignment, the size rounded up to the largest alignment. There are no casts and no way to read the bytes as another type. A field cannot be <code>str</code>, <code>js</code> or <code>arr</code>: the memory manager does not look inside regions, so a string or JS value kept there could be released while still in use (keep an index into an <code>arr</code> instead). Arrays of structs inside a struct are not supported yet.</p>
+<p><strong>Structs</strong> hold fields of those types, other structs by value (<code>pos: Vec</code> &rarr; <code>balls[i].pos.x</code>) and fixed arrays of numbers (<code>hist: i16[3]</code> &rarr; <code>balls[i].hist[2]</code>). The compiler lays them out: fields in order, each at its natural alignment, the size rounded up to the largest alignment. There are no casts and no way to read the bytes as another type. Arrays of structs inside a struct are not supported yet.</p>
+<p><strong>Text in regions.</strong> A field or an element can be <code>str</code>: <code>struct Node { tag: str, text: str, parent: int }</code> &nbsp; <code>region nodes: Node[256]</code> &nbsp; <code>region words: str[100]</code> &nbsp; <code>names: str[4]</code> inside a struct. The cell holds the address of the text (4 bytes); a cell that was never set, or was wiped, reads as <code>""</code>. Everything a <code>str</code> can do works on it: <code>nodes[i].text += "!"</code>, <code>nodes[i].tag == "txt"</code>, <code>nodes[i].text.length</code>, <code>fill(words, "-")</code>. The memory manager looks into regions for these cells, so a text stays for as long as a region points to it and is released when the cell is given another text. A field still cannot be <code>js</code> or <code>arr</code>: the memory manager does not look inside regions for those, so the value could be released while still in use (keep an index into an <code>arr</code> instead).</p>
 <p><code>grid[3] = 5</code> &nbsp; <code>grid[i] += 1</code> &nbsp; <code>grid[i]++</code> &nbsp; <code>balls[i].x = balls[i].x + 1.5</code> &nbsp; <code>balls[i].pos.y -= 1.0</code> &nbsp; <code>balls[j] = balls[i]</code> (copies the whole element) &nbsp; <code>grid.length</code> (the element count, a constant)</p>
 <p><strong>with</strong> names one element for a block without copying it: <code>with balls[i] as b { b.x += b.vx &nbsp; b.y += b.vy }</code>. The index is evaluated and checked once; inside the block <code>b.x</code> is a direct load / store. <code>b</code> is not a value: it cannot be stored in a variable, returned, passed to a function or pointed at another element, and it does not exist after the block. <code>balls[k] = b</code> copies the element.</p>
 <p><strong>Regions as parameters:</strong> <code>fn sum(r: region int) int { let s = 0 &nbsp; for (let i = 0; i &lt; r.length; i++) { s += r[i] } &nbsp; return s }</code>, then <code>sum(grid)</code>; <code>fn step(bs: region Ball)</code>. The function works on the caller&rsquo;s region itself (nothing is copied); <code>r.length</code> is that region&rsquo;s length and every index is checked against it. A region cannot be put in a variable, returned or stored &mdash; it is not a pointer &mdash; and an <code>export fn</code> or a <code>fnRef</code> callback cannot take one (JavaScript has no region to pass).</p>
@@ -550,7 +551,7 @@ public fn step(dt: num) num {
 <p><strong>freeze.</strong> <code>freeze(grid)</code> makes every write from Emit code fail with <code>&#10007; write to frozen region grid at main.emit:9:3</code> (catchable the same way), including <code>fill</code>, <code>wipe</code>, <code>copy</code> into it and <code>swap</code>; <code>thaw(grid)</code> allows writes again; <code>frozen(grid)</code> tells which. Reads are never affected; the cost is one byte loaded and tested before each store. Writes from JavaScript through a view are <em>not</em> checked, and the IDE&rsquo;s Memory panel may edit a frozen region on purpose.</p>
 <p><strong>Views for JavaScript.</strong> <code>view(grid)</code> is a typed array over the region&rsquo;s bytes, without copying: <code>Int8Array</code> / <code>Uint8Array</code> / <code>Int16Array</code> / <code>Uint16Array</code> / <code>Int32Array</code> / <code>Uint32Array</code> / <code>BigInt64Array</code> (<code>int</code>) / <code>Float32Array</code> / <code>Float64Array</code> / <code>Uint8Array</code> (<code>bool</code>, and the raw bytes of a struct region). A region passed straight to a JS function arrives as such a view: <code>console.log(grid)</code>, <code>chart.plot(samples)</code>; <code>view(grid)</code> gives you one as a <code>js</code> value. Memory can grow while a program runs (strings are allocated in it), and growing makes every earlier typed array over it empty (length 0). <code>view(r)</code> always returns one that is valid at the time of the call &mdash; ask for it again instead of keeping one in JavaScript across calls that may allocate.</p>
 <p><strong>A memory-mapped screen.</strong> <code>screen(fb, 320, 200)</code> or <code>screen(fb, 160, 100, 3)</code> (each pixel 3&times;3, sharp): <code>fb</code> must be a <code>u8</code> region of at least width &times; height &times; 4 bytes, red / green / blue / alpha per pixel, row by row. It adds a canvas to the output (like <code>canvas()</code>) that shows the region and is redrawn every animation frame while the program runs, and right after every call from the runtime (Run, <code>frame()</code>, buttons, timers), so a picture drawn once appears too. Write pixels with <code>fb[(y * 320 + x) * 4] = 255</code>; set alpha to 255 to see them. <code>touchX()</code> / <code>touchY()</code> are page coordinates, as with <code>canvas()</code>: subtract the canvas position and divide by the scale to get a pixel.</p>
-<p><strong>Layout and limits.</strong> Regions live in memory from 64 KB up, in declaration order, followed by a small table (address, length, frozen flag per region); strings start after them. All regions of a program together are limited to 256 MB. Memory starts zeroed and every Run starts from fresh memory. Not supported yet: regions sized while the program runs (and released automatically), <code>str</code> / <code>js</code> / <code>arr</code> fields, arrays of structs inside structs, slices or views of part of a region, regions in the <code>wasm64</code> target.</p>
+<p><strong>Layout and limits.</strong> Regions live in memory from 64 KB up, in declaration order, followed by a small table (address, length, frozen flag per region); strings start after them. All regions of a program together are limited to 256 MB. Memory starts zeroed and every Run starts from fresh memory. Not supported yet: regions sized while the program runs (and released automatically), <code>js</code> / <code>arr</code> fields, arrays of structs inside structs, slices or views of part of a region, regions in the <code>wasm64</code> target.</p>
 
 <h2>Maps</h2>
 <p>A <strong>map</strong> block is a tile map you can read: each row is a picture of the level. It starts in column 0 and its lines below are indented. Any file of the project may hold it (the drawer tools write to <code>stages.emit</code>), and every file uses it by its bare name.</p>
@@ -3120,7 +3121,10 @@ function _emitModuleIndex(text){
 class StructDecl extends Z{constructor(n,f,l){super('StructDecl',l);this.name=n;this.fields=f}}
 class RegionDecl extends Z{constructor(n,e,s,l){super('RegionDecl',l);this.name=n;this.elem=e;this.size=s}}
 class WithStmt extends Z{constructor(t,a,b,l){super('WithStmt',l);this.target=t;this.alias=a;this.body=b}}
-var _RG_SCALAR={i8:{size:1,kind:'int'},u8:{size:1,kind:'int'},i16:{size:2,kind:'int'},u16:{size:2,kind:'int'},i32:{size:4,kind:'int'},u32:{size:4,kind:'int'},int:{size:8,kind:'int'},f32:{size:4,kind:'num'},num:{size:8,kind:'num'},bool:{size:1,kind:'bool'}};
+var _RG_SCALAR={i8:{size:1,kind:'int'},u8:{size:1,kind:'int'},i16:{size:2,kind:'int'},u16:{size:2,kind:'int'},i32:{size:4,kind:'int'},u32:{size:4,kind:'int'},int:{size:8,kind:'int'},f32:{size:4,kind:'num'},num:{size:8,kind:'num'},bool:{size:1,kind:'bool'},
+  // a str cell holds the address of the string (4 bytes; 0 reads as ""). The collector looks into regions for these
+  // (_gcMark → _rgRefs), so a string a region points to is kept alive like one a top-level variable points to.
+  str:{size:4,kind:'str'}};
 var _RG_OPS={fill:1,wipe:1,copy:1,swap:1,freeze:1,thaw:1,frozen:1,view:1,screen:1};
 var _RG_MAX_BYTES=268435456; // 256 MB of static regions in total
 function _rgScalar(t){t=t==='i64'?'int':t==='f64'?'num':t;return Object.prototype.hasOwnProperty.call(_RG_SCALAR,t)?t:null}
@@ -3282,10 +3286,10 @@ function _rgLower(ast){
   function elemOf(t,loc,what){
     var s=_rgScalar(t);
     if(s)return{scalar:s,size:_RG_SCALAR[s].size,align:_RG_SCALAR[s].size};
-    if(t==='str'||t==='js'||t==='arr'||t==='numarr')fail(what+' cannot be '+t+' — regions and structs hold plain numbers only. A '+t+' is a reference (into the string area, to a JS value or an Emit array) and the collector does not look inside regions, so what it refers to could be released while the region still points to it (not supported in this version — keep an index into an arr instead)',loc);
-    if(t==='void')fail(what+' cannot be void — use i8 u8 i16 u16 i32 u32 int f32 num bool or a struct',loc);
+    if(t==='js'||t==='arr'||t==='numarr')fail(what+' cannot be '+t+' — regions and structs hold numbers, true / false and str. A '+t+' is a reference (to a JS value or an Emit array) and the collector does not look inside regions for those, so what it refers to could be released while the region still points to it (not supported in this version — keep an index into an arr instead)',loc);
+    if(t==='void')fail(what+' cannot be void — use i8 u8 i16 u16 i32 u32 int f32 num bool str or a struct',loc);
     var st=SM.get(t);
-    if(!st)fail('Unknown type "'+t+'" — use i8 u8 i16 u16 i32 u32 int f32 num bool or a struct name',loc);
+    if(!st)fail('Unknown type "'+t+'" — use i8 u8 i16 u16 i32 u32 int f32 num bool str or a struct name',loc);
     layout(st,loc);
     return{struct:st,size:st.size,align:st.align};
   }
@@ -3368,6 +3372,16 @@ function _rgLower(ast){
       return{root:v,id:e};
     }
     var b,q;
+    if(e.type==='IndexExpr'||e.type==='MemberExpr'){
+      // a str cell is a value like any other str: .length, [i], .split(…) and the rest are the string's own
+      // (JS interop on the loaded value), not fields of the region
+      b=place(e.object);
+      if(b.val||(b.type==='RegionPlace'&&b.vt==='str'&&!b.arr)){
+        e.object=b.val||b;
+        if(e.type==='IndexExpr')e.index=X(e.index);
+        return{val:e};
+      }
+    }
     if(e.type==='IndexExpr'){
       b=place(e.object);
       if(b.root){
@@ -3408,6 +3422,7 @@ function _rgLower(ast){
   }
   function lit(n,loc){return new IntLiteral(String(n),loc)}
   function asValue(p,e){
+    if(p.val)return p.val;
     if(p.len){var v=p.len;return v.k==='static'?lit(v.info.len,e.loc):{type:'RegionLen',rg:rootDesc(v),loc:e.loc}}
     if(p.constLen!==undefined)return lit(p.constLen,e.loc);
     if(p.root)notValue(p.root,p.id);
@@ -3453,12 +3468,13 @@ function _rgLower(ast){
     }
     if(!rgLike(t)){e.target=X(t);e.value=X(e.value);return e}
     var p=place(t);
+    if(p.val)fail('This is part of a text — text cannot be changed in place. Store a new text in the cell instead',t.loc);
     if(p.root)notValue(p.root,p.id);
     if(p.len||p.constLen!==undefined)fail('The length of a region is fixed — it cannot be assigned',t.loc);
     if(p.arr)fail(p.what+' is an array of '+p.arr.count+' — assign one element: '+p.what+'[0] = …',t.loc);
     if(!_rgScalar(p.vt)){
       var sv=rgLike(e.value)?place(e.value):null;
-      if(!sv||sv.root||sv.arr||sv.len||sv.constLen!==undefined||sv.vt!==p.vt)fail('A whole '+elemDesc(p.vt)+' can only be set from another '+elemDesc(p.vt)+' element (balls[j] = balls[i]) — otherwise set its fields one by one',(e.value&&e.value.loc)||e.loc);
+      if(!sv||sv.val||sv.root||sv.arr||sv.len||sv.constLen!==undefined||sv.vt!==p.vt)fail('A whole '+elemDesc(p.vt)+' can only be set from another '+elemDesc(p.vt)+' element (balls[j] = balls[i]) — otherwise set its fields one by one',(e.value&&e.value.loc)||e.loc);
       return{type:'RegionStore',target:p,value:sv,copy:true,size:SM.get(p.vt).size,loc:e.loc};
     }
     memo.set(t,p);
@@ -3564,7 +3580,7 @@ function _rgLower(ast){
       case'WithStmt':{
         if(!rgLike(n.target))fail('with needs one element of a struct region — with balls[i] as b { … }',(n.target&&n.target.loc)||n.loc);
         var p=place(n.target);
-        if(p.root||p.len||p.constLen!==undefined||p.arr||_rgScalar(p.vt))fail('with … as needs one struct element (with balls[i] as b { … })'+(p.what?', but '+p.what+' is '+(p.arr?'an array':'a '+p.vt):''),(n.target&&n.target.loc)||n.loc);
+        if(p.val||p.root||p.len||p.constLen!==undefined||p.arr||_rgScalar(p.vt))fail('with … as needs one struct element (with balls[i] as b { … })'+(p.what?', but '+p.what+' is '+(p.arr?'an array':'a '+p.vt):''),(n.target&&n.target.loc)||n.loc);
         n.target=p;n.wid=wid++;
         scopes.push(new Map());
         def(n.alias,{k:'alias',wid:n.wid,rg:p.rg,struct:p.vt,what:p.what,path:p.path});
@@ -3585,7 +3601,7 @@ function _rgLower(ast){
         if(!el){def(p.name,{k:'local'});return}
         hasR=true;
         var nel=_rgScalar(el)||el;
-        if(!_rgScalar(el)&&!SM.has(el))fail('Unknown element type "'+el+'" in region parameter '+p.name+' — i8 u8 i16 u16 i32 u32 int f32 num bool or a struct name',p.loc||n.loc);
+        if(!_rgScalar(el)&&!SM.has(el))fail('Unknown element type "'+el+'" in region parameter '+p.name+' — i8 u8 i16 u16 i32 u32 int f32 num bool str or a struct name',p.loc||n.loc);
         p.type='region<'+nel+'>';
         def(p.name,{k:'param',name:p.name,elem:nel});
       });
@@ -3655,6 +3671,9 @@ function _rgPatchModule(b,I){
     }else if(kind==='bool'){
       if(t==='js')this.conv(v,'bool');
       else if(t!=='bool')this.fail('Cannot store '+an(t)+' in '+what+' — it holds true / false (write a comparison, e.g. x > 0)',v.loc);
+    }else if(kind==='str'){
+      if(t==='js')this.conv(v,'str');
+      else if(t!=='str')this.fail('Cannot store '+an(t)+' in '+what+' — it holds text'+(this.isI(t)?': make it text first, e.g. intToStr(x) or "" + x':this.isN(t)||t==='f32'?': make it text first, e.g. numToStr(x) or "" + x':''),v.loc);
     }
   };
   P.a=function(e){
@@ -3712,8 +3731,8 @@ function _rgPatchModule(b,I){
 (function(){
   var P=WasmCodegen.prototype,nat0=P.genNatural,stmt0=P.genStmt,res0=P.exprResType,gen0=P.generate,enc0=P.encodeBinary;
   // [opcode, alignment] — loads widen into i64 / f64 / i32 (bool); stores take i64 / f32 / f64 / i32
-  var LD={i8:[0x30,0],u8:[0x31,0],i16:[0x32,1],u16:[0x33,1],i32:[0x34,2],u32:[0x35,2],int:[0x29,3],f32:[0x2A,2],num:[0x2B,3],bool:[0x2D,0]};
-  var ST={i8:[0x3C,0],u8:[0x3C,0],i16:[0x3D,1],u16:[0x3D,1],i32:[0x3E,2],u32:[0x3E,2],int:[0x37,3],f32:[0x38,2],num:[0x39,3],bool:[0x3A,0]};
+  var LD={i8:[0x30,0],u8:[0x31,0],i16:[0x32,1],u16:[0x33,1],i32:[0x34,2],u32:[0x35,2],int:[0x29,3],f32:[0x2A,2],num:[0x2B,3],bool:[0x2D,0],str:[0x28,2]};
+  var ST={i8:[0x3C,0],u8:[0x3C,0],i16:[0x3D,1],u16:[0x3D,1],i32:[0x3E,2],u32:[0x3E,2],int:[0x37,3],f32:[0x38,2],num:[0x39,3],bool:[0x3A,0],str:[0x36,2]};
   var I64_GE_U=0x5A,F64_PROMOTE=0xBB,F32_DEMOTE=0xB6;
   // window.__emitRegionNoElide = true: also check constant indexes (to measure what the elision saves)
   function noElide(){try{return typeof window!=='undefined'&&!!window.__emitRegionNoElide}catch(e){return false}}
@@ -3842,7 +3861,7 @@ function _rgPatchModule(b,I){
         if(e.rg2)this._rgDesc(e.rg2);else this.emit(Op.i32_const,...ei32(0));
         var k=e.op==='fill'?_RG_SCALAR[e.elem].kind:null;
         if(k==='int')this.genExpr(e.args[0],'int');
-        else if(k==='bool'){this.genExpr(e.args[0],'bool');this.emit(Op.i64_extend_i32_u)}
+        else if(k==='bool'||k==='str'){this.genExpr(e.args[0],k);this.emit(Op.i64_extend_i32_u)}   /* a str travels as its address */
         else this.emit(Op.i64_const,...ei64(0));
         if(k==='num')this.genExpr(e.args[0],'num');else this.emit(Op.f64_const,...ef64(0));
         this.emit(Op.i32_const,...ei32(pos));
@@ -6740,6 +6759,14 @@ function _gcMark(){
     else if(x>=_strHeapBase){if(_strBlocks.has(x))ks.add(x)}
   }
   for(i=0;i<gl.length;i++){try{see(gl[i].value)}catch(e){return null}}
+  // str cells in regions are roots like top-level variables (the regions themselves never go away)
+  if(typeof _rgRefs!=='undefined'&&_rgRefs.length&&_rgLive()){
+    var dv=new DataView(_wasmMem.buffer),ri,e,o,R,offs,at;
+    for(ri=0;ri<_rgRefs.length;ri++){
+      R=_rgRefs[ri].R;offs=_rgRefs[ri].offs;n+=R.length*offs.length;
+      for(e=0,at=R.base;e<R.length;e++,at+=R.elemSize)for(o=0;o<offs.length;o++)see(dv.getUint32(at+offs[o],true));
+    }
+  }
   _scopes.forEach(function(sc){if(sc.park){n+=sc.park.length;for(var j=0;j<sc.park.length;j++)see(sc.park[j])}});
   _arrEsc.forEach(function(k){see(_aBase+k)});
   for(i=0;i<_arrays.length;i++)if(Array.isArray(_arrays[i]))work.push(_arrays[i]);
@@ -8211,11 +8238,20 @@ var _rgMeta=null,_rgViews=[],_rgScreens=[],_rgGen=0,_rgLoopGen=-1,_rgFrameSeen=n
 // Screens are redrawn by the animation-frame loop while the program animates (once per frame), and once after
 // any other change (a call, a front-panel poke) — so nothing is drawn twice, and a stopped program costs nothing.
 var _rgDirty=false;
-var _RG_TA={i8:Int8Array,u8:Uint8Array,i16:Int16Array,u16:Uint16Array,i32:Int32Array,u32:Uint32Array,int:BigInt64Array,f32:Float32Array,num:Float64Array,bool:Uint8Array};
+var _RG_TA={i8:Int8Array,u8:Uint8Array,i16:Int16Array,u16:Uint16Array,i32:Int32Array,u32:Uint32Array,int:BigInt64Array,f32:Float32Array,num:Float64Array,bool:Uint8Array,str:Uint32Array};
+var _rgRefs=[];
 function _rgSetup(imports){
   var m=null;
   try{if(imports&&typeof imports.regionMeta==='string')m=JSON.parse(imports.regionMeta)}catch(e){m=null}
   _rgMeta=m;_rgGen++;_rgViews=[];_rgScreens=[];_rgFrameSeen=new Set();
+  // where the regions keep str cells: per region, the byte offsets inside one element (for the collector)
+  _rgRefs=[];
+  if(m&&m.regions)m.regions.forEach(function(R){
+    var offs=[];
+    if(R.elem==='str')offs.push(0);
+    else if(R.elem&&R.elem.fields)R.elem.fields.forEach(function(f){if(f.type==='str')for(var c=0;c<(f.count||1);c++)offs.push(f.offset+c*f.size)});
+    if(offs.length)_rgRefs.push({R:R,offs:offs});
+  });
   var hb=Number(imports&&imports.heapBase)||65536;
   _strHeapBase=hb;_strLimit=hb+33554432-65536; /* the string area keeps its size (32 MB minus the first page) */
 }
@@ -8358,6 +8394,7 @@ function _emitRegionRead(id,index,field){
     case'f32':return dv.getFloat32(a,true);
     case'num':return dv.getFloat64(a,true);
     case'bool':return dv.getUint8(a)!==0;
+    case'str':return _readStr(dv.getUint32(a,true));
   }
   return undefined;
 }
@@ -8372,6 +8409,7 @@ function _emitRegionWrite1(id,index,field,value){
   var x=_rgAddrOf(R,index,field);if(!x)return false;
   var dv=new DataView(_wasmMem.buffer),a=x.a,t=x.type,s=typeof value==='string'?value.trim():null;
   try{
+    if(t==='str'){var sp=_writeStr(String(value));new DataView(_wasmMem.buffer).setUint32(a,sp,true);return true}   /* (_writeStr may grow memory: a fresh view) */
     if(t==='num'||t==='f32'){
       var n=typeof value==='bigint'?Number(value):typeof value==='boolean'?(value?1:0):s===''?NaN:Number(value);
       if(n!==n)return false;
@@ -12499,6 +12537,7 @@ function _memIsIntT(t){return!!_MEM_BITS[t]}
 function _memSigned(t){return t.charAt(0)!=='u'}
 function _memFmt(v,t,mode){
   if(v===undefined||v===null)return'—';
+  if(t==='str')return JSON.stringify(String(v));
   if(t==='bool'||typeof v==='boolean')return v?'true':'false';
   if(_memIsFloat(t)){var n=Number(v);if(!isFinite(n))return String(n);if(Number.isInteger(n)&&Math.abs(n)<1e15)return String(n);return String(+n.toPrecision(t==='f32'?6:9))}
   if(mode==='hex'&&_memIsIntT(t)){var b=_MEM_BITS[t];try{return BigInt.asUintN(b,BigInt(v)).toString(16).padStart(b/4,'0')}catch(e){return String(v)}}
@@ -12508,6 +12547,7 @@ function _memFmt(v,t,mode){
 // Parse what was typed into a cell of type t. -> {v} (number | boolean | decimal string for 64-bit values
 // outside the safe integer range) or {err}
 function _memParse(s,t,mode){
+  if(t==='str'){s=String(s);var q=/^\s*"((?:[^"\\]|\\.)*)"\s*$/.exec(s);if(q){try{return{v:JSON.parse('"'+q[1]+'"')}}catch(e){}}return{v:s}}   /* text as typed; "quoted" as shown */
   s=String(s).trim();
   if(t==='bool'){if(/^(true|1)$/i.test(s))return{v:true};if(/^(false|0)$/i.test(s))return{v:false};return{err:'type true or false'}}
   if(_memIsFloat(t)){

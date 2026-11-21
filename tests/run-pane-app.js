@@ -160,6 +160,29 @@ export fn frame() {
   grid[at] = 1
   print(at)
 }`,
+  regionText: `struct Item { name: str, n: int }
+region items: Item[8]
+mut n: int = 0
+export fn main() {
+  for (let i = 0; i < 8; i++) {
+    items[i].name = "item " + i
+  }
+  animate()
+}
+export fn frame() {
+  n = n + 1
+  text("a temporary " + n + " that nobody keeps after this frame", 0, 10, 8)
+  items[n % 8].name = "item " + (n % 8) + " at " + n
+  if (n == 60000) {
+    mut bad: int = 0
+    for (let i = 0; i < 8; i++) {
+      if (substr(items[i].name, 0, 5) != "item ") {
+        bad = bad + 1
+      }
+    }
+    printStr("bad " + bad + " / " + items[0].name)
+  }
+}`,
   alert: `export fn main() {
   alert("hello")
 }`,
@@ -262,6 +285,12 @@ function core(limits) {
     c.frame(); eq('regions: an index inside the region', [c.last().t, c.last().logs], ['frame', ['40']]);
     c.frame();
     ok('regions: an index outside it stops the app with a message', c.last().t === 'error' && /outside its region/.test(c.last().message), c.last());
+  }
+  {
+    // text kept in a region, replaced a little each frame, among text nobody keeps
+    const c = core(); await c.load(built.regionText.wasm);
+    for (let i = 0; i < 60000; i++) { c.frame(); if (c.last().t === 'error') break; c.out.splice(0, c.out.length - 1); }
+    eq('regions: text a region points to is intact after 60,000 frames of throwaway text', [c.last().t, c.last().logs], ['frame', ['bad 0 / item 0 at 60000']]);
   }
   for (const [name, want] of [['alert', 'alert'], ['storage', 'save, httpGet, beep, button'], ['interop', '']]) {
     const c = core(); await c.load(built[name].wasm);

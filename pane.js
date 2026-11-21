@@ -1246,7 +1246,7 @@ function appCore(post) {
   var input = { keys: {}, x: 0, y: 0, on: 0 };
   var dec = new TextDecoder(), enc = new TextEncoder();
   // strings the host builds for the program live in memory grown past what the program started with
-  var chunks = [], chunkI = -1, pos = 0, used = 0;
+  var chunks = [], chunkI = -1, pos = 0, used = 0, regionEnd = 0;   // regionEnd: where the program's own memory ended at the start
   var arrays = new Map(), nextArr = 0, cells = 0, ARR = Math.pow(2, 40);
 
   function I(v) { v = Number(v); return BigInt(isFinite(v) ? Math.trunc(v) : 0); }
@@ -1286,7 +1286,7 @@ function appCore(post) {
   }
   /**
    * Between calls, once the current chunk is half full: find which chunks the program still points into, from
-   * what it keeps between calls (its globals and its array cells). A chunk nothing points into can be used
+   * what it keeps between calls (its globals, its array cells and its regions). A chunk nothing points into can be used
    * again: the current one at once, the others when the current one is full. Text is never moved.
    */
   function reclaim() {
@@ -1296,6 +1296,9 @@ function appCore(post) {
     var mark = function (v) { v = Number(v); for (var j = 0; j < chunks.length; j++) if (v >= chunks[j].start && v < chunks[j].end) { chunks[j].live = true; return; } };
     for (var k in inst.exports) { var e = inst.exports[k]; if (e instanceof WebAssembly.Global) mark(e.value); }
     arrays.forEach(function (a) { for (var n = 0; n < a.length; n++) mark(a[n]); });
+    // regions can hold text too (str cells). Which cells are text is not in the program's bytes, so every
+    // 4-byte word of the region area counts if it looks like an address in a chunk: nothing in use is lost.
+    if (regionEnd > 65536) { var words = new Uint32Array(mem.buffer, 65536, (regionEnd - 65536) >> 2); for (var w = 0; w < words.length; w++) if (words[w] >= chunks[0].start) mark(words[w]); }
     if (!cur.live) pos = cur.start;
     cur.live = true;                                                 // it is being written to: not for reuse by itself
   }
@@ -1415,6 +1418,7 @@ function appCore(post) {
       return WebAssembly.instantiate(module, imports).then(function (instance) {
         inst = instance;
         mem = inst.exports.memory instanceof WebAssembly.Memory ? inst.exports.memory : null;
+        regionEnd = mem ? mem.buffer.byteLength : 0;
         // as the Emit IDE does on Run: call every exported function that takes nothing, except the ones the host calls later
         for (var name in inst.exports) {
           var f = inst.exports[name];

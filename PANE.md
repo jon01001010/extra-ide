@@ -254,7 +254,7 @@ Escape takes them back. The pointer is given in the picture's own coordinates.
 | numbers | `abs min max sqrt sin cos tan asin acos atan atan2 pow exp ln log2 floor ceil round sign absNum minNum maxNum lerp clamp dist collides random randInt PI TAU E now` |
 | text | `intToStr numToStr strLen strConcat substr strEq charAt`, and `+` and `==` on strings |
 | arrays of numbers | `newArray getItem setItem getNumItem setNumItem push pop arrayLen` |
-| regions | `region name: type[n]` and structs: memory the program reads and writes itself, every index checked |
+| regions | `region name: type[n]` and structs: memory the program reads and writes itself, every index checked; cells can be `str` |
 | output | `print printNum printStr` (to the status line) |
 
 Everything else the Emit IDE offers is absent: JS interop and `use` libraries, the DOM builtins (`button`,

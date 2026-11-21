@@ -727,7 +727,7 @@ export fn run() {
   { name: 'diag-region-assigned', diag: ['3:19: "a" is a region — it cannot be assigned. To copy all elements of another region into it: copy(other, a)'], src: 'region a: int[3]\nregion b: int[3]\nexport fn run() { a = b }' },
   { name: 'diag-region-variable-type', diag: ['1:19: A variable cannot hold a region — a region is not a value. Use it by name, or take it as a parameter: fn f(r: region int)'], src: 'export fn run() { let x: region int = 0 }' },
   { name: 'diag-region-return-type', diag: ['1:1: A function cannot return a region — a region is not a value (it stays where it is declared)'], src: 'fn f() -> region int { }\nexport fn run() {}' },
-  { name: 'diag-str-field', diag: [/^1:15: A struct field cannot be str — regions and structs hold plain numbers only\. .*collector does not look inside regions/], src: 'struct A { s: str }\nexport fn run() {}' },
+  { name: 'diag-arr-field', diag: [/^1:15: A struct field cannot be arr — regions and structs hold numbers, true \/ false and str\. .*collector does not look inside regions/], src: 'struct A { s: arr }\nexport fn run() {}' },
   { name: 'diag-js-field', diag: [/^1:15: A struct field cannot be js — /], src: 'struct A { o: js }\nexport fn run() {}' },
   { name: 'diag-arr-region', diag: [/^1:11: A region element cannot be arr — /], src: 'region r: arr[3]\nexport fn run() {}' },
   { name: 'diag-struct-contains-itself', diag: ['1:15: struct A contains itself — a struct cannot hold itself by value'], src: 'struct A { a: A }\nexport fn run() {}' },
