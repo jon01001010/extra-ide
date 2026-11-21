@@ -127,6 +127,10 @@ RUN, DB, RUN, DB. how tact scales
     same values write the same file.
   - why this is safe to trust more than one long run: any single part can be done again, by
     you or by the interpreter, and compared. a slip is found at the batch where it happened.
+  - the same holds for the program. put what the runs share in one file (the record, the
+    partial results), and (use "common.tact") it from each. a file names its own packs, so it
+    is checked alone, and a run is given only the files it uses: the merge needs none of the
+    batch code. tact --sigs FILE gives what a file offers, without its source.
   - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
     an earlier result. then a slip travels, and the runs cannot go at once.
 

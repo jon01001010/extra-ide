@@ -126,6 +126,11 @@ number of steps, and timestamp conversion is the riskiest step.
       part, any part is redone alone. Shown on the interpreter: 41 runs at
       once, merged in scrambled order, same answers as one run. Chaining is
       kept only for a batch that truly needs an earlier result.
+- [x] Modularity in the program too: a file names its own packs (E1 when
+      it leans on a pack another file loaded), so each file is checked
+      alone and a run is given only the files it uses.
+- [ ] Private names in a file: today every let and fn of a used file is
+      visible, and clashes with the user's names (E3).
 - [ ] Run the independent parts with a model as the runtime (the Haiku
       runs so far used the chained design). Each part is compared with the
       interpreter's part for that batch alone.

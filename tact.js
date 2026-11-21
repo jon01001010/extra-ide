@@ -74,7 +74,7 @@ PROGRAM = top forms only. anything else at top = E8.
   (show expr)                      print the value: a Str bare, the rest as tact writes it.
   (check expr expected)            ok, or ECHECK. numbers equal within 1e-9 (relative above 1).
   (do expr ..)                     run for effect. prints nothing.
-  (use "lib.tact")                 take let fn rec sum check from a file. once per file.
+  (use "lib.tact")                 take let fn rec sum check from a file. once per file. each file uses its own packs.
                                    path is relative to the file that says use.
   (use name)                       load a pack of builtins. see PACKS.
 
@@ -3538,6 +3538,12 @@ function packHint(name, C) {
 
 /* ------------------------------------------------------------------ checker */
 class Scope { constructor(p) { this.m = new Map(); this.p = p; } }
+function ownPack(name, line, C) {      // a file names the packs it uses itself: what another file loads is that file's business
+  const p = PACKOF.get(name);
+  if (!p || !line || !C.filePacks || !C.packs.has(p)) return;
+  const mine = C.filePacks.get(Math.floor(line / LINEBASE));
+  if (!mine || !mine.has(p)) C.errs.push(E("E1", `${name} is in pack ${p}: add (use ${p}) to this file. another file loads ${p}, and each file names its own packs`, line));
+}
 function lookup(name, sc, C) { for (let s = sc; s; s = s.p) if (s.m.has(name)) return s.m.get(name); return C.g.get(name); }
 function where(en) { return en ? en.line ? ` (line ${LN(en.line)})` : " (builtin)" : ""; }
 function declare(name, type, sc, line, C) {
@@ -3613,7 +3619,7 @@ function infer(e, sc, C) {
     case "var": {
       const en = lookup(e.name, sc, C);
       if (!en) { unknown(e.name, e.line, sc, C); return fresh(); }
-      en.used = true;
+      en.used = true; ownPack(e.name, e.line, C);
       if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(e.name))) { C.deps.impure = true; if (en.host) C.reach.host.add(e.name); else if (e.name.startsWith("io.")) { C.reach.io.add(e.name); if (!C.reach.at.has(e.name)) C.reach.at.set(e.name, e.line); } }
       if (en.host && C.host.fns[e.name].ahead) errs.push(E("E14", `${e.name} is read by the host before the program runs: call it directly, with its arguments written as literals`, e.line));
       if (en.kind === "fn") C.deps.fns.add(e.name); else if (en.kind === "let") C.deps.lets.add(e.name);
@@ -3698,7 +3704,7 @@ function infer(e, sc, C) {
         label = e.f.name;
         const en = lookup(label, sc, C);
         if (!en) { unknown(label, e.f.line, sc, C); e.args.forEach(a => infer(a, sc, C)); return fresh(); }
-        en.used = true;
+        en.used = true; ownPack(label, e.f.line, C);
         if (en.kind === "builtin" && (en.host || /^(io|re)\./.test(label))) { C.deps.impure = true; if (en.host) C.reach.host.add(label); else if (label.startsWith("io.")) { C.reach.io.add(label); if (!C.reach.at.has(label)) C.reach.at.set(label, e.line); } }
         if (en.host && C.host.fns[label].ahead) {
           const lit = x => x.t === "num" || x.t === "str" || x.t === "bool" ? { v: x.v } : x.t === "vec" ? (xs => xs.every(Boolean) ? { v: xs.map(y => y.v) } : null)(x.items.map(lit)) : null;
@@ -3738,7 +3744,7 @@ function infer(e, sc, C) {
   }
   return fresh();
 }
-function checkProgram(tops, errs, packs, H) {
+function checkProgram(tops, errs, packs, H, filePacks) {
   TV = 0; TWORK = 0;
   const reach = { host: new Set(), io: new Set(), calls: [], at: new Map() };       // every effect the program names, known before it runs
   const g = new Map(), decls = new Map(), info = [], letLines = new Map();
@@ -3784,7 +3790,7 @@ function checkProgram(tops, errs, packs, H) {
     g.set(t.name, { kind: "fn", type: rigidToGen(t.sig), line: t.line });
   }
   for (const t of tops) {
-    const C = { g, decls, errs, letLines, packs, reach, host: H, deps: { fns: new Set(), lets: new Set() } };
+    const C = { g, decls, errs, letLines, packs, filePacks, reach, host: H, deps: { fns: new Set(), lets: new Set() } };
     const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
     CURLINE = t.line;
     t.deps = C.deps;
@@ -4269,12 +4275,12 @@ function run1(src, opts) {
     let sxs = parse(toks, errs);
     if (errs.length === before) sxs = expandUses(sxs, file, { errs, io, seen: new Set([normPath(file)]), deny, files: used, soft });
     if (errs.length === before) {       // structure is sound: lower and check everything, report all
-      const mine = [], packs = new Set();
-      for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") packs.add(t.pack); } }
+      const mine = [], packs = new Set(), filePacks = new Map();
+      for (const s of sxs) { const t = lowerTop(s, errs); if (t) { mine.push(t); if (t.t === "use") { packs.add(t.pack); const f = Math.floor(t.line / LINEBASE); if (!filePacks.has(f)) filePacks.set(f, new Set()); for (const q of [t.pack, ...(PACKS[t.pack].needs || [])]) filePacks.get(f).add(q); } } }
       for (const p of [...packs]) for (const q of PACKS[p].needs || []) packs.add(q);
       for (const t of mine) if (t.t === "use") for (const q of [t.pack, ...(PACKS[t.pack].needs || [])]) if (deny.has(q)) errs.push(E("E13", `pack ${q} is not offered by this host` + (q === t.pack ? "" : `, and ${t.pack} needs it`), t.line));
       const tops = [...preludeTops(packs, H), ...mine];
-      info = checkProgram(tops, errs, packs, H);
+      info = checkProgram(tops, errs, packs, H, filePacks);
       errs.push(...soft.splice(0));
       if (deny.has("io")) for (const n of info.reach.io) if (n !== "io.print" && n !== "io.frame") errs.push(E("E13", `${n} goes through the host's files, and this host refuses io`, info.reach.at.get(n)));
       uses = { packs: [...packs].sort(), host: [...info.reach.host].sort(), io: [...info.reach.io].sort(), writes: [...info.reach.host].filter(n => H.fns[n].writes).sort(), calls: info.reach.calls.map(c => ({ name: c.name, args: c.args, line: c.line % LINEBASE })), files: used };
@@ -4425,6 +4431,9 @@ const TESTS = [
   ["E19 is caught by try","(use io)\n(show (match (try (io.read \"nope\")) (Ok s) s (Err c _) c))","E19"],
   ["E13 host lacks it","(use io)\n(show (Sh.code (io.sh \"true\")))","!E13"],
   ["E14 http url","(use io)\n(show (Http.status (io.http \"GET\" \"file:///etc/passwd\" {} \"\")))","!E14"],
+  ["use: a file brings its own packs","(use \"lib.tact\")\n(show (mid [1 2 9]))","2",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
+  ["use: a pack another file loads is not yours","(use \"lib.tact\")\n(show (mid [1 2 9]))\n(show (median [1 2 9]))","!E1@undefined:3",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
+  ["use: a file cannot lean on the packs of the program that loads it","(use math)\n(use \"lib.tact\")\n(show (mid [1 2 9]))","!E1",{"lib.tact":"(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use","(use \"lib/a.tact\")\n(use \"lib/a.tact\")\n(show (double base))\n(show (Tag.n (Tag 1)))","20\n1",{"lib/a.tact":"(use \"b.tact\")\n(fn double [x Num] Num (* x 2))\n(show \"hidden\")\n(do (io.print \"hidden too\"))\n(check (double 2) 4)","lib/b.tact":"(use \"a.tact\")\n(let base 10)\n(rec Tag [n Num])"}],
   ["use reports the file","(use \"bad.tact\")\n(show 1)","!E4@bad.tact:2",{"bad.tact":"(let p 1)\n(let q (+ 1 \"a\"))"}],
   ["E12 use unreadable","(use \"nope.tact\")\n(show 1)","!E12"],
@@ -4963,6 +4972,10 @@ RUN, DB, RUN, DB. how tact scales
     same values write the same file.
   - why this is safe to trust more than one long run: any single part can be done again, by
     you or by the interpreter, and compared. a slip is found at the batch where it happened.
+  - the same holds for the program. put what the runs share in one file (the record, the
+    partial results), and (use "common.tact") it from each. a file names its own packs, so it
+    is checked alone, and a run is given only the files it uses: the merge needs none of the
+    batch code. tact --sigs FILE gives what a file offers, without its source.
   - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
     an earlier result. then a slip travels, and the runs cannot go at once.
 
