@@ -137,6 +137,10 @@ number of steps, and timestamp conversion is the riskiest step.
       `px.svg` is text a model can write itself; `px.img` and `img.px` join
       it to the Image functions. An example makes one picture both ways:
       one pixel after another, and all at once from noise in steps.
+- [x] Artist, not forger: the first picture example copied a known
+      picture. The main example now has no target: noise, a local rule and
+      a brief given as a pull. An island comes out. The copy is kept as
+      `pics-copy.tact`.
 - [ ] Have a model make a 16 x 16 picture in reasoning, both ways, and
       compare its svg text with the interpreter's.
 - [ ] Run the independent parts with a model as the runtime (the Haiku

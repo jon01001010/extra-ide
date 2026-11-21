@@ -54,8 +54,13 @@ two kinds of picture are plain text, and you can write either out exactly:
     then <rect x="X" y="Y" width="1" height="1" fill="#rrggbb"/> for every pixel, row by row, then </svg>
 pixels can be made either way a picture model makes them:
   one after another: (fold (fun [rows y] (push rows (row-from rows y))) [] (range h)). a pixel may read those before it.
-  all at once: start from noise given by a rule on x y, and step every pixel toward the picture, several times.
+  all at once: start from noise given by a rule on x y, and step every pixel, several times.
     each pixel of a step needs only the step before, so rows are parts: a run a row, a db file between steps.
+artist or forger. a forger knows the picture and steps toward it: a copy, exact, and nothing new.
+an artist has no picture, only noise, a rule and a brief. the rule is local: a cell moves toward the mean of
+its neighbours. the brief is a pull, not pixels: "land in the middle" is a number added that is higher in the middle.
+a last rule turns each number into a colour. what comes out was not known before it was worked out.
+be the artist unless a copy is what was asked for.
 keep it small in reasoning: 16 x 16 is 256 pixels. (px.img rows) gives an Image when the interpreter is there.
 a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale, rounded and held to 1..64, a char is 4*size wide, 6*size tall.
@@ -4488,6 +4493,7 @@ const TESTS = [
   ["px: rows to an image and back","(use draw)\n(let r [[[1 2 3] [4 5 6]] [[7 8 9] [10 11 12]]])\n(check (img.px (px.img r)) r)\n(show (img.size (px.img r)))","[2 2]"],
   ["px: uneven rows","(use draw)\n(show (px.svg 1 [[[1 2 3]] []]))","!E14"],
   ["px: one after another and all at once reach the same picture","(use draw)\n(fn want [x Num y Num] (Vec Num) (if (< x y) [0 0 0] [64 128 192]))\n(let a (fold (fun [rows y] (push rows (for [x (range 3)] (want x y)))) [] (range 3)))\n(fn step [rows (Vec (Vec (Vec Num)))] (Vec (Vec (Vec Num))) (for [y (range 3)] (for [x (range 3)] (for [k (range 3)] (/ (+ (get (get (get rows y) x) k) (get (want x y) k)) 2)))))\n(let noise (for [y (range 3)] (for [x (range 3)] (for [k (range 3)] (mod (+ (+ (* x 37) (* y 91)) (* k 53)) 256)))))\n(let d (fold (fun [r _] (step r)) noise (range 10)))\n(check (px.svg 1 d) (px.svg 1 a))\n(show (get (get d 0) 0))","[63.9375 127.9267578125 191.916015625]"],
+  ["px: the artist. noise, a local rule and a brief, no picture known","(use draw)\n(use math)\n(fn noise [x Num y Num] Num (mod (+ (* (* x x) 37) (* (* y y) 91)) 256))\n(fn pull [x Num] Num (- 30 (* 20 (abs (- x 2)))))\n(fn at [g (Vec (Vec Num)) x Num y Num] Num (get (get g (clamp y 0 1)) (clamp x 0 4)))\n(fn step [g (Vec (Vec Num))] (Vec (Vec Num)) (for [y (range 2)] (for [x (range 5)] (+ (/ (+ (+ (at g x y) (at g (- x 1) y)) (at g (+ x 1) y)) 3) (pull x)))))\n(let out (step (step (for [y (range 2)] (for [x (range 5)] (noise x y))))))\n(show (map (fun [v] (if (< v 128) \"sea\" \"land\")) (get out 0)))","[\"sea\" \"sea\" \"land\" \"sea\" \"sea\"]"],
   ["use: a file brings its own packs","(use \"lib.tact\")\n(show (mid [1 2 9]))","2",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a pack another file loads is not yours","(use \"lib.tact\")\n(show (mid [1 2 9]))\n(show (median [1 2 9]))","!E1@undefined:3",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a file cannot lean on the packs of the program that loads it","(use math)\n(use \"lib.tact\")\n(show (mid [1 2 9]))","!E1",{"lib.tact":"(fn mid [v (Vec Num)] Num (median v))\n"}],
