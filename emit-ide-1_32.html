@@ -648,7 +648,8 @@ public fn step(dt: num) num {
 <div class="sig">text(s: str, x, y, size)</div>
 <p><strong>UI:</strong></p>
 <div class="sig">button(label: str, id) &mdash; export onclick_N() to handle</div>
-<div class="sig">input(placeholder: str, id), getInput(id) &rarr; int</div>
+<div class="sig">input(placeholder: str, id), getInput(id) &rarr; int, getInputStr(id) &rarr; str</div>
+<div class="sig">httpGet(url: str, id) &mdash; export onhttp_N() to handle; httpText() &rarr; str is the answer</div>
 <div class="sig">setText(id, val: str)</div>
 <p><strong>Sound &amp; Time:</strong></p>
 <div class="sig">beep(freq, ms), now() &rarr; int (millisecond timestamp)</div>
@@ -1671,6 +1672,7 @@ const BUILTINS={
   saveStr:{params:[{name:'key',type:'str'},{name:'val',type:'str'}],returnType:'void',module:'std'},
   // HTTP
   httpGet:{params:[{name:'url',type:'str'},{name:'cb',type:'int'}],returnType:'void',module:'std'},
+  httpText:{params:[],returnType:'str',module:'std'},
   // Random & Math helpers
   randInt:{params:[{name:'min',type:'int'},{name:'max',type:'int'}],returnType:'int',module:'std'},
   lerp:{params:[{name:'a',type:'num'},{name:'b',type:'num'},{name:'t',type:'num'}],returnType:'num',module:'std'},
@@ -6027,7 +6029,7 @@ _emitModLink=(function(link){return function(fr){
 const ed=document.getElementById('editor'),gutter=document.getElementById('gutter'),hlInner=document.getElementById('hlInner');let lastFuncs=null,lastImports=null;
 var _emitKw=new Set(['fn','let','mut','const','return','if','else','while','for','class','interface','implements','new','this','export','import','from','as','break','continue','use']);
 var _emitTy=new Set(['int','num','str','bool','void','i32','i64','f32','f64','js']);
-var _emitBlt=new Set(['print','printNum','printStr','log','alert','abs','min','max','sqrt','sin','cos','pow','floor','random','now','canvas','color','alpha','lineWidth','rect','strokeRect','circle','line','clear','text','pixel','beep','sleep','button','input','getInput','setText','div','newArray','getItem','setItem','getNumItem','setNumItem','push','pop','arrayLen','scene3d','box','sphere','plane','color3d','move3d','rotate3d','scale3d','camera3d','lookAt3d','light3d','fog3d','render3d','controls3d','cylinder','wallBox','ambient3d','bgColor3d','cone','torus','grid3d','pointLight3d','spotLight3d','metallic3d','opacity3d','shadow3d','text3d','synth','drum','playNote','noteOff','setBpm','setSwing','physics','physBox','physCircle','physGround','physGravity','physStep','physDraw','barChart','lineChart','pieChart','chartLabel','chartData','chartColor','chartRender','loadAudio','playAudio','stopAudio','loopAudio','volumeAudio','tween','animateEl','pixiApp','pixiRect','pixiCircle','pixiText','pixiMove','pixiRender','world3d','bodyBox','bodySphere','bodyPlane','bodyForce','stepWorld','hostPeer','joinPeer','sendInt','sendStr','onRecvInt','onRecvStr','animate','keyDown','touchX','touchY','touching','getInputStr','loadImage','drawImage','drawImageScaled','collides','dist','setTimer','setInterval','screenW','screenH','mouseX','mouseY','mouseDown','save','load','saveStr','httpGet','randInt','lerp','clamp','ceil','round','sign','absNum','minNum','maxNum','tan','asin','acos','atan','atan2','ln','log2','exp','PI','TAU','E','intToStr','numToStr','strLen','strConcat','substr','strEq','charAt','loadStr','getCanvas','emptyObj','wrapShape','textShape','toStr','toNum','toJsArray','fnRef']);
+var _emitBlt=new Set(['print','printNum','printStr','log','alert','abs','min','max','sqrt','sin','cos','pow','floor','random','now','canvas','color','alpha','lineWidth','rect','strokeRect','circle','line','clear','text','pixel','beep','sleep','button','input','getInput','setText','div','newArray','getItem','setItem','getNumItem','setNumItem','push','pop','arrayLen','scene3d','box','sphere','plane','color3d','move3d','rotate3d','scale3d','camera3d','lookAt3d','light3d','fog3d','render3d','controls3d','cylinder','wallBox','ambient3d','bgColor3d','cone','torus','grid3d','pointLight3d','spotLight3d','metallic3d','opacity3d','shadow3d','text3d','synth','drum','playNote','noteOff','setBpm','setSwing','physics','physBox','physCircle','physGround','physGravity','physStep','physDraw','barChart','lineChart','pieChart','chartLabel','chartData','chartColor','chartRender','loadAudio','playAudio','stopAudio','loopAudio','volumeAudio','tween','animateEl','pixiApp','pixiRect','pixiCircle','pixiText','pixiMove','pixiRender','world3d','bodyBox','bodySphere','bodyPlane','bodyForce','stepWorld','hostPeer','joinPeer','sendInt','sendStr','onRecvInt','onRecvStr','animate','keyDown','touchX','touchY','touching','getInputStr','loadImage','drawImage','drawImageScaled','collides','dist','setTimer','setInterval','screenW','screenH','mouseX','mouseY','mouseDown','save','load','saveStr','httpGet','httpText','randInt','lerp','clamp','ceil','round','sign','absNum','minNum','maxNum','tan','asin','acos','atan','atan2','ln','log2','exp','PI','TAU','E','intToStr','numToStr','strLen','strConcat','substr','strEq','charAt','loadStr','getCanvas','emptyObj','wrapShape','textShape','toStr','toNum','toJsArray','fnRef']);
 ['toInt','isNull','typeOf','jsLen','jsAt','jsGet','jsKeys'].forEach(function(n){_emitBlt.add(n)});
 ['await','try','catch','finally','throw'].forEach(function(n){_emitKw.add(n)});_emitTy.add('arr');_emitTy.add('numarr');
 ['public','package'].forEach(function(n){_emitKw.add(n)});   // module system
@@ -7228,8 +7230,10 @@ function _resetJsInterop(){
   _memReset();
 }
 function _log(outputLog,fn,args){if(fn&&fn.charCodeAt(0)===95&&fn.charCodeAt(1)===95)return; /* internal __js… helpers are not listed under Results: the trace lines below show those calls readably */ if(outputLog.length>=_logMax)outputLog.splice(0,_logMax>>1); /* the import log keeps the newest calls only */ outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
+var _httpText='',_httpGen=0;   // the text of the last answer to httpGet, for httpText(); which run it belongs to
 function buildImportObject(imports,outputLog){
-  const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];var _strWritePtr=4096;
+  _httpText='';_httpGen++;
+  const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];
   _memReset(); /* handles, strings, array records and scopes of an earlier run (also done by _resetJsInterop) */
   /* Callback table — the WASM module fills it with its functions (see cbElemSection) */
   _cbTable=null;try{_cbTable=new WebAssembly.Table({initial:Math.max(1,imports.cbCount||1),element:'anyfunc'})}catch(e){}
@@ -7689,13 +7693,9 @@ function buildImportObject(imports,outputLog){
           var el=document.getElementById('emit-el-'+Number(id));
           if(!el||!el.value)return 0;
           if(!_wasmMem)return 0;
-          var enc=new TextEncoder().encode(el.value);
-          var ptr=_strWritePtr||4096;
-          var view=new DataView(_wasmMem.buffer);
-          view.setUint32(ptr,enc.length,true);
-          new Uint8Array(_wasmMem.buffer).set(enc,ptr+4);
-          _strWritePtr=ptr+4+enc.length+1;
-          return ptr;
+          // into the string area, like every other string the runtime builds (it used to be written at a fixed
+          // offset in the first page, over the program's own string literals)
+          return _writeStr(el.value);
         };break;
         // Images
         case'loadImage':s.loadImage=function(ptr){
@@ -7738,21 +7738,16 @@ function buildImportObject(imports,outputLog){
         // HTTP
         case'httpGet':s.httpGet=function(ptr,cb){
           var url=_readStr(ptr);
+          var gen=_httpGen;
           fetch(url).then(function(r){return r.text()}).then(function(txt){
-            if(window._wi&&window._wi.exports['onhttp_'+Number(cb)]){
-              // Store response in WASM memory
-              if(_wasmMem){
-                var enc=new TextEncoder().encode(txt.substring(0,4000));
-                var rptr=_strWritePtr||4096;
-                var view=new DataView(_wasmMem.buffer);
-                view.setUint32(rptr,enc.length,true);
-                new Uint8Array(_wasmMem.buffer).set(enc,rptr+4);
-                _strWritePtr=rptr+4+enc.length+1;
-              }
+            // the answer is kept for httpText(); onhttp_N() reads it there. Only the run that asked gets it.
+            if(gen===_httpGen&&window._wi&&window._wi.exports['onhttp_'+Number(cb)]){
+              _httpText=txt;
               _emitCallExport(window._wi,'onhttp_'+Number(cb),[]);
             }
           }).catch(function(){});
         };break;
+        case'httpText':s.httpText=function(){return _writeStr(_httpText)};break;
         // Random & Math helpers
         case'randInt':s.randInt=function(min,max){
           var lo=Number(min),hi=Number(max);
