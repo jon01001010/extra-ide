@@ -36,7 +36,7 @@ THE ONE RULE OF ITS DESIGN: small pieces that stand alone
   everything in tact is modular, and the rest falls out of that.
   - the spec is a core and pieces. the core is always in context; a pack is read only by the
     program that says (use name). so the spec never outgrows a context.
-  - a program is files. each names its own packs and is checked alone.
+  - a program is files. each names its own packs, keeps its _names to itself, and is checked alone.
   - a large job is runs. each run does one batch and writes its own part; no run needs another.
   - a form is one step. nothing changes once bound, so a step never reaches back.
   what this buys: a broken part stays small. an error is in one form, one file, one pack or
@@ -142,7 +142,9 @@ RUN, DB, RUN, DB. how tact scales
   - the same holds for the program. put what the runs share in one file (the record, the
     partial results), and (use "common.tact") it from each. a file names its own packs, so it
     is checked alone, and a run is given only the files it uses: the merge needs none of the
-    batch code. tact --sigs FILE gives what a file offers, without its source.
+    batch code. a let or fn whose name starts with _ is private to its file: the program
+    that loads the file does not see it and cannot clash with it. tact --sigs FILE gives
+    what a file offers, without its source and without its private names.
   - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
     an earlier result. then a slip travels, and the runs cannot go at once.
 

@@ -129,8 +129,10 @@ number of steps, and timestamp conversion is the riskiest step.
 - [x] Modularity in the program too: a file names its own packs (E1 when
       it leans on a pack another file loaded), so each file is checked
       alone and a run is given only the files it uses.
-- [ ] Private names in a file: today every let and fn of a used file is
-      visible, and clashes with the user's names (E3).
+- [x] Private names in a file: a let or fn whose name starts with `_`
+      stays in its file. Not seen by the loader (E1 says it is private and
+      to which file), no clash, left out of `--sigs`. Recs and sums are
+      still always public.
 - [ ] Run the independent parts with a model as the runtime (the Haiku
       runs so far used the chained design). Each part is compared with the
       interpreter's part for that batch alone.

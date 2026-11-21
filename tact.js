@@ -74,7 +74,7 @@ PROGRAM = top forms only. anything else at top = E8.
   (show expr)                      print the value: a Str bare, the rest as tact writes it.
   (check expr expected)            ok, or ECHECK. numbers equal within 1e-9 (relative above 1).
   (do expr ..)                     run for effect. prints nothing.
-  (use "lib.tact")                 take let fn rec sum check from a file. once per file. each file uses its own packs.
+  (use "lib.tact")                 take let fn rec sum check from a file, once. a file uses its own packs. _names stay in it.
                                    path is relative to the file that says use.
   (use name)                       load a pack of builtins. see PACKS.
 
@@ -535,7 +535,7 @@ function fmt1(v, top) {
   switch (v.k) {
     case "rv": return v.dec ? `(dec ${quote(v.vals[0])})` : v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => fmt1(x, false))].join(" ") + ")";
     case "map": return "{" + tnodes(v.root).map(n => fmt1(n.key, false) + " " + fmt1(n.val, false)).join(" ") + "}";
-    case "clo": return v.name ? `<fn ${v.name}>` : "<fun>";
+    case "clo": return v.name ? `<fn ${v.name.replace(/~\d+$/, "")}>` : "<fun>";
     case "bi": return `<builtin ${v.name}>`;
     case "ctor": return `<ctor ${v.name}>`;
     case "rd": return `<reader ${v.name}>`;
@@ -3555,8 +3555,9 @@ function declare(name, type, sc, line, C) {
 function unknown(name, line, sc, C) {
   if (name === "_") return C.errs.push(E("E1", "_ is a slot only at the top of a -> step, a wildcard in match patterns, and an unused name in fun and for", line));
   if (C.letLines.has(name) && !C.g.has(name)) return C.errs.push(E("E1", `${name} is not defined yet: its let is on line ${LN(C.letLines.get(name))}`, line));
+  if (name[0] === "_") for (const k of C.g.keys()) if (k.startsWith(name + "~")) return C.errs.push(E("E1", `${name} is private to ${FILES[+k.slice(name.length + 1)]}: a name that starts with _ stays in its file`, line));
   const hint = packHint(name, C) || foreign(name); if (hint) return C.errs.push(E("E1", hint, line));
-  const names = new Set([...C.g.keys(), "true", "false"]);
+  const names = new Set([...[...C.g.keys()].filter(k => !k.includes("~")), "true", "false"]);
   for (let s = sc; s; s = s.p) for (const k of s.m.keys()) names.add(k);
   const near = nearest(name, names);
   C.errs.push(E("E1", `unknown name ${name.length > 60 ? name.slice(0, 60) + ".." : name}` + (near ? `. nearest known: ${near}` : ""), line));
@@ -3791,7 +3792,7 @@ function checkProgram(tops, errs, packs, H, filePacks) {
   }
   for (const t of tops) {
     const C = { g, decls, errs, letLines, packs, filePacks, reach, host: H, deps: { fns: new Set(), lets: new Set() } };
-    const note = (text) => { if (!t.prelude) info.push({ line: t.line, text, code: unTop(t) }); };
+    const note = (text) => { if (!t.prelude) info.push({ line: t.line, text: shown(text), code: shown(unTop(t)) }); };
     CURLINE = t.line;
     t.deps = C.deps;
     switch (t.t) {
@@ -4229,6 +4230,16 @@ const hostHelp = {                          // for host authors: build tact valu
 
 const dirOf = p => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i + 1); };
 const headOf = s => s.t === "list" && s.items.length && isSym(s.items[0]) ? s.items[0].v : null;
+// a let or fn whose name starts with _ is private to its file. in a used file it gets a name no other file can write,
+// so it is not seen by the program that loads it and cannot clash with it. messages show the name as it was written.
+function hidePrivate(sxs, k) {
+  const mine = new Set();
+  for (const s of sxs) { const h = headOf(s), n = s.items && s.items[1]; if ((h === "let" || h === "fn") && n && isSym(n) && n.v[0] === "_" && n.v.length > 1) mine.add(n.v); }
+  if (!mine.size) return;
+  const walk = x => { if (isSym(x)) { if (mine.has(x.v)) x.v += "~" + k; } else if (x && x.items) x.items.forEach(walk); };
+  sxs.forEach(walk);
+}
+const shown = m => typeof m === "string" ? m.replace(/(_[^\s~()\[\]{}"]*)~\d+/g, "$1") : m;
 function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn rec sum check forms, in place, once
   const out = [];
   for (const s of sxs) {
@@ -4244,6 +4255,7 @@ function expandUses(sxs, file, U) {   // (use "path") becomes that file's let fn
     FILES.push(path);
     const n0 = U.errs.length, sub = parse(lex(text, U.errs, (FILES.length - 1) * LINEBASE), U.errs);
     if (U.errs.length !== n0) continue;
+    hidePrivate(sub, FILES.length - 1);
     for (const x of expandUses(sub, path, U)) { const h = headOf(x); if (h !== "show" && h !== "do") out.push(x); }
   }
   return out;
@@ -4266,7 +4278,7 @@ function run1(src, opts) {
   const used = [], soft = [];
   let uses = { packs: [], host: [], io: [], writes: [], calls: [], files: used };      // what the program can reach. an app can show this and ask before running
   const emit = s => { out.push(s); if (opts.onOut) opts.onOut(s); };
-  const place = e => { const l = e.line || 0, r = { code: e.code, msg: e.msg, line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
+  const place = e => { const l = e.line || 0, r = { code: e.code, msg: shown(e.msg), line: l % LINEBASE }; if (l >= LINEBASE) r.file = files[Math.floor(l / LINEBASE)]; return r; };
   let info = [];
   const files = FILES = [file];
   try {
@@ -4431,6 +4443,10 @@ const TESTS = [
   ["E19 is caught by try","(use io)\n(show (match (try (io.read \"nope\")) (Ok s) s (Err c _) c))","E19"],
   ["E13 host lacks it","(use io)\n(show (Sh.code (io.sh \"true\")))","!E13"],
   ["E14 http url","(use io)\n(show (Http.status (io.http \"GET\" \"file:///etc/passwd\" {} \"\")))","!E14"],
+  ["use: _names are private, and do not clash","(use \"lib.tact\")\n(use \"lib2.tact\")\n(let _k 5)\n(fn _twice [x Num] Num x)\n(show (big 1))\n(show (small 1))\n(show (+ _k (_twice 1)))","12\n0\n6",{"lib.tact":"(let _k 10)\n(fn _twice [x Num] Num (* x 2))\n(fn big [x Num] Num (+ _k (_twice x)))\n","lib2.tact":"(let _k 1)\n(fn small [x Num] Num (- x _k))\n"}],
+  ["use: a private name is not seen from outside","(use \"lib.tact\")\n(show (_twice 1))","!E1@undefined:2",{"lib.tact":"(let _k 10)\n(fn _twice [x Num] Num (* x 2))\n(fn big [x Num] Num (+ _k (_twice x)))\n"}],
+  ["use: an error in a private fn shows the name as written","(use \"lib.tact\")\n(show (big 1))","!E4",{"lib.tact":"(fn _twice [x Num] Num (cat x 2))\n(fn big [x Num] Num (_twice x))\n"}],
+  ["use: a private fn as a value shows its written name","(use \"lib.tact\")\n(show (pick))","<fn _half>",{"lib.tact":"(fn _half [x Num] Num (/ x 2))\n(fn pick [] (Fn Num Num) _half)\n"}],
   ["use: a file brings its own packs","(use \"lib.tact\")\n(show (mid [1 2 9]))","2",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a pack another file loads is not yours","(use \"lib.tact\")\n(show (mid [1 2 9]))\n(show (median [1 2 9]))","!E1@undefined:3",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a file cannot lean on the packs of the program that loads it","(use math)\n(use \"lib.tact\")\n(show (mid [1 2 9]))","!E1",{"lib.tact":"(fn mid [v (Vec Num)] Num (median v))\n"}],
@@ -4881,7 +4897,7 @@ THE ONE RULE OF ITS DESIGN: small pieces that stand alone
   everything in tact is modular, and the rest falls out of that.
   - the spec is a core and pieces. the core is always in context; a pack is read only by the
     program that says (use name). so the spec never outgrows a context.
-  - a program is files. each names its own packs and is checked alone.
+  - a program is files. each names its own packs, keeps its _names to itself, and is checked alone.
   - a large job is runs. each run does one batch and writes its own part; no run needs another.
   - a form is one step. nothing changes once bound, so a step never reaches back.
   what this buys: a broken part stays small. an error is in one form, one file, one pack or
@@ -4987,7 +5003,9 @@ RUN, DB, RUN, DB. how tact scales
   - the same holds for the program. put what the runs share in one file (the record, the
     partial results), and (use "common.tact") it from each. a file names its own packs, so it
     is checked alone, and a run is given only the files it uses: the merge needs none of the
-    batch code. tact --sigs FILE gives what a file offers, without its source.
+    batch code. a let or fn whose name starts with _ is private to its file: the program
+    that loads the file does not see it and cannot clash with it. tact --sigs FILE gives
+    what a file offers, without its source and without its private names.
   - chain the runs (each one reads the db the last one wrote) only when a batch truly needs
     an earlier result. then a slip travels, and the runs cannot go at once.
 
@@ -5100,7 +5118,7 @@ function cli(args, host) {           // host = the io host. it also needs read a
       }
       case "--sigs": {                 // what a side loaded tact file offers, without its source
         const r = run(src(a[1]), { io: host, file: file(a[1]), checkOnly: true, host: tools, deny });
-        return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
+        return { out: r.info.filter(i => /^(let|fn|rec|sum) /.test(i.text) && !/^(let|fn) _/.test(i.text) && !i.file).map(i => i.text).join("\n"), err: errLines(r), code: r.errors.length ? 1 : 0 };
       }
       case "--list": if (a[1] && a[1] !== "all" && a[1] !== "core" && !own(PACKS, a[1])) return { out: "", err: `unknown pack ${a[1]}. packs: ${Object.keys(PACKS).join(" ")}`, code: 2 };
         return { out: Object.entries(B).filter(([, b]) => a[1] === "all" || (b.pack || "core") === (a[1] || "core")).map(([n, b]) => `${n.padEnd(12)} ${b.sig}` + (a[1] === "all" && b.pack ? `   ; ${b.pack}` : "")).join("\n"), err: "", code: 0 };
