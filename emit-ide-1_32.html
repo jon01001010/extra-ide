@@ -6759,8 +6759,7 @@ function _gcMark(){
     else if(x>=_strHeapBase){if(_strBlocks.has(x))ks.add(x)}
   }
   for(i=0;i<gl.length;i++){try{see(gl[i].value)}catch(e){return null}}
-  // str cells in regions are roots like top-level variables (the regions themselves never go away)
-  if(typeof _rgRefs!=='undefined'&&_rgRefs.length&&_rgLive()){
+  if(_rgRefs.length&&_rgLive()){ // str cells in regions are roots too
     var dv=new DataView(_wasmMem.buffer),ri,e,o,R,offs,at;
     for(ri=0;ri<_rgRefs.length;ri++){
       R=_rgRefs[ri].R;offs=_rgRefs[ri].offs;n+=R.length*offs.length;
@@ -7257,7 +7256,7 @@ function _resetJsInterop(){
   _memReset();
 }
 function _log(outputLog,fn,args){if(fn&&fn.charCodeAt(0)===95&&fn.charCodeAt(1)===95)return; /* internal __js… helpers are not listed under Results: the trace lines below show those calls readably */ if(outputLog.length>=_logMax)outputLog.splice(0,_logMax>>1); /* the import log keeps the newest calls only */ outputLog.push({fn:fn,mod:'std',args:args.map(function(a){return typeof a==='bigint'?a.toString():String(a)})})}
-var _httpText='',_httpGen=0;   // the text of the last answer to httpGet, for httpText(); which run it belongs to
+var _httpText='',_httpGen=0; // httpGet's last answer (for httpText), and the run it belongs to
 function buildImportObject(imports,outputLog){
   _httpText='';_httpGen++;
   const obj={};_canvas=null;_ctx=null;_curColor='#ffffff';_arrays=[];_3d={scene:null,cam:null,renderer:null,objs:[]};_phys=null;_chart=null;_pixi=null;_cannon=null;_peer=null;_animRunning=false;_images=[];
@@ -7720,8 +7719,6 @@ function buildImportObject(imports,outputLog){
           var el=document.getElementById('emit-el-'+Number(id));
           if(!el||!el.value)return 0;
           if(!_wasmMem)return 0;
-          // into the string area, like every other string the runtime builds (it used to be written at a fixed
-          // offset in the first page, over the program's own string literals)
           return _writeStr(el.value);
         };break;
         // Images
@@ -7767,7 +7764,6 @@ function buildImportObject(imports,outputLog){
           var url=_readStr(ptr);
           var gen=_httpGen;
           fetch(url).then(function(r){return r.text()}).then(function(txt){
-            // the answer is kept for httpText(); onhttp_N() reads it there. Only the run that asked gets it.
             if(gen===_httpGen&&window._wi&&window._wi.exports['onhttp_'+Number(cb)]){
               _httpText=txt;
               _emitCallExport(window._wi,'onhttp_'+Number(cb),[]);
@@ -8244,8 +8240,7 @@ function _rgSetup(imports){
   var m=null;
   try{if(imports&&typeof imports.regionMeta==='string')m=JSON.parse(imports.regionMeta)}catch(e){m=null}
   _rgMeta=m;_rgGen++;_rgViews=[];_rgScreens=[];_rgFrameSeen=new Set();
-  // where the regions keep str cells: per region, the byte offsets inside one element (for the collector)
-  _rgRefs=[];
+  _rgRefs=[]; // str cells, for the collector: per region, their offsets in an element
   if(m&&m.regions)m.regions.forEach(function(R){
     var offs=[];
     if(R.elem==='str')offs.push(0);
@@ -8409,7 +8404,7 @@ function _emitRegionWrite1(id,index,field,value){
   var x=_rgAddrOf(R,index,field);if(!x)return false;
   var dv=new DataView(_wasmMem.buffer),a=x.a,t=x.type,s=typeof value==='string'?value.trim():null;
   try{
-    if(t==='str'){var sp=_writeStr(String(value));new DataView(_wasmMem.buffer).setUint32(a,sp,true);return true}   /* (_writeStr may grow memory: a fresh view) */
+    if(t==='str'){var sp=_writeStr(String(value));new DataView(_wasmMem.buffer).setUint32(a,sp,true);return true} /* a fresh view: memory may have grown */
     if(t==='num'||t==='f32'){
       var n=typeof value==='bigint'?Number(value):typeof value==='boolean'?(value?1:0):s===''?NaN:Number(value);
       if(n!==n)return false;
