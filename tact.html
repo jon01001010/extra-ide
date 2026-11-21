@@ -183,6 +183,8 @@ const PRELUDE = `(sum Opt [Some [?a] None []])
 // packs: side loaded. the core spec stays short enough to sit in a model's context every time;
 // a pack costs context only in the programs that say (use name).
 const PACKS = {
+  db: { say: "state between runs, as a tact file", types: "",
+    notes: "run, db, run, db. one run works on one batch, with a fresh context. what it hands to the next run goes in a db file.\na db file is tact: one (let name value) a line. the next run begins with (use \"state.tact\"), so every name and type\nin it is checked before anything is worked out, and a value that does not fit the program is an error up front.\nwriting it: (io.write \"state.tact\" (db.text [(db.let \"counts\" c) (db.let \"done\" n)])). or write those lines yourself:\na value is written as tact reads it: every digit of a number, text in quotes with \\n \\\" \\\\ escaped, a map as {k v ..}\nwith its keys in cmp order, a rec as (Name a b). two writers given the same values write the same file.\nthe first file is written by hand: (let counts {}) (let done 0).\nkeep in it what can be merged (q.merge): counts, sums with their counts, lists of values. and how many records are done.\nany one run can be done again from the db before it and compared with the db after it: a slip is found at its batch." },
   xlsx: { machine: true, say: "write .xlsx workbooks", types: "(sum Cell [XNum [Num] XStr [Str] XBool [Bool] XBlank []])\n(rec Sheet [name Str rows (Vec (Vec Cell))])",
     notes: "(io.writeb \"out.xlsx\" (xlsx.pack [(Sheet \"Data\" [[(XStr \"id\") (XStr \"n\")] [(XStr \"007\") (XNum 1.5)]])]))\nrows top to bottom, cells left to right from A1. rows may differ in length. XBlank leaves a cell empty.\na cell keeps its type: (XStr \"007\") (XStr \"1e5\") (XStr \"=A1\") stay text, never a number or a formula.\nno formulas, dates, styles or widths. a date goes in as text, or as a number. reading xlsx is not here." },
   zip: { machine: true, say: "read and write zip and gzip", types: "(rec Entry [name Str data (Vec Num)])",
@@ -226,7 +228,7 @@ as one png grid, left to right, top to bottom: a whole animation in one image.
 hosts  node: files, shell, http, stdin, args, env.  browser: memory files, http.
 what a host lacks = E13. what a host tried and could not do = E19. try catches both.` },
 };
-const KINDPACK = { xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
+const KINDPACK = { db: "db", xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
 const SYNTAX = `TACT v2. a context-only language: you are the runtime. check a program against this spec, then work\nit out in your reasoning. nothing executes, so nothing can be harmed. tact.js is the reference.
 
@@ -289,8 +291,7 @@ ERRORS check phase  E1-E8 E12 E18 E20   every error reported at once, each with 
        run phase    E9-E11 E13-E17 E19 ECHECK   stops at the first. try catches all but ECHECK and a spent budget.
 
 HOST   an embedding program can add typed functions and types, checked like builtins: tact --host H.js --spec
-
-CLI    tact FILE [args ..] | -e SRC | --check FILE | --spec [PACK|all] | --sigs FILE | --fmt FILE | --host H.js .. | --readme has the rest`;
+`;
 
 const MATRIX = `name kind n in out note
 if form 3 Bool,@T,@T @T branches same type
@@ -644,6 +645,8 @@ gunzip zip 1 @Vec.Num @Vec.Num E15 not gzip, damaged, crc. E17 too big
 Cell xlsx ! ! ! XNum n. XStr s. XBool b. XBlank
 Sheet xlsx ! ! ! Sheet name rows
 xlsx.pack xlsx 1 @Vec.Sheet @Vec.Num a .xlsx. E10 no sheets. E14 sheet name: 1..31 chars, none of : \\ / ? * [ ], no ' at an end, unique ignoring case. E17 over 1048576 rows, 16384 columns, 32767 chars in a cell
+db.let db 2 Str,@T Str name value. the line (let name value), written exactly. E14 a function or picture, or a bad name
+db.text db 1 @Vec.Str Str lines from db.let. the text of a db file. E14 a name twice
 E1 err ! ! ! check. unknown name. nearest known. or the pack to use. or the tact for a foreign word
 E2 err ! ! ! check. wrong arity
 E3 err ! ! ! check. rebind or shadow
@@ -3576,6 +3579,29 @@ def("img.map", "(Fn Num Num Num (Vec Num)) Image -> Image", ([f, im], cx) => {
 });
 def("img.ascii", "Image Num -> Str", ([im, cols]) => asciiArt(im.img.w, im.img.h, im.img.px, cols));
 
+/* ---- db: what one run hands to the next. a db file is tact: (let name value) lines, loaded with (use "file"),
+        so its names and types are checked before anything is worked out. values are written exactly. */
+function dbFmt(v, op) {
+  if (typeof v === "number") return String(v);                    // the shortest text that reads back as the same number
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "string") return quote(v);
+  if (Array.isArray(v)) return "[" + v.map(x => dbFmt(x, op)).join(" ") + "]";
+  if (v.k === "map") return "{" + tnodes(v.root).map(n => dbFmt(n.key, op) + " " + dbFmt(n.val, op)).join(" ") + "}";
+  if (v.k === "rv" && !v.img) return v.dec ? `(dec ${quote(v.vals[0])})` : v.nul ? v.name : "(" + [v.name, ...v.vals.map(x => dbFmt(x, op))].join(" ") + ")";
+  return R("E14", `${op}: a ${v.img ? "picture" : "function"} cannot be kept in a db file. keep the data it was made from`);
+}
+def("db.let", "Str a -> Str", ([name, v]) => {
+  if (!/^[^\s()\[\]{};"]+$/.test(name) || NUMRE.test(name) || RESERVED.has(name)) R("E14", `db.let: ${quote(name)} cannot be a name. no spaces or brackets, not a number, not a reserved word`);
+  const t = `(let ${name} ${dbFmt(v, "db.let")})`;
+  if (t.length > 2e7) R("E17", "db.let: over 20 million characters");
+  return t;
+});
+def("db.text", "(Vec Str) -> Str", ([lets]) => {
+  const names = lets.map(l => { const m = /^\(let (\S+) /.exec(l); if (!m) R("E14", `db.text: ${quote(l.slice(0, 40))} is not a line made by db.let`); return m[1]; });
+  const twice = names.find((n, i) => names.indexOf(n) !== i); if (twice !== undefined) R("E14", `db.text: ${twice} is written twice. a name is bound once`);
+  return ["; tact db. (use \"this file\") loads these names", ...(lets.some(l => l.includes("(dec \"")) ? ["(use dec)"] : []), ...lets].join("\n") + "\n";
+});
+
 /* ---- v2 packs: math text csv, and more in bytes and io */
 def("gcd", N2, ([a, b]) => { ints("gcd", a, b); a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; });
 def("lcm", N2, ([a, b]) => { ints("lcm", a, b); if (!a || !b) return 0; let x = Math.abs(a), y = Math.abs(b); while (y) [x, y] = [y, x % y]; return fin(Math.abs(a / x * b), "lcm"); });
@@ -4787,6 +4813,11 @@ const TESTS = [
   ["csv: a byte order mark is not part of the header; svg drops control characters","(use csv)\n(use draw)\n(use bytes)\n(show (csv.maps (scat (chr 65279) \"a,b\\n1,2\\n\")))\n(show (shas (svg 10 10 [(Text 0 0 1 (unutf8 [65 1 66]) \"red\")]) \">AB<\"))","[{\"a\" \"1\" \"b\" \"2\"}]\ntrue"],
   ["q.merge joins partial results from batches","(use query)\n(rec T [who Str days Num])\n(let b1 [(T \"ann\" 3) (T \"bo\" 5) (T \"ann\" 1)])\n(let b2 [(T \"bo\" 2) (T \"cy\" 9)])\n(fn sums [b (Vec T)] (Map Str Num) (q.sum T.who T.days b))\n(fn counts [b (Vec T)] (Map Str Num) (q.count T.who b))\n(fn ages [b (Vec T)] (Map Str (Vec Num)) (mmap (fun [ts] (map T.days ts)) (group T.who b)))\n(check (q.merge + (sums b1) (sums b2)) (sums (concat b1 b2)))\n(check (q.merge + (counts b1) (counts b2)) (counts (concat b1 b2)))\n(check (q.merge concat (ages b1) (ages b2)) (ages (concat b1 b2)))\n(show (q.merge + (counts b1) (counts b2)))\n(check (vsum (mvals (q.merge + (counts b1) (counts b2)))) (+ (len b1) (len b2)))\n(show (q.merge + {} (counts b2)))","{\"ann\" 2 \"bo\" 2 \"cy\" 1}\n{\"bo\" 1 \"cy\" 1}"],
   ["time: the anchors in the notes are the calendar's own","(use time)\n(show [(date.daynum \"2020-01-01\") (date.daynum \"2026-01-01\") (date.daynum \"2033-01-01\")])\n(check (* 86400000 (date.daynum \"2026-01-01\")) (date.of 2026 1 1))","[18262 20454 23011]"],
+  ["db: values are written exactly","(use db)\n(use dec)\n(rec P [x Num y Str])\n(show (db.let \"a\" (/ 1 3)))\n(show (db.let \"b\" (+ 0.1 0.2)))\n(show (db.let \"c\" [1e21 -0.5]))\n(show (db.let \"d\" {\"z\" [1 2] \"a\" []}))\n(show (db.let \"e\" [(P 1 \"q\\\"\\n\") ]))\n(show (db.let \"f\" [(Some 1) None]))\n(show (db.text [(db.let \"n\" 1) (db.let \"m\" (dec \"1.50\"))]))","(let a 0.3333333333333333)\n(let b 0.30000000000000004)\n(let c [1e+21 -0.5])\n(let d {\"a\" [] \"z\" [1 2]})\n(let e [(P 1 \"q\\\"\\n\")])\n(let f [(Some 1) None])\n; tact db. (use \"this file\") loads these names\n(use dec)\n(let n 1)\n(let m (dec \"1.5\"))\n"],
+  ["db: run, db, run","(use query)\n(use io)\n(use db)\n(use \"state.tact\")\n(let batch [\"bo\" \"cy\" \"bo\"])\n(let now (q.merge + counts (q.count (fun [w] w) batch)))\n(do (io.write \"state.tact\" (db.text [(db.let \"done\" (+ done (len batch))) (db.let \"counts\" now) (db.let \"mean\" (/ 1 3))])))\n(show (io.read \"state.tact\"))\n(check (vsum (mvals now)) (+ done (len batch)))","; tact db. (use \"this file\") loads these names\n(let done 5)\n(let counts {\"ann\" 2 \"bo\" 2 \"cy\" 1})\n(let mean 0.3333333333333333)\n",{"state.tact":"; by hand\n(let done 2)\n(let counts {\"ann\" 2})\n"}],
+  ["db: the first file may hold empty values","(use query)\n(use \"state.tact\")\n(show (q.merge + counts {\"a\" 1}))\n(show (q.merge concat ages {\"t\" [3]}))\n(show (+ done 1))","{\"a\" 1}\n{\"t\" [3]}\n1",{"state.tact":"(let done 0)\n(let counts {})\n(let ages {})\n"}],
+  ["db: what is in the file is checked with the program","(use \"state.tact\")\n(show (+ done 1))\n(show (mget counts \"a\"))","!E4@undefined:2",{"state.tact":"(let done \"three\")\n(let counts {\"a\" 1})\n"}],
+  ["E14 db","(use db)\n(show (db.let \"f\" len))\n(show (db.let \"two words\" 1))\n(show (db.let \"let\" 1))\n(show (db.text [(db.let \"a\" 1) (db.let \"a\" 2)]))\n(show (db.text [\"(show 1)\"]))","check!E14,E14,E14,E14,E14"],
 ];
 const h = hostHelp, DEMO_HOST = {
   types: "(rec Ticket [id Num title Str])",
@@ -5068,9 +5099,27 @@ LARGE DATA. the procedure that was measured
   8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
     never present it as finished. it costs many times the tokens of the interpreter, so when
     someone has the interpreter, the right use of your work is to be checked by it.
+  9 between batches, hand the partial results on in a db file. see below.
   dates are the riskiest step. when the date can be given as iso text, keep it: in
   "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
   first 10. for a count of days use date.daynum on each date and subtract.
+
+RUN, DB, RUN, DB. how tact scales
+  one run works on one batch, in a fresh context. nothing is remembered between runs except
+  a db file, so load never builds up and every run is as easy as the first.
+  - a db file is tact: one (let name value) a line. for example
+        (let counts {"ann" 12 "bo" 7})
+        (let done 100)
+  - a run begins with (use "state.tact"). its names and types are checked with the program,
+    before anything is worked out. it then does its batch, and writes the file again with the
+    new values. the db pack's notes say exactly how a value is written, so that two writers
+    given the same values write the same file.
+  - keep in it what can be merged: counts, sums with their counts, lists of values, and how
+    many records are done. never a mean or a median: those are worked out at the end.
+  - the first file is written by hand with empty values: (let counts {}) (let done 0).
+  - why this is safe to trust more than one long run: any single run can be done again, by
+    you or by the interpreter, from the db before it, and compared with the db after it.
+    a slip is found at the batch where it happened, not at the end.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.

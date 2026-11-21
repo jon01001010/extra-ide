@@ -98,9 +98,27 @@ LARGE DATA. the procedure that was measured
   8 say how the result was produced: in reasoning, in batches of what size, and unchecked.
     never present it as finished. it costs many times the tokens of the interpreter, so when
     someone has the interpreter, the right use of your work is to be checked by it.
+  9 between batches, hand the partial results on in a db file. see below.
   dates are the riskiest step. when the date can be given as iso text, keep it: in
   "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
   first 10. for a count of days use date.daynum on each date and subtract.
+
+RUN, DB, RUN, DB. how tact scales
+  one run works on one batch, in a fresh context. nothing is remembered between runs except
+  a db file, so load never builds up and every run is as easy as the first.
+  - a db file is tact: one (let name value) a line. for example
+        (let counts {"ann" 12 "bo" 7})
+        (let done 100)
+  - a run begins with (use "state.tact"). its names and types are checked with the program,
+    before anything is worked out. it then does its batch, and writes the file again with the
+    new values. the db pack's notes say exactly how a value is written, so that two writers
+    given the same values write the same file.
+  - keep in it what can be merged: counts, sums with their counts, lists of values, and how
+    many records are done. never a mean or a median: those are worked out at the end.
+  - the first file is written by hand with empty values: (let counts {}) (let done 0).
+  - why this is safe to trust more than one long run: any single run can be done again, by
+    you or by the interpreter, from the db before it, and compared with the db after it.
+    a slip is found at the batch where it happened, not at the end.
 
 HOW TO THINK IN IT. where tact differs from the languages you know
   - calls are prefix: (f a b). no infix, no commas, no precedence.
@@ -142,6 +160,7 @@ WHAT COMES BACK
   - from the interpreter: exit code 0 = ran clean. 1 = errors, listed. 2 = the command line was wrong.
 
 THE PACKS. 167 rows are core, the rest load with (use name). * = needs the interpreter
+  db     state between runs, as a tact file
   xlsx*  write .xlsx workbooks
   zip*   read and write zip and gzip
   wav*   sound: samples to wav and back

@@ -107,6 +107,14 @@ number of steps, and timestamp conversion is the riskiest step.
       per batch checked against an anchor, a reconciliation. In the readme.
       Measured before these changes: Haiku at ~50 per batch was exact on 38 of
       40 batches and 22 of 25 final values; at ~288 on no batch.
+- [x] Run, db, run, db: the `db` pack. A db file is Tact, `(let name value)`
+      lines loaded with `(use "state.tact")`, so names and types are checked
+      up front; `db.let` and `db.text` write values exactly. Each run is one
+      batch in a fresh context. Shown on the interpreter: 41 runs of 50 over
+      2,015 trapped tickets give the same answers as one run.
+- [ ] Run the db loop with a model as the runtime: each run reads the db
+      file, works one batch in reasoning, writes the db file. Compare each
+      db file with the interpreter's, to find the batch where a slip happens.
 - [ ] Retest Haiku at 2,000 records with the readme's procedure, iso dates
       and the anchors. The two errors that survived batches of 50 were a
       record with two traps at once and a wrong month table for one batch.
