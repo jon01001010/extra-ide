@@ -5,16 +5,18 @@ paints them on a canvas, and follows links between them.
 
 * Browser: `pane.html` (one file, offline, phone-friendly). It inlines `pane.js` and the sample pages in
   `pages/`; after editing either, rebuild it with `node tools/build-pane-html.js` (`--check` verifies it is current).
-* Engine: `pane.js`, one file (~1400 lines). `<script src="pane.js">` defines `window.Pane`;
+* Engine: `pane.js`, one file (~1750 lines). `<script src="pane.js">` defines `window.Pane`;
   in Node, `require('./pane.js')` gives the parser, the expression evaluator, layout and the script runtime
   (no canvas needed). Page scripts run in `mote.js`, which `pane.html` also inlines
   (`node tools/build-mote-html.js`).
-* Tests: `node tests/run-pane.js` (engine, Node only; `--update` rewrites the stored layouts) and
-  `NODE_PATH=… node tests/run-pane-page.js` (browser, Playwright).
+* Tests: `node tests/run-pane.js` (engine, Node only; `--update` rewrites the stored layouts),
+  `NODE_PATH=… node tests/run-pane-page.js` (browser, Playwright) and `NODE_PATH=… node tests/run-pane-app.js`
+  (apps: Emit programs compiled on the spot, then run in Pane).
 
 The grammar and the look of every widget come from the UI mode of `tiny-v3-8.html`. Two phases of a longer
 plan are here: pages you can read and move between, and pages that run a script inside limits the browser
-enforces. Compiled (WebAssembly) page code, styled text runs and a real text field are not here yet.
+enforces, as a Mote script or as a compiled WebAssembly app. Styled text runs and a real text field are
+not here yet.
 
 ---
 
@@ -97,6 +99,7 @@ Written before any container, a property sets the page (for example `align cente
 | `prg value max` | a progress bar; value is a number or a variable name |
 | `rat id max` | star rating, kept in the variable `ratID` |
 | `img address`, `avt address` | an image at its own shape, a round avatar |
+| `app address` | a WebAssembly program with a picture of its own (section 3) |
 | `bdg text`, `ico name`, `div`, `spn` | a badge, an emoji icon, a dividing line, a spinner |
 | `tmr id ms` | invisible; adds 1 to the variable `tmrID` every `ms` milliseconds and runs the `if` lines |
 
@@ -201,7 +204,56 @@ characters per element.
 
 ---
 
-## 3. What a page may do
+## 3. Apps
+
+`app address` puts a WebAssembly program on the page. It draws into a picture of its own, which is laid out
+like an image (scaled down to fit, never up), and it runs in a worker of its own, so it cannot hold up the
+page. The address is a `.wasm` file on the page's site, or a `data:` address with the program inside the page.
+
+The program is written against the Emit runtime's names, so a program compiled by the Emit IDE runs as it
+is when it stays inside the list below.
+
+```
+node tools/emit-to-pane.js game.emit game.pane --title "My game"
+```
+
+compiles an Emit program and writes a page with the program inside it. `pages/apps/bounce.emit` is the
+source of the built-in `pane:bounce`.
+
+**How it is run.** As the IDE's Run does: every exported function that takes nothing is called once
+(not `frame`, `onclick_N`, `ontimer_N`, `onhttp_N`); if the program called `animate()`, its `frame()` is then
+called once per screen frame while the app is on screen. A click on the picture gives the app the keys;
+Escape takes them back. The pointer is given in the picture's own coordinates.
+
+**What a program can call** (`Pane.APP_IMPORTS` has the exact list):
+
+| group | names |
+|---|---|
+| picture | `canvas color alpha lineWidth rect strokeRect circle line pixel text clear animate screenW screenH` |
+| keys and pointer | `keyDown touchX touchY touching mouseX mouseY mouseDown` |
+| numbers | `abs min max sqrt sin cos tan asin acos atan atan2 pow exp ln log2 floor ceil round sign absNum minNum maxNum lerp clamp dist collides random randInt PI TAU E now` |
+| text | `intToStr numToStr strLen strConcat substr strEq charAt`, and `+` and `==` on strings |
+| arrays of numbers | `newArray getItem setItem getNumItem setNumItem push pop arrayLen` |
+| regions | `region name: type[n]` and structs: memory the program reads and writes itself, every index checked |
+| output | `print printNum printStr` (to the status line) |
+
+Everything else the Emit IDE offers is absent: JS interop and `use` libraries, the DOM builtins (`button`,
+`input`, `div`, `alert`), storage, the network, sound, images, timers, `screen` and array literals. A program
+that imports any of it is not started, and the picture says which names were the problem; the tool refuses
+it with the same list.
+
+**Limits.** A program up to 4 MB; 64 MB of memory; 16 MB of text in use at once (text the program no longer
+keeps is reused; one string is cut at 100,000 characters); 1,000,000 numbers in arrays; 20,000 drawing calls
+per frame; a picture up to 2048 pixels a side; four apps per page. An app that does not answer within
+5 seconds at the start, or 1.5 seconds for a frame, is ended: its last picture stays, with "stopped" over it.
+
+**What it cannot do.** The worker gives the program nothing but the functions above: no network, no storage,
+no page, no other app. Drawing comes back to the page as a list of commands that is checked before it is
+replayed. Apps and the page's script do not talk to each other yet.
+
+---
+
+## 4. What a page may do
 
 **Site.** A page's site is the origin of its address (`https://example.org`); all built-in pages are one
 site. Storage and permissions go by site.
@@ -210,7 +262,8 @@ site. Storage and permissions go by site.
 |---|---|
 | show and change its own elements and variables | always |
 | read and write `store` | its own site's keys only; 100 KB per site |
-| load from its own site (`img`, `avt`, `snd`, `web`, `page.fetch`) | always; no cookies are sent |
+| load from its own site (`img`, `avt`, `app`, `snd`, `web`, `page.fetch`) | always; no cookies are sent |
+| run an app from a `data:` address | always: it is part of the page |
 | load from another site, or a font from a font service | not until the user presses **Allow** in the bar that names both sites; kept until the window closes |
 | open another page (`go`, `page.go`) | only while a click or key of the user is being handled; never at load or from a timer |
 | play a sound | same rule as opening a page |
@@ -222,14 +275,16 @@ reaches the new page, the store or the address bar. Each page gets a fresh VM.
 `tests/run-pane.js` and `tests/run-pane-page.js` try the ways out: host globals, constructors and
 prototypes of handles and functions, `__proto__` as a name, key or variable, text that looks like page
 lines, endless loops and runaway memory, loading from another site, reading another site's store, and
-navigating without the user.
+navigating without the user. `tests/run-pane-app.js` does the same for apps: a program that never returns,
+one that imports what apps do not have (by name, by module, as a memory or a global), one that asks for or
+grows too much memory, and one from another site.
 
 Not covered: a page can still make the browser lay out a very large page slowly (the limits bound it, they
 do not make it instant), and the permission bar trusts the user's answer.
 
 ---
 
-## 4. Layout rules
+## 5. Layout rules
 
 * The page is a column as wide as the window. It scrolls when it is taller than the window.
 * Text is broken into lines during layout, so its box is as tall as its lines. A word wider than the line is
@@ -241,7 +296,7 @@ do not make it instant), and the permission bar trusts the user's answer.
   timer tick, an image or font arriving). Scrolling only repaints. Only what is on screen is painted.
 * Everything is in CSS pixels; the canvas backing store follows the device pixel ratio.
 
-## 5. The browser
+## 6. The browser
 
 * **Addresses**: `pane:name` is a built-in page; `http:` and `https:` are fetched (without cookies) and must
   be plain text, up to 2 MB. A bare word typed in the address bar is a built-in page; something with a dot
@@ -254,13 +309,13 @@ do not make it instant), and the permission bar trusts the user's answer.
 * The status line shows the last thing a page printed, a script error, or what was blocked.
 * The page text is also kept in a hidden text-only copy for screen readers, built with text nodes only.
 
-## 6. Embedding
+## 7. Embedding
 
 ```js
 const view = Pane.createView(canvas, {
   onNavigate: address => …,          // links, `go` and page.go
   onTitle: title => …,
-  onLog: (kind, text, site) => …,    // 'print', 'error', 'blocked'
+  onLog: (kind, text, site) => …,    // 'print', 'error', 'blocked', 'app'
   resolve: ref => absoluteUrlOrNull, // for img, avt, snd, web and page.fetch
   allow: (kind, url, site) => bool,  // asked before every request a page causes; absent: all allowed
   storage: site => ({ get, set, remove, keys }),   // what `store` uses; absent: scripts have no store
@@ -274,7 +329,7 @@ Without a canvas (Node, tests): `Pane.parse(source)` → page; `Pane.layout(page
 with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line per placed node;
 `Pane.createRuntime(page, state, hooks, Mote)` runs a page's script against a host you supply.
 
-## 7. Differences from Tiny's UI mode
+## 8. Differences from Tiny's UI mode
 
 * Columns stack at natural height (Tiny shared the height equally); use `grow` to fill.
 * Rows never overflow: shares respect each child's longest word, and text wraps.
@@ -283,5 +338,5 @@ with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line
 * `lnk` opens the page in the browser instead of a new window; `go` does the same from a statement.
 * `dlg` sits over the window and takes all clicks while open.
 * `if` lines run after every control changes, not only after button clicks.
-* New: `title`, `id`, `script`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
+* New: `title`, `id`, `script`, `app`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
 * Not carried over: Tiny's canvas and GPU modes, the debug panel, export.

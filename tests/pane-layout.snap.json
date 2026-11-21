@@ -98,6 +98,33 @@
   "    lnk 340 988 600 19 | Back to the start page",
   "content 1027 scroll 227"
  ],
+ "bounce @360": [
+  "col 0 0 360 640",
+  "  col 0 0 360 339",
+  "    txt 16 16 328 26 | Bounce",
+  "    app 16 52 328 200",
+  "    txt 16 262 328 33 | Click the picture to give it the keys. / Esc gives them back.",
+  "    lnk 16 305 328 18 | Back to the start page",
+  "content 339 scroll 0"
+ ],
+ "bounce @768": [
+  "col 0 0 768 1024",
+  "  col 44 0 680 323",
+  "    txt 60 16 648 26 | Bounce",
+  "    app 60 52 648 200",
+  "    txt 60 262 648 17 | Click the picture to give it the keys. Esc gives them back.",
+  "    lnk 60 289 648 18 | Back to the start page",
+  "content 323 scroll 0"
+ ],
+ "bounce @1280": [
+  "col 0 0 1280 800",
+  "  col 300 0 680 323",
+  "    txt 316 16 648 26 | Bounce",
+  "    app 316 52 648 200",
+  "    txt 316 262 648 17 | Click the picture to give it the keys. Esc gives them back.",
+  "    lnk 316 289 648 18 | Back to the start page",
+  "content 323 scroll 0"
+ ],
  "calculator @360": [
   "col 0 0 360 640",
   "  col 20 0 320 280",
@@ -303,8 +330,8 @@
   "content 322 scroll 0"
  ],
  "home @360": [
-  "col 0 0 360 689",
-  "  col 0 0 360 689",
+  "col 0 0 360 736",
+  "  col 0 0 360 736",
   "    txt 20 20 320 32 | Pane",
   "    txt 20 64 320 69 | A small browser for pages written in / Tiny's UI language. Pages are plain / text: one word per line says what to / show, and end closes a group.",
   "    div 20 145 320 9",
@@ -319,13 +346,14 @@
   "    lnk 20 476 320 35 | Layout: grow, align, percentages, min / and max",
   "    lnk 20 523 320 35 | Clock: a timer, a progress bar and a / spinner",
   "    lnk 20 570 320 35 | Notes: a page with a script and its / own storage",
-  "    div 20 617 320 9",
-  "    txt 20 638 320 31 | Type a page name or an address above. Back / and forward keep your place on each page.",
-  "content 689 scroll 49"
+  "    lnk 20 617 320 35 | Bounce: a game written in Emit, / running as an app",
+  "    div 20 664 320 9",
+  "    txt 20 685 320 31 | Type a page name or an address above. Back / and forward keep your place on each page.",
+  "content 736 scroll 96"
  ],
  "home @768": [
   "col 0 0 768 1024",
-  "  col 24 0 720 521",
+  "  col 24 0 720 551",
   "    txt 44 20 680 32 | Pane",
   "    txt 44 64 680 35 | A small browser for pages written in Tiny's UI language. Pages are plain text: / one word per line says what to show, and end closes a group.",
   "    div 44 111 680 9",
@@ -340,13 +368,14 @@
   "    lnk 44 374 680 18 | Layout: grow, align, percentages, min and max",
   "    lnk 44 404 680 18 | Clock: a timer, a progress bar and a spinner",
   "    lnk 44 434 680 18 | Notes: a page with a script and its own storage",
-  "    div 44 464 680 9",
-  "    txt 44 485 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
-  "content 521 scroll 0"
+  "    lnk 44 464 680 18 | Bounce: a game written in Emit, running as an app",
+  "    div 44 494 680 9",
+  "    txt 44 515 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
+  "content 551 scroll 0"
  ],
  "home @1280": [
   "col 0 0 1280 800",
-  "  col 280 0 720 521",
+  "  col 280 0 720 551",
   "    txt 300 20 680 32 | Pane",
   "    txt 300 64 680 35 | A small browser for pages written in Tiny's UI language. Pages are plain text: / one word per line says what to show, and end closes a group.",
   "    div 300 111 680 9",
@@ -361,9 +390,10 @@
   "    lnk 300 374 680 18 | Layout: grow, align, percentages, min and max",
   "    lnk 300 404 680 18 | Clock: a timer, a progress bar and a spinner",
   "    lnk 300 434 680 18 | Notes: a page with a script and its own storage",
-  "    div 300 464 680 9",
-  "    txt 300 485 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
-  "content 521 scroll 0"
+  "    lnk 300 464 680 18 | Bounce: a game written in Emit, running as an app",
+  "    div 300 494 680 9",
+  "    txt 300 515 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
+  "content 551 scroll 0"
  ],
  "layout @360": [
   "col 0 0 360 640",

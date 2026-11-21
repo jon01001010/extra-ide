@@ -2864,6 +2864,7 @@ function parseInto(page, container, lines, fragment) {
       case 'prg': add({ type: 'prg', val: parts[1] || '0', max: parts[2] || '100' }, lineNo); break;
       case 'img': add({ type: 'img', url: rest }, lineNo); break;
       case 'avt': add({ type: 'avt', url: rest }, lineNo); break;
+      case 'app': add({ type: 'app', url: rest, aw: 320, ah: 200 }, lineNo); break;
       case 'lnk': {
         const sp = rest.lastIndexOf(' ');
         add({ type: 'lnk', text: sp > 0 ? rest.slice(0, sp) : rest, url: sp > 0 ? rest.slice(sp + 1) : rest }, lineNo);
@@ -3084,6 +3085,7 @@ function layout(page, vw, vh, env) {
       case 'tog': mn = mx = 44; break;
       case 'prg': mn = 40; mx = 120; break;
       case 'img': { const s = imgSize(n); mn = Math.min(64, s ? s.w : 64); mx = s ? s.w : 64; break; }
+      case 'app': mn = Math.min(64, n.aw); mx = n.aw; break;
       case 'sel': mn = mx = n.opts.reduce((m, o) => Math.max(m, tw(n, o)), 0) + 40; break;
       case 'chk': mn = mx = 22 + tw(n, shown(n)) + 6; break;
       case 'sld': mn = 60; mx = 120; break;
@@ -3181,6 +3183,7 @@ function layout(page, vw, vh, env) {
       case 'tog': case 'sld': case 'spn': h = 24; break;
       case 'prg': h = 16; break;
       case 'img': { const s = imgSize(n); h = s && s.w ? Math.min(w, s.w) * s.h / s.w : 64; break; }
+      case 'app': h = Math.min(w, n.aw) * n.ah / n.aw; break;
       case 'chk': h = Math.max(20, f + 4); break;
       case 'div': h = 9; break;
       case 'avt': h = 40; break;
@@ -3443,6 +3446,23 @@ function paint(X, page, opts) {
           font(n, false, 11); X.fillStyle = css(p.fg || [60, 80, 100]); X.textBaseline = 'middle'; X.textAlign = 'center';
           X.fillText('image', x + w / 2, y + h / 2); X.textAlign = 'left';
         }
+        break;
+      }
+      case 'app': {
+        // the app's own picture, scaled to fit and centred; opts.surface gives it, with what to say when it is not running
+        const s = opts.surface && opts.surface(n), dw = Math.min(w, h * n.aw / n.ah), dh = dw * n.ah / n.aw, dx = x + (w - dw) / 2, dyy = y + (h - dh) / 2;
+        X.fillStyle = '#000'; X.fillRect(dx, dyy, dw, dh);
+        if (s && s.canvas) { X.imageSmoothingEnabled = dw < n.aw; X.drawImage(s.canvas, dx, dyy, dw, dh); X.imageSmoothingEnabled = true; }
+        if (s && s.note) {
+          X.fillStyle = 'rgba(0,0,0,0.6)'; X.fillRect(dx, dyy, dw, dh);
+          font(n, false, 12); X.fillStyle = 'rgb(220,230,255)'; X.textBaseline = 'middle'; X.textAlign = 'center';
+          // the whole note when it fits; in a small picture one word, and the status line has the rest
+          const words = X.measureText(s.note).width <= dw - 8 ? s.note : /^loading/.test(s.note) ? '…' : 'stopped';
+          clipped(dx, dyy, dw, dh, () => X.fillText(words, dx + dw / 2, dyy + dh / 2)); X.textAlign = 'left';
+        }
+        X.strokeStyle = s && s.active ? 'rgb(100,160,220)' : 'rgb(30,45,70)'; X.lineWidth = 1; X.strokeRect(dx + .5, dyy + .5, dw - 1, dh - 1);
+        n._ax = dx; n._ay = dyy + dy; n._as = dw / n.aw;      // where its picture is on screen, and its scale
+        hit(n, dx, dyy, dw, dh);
         break;
       }
       case 'sel': {
@@ -3756,6 +3776,241 @@ function createRuntime(page, st, hooks, Mote) {
 }
 const EL_KEYS = ['name', 'kind', 'text', 'value', 'checked', 'hidden', 'open'];
 
+// ════════════════════════════════════════════ apps (WebAssembly) ════════════════════════════════════════════
+
+/**
+ * The inside of an app's worker: it holds one WebAssembly program and answers messages. It is written as one
+ * function that uses nothing outside itself, because its source text is what the worker is started from.
+ *
+ * The program can only call the functions listed here (the `std` and `__js__` tables, a subset of what the
+ * Emit IDE gives a program, with the same names and types), so a .wasm exported from Emit runs unchanged
+ * when it stays inside the subset. A program that imports anything else is refused before it is started.
+ * Nothing here reaches the network, storage or the page: drawing becomes a list of commands that is posted
+ * back, input arrives in messages.
+ *
+ * Messages in:  { t: 'load', bytes, limits }, { t: 'frame', input: { keys, x, y, on } }
+ * Messages out: { t: 'ready' | 'frame', w, h, animate, cmds, logs }, { t: 'error', message }
+ */
+function appCore(post) {
+  var inst = null, mem = null, limits = null, stopped = false;
+  var W = 320, H = 200, animate = false, cmds = [], logs = [], dropped = false;
+  var input = { keys: {}, x: 0, y: 0, on: 0 };
+  var dec = new TextDecoder(), enc = new TextEncoder();
+  // strings the host builds for the program live in memory grown past what the program started with
+  var chunks = [], chunkI = -1, pos = 0, used = 0;
+  var arrays = new Map(), nextArr = 0, cells = 0, ARR = Math.pow(2, 40);
+
+  function I(v) { v = Number(v); return BigInt(isFinite(v) ? Math.trunc(v) : 0); }
+  function N(v) { v = Number(v); return isFinite(v) ? v : 0; }
+  function fail(msg) { throw new Error(msg); }
+  function readStr(ptr) {
+    if (!mem) return '';
+    ptr = Number(ptr) >>> 0;
+    var buf = mem.buffer;
+    if (ptr + 4 > buf.byteLength) return '';
+    var len = new DataView(buf).getUint32(ptr, true);
+    if (len > limits.text || ptr + 4 + len > buf.byteLength) return '';
+    return dec.decode(new Uint8Array(buf, ptr + 4, len));
+  }
+  function writeStr(str) {
+    if (!mem) fail('this app builds text and has no memory');
+    var bytes = enc.encode(String(str).slice(0, limits.text)), need = (bytes.length + 12) & ~7;
+    if (!chunks[chunkI] || pos + need > chunks[chunkI].end) {
+      // the chunk is full: take one that nothing points into any more, else grow by a new one
+      var next = -1;
+      for (var i = 0; i < chunks.length; i++) if (i !== chunkI && chunks[i].live === false && chunks[i].end - chunks[i].start >= need) { next = i; break; }
+      if (next < 0) {
+        var size = Math.max(16, Math.ceil(need / 65536));            // pages; 16 pages = 1 MB
+        if (used + size * 65536 > limits.strings) fail('out of text memory (' + Math.round(limits.strings / 1048576) + ' MB of text is in use at once)');
+        var start = mem.grow(size) * 65536;                          // always new pages: never ones the program grew itself
+        chunks.push({ start: start, end: start + size * 65536, live: true }); used += size * 65536;
+        next = chunks.length - 1;
+      }
+      chunkI = next; pos = chunks[next].start; chunks[next].live = true;
+    }
+    var view = new DataView(mem.buffer), p = pos;
+    view.setUint32(p, bytes.length, true);
+    new Uint8Array(mem.buffer, p + 4, bytes.length).set(bytes);
+    view.setUint8(p + 4 + bytes.length, 0);
+    pos += need;
+    return p;
+  }
+  /**
+   * Between calls, once the current chunk is half full: find which chunks the program still points into, from
+   * what it keeps between calls (its globals and its array cells). A chunk nothing points into can be used
+   * again: the current one at once, the others when the current one is full. Text is never moved.
+   */
+  function reclaim() {
+    var cur = chunks[chunkI];
+    if (!cur || pos - cur.start < (cur.end - cur.start) / 2) return;
+    for (var i = 0; i < chunks.length; i++) chunks[i].live = false;
+    var mark = function (v) { v = Number(v); for (var j = 0; j < chunks.length; j++) if (v >= chunks[j].start && v < chunks[j].end) { chunks[j].live = true; return; } };
+    for (var k in inst.exports) { var e = inst.exports[k]; if (e instanceof WebAssembly.Global) mark(e.value); }
+    arrays.forEach(function (a) { for (var n = 0; n < a.length; n++) mark(a[n]); });
+    if (!cur.live) pos = cur.start;
+    cur.live = true;                                                 // it is being written to: not for reuse by itself
+  }
+  function arr(id) { return arrays.get(Number(id) - ARR); }
+  function draw() { if (cmds.length + arguments.length > limits.cmds) { dropped = true; return; } for (var i = 0; i < arguments.length; i++) cmds.push(arguments[i]); }
+  function say(text) { if (logs.length < 20) logs.push(String(text).slice(0, 300)); }
+
+  var std = {
+    print: function (x) { say(typeof x === 'bigint' ? x.toString() : String(x)); },
+    printNum: function (x) { say(String(x)); },
+    printStr: function (p) { say(readStr(p)); },
+    log: function () {},
+    // numbers
+    abs: function (x) { return x < 0n ? -x : x; }, min: function (a, b) { return a < b ? a : b; }, max: function (a, b) { return a > b ? a : b; },
+    sqrt: Math.sqrt, sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+    pow: Math.pow, exp: Math.exp, ln: Math.log, log2: Math.log2,
+    floor: function (x) { return I(Math.floor(x)); }, ceil: function (x) { return I(Math.ceil(x)); }, round: function (x) { return I(Math.round(x)); },
+    sign: function (x) { return I(Math.sign(x)); },
+    absNum: Math.abs, minNum: Math.min, maxNum: Math.max,
+    lerp: function (a, b, t) { return a + (b - a) * t; }, clamp: function (v, lo, hi) { return Math.min(Math.max(v, lo), hi); },
+    dist: function (x1, y1, x2, y2) { var dx = x2 - x1, dy = y2 - y1; return Math.sqrt(dx * dx + dy * dy); },
+    collides: function (x1, y1, w1, h1, x2, y2, w2, h2) {
+      var ax = Number(x1), ay = Number(y1), bx = Number(x2), by = Number(y2);
+      return BigInt(ax < bx + Number(w2) && ax + Number(w1) > bx && ay < by + Number(h2) && ay + Number(h1) > by ? 1 : 0);
+    },
+    random: Math.random,
+    randInt: function (lo, hi) { lo = Number(lo); hi = Number(hi); return I(lo + Math.floor(Math.random() * (hi - lo + 1))); },
+    PI: function () { return Math.PI; }, TAU: function () { return Math.PI * 2; }, E: function () { return Math.E; },
+    now: function () { return BigInt(Date.now()); },
+    // drawing: becomes commands for the page to replay
+    canvas: function (w, h) { W = Math.max(1, Math.min(limits.side, Number(w) | 0)); H = Math.max(1, Math.min(limits.side, Number(h) | 0)); },
+    screenW: function () { return BigInt(W); }, screenH: function () { return BigInt(H); },
+    color: function (r, g, b) { draw('c', N(r), N(g), N(b)); },
+    alpha: function (a) { draw('a', N(a)); },
+    lineWidth: function (w) { draw('w', N(w)); },
+    rect: function (x, y, w, h) { draw('r', N(x), N(y), N(w), N(h)); },
+    strokeRect: function (x, y, w, h) { draw('s', N(x), N(y), N(w), N(h)); },
+    circle: function (x, y, r) { draw('o', N(x), N(y), N(r)); },
+    line: function (x1, y1, x2, y2) { draw('l', N(x1), N(y1), N(x2), N(y2)); },
+    clear: function () { cmds.length = 0; draw('x'); },                // nothing drawn before a clear can show
+    text: function (p, x, y, size) { draw('t', readStr(p).slice(0, 500), N(x), N(y), N(size)); },
+    pixel: function (x, y) { draw('p', N(x), N(y)); },
+    animate: function () { animate = true; },
+    // input: what the page last told us
+    keyDown: function (code) { return BigInt(input.keys[Number(code)] ? 1 : 0); },
+    touchX: function () { return I(Math.round(input.x)); }, touchY: function () { return I(Math.round(input.y)); }, touching: function () { return BigInt(input.on ? 1 : 0); },
+    mouseX: function () { return I(Math.round(input.x)); }, mouseY: function () { return I(Math.round(input.y)); }, mouseDown: function () { return BigInt(input.on ? 1 : 0); },
+    // text
+    intToStr: function (x) { return writeStr(typeof x === 'bigint' ? x.toString() : String(x)); },
+    numToStr: function (x) { var n = Number(x); return writeStr(Number.isInteger(n) ? n.toFixed(1) : String(n)); },
+    strLen: function (p) { p = Number(p) >>> 0; return mem && p + 4 <= mem.buffer.byteLength ? BigInt(new DataView(mem.buffer).getUint32(p, true)) : 0n; },
+    strConcat: function (a, b) { return writeStr(readStr(a) + readStr(b)); },
+    substr: function (p, start, len) { var st = Number(start); return writeStr(readStr(p).substr(st < 0 ? 0 : st, Number(len))); },
+    strEq: function (a, b) { return readStr(a) === readStr(b) ? 1 : 0; },
+    charAt: function (p, i) { var s = readStr(p), k = Number(i); return BigInt(k >= 0 && k < s.length ? s.charCodeAt(k) : 0); },
+    // arrays of numbers, kept here and named by an id
+    newArray: function (size) {
+      size = Math.max(0, Number(size) | 0);
+      if (arrays.size >= limits.arrays || cells + size > limits.cells) fail('too many arrays (an app can keep ' + limits.cells + ' numbers in ' + limits.arrays + ' arrays)');
+      var k = nextArr++; arrays.set(k, new Array(size).fill(0)); cells += size;
+      return BigInt(ARR + k);
+    },
+    getItem: function (a, i) { a = arr(a); return a ? I(a[Number(i)] || 0) : 0n; },
+    setItem: function (a, i, v) { a = arr(a); i = Number(i); if (a && i >= 0 && i < a.length) a[i] = Number(v); },
+    getNumItem: function (a, i) { a = arr(a); return a ? N(a[Number(i)] || 0) : 0; },
+    setNumItem: function (a, i, v) { a = arr(a); i = Number(i); if (a && i >= 0 && i < a.length) a[i] = v; },
+    push: function (a, v) { a = arr(a); if (!a) return; if (cells >= limits.cells) fail('too many numbers in arrays'); a.push(Number(v)); cells++; },
+    pop: function (a) { a = arr(a); if (!a || !a.length) return 0n; cells--; return I(a.pop()); },
+    arrayLen: function (a) { a = arr(a); return BigInt(a ? a.length : 0); }
+  };
+  var js = {
+    __strCat: function (a, b) { return writeStr(readStr(a) + readStr(b)); },
+    __strOfInt: function (x) { return writeStr(x.toString()); },
+    __strOfNum: function (x) { return writeStr(String(x)); },
+    __strOfBool: function (x) { return writeStr(x ? 'true' : 'false'); },
+    __jsStrEq: function (a, b) { return a === b || readStr(a) === readStr(b) ? 1 : 0; },
+    // regions are plain memory the program reads and writes itself; this is all they ask of the host
+    __regionFail: function () { fail('an index was outside its region'); }
+  };
+  var tables = { std: std, __js__: js };
+
+  /** How many pages of memory the program asks for at the start, read from its bytes (the memory section). */
+  function initialPages(b) {
+    function leb(at) { var v = 0, s = 0, c; do { c = b[at.p++]; v += (c & 127) * Math.pow(2, s); s += 7; } while (c & 128 && at.p < b.length); return v; }
+    var at = { p: 8 };
+    while (at.p < b.length) {
+      var id = b[at.p++], size = leb(at), end = at.p + size;
+      if (id === 5) { if (leb(at) < 1) return 0; at.p++; return leb(at); }
+      at.p = end;
+    }
+    return 0;
+  }
+  function out(t) {
+    var m = { t: t, w: W, h: H, animate: animate && !stopped, cmds: cmds, logs: logs, dropped: dropped };
+    cmds = []; logs = []; dropped = false;
+    post(m);
+  }
+  function stop(message) { stopped = true; inst = null; post({ t: 'error', message: String(message).slice(0, 300) }); }
+  function call(name) {
+    inst.exports[name]();
+    if (mem && mem.buffer.byteLength > limits.memory) fail('it used more than ' + Math.round(limits.memory / 1048576) + ' MB of memory');
+    reclaim();
+  }
+  function load(msg) {
+    limits = msg.limits;
+    var bytes = new Uint8Array(msg.bytes);
+    if (bytes.length > limits.bytes) return stop('the program is larger than ' + Math.round(limits.bytes / 1e6) + ' MB');
+    if (initialPages(bytes) * 65536 > limits.memory) return stop('the program asks for more than ' + Math.round(limits.memory / 1048576) + ' MB of memory');
+    return WebAssembly.compile(bytes).then(function (module) {
+      var imports = {}, missing = [];
+      WebAssembly.Module.imports(module).forEach(function (im) {
+        var fn = im.kind === 'function' && Object.prototype.hasOwnProperty.call(tables, im.module) && Object.prototype.hasOwnProperty.call(tables[im.module], im.name) ? tables[im.module][im.name] : null;
+        if (!fn) { missing.push(im.module === 'std' && im.kind === 'function' ? im.name : im.module + '.' + im.name); return; }
+        (imports[im.module] || (imports[im.module] = {}))[im.name] = fn;
+      });
+      if (missing.length) return stop('this app uses what apps in Pane do not have: ' + missing.slice(0, 8).join(', ') + (missing.length > 8 ? ' and ' + (missing.length - 8) + ' more' : ''));
+      return WebAssembly.instantiate(module, imports).then(function (instance) {
+        inst = instance;
+        mem = inst.exports.memory instanceof WebAssembly.Memory ? inst.exports.memory : null;
+        // as the Emit IDE does on Run: call every exported function that takes nothing, except the ones the host calls later
+        for (var name in inst.exports) {
+          var f = inst.exports[name];
+          if (typeof f === 'function' && f.length === 0 && !/^(frame|onclick_\d+|ontimer_\d+|onhttp_\d+|__.*)$/.test(name)) call(name);
+        }
+        out('ready');
+      });
+    }).catch(function (e) { stop(e && e.message ? e.message : e); });
+  }
+  function frame(msg) {
+    if (stopped || !inst) return;
+    var i = msg.input || {};
+    input = { keys: i.keys || {}, x: N(i.x), y: N(i.y), on: i.on ? 1 : 0 };
+    try { if (typeof inst.exports.frame === 'function') call('frame'); out('frame'); }
+    catch (e) { stop(e && e.message ? e.message : e); }
+  }
+  var names = [];
+  for (var t in tables) for (var k in tables[t]) names.push(t + '.' + k);
+  return { names: names, handle: function (msg) { if (msg && msg.t === 'load') return load(msg); if (msg && msg.t === 'frame') return frame(msg); } };
+}
+/** Everything an app may import, as "module.name". */
+const APP_IMPORTS = appCore(() => {}).names;
+const APP_LIMITS = { bytes: 4e6, memory: 64 * 1048576, strings: 16 * 1048576, text: 100000, cells: 1e6, arrays: 10000, cmds: 20000, side: 2048 };
+const APP_WAIT = { load: 5000, frame: 1500 }, APP_MAX = 4;
+
+/** Replay an app's drawing commands on a 2D context. Anything malformed ends the replay. */
+function appReplay(c, cmds, w, h) {
+  const n = (i, k) => { for (let j = 1; j <= k; j++) if (typeof cmds[i + j] !== 'number' || !isFinite(cmds[i + j])) return false; return true; };
+  for (let i = 0; i < cmds.length;) {
+    const op = cmds[i];
+    if (op === 'x') { c.clearRect(0, 0, w, h); i += 1; }
+    else if (op === 'c' && n(i, 3)) { c.fillStyle = c.strokeStyle = `rgb(${cmds[i + 1] | 0},${cmds[i + 2] | 0},${cmds[i + 3] | 0})`; i += 4; }
+    else if (op === 'a' && n(i, 1)) { c.globalAlpha = Math.max(0, Math.min(1, cmds[i + 1])); i += 2; }
+    else if (op === 'w' && n(i, 1)) { c.lineWidth = Math.max(0, Math.min(1000, cmds[i + 1])); i += 2; }
+    else if (op === 'r' && n(i, 4)) { c.fillRect(cmds[i + 1], cmds[i + 2], cmds[i + 3], cmds[i + 4]); i += 5; }
+    else if (op === 's' && n(i, 4)) { c.strokeRect(cmds[i + 1], cmds[i + 2], cmds[i + 3], cmds[i + 4]); i += 5; }
+    else if (op === 'o' && n(i, 3)) { c.beginPath(); c.arc(cmds[i + 1], cmds[i + 2], Math.max(0, cmds[i + 3]), 0, Math.PI * 2); c.fill(); i += 4; }
+    else if (op === 'l' && n(i, 4)) { c.beginPath(); c.moveTo(cmds[i + 1], cmds[i + 2]); c.lineTo(cmds[i + 3], cmds[i + 4]); c.stroke(); i += 5; }
+    else if (op === 'p' && n(i, 2)) { c.fillRect(cmds[i + 1], cmds[i + 2], 1, 1); i += 3; }
+    else if (op === 't' && typeof cmds[i + 1] === 'string' && n(i + 1, 3)) { c.font = Math.max(1, Math.min(500, cmds[i + 4])) + 'px monospace'; c.fillText(cmds[i + 1], cmds[i + 2], cmds[i + 3]); i += 5; }
+    else return false;
+  }
+  return true;
+}
+
 // ════════════════════════════════════════════ view (browser) ════════════════════════════════════════════
 
 /**
@@ -3763,10 +4018,10 @@ const EL_KEYS = ['name', 'kind', 'text', 'value', 'checked', 'hidden', 'open'];
  * ratio and works in CSS pixels throughout.
  * opts:
  *   onNavigate(address)       links, `go` and page.go, only while a click or key of the user is being handled
- *   onTitle(title), onLog(kind, text, site)      kind: 'print', 'error', 'blocked'
+ *   onTitle(title), onLog(kind, text, site)      kind: 'print', 'error', 'blocked', 'app' (an app was stopped)
  *   resolve(ref) → absolute URL or null          for img, avt, snd, web, page.fetch
  *   allow(kind, url, site) → boolean             asked before every request a page causes; kind is 'img',
- *                                                'snd', 'web' or 'font'. Without it everything is allowed.
+ *                                                'snd', 'web', 'font' or 'app'. Without it everything is allowed.
  *   storage(site) → { get, set, remove, keys } or null      what `store` in scripts reads and writes
  *   mirror     an element that receives a text-only copy of the page for screen readers
  *   Mote       the script engine (default: the global Mote); font, fetch, loadFonts
@@ -3780,6 +4035,8 @@ function createView(canvas, opts) {
   const images = new Map();
   let timers = [], spin = 0, spinTimer = 0, raf = 0, dead = false, drag = null, generation = 0;
   let site = null, rt = null, userActive = 0, needLayout = false, inputs = Object.create(null);
+  const apps = new Map();
+  let appUrl = null, appLoop = 0, activeApp = null;
   const defFont = () => opts.font || DEFAULT_FONT;
   const log = (kind, text) => { if (opts.onLog) opts.onLog(kind, text, site); };
 
@@ -3836,6 +4093,72 @@ function createView(canvas, opts) {
     },
   };
 
+  // ── apps: each `app` element runs its program in a worker of its own ──
+  function workerUrl() {
+    if (!appUrl) appUrl = root.URL.createObjectURL(new root.Blob(['var core=(' + appCore.toString() + ')(function(m){postMessage(m)});onmessage=function(e){core.handle(e.data)};'], { type: 'text/javascript' }));
+    return appUrl;
+  }
+  function startApp(n) {
+    const a = { n, worker: null, canvas: null, ctx: null, busy: false, timer: 0, note: 'loading…', animate: false, seen: 0, gen: generation, input: { keys: {}, x: 0, y: 0, on: 0 } };
+    if (apps.size >= APP_MAX) { a.note = 'a page can run ' + APP_MAX + ' apps'; apps.set(n, a); return; }
+    apps.set(n, a);
+    const abs = request('app', n.url);
+    if (!abs) { a.note = 'this app could not be loaded'; return; }
+    (opts.fetch || root.fetch)(abs, { credentials: 'omit' })
+      .then(r => { if (!r.ok) throw new Error('the server answered ' + r.status); return r.arrayBuffer(); })
+      .then(buf => {
+        if (a.gen !== generation || dead) return;
+        if (buf.byteLength > APP_LIMITS.bytes) throw new Error('the program is larger than ' + Math.round(APP_LIMITS.bytes / 1e6) + ' MB');
+        a.worker = new root.Worker(workerUrl());
+        a.worker.onmessage = e => fromApp(a, e.data);
+        a.worker.onerror = e => { if (e.preventDefault) e.preventDefault(); stopApp(a, 'it stopped: ' + (e.message || 'an error')); };
+        toApp(a, { t: 'load', bytes: buf, limits: APP_LIMITS }, APP_WAIT.load, [buf]);
+      })
+      .catch(e => { if (a.gen === generation && !dead) stopApp(a, 'this app could not be loaded: ' + ((e && e.message) || e)); });
+  }
+  /** Send a message and start the clock: an app that does not answer in time is ended. */
+  function toApp(a, msg, wait, transfer) {
+    a.busy = true;
+    a.timer = root.setTimeout(() => stopApp(a, 'it was stopped: it took too long to answer'), wait);
+    a.worker.postMessage(msg, transfer || []);
+  }
+  function stopApp(a, note) {
+    if (a.worker) { a.worker.terminate(); a.worker = null; }
+    root.clearTimeout(a.timer);
+    a.busy = false; a.animate = false;
+    if (note) { a.note = note; log('app', note); }
+    repaint();
+  }
+  function fromApp(a, m) {
+    if (a.gen !== generation || !a.worker || !m) return;
+    root.clearTimeout(a.timer); a.busy = false;
+    if (m.t === 'error') { stopApp(a, 'it stopped: ' + String(m.message).slice(0, 300)); return; }
+    const w = Math.max(1, Math.min(APP_LIMITS.side, m.w | 0)), h = Math.max(1, Math.min(APP_LIMITS.side, m.h | 0));
+    if (!a.canvas || a.canvas.width !== w || a.canvas.height !== h) {
+      a.canvas = canvas.ownerDocument.createElement('canvas'); a.canvas.width = w; a.canvas.height = h;
+      a.ctx = a.canvas.getContext('2d');
+    }
+    if (Array.isArray(m.cmds) && m.cmds.length <= APP_LIMITS.cmds + 8) appReplay(a.ctx, m.cmds, w, h);
+    if (Array.isArray(m.logs)) for (const line of m.logs.slice(0, 20)) log('print', String(line).slice(0, 300));
+    a.note = null; a.animate = !!m.animate;
+    if (a.n.aw !== w || a.n.ah !== h) { a.n.aw = w; a.n.ah = h; invalidate(); } else repaint();
+    if (a.animate && !appLoop) appLoop = root.requestAnimationFrame(appTick);
+  }
+  /** Once per frame: ask every running app that is on screen, and has answered the last time, for its next frame. */
+  function appTick() {
+    appLoop = 0;
+    let any = false;
+    for (const a of apps.values()) {
+      if (!a.worker || !a.animate) continue;
+      any = true;
+      if (!a.busy && a.seen >= view.paints - 1) toApp(a, { t: 'frame', input: a.input }, APP_WAIT.frame);
+    }
+    if (any) appLoop = root.requestAnimationFrame(appTick);
+  }
+  const surface = n => { const a = apps.get(n); if (!a) return null; a.seen = view.paints + 1; return { canvas: a.canvas, note: a.note, active: activeApp === n }; };
+  /** Where a pointer is in an app's own picture. */
+  function appPoint(a, p) { const n = a.n; a.input.x = (p.x - n._ax) / (n._as || 1); a.input.y = (p.y - n._ay) / (n._as || 1); }
+
   function size() {
     const dpr = root.devicePixelRatio || 1, w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
@@ -3859,7 +4182,7 @@ function createView(canvas, opts) {
     const s = size();
     if (needLayout || s.w !== view.page.vw || s.h !== view.page.vh) layoutNow();
     X.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
-    view.painted = paint(X, view.page, { state: view.state, font: defFont(), image, spin });
+    view.painted = paint(X, view.page, { state: view.state, font: defFont(), image, spin, surface });
     view.paints++;
     if (view.painted.spinning && !spinTimer) spinTimer = root.setInterval(() => { spin += 0.15; repaint(); }, 50);
     if (!view.painted.spinning && spinTimer) { root.clearInterval(spinTimer); spinTimer = 0; }
@@ -3937,6 +4260,7 @@ function createView(canvas, opts) {
   function activate(n, x, h) {
     const st = view.state;
     st.activeInput = n.type === 'inp' ? n.id : -1;
+    activeApp = n.type === 'app' ? n : null;      // a click on an app gives it the keys
     switch (n.type) {
       case 'btn': st.taps[n.id] = true; try { fire(n, 'click', n.id); } finally { st.taps = Object.create(null); } break;
       case 'tog': st.togs[n.id] = !st.togs[n.id]; fire(n, 'change', st.togs[n.id]); break;
@@ -3954,7 +4278,7 @@ function createView(canvas, opts) {
   }
   function click(x, y) {
     const h = hitAt(x, y);
-    if (!h) { if (view.state.activeInput !== -1) { view.state.activeInput = -1; repaint(); } return; }
+    if (!h) { if (view.state.activeInput !== -1 || activeApp) { view.state.activeInput = -1; activeApp = null; repaint(); } return; }
     activate(h.n, x, h);
   }
   const on = (target, type, fn, o) => { target.addEventListener(type, fn, o); listeners.push([target, type, fn, o]); };
@@ -3962,14 +4286,17 @@ function createView(canvas, opts) {
   on(canvas, 'pointerdown', e => {
     if (!view.page) return;
     const p = point(e), h = hitAt(p.x, p.y);
-    drag = { id: e.pointerId, x: p.x, y: p.y, lastY: p.y, moved: false, touch: e.pointerType !== 'mouse', slider: h && h.n.type === 'sld' ? h.n : null };
+    drag = { id: e.pointerId, x: p.x, y: p.y, lastY: p.y, moved: false, touch: e.pointerType !== 'mouse', slider: h && h.n.type === 'sld' ? h.n : null, app: h && h.n.type === 'app' ? apps.get(h.n) : null };
+    if (drag.app) { appPoint(drag.app, p); drag.app.input.on = 1; }
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
     canvas.focus({ preventScroll: true });
     if (drag.slider) setSlider(drag.slider, p.x);
   });
   on(canvas, 'pointermove', e => {
-    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag) { if (e.pointerType === 'mouse' && apps.size) { const p = point(e), h = hitAt(p.x, p.y), a = h && h.n.type === 'app' && apps.get(h.n); if (a) appPoint(a, p); } return; }
+    if (e.pointerId !== drag.id) return;
     const p = point(e);
+    if (drag.app) { appPoint(drag.app, p); return; }             // a drag on an app is the app's, not a scroll
     if (drag.slider) { drag.moved = true; setSlider(drag.slider, p.x); return; }
     if (!drag.moved && Math.abs(p.y - drag.y) + Math.abs(p.x - drag.x) > 6) drag.moved = true;
     if (drag.moved && drag.touch) { scrollBy(drag.x, drag.y, drag.lastY - p.y); drag.lastY = p.y; }
@@ -3977,10 +4304,11 @@ function createView(canvas, opts) {
   on(canvas, 'pointerup', e => {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag, p = point(e); drag = null;
+    if (d.app) { d.app.input.on = 0; if (activeApp !== d.app.n) { activate(d.app.n, p.x); } return; }
     if (d.slider) { view.state.activeInput = -1; invalidate(); return; }
     if (!d.moved) click(p.x, p.y);
   });
-  on(canvas, 'pointercancel', () => { drag = null; });
+  on(canvas, 'pointercancel', () => { if (drag && drag.app) drag.app.input.on = 0; drag = null; });
   on(canvas, 'wheel', e => {
     if (!view.page) return;
     const p = point(e), d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * view.page.vh : e.deltaY;
@@ -3989,6 +4317,13 @@ function createView(canvas, opts) {
   on(canvas, 'keydown', e => {
     if (!view.page || e.ctrlKey || e.metaKey || e.altKey) return;
     const st = view.state, id = st.activeInput;
+    if (activeApp && apps.get(activeApp)) {
+      // the app with the keys gets them all, except Escape, which takes them back
+      if (e.key === 'Escape') { activeApp = null; repaint(); }
+      else apps.get(activeApp).input.keys[e.keyCode] = 1;
+      e.preventDefault();
+      return;
+    }
     if (id >= 0) {
       const v = st.inputs[id] || '';
       if (e.key === 'Backspace') st.inputs[id] = Array.from(v).slice(0, -1).join('');
@@ -4003,6 +4338,8 @@ function createView(canvas, opts) {
     const d = { ArrowDown: 40, ArrowUp: -40, PageDown: page, PageUp: -page, ' ': e.shiftKey ? -page : page, Home: -1e9, End: 1e9 }[e.key];
     if (d && scrollBy(view.page.vw / 2, view.page.vh / 2, d)) e.preventDefault();
   });
+  on(canvas, 'keyup', e => { for (const a of apps.values()) delete a.input.keys[e.keyCode]; });
+  on(canvas, 'blur', () => { for (const a of apps.values()) { a.input.keys = {}; a.input.on = 0; } });
   const ro = root.ResizeObserver ? new root.ResizeObserver(() => invalidate()) : null;
   if (ro) ro.observe(canvas); else on(root, 'resize', () => invalidate());
   if (canvas.tabIndex < 0) canvas.tabIndex = 0;
@@ -4015,6 +4352,9 @@ function createView(canvas, opts) {
     timers = [];
     if (rt) rt.stop();
     rt = null;
+    for (const a of apps.values()) { if (a.worker) a.worker.terminate(); root.clearTimeout(a.timer); }
+    apps.clear(); activeApp = null;
+    if (appLoop) { root.cancelAnimationFrame(appLoop); appLoop = 0; }
     if (spinTimer) { root.clearInterval(spinTimer); spinTimer = 0; }
     drag = null; userActive = 0;
   }
@@ -4054,6 +4394,7 @@ function createView(canvas, opts) {
       if (n.type === 'tmr') timers.push(root.setInterval(() => { st.vars['tmr' + n.id] = num(st.vars['tmr' + n.id] || 0) + 1; runStatements(page, st, 'event', host); invalidate(); }, n.ms));
       if (n.children) for (const c of n.children) startTimers(c);
     })(page.root);
+    (function startApps(n) { if (n.type === 'app') startApp(n); if (n.children) for (const c of n.children) startApps(c); })(page.root);
     if (opts.onTitle) opts.onTitle(page.title);
     layoutNow();
     repaint();
@@ -4062,17 +4403,19 @@ function createView(canvas, opts) {
   view.relayout = invalidate;
   view.paintNow = paintNow;
   view.hitAt = hitAt;
+  view.apps = apps;
   view.scrollBy = scrollBy;
   view.destroy = function () {
     stopPage(); dead = true;
     if (raf) root.cancelAnimationFrame(raf);
     if (ro) ro.disconnect();
+    if (appUrl) root.URL.revokeObjectURL(appUrl);
     for (const [t, type, fn, o] of listeners) t.removeEventListener(type, fn, o);
   };
   return view;
 }
 
-const Pane = { VERSION, LIMITS, parse, append, clear, layout, paint, dump, evalExpr, display, runStatements, newState, createRuntime, createView };
+const Pane = { VERSION, LIMITS, APP_IMPORTS, APP_LIMITS, appCore, appReplay, parse, append, clear, layout, paint, dump, evalExpr, display, runStatements, newState, createRuntime, createView };
 if (typeof module === 'object' && module.exports) module.exports = Pane;
 else root.Pane = Pane;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -4141,6 +4484,27 @@ col
     txt Line seven, the last.
   end
   div
+  lnk Back to the start page home
+end
+</script>
+<script type="text/plain" data-page="bounce">
+title Bounce
+rem Made from pages/apps/bounce.emit by tools/emit-to-pane.js. The program runs in a worker of its own: it can draw, read keys
+rem and the pointer, and compute; it cannot reach the page, storage or the network.
+align center
+col
+  w 100%
+  maxw 680
+  pad 16
+  gap 10
+  fnt 22
+  fg 235 240 255
+  txt Bounce
+  app data:application/wasm;base64,AGFzbQEAAAABPQtgAn9/AX9gAX4Bf2AEf35+fgBgAXwBfmADfn5+AGAEfn5+fgBgAABgA3x8fAF8YAABfmABfgF+YAJ+fgACvwEOBl9fanNfXwhfX3N0ckNhdAAABl9fanNfXwpfX3N0ck9mSW50AAEDc3RkBHRleHQAAgNzdGQFcm91bmQAAwNzdGQGY2lyY2xlAAQDc3RkBHJlY3QABQNzdGQFY29sb3IABANzdGQFY2xlYXIABgNzdGQFY2xhbXAABwNzdGQGdG91Y2hYAAgDc3RkCHRvdWNoaW5nAAgDc3RkB2tleURvd24ACQNzdGQHYW5pbWF0ZQAGA3N0ZAZjYW52YXMACgMEAwYGBgUDAQABBkcHfAFEAAAAAAAAZEALfAFEAAAAAAAATkALfAFEmpmZmZmZAUALfAFEzczMzMzMBEALfAFEAAAAAABAYEALfgFCAAt+AUIACwdVCwZtZW1vcnkCAARtYWluAA4FZnJhbWUAEAhfX2VtaXRHQwIABF9fZzADAARfX2cxAwEEX19nMgMCBF9fZzMDAwRfX2c0AwQEX19nNQMFBF9fZzYDBgqTBQMMAELAAkLIARANEAwLUAAjBSMGVQRAIwUkBiMGGgtCACQFIwUaRAAAAAAAAGRAJAAjABpEAAAAAAAATkAkASMBGkSamZmZmZkBQCQCIwIaRM3MzMzMzARAJAMjAxoLsgQAQiUQC0IBUQRAIwREAAAAAAAAFEChJAQjBBoLQicQC0IBUQRAIwREAAAAAAAAFECgJAQjBBoLEApCAVEEQEQAAAAAAAAAABAJuaBEAAAAAAAAPkChJAQjBBoLIwREAAAAAAAAAABEAAAAAABAcEAQCCQEIwQaIwAjAqAkACMAGiMBIwOgJAEjARojAEQAAAAAAAAUQGMEQEQAAAAAAAAUQCQAIwAaRAAAAAAAAAAAIwKhJAIjAhoLIwBEAAAAAACwc0BkBEBEAAAAAACwc0AkACMAGkQAAAAAAAAAACMCoSQCIwIaCyMBRAAAAAAAABRAYwRARAAAAAAAABRAJAEjARpEAAAAAAAAAAAjA6EkAyMDGgsjA0QAAAAAAAAAAGQEfyMBRAAAAAAAgGZAZAVBAAsEfyMBRAAAAAAAAGhAYwVBAAsEfyMAIwREAAAAAAAAEEChZAVBAAsEfyMAIwREAAAAAAAAUECgYwVBAAsEQEQAAAAAAIBmQCQBIwEaRAAAAAAAAAAAIwNEpHA9Ctej8D+ioSQDIwMaIwJEpHA9Ctej8D+iJAIjAhojBUIBfCQFIwUaCyMBRAAAAAAAQGpAZARAEA8LEAdCDkIYQioQBkIAQgBCwAJCyAEQBUL/AULIAUI8EAYjABADIwEQA0IFEARC5ABCoAFC3AEQBiMEEANCuQFCPEIGEAVC3AFC5gFC/wEQBkGACCMFEAEQAEGMCBAAIwYQARAAQghCEEIMEAILCycCAEGACAsMBwAAAFNjb3JlOiAAAEGMCAsOCQAAACAgIEJlc3Q6IAA=
+  fnt 13
+  fg 150 170 200
+  txt Click the picture to give it the keys. Esc gives them back.
+  fnt 14
   lnk Back to the start page home
 end
 </script>
@@ -4343,6 +4707,7 @@ col
   lnk Layout: grow, align, percentages, min and max layout
   lnk Clock: a timer, a progress bar and a spinner clock
   lnk Notes: a page with a script and its own storage notes
+  lnk Bounce: a game written in Emit, running as an app bounce
   div
   fg 120 140 170
   fnt 12
@@ -4792,12 +5157,12 @@ function siteOf(url) {
 const grants = new Map();          // site → Set of other origins the user allowed, until the window closes
 let wanted = [], declined = new Set();
 /**
- * May a page of `site` request `url`? Its own site: yes. data: for pictures: yes (nothing is fetched).
+ * May a page of `site` request `url`? Its own site: yes. data: for pictures and apps: yes (nothing is fetched).
  * Another site: only after the user said so in the bar under the address bar; until then the request is
  * not made and the bar asks.
  */
 function allow(kind, url, site) {
-  if (/^data:/i.test(url)) return kind === 'img';
+  if (/^data:/i.test(url)) return kind === 'img' || kind === 'app';   // part of the page itself: nothing is fetched
   let origin;
   try { const u = new URL(url); if (!/^https?:$/.test(u.protocol)) return false; origin = u.origin; } catch (e) { return false; }
   if (site && site === origin) return true;
@@ -4855,7 +5220,7 @@ let note = '', base = '';
 const showStatus = () => { $('status').textContent = base + (note ? ' · ' + note : ''); };
 function onLog(kind, text) {
   logLines.push({ kind, text }); if (logLines.length > 200) logLines.shift();
-  note = (kind === 'error' ? 'script error: ' : kind === 'blocked' ? 'blocked: ' : 'page says: ') + text;
+  note = (kind === 'error' ? 'script error: ' : kind === 'blocked' ? 'blocked: ' : kind === 'app' ? 'app: ' : 'page says: ') + text;
   showStatus();
 }
 

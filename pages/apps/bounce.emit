@@ -1,0 +1,73 @@
+// Bounce — a small game that runs as an app in Pane.
+// Arrow keys or a finger move the paddle. Made into pages/bounce.pane by:
+//   node tools/emit-to-pane.js pages/apps/bounce.emit pages/bounce.pane --title Bounce
+mut bx: num = 160.0
+mut by: num = 60.0
+mut vx: num = 2.2
+mut vy: num = 2.6
+mut px: num = 130.0
+mut score: int = 0
+mut best: int = 0
+
+export fn main() {
+  canvas(320, 200)
+  animate()
+}
+
+fn serve() {
+  if (score > best) {
+    best = score
+  }
+  score = 0
+  bx = 160.0
+  by = 60.0
+  vx = 2.2
+  vy = 2.6
+}
+
+export fn frame() {
+  if (keyDown(37) == 1) {
+    px = px - 5.0
+  }
+  if (keyDown(39) == 1) {
+    px = px + 5.0
+  }
+  if (touching() == 1) {
+    px = 0.0 + touchX() - 30.0
+  }
+  px = clamp(px, 0.0, 260.0)
+
+  bx = bx + vx
+  by = by + vy
+  if (bx < 5.0) {
+    bx = 5.0
+    vx = 0.0 - vx
+  }
+  if (bx > 315.0) {
+    bx = 315.0
+    vx = 0.0 - vx
+  }
+  if (by < 5.0) {
+    by = 5.0
+    vy = 0.0 - vy
+  }
+  if (vy > 0.0 && by > 180.0 && by < 192.0 && bx > px - 4.0 && bx < px + 64.0) {
+    by = 180.0
+    vy = 0.0 - vy * 1.04
+    vx = vx * 1.04
+    score = score + 1
+  }
+  if (by > 210.0) {
+    serve()
+  }
+
+  clear()
+  color(14, 24, 42)
+  rect(0, 0, 320, 200)
+  color(255, 200, 60)
+  circle(round(bx), round(by), 5)
+  color(100, 160, 220)
+  rect(round(px), 185, 60, 6)
+  color(220, 230, 255)
+  text("Score: " + score + "   Best: " + best, 8, 16, 12)
+}
