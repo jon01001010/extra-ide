@@ -3,9 +3,10 @@
 //   mote.html            the playground — an executing <script> (defines window.Mote when the page opens)
 //   emit-ide-1_32.html   the Emit IDE — a NON-executing <script type="text/plain" id="mote-src"> that `use mote`
 //                        runs on demand (once, as a classic script from a Blob URL; see _libBuiltinText in the IDE)
+//   pane.html            the Pane browser — an executing <script>; page scripts run in Mote VMs
 // Everything else in those pages is edited by hand.
 //
-//   node tools/build-mote-html.js           rebuild both pages
+//   node tools/build-mote-html.js           rebuild the pages
 //   node tools/build-mote-html.js --check   exit 1 when a page does not contain the current mote.js
 'use strict';
 const fs = require('fs');
@@ -20,6 +21,7 @@ const body = js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
 const PAGES = [
   { file: 'mote.html', open: '<script>\n' },
   { file: 'emit-ide-1_32.html', open: '<script type="text/plain" id="mote-src" data-emit-builtin="emit:mote">\n' },
+  { file: 'pane.html', open: '<script>\n' },
 ];
 const BEGIN = /<!-- MOTE:BEGIN[^\n]*-->\n/, END = '<!-- MOTE:END -->';
 const check = process.argv.includes('--check');

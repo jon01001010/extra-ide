@@ -5,14 +5,16 @@ paints them on a canvas, and follows links between them.
 
 * Browser: `pane.html` (one file, offline, phone-friendly). It inlines `pane.js` and the sample pages in
   `pages/`; after editing either, rebuild it with `node tools/build-pane-html.js` (`--check` verifies it is current).
-* Engine: `pane.js`, one dependency-free file (~1100 lines). `<script src="pane.js">` defines `window.Pane`;
-  in Node, `require('./pane.js')` gives the parser, the expression evaluator and layout (no canvas needed).
+* Engine: `pane.js`, one file (~1400 lines). `<script src="pane.js">` defines `window.Pane`;
+  in Node, `require('./pane.js')` gives the parser, the expression evaluator, layout and the script runtime
+  (no canvas needed). Page scripts run in `mote.js`, which `pane.html` also inlines
+  (`node tools/build-mote-html.js`).
 * Tests: `node tests/run-pane.js` (engine, Node only; `--update` rewrites the stored layouts) and
   `NODE_PATH=… node tests/run-pane-page.js` (browser, Playwright).
 
-The grammar and the look of every widget come from the UI mode of `tiny-v3-8.html`. This is phase 1 of a
-longer plan: pages you can read and move between. Scripting beyond the statements below, a permission
-model for pages, styled text runs and a real text field are not here yet.
+The grammar and the look of every widget come from the UI mode of `tiny-v3-8.html`. Two phases of a longer
+plan are here: pages you can read and move between, and pages that run a script inside limits the browser
+enforces. Compiled (WebAssembly) page code, styled text runs and a real text field are not here yet.
 
 ---
 
@@ -98,6 +100,20 @@ Written before any container, a property sets the page (for example `align cente
 | `bdg text`, `ico name`, `div`, `spn` | a badge, an emoji icon, a dividing line, a spinner |
 | `tmr id ms` | invisible; adds 1 to the variable `tmrID` every `ms` milliseconds and runs the `if` lines |
 
+### Names
+
+`id name` names the element written just before it; right after a container's opening line (or its `end`)
+it names that container. Names are letters, digits and `_`, case-insensitive, and unique in a page. Scripts
+find elements by name.
+
+```
+btn Add
+id add
+lst
+  id list
+end
+```
+
 ### Text
 
 A text that is exactly a variable's name shows the variable. `{expression}` inside a text is replaced by its
@@ -108,7 +124,7 @@ wraps and moves what is below it.
 
 ```
 set name expression                       run once, when the page opens
-if condition do action : action : …       run on every button click and timer tick (then works like do)
+if condition do action : action : …       run on every click or change of a control and every timer tick
 ```
 
 Actions: `set name expression`, `go address` (open a page), `web address name` (GET an address; the answer
@@ -121,7 +137,99 @@ Widget values: `val N` (a text field as a number, or its text when it is not a n
 
 ---
 
-## 2. Layout rules
+## 2. Scripts
+
+Lines between `script` and `end script` are a [Mote](MOTE.md) program (Lua 5.4 syntax). It runs once when the
+page opens, after the `set` lines, and registers handlers for later. Error messages carry the line number
+in the page file. A page may have several script blocks; they are one program.
+
+```
+inp 1
+id field
+btn Add
+id add
+lst
+  id list
+end
+script
+page.on("add", "click", function()
+  local field = page.find("field")
+  page.add("list", "txt", field.value)   -- the words go in as text, whatever they contain
+  field.value = ""
+end)
+end script
+```
+
+The script sees two tables and nothing else of the browser.
+
+### `page`
+
+| call | does |
+|---|---|
+| `page.find(name)` | the element with that name, or nil |
+| `page.on(name, event, fn)` | call `fn(value, element)` on `"click"` (buttons, links) or `"change"` (every other control) |
+| `page.get(name)`, `page.set(name, value)` | the variables that `{expr}` and the statements use |
+| `page.add(name, source [, words])` | add elements, written in the page format, to a container; returns how many |
+| `page.clear(name)` | remove everything inside a container |
+| `page.title(text)` | set the page title |
+| `page.go(address)` | open a page; only while a click or key of the user is being handled |
+| `page.after(ms, fn)`, `page.every(ms, fn)`, `page.cancel(id)` | timers |
+| `page.fetch(address, fn)` | GET; later calls `fn(status, text)` (status 0: no answer, or not allowed) |
+
+An element has seven fields: `name` and `kind` (read-only), `text`, `value`, `checked`, `hidden`, `open`.
+`value` is the text of an `inp`, the number of a `sld`, `rat` or `prg`, the chosen option of a `sel` or the
+selected tab of a `tab` (counted from 1), and the address of a `lnk`, `img` or `avt`. A field an element
+does not have reads as nil and cannot be set (an error `pcall` can catch).
+
+**Text from people and from the network.** `page.add(list, "txt " .. words)` reads `words` as page lines,
+so words with a line break in them could add other elements. Pass them as the third argument instead:
+`page.add(list, "txt", words)` makes them the text of the element added, exactly as given. Text a script
+sets (this way or through `.text`) is never read as a variable name or as `{expr}`.
+
+### `store`
+
+`store.get(key)`, `store.set(key, value)`, `store.remove(key)`, `store.keys()`. Values are text, numbers or
+true / false. What a page stores belongs to its site (below) and stays on the device.
+
+### Limits
+
+Every call into a script (the first run, each handler, each timer tick, each answer) has a budget of
+2,000,000 VM steps and an 8 MB allocation estimate. A call that runs out ends with a message in the status
+line; the page and its other handlers go on, and a repeating timer that ran out is stopped. A page can have
+5,000 elements, 500 handlers, 32 timers, 4 requests at once, answers up to 1 MB, text up to 20,000
+characters per element.
+
+---
+
+## 3. What a page may do
+
+**Site.** A page's site is the origin of its address (`https://example.org`); all built-in pages are one
+site. Storage and permissions go by site.
+
+| a page can | rule |
+|---|---|
+| show and change its own elements and variables | always |
+| read and write `store` | its own site's keys only; 100 KB per site |
+| load from its own site (`img`, `avt`, `snd`, `web`, `page.fetch`) | always; no cookies are sent |
+| load from another site, or a font from a font service | not until the user presses **Allow** in the bar that names both sites; kept until the window closes |
+| open another page (`go`, `page.go`) | only while a click or key of the user is being handled; never at load or from a timer |
+| play a sound | same rule as opening a page |
+| reach the browser around it (DOM, other pages, cookies, the address bar) | never: none of it exists in the script's world |
+
+When a page is left, its script, timers and unanswered requests are cut off: nothing they do afterwards
+reaches the new page, the store or the address bar. Each page gets a fresh VM.
+
+`tests/run-pane.js` and `tests/run-pane-page.js` try the ways out: host globals, constructors and
+prototypes of handles and functions, `__proto__` as a name, key or variable, text that looks like page
+lines, endless loops and runaway memory, loading from another site, reading another site's store, and
+navigating without the user.
+
+Not covered: a page can still make the browser lay out a very large page slowly (the limits bound it, they
+do not make it instant), and the permission bar trusts the user's answer.
+
+---
+
+## 4. Layout rules
 
 * The page is a column as wide as the window. It scrolls when it is taller than the window.
 * Text is broken into lines during layout, so its box is as tall as its lines. A word wider than the line is
@@ -133,7 +241,7 @@ Widget values: `val N` (a text field as a number, or its text when it is not a n
   timer tick, an image or font arriving). Scrolling only repaints. Only what is on screen is painted.
 * Everything is in CSS pixels; the canvas backing store follows the device pixel ratio.
 
-## 3. The browser
+## 5. The browser
 
 * **Addresses**: `pane:name` is a built-in page; `http:` and `https:` are fetched (without cookies) and must
   be plain text, up to 2 MB. A bare word typed in the address bar is a built-in page; something with a dot
@@ -143,25 +251,30 @@ Widget values: `val N` (a text field as a number, or its text when it is not a n
 * **History**: back, forward and reload. Each entry remembers how far it was scrolled.
 * **Errors** (an answer that is not 200, an HTML page, no answer) are shown as a page, with the answer code.
 * Fetching another site is subject to that site allowing it (CORS), as for any web page.
+* The status line shows the last thing a page printed, a script error, or what was blocked.
 * The page text is also kept in a hidden text-only copy for screen readers, built with text nodes only.
 
-## 4. Embedding
+## 6. Embedding
 
 ```js
 const view = Pane.createView(canvas, {
-  onNavigate: address => …,        // links and `go`
+  onNavigate: address => …,          // links, `go` and page.go
   onTitle: title => …,
-  resolve: ref => absoluteUrlOrNull, // for img, avt, snd and web
-  mirror: element,                 // optional: receives the text-only copy
+  onLog: (kind, text, site) => …,    // 'print', 'error', 'blocked'
+  resolve: ref => absoluteUrlOrNull, // for img, avt, snd, web and page.fetch
+  allow: (kind, url, site) => bool,  // asked before every request a page causes; absent: all allowed
+  storage: site => ({ get, set, remove, keys }),   // what `store` uses; absent: scripts have no store
+  mirror: element,                   // optional: receives the text-only copy
 });
-view.load(source);                 // drops the previous page's state, timers and requests
+view.load(source, { site });         // drops the previous page's state, script, timers and requests
 view.destroy();
 ```
 
 Without a canvas (Node, tests): `Pane.parse(source)` → page; `Pane.layout(page, width, height, { measure, state })`
-with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line per placed node.
+with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line per placed node;
+`Pane.createRuntime(page, state, hooks, Mote)` runs a page's script against a host you supply.
 
-## 5. Differences from Tiny's UI mode
+## 7. Differences from Tiny's UI mode
 
 * Columns stack at natural height (Tiny shared the height equally); use `grow` to fill.
 * Rows never overflow: shares respect each child's longest word, and text wraps.
@@ -169,5 +282,6 @@ with `measure(text, px, family, bold) → width`; `Pane.dump(page)` → one line
   `web` keeps the whole answer and the status; `:` inside `://` does not split actions.
 * `lnk` opens the page in the browser instead of a new window; `go` does the same from a statement.
 * `dlg` sits over the window and takes all clicks while open.
-* New: `title`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
+* `if` lines run after every control changes, not only after button clicks.
+* New: `title`, `id`, `script`, `w h minw maxw minh maxh grow align just`, percentages, `{expression}` in text.
 * Not carried over: Tiny's canvas and GPU modes, the debug panel, export.

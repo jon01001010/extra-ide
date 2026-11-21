@@ -303,8 +303,8 @@
   "content 322 scroll 0"
  ],
  "home @360": [
-  "col 0 0 360 642",
-  "  col 0 0 360 642",
+  "col 0 0 360 689",
+  "  col 0 0 360 689",
   "    txt 20 20 320 32 | Pane",
   "    txt 20 64 320 69 | A small browser for pages written in / Tiny's UI language. Pages are plain / text: one word per line says what to / show, and end closes a group.",
   "    div 20 145 320 9",
@@ -318,13 +318,14 @@
   "    lnk 20 429 320 35 | Panels: tabs, an accordion and a / dialog",
   "    lnk 20 476 320 35 | Layout: grow, align, percentages, min / and max",
   "    lnk 20 523 320 35 | Clock: a timer, a progress bar and a / spinner",
-  "    div 20 570 320 9",
-  "    txt 20 591 320 31 | Type a page name or an address above. Back / and forward keep your place on each page.",
-  "content 642 scroll 2"
+  "    lnk 20 570 320 35 | Notes: a page with a script and its / own storage",
+  "    div 20 617 320 9",
+  "    txt 20 638 320 31 | Type a page name or an address above. Back / and forward keep your place on each page.",
+  "content 689 scroll 49"
  ],
  "home @768": [
   "col 0 0 768 1024",
-  "  col 24 0 720 491",
+  "  col 24 0 720 521",
   "    txt 44 20 680 32 | Pane",
   "    txt 44 64 680 35 | A small browser for pages written in Tiny's UI language. Pages are plain text: / one word per line says what to show, and end closes a group.",
   "    div 44 111 680 9",
@@ -338,13 +339,14 @@
   "    lnk 44 344 680 18 | Panels: tabs, an accordion and a dialog",
   "    lnk 44 374 680 18 | Layout: grow, align, percentages, min and max",
   "    lnk 44 404 680 18 | Clock: a timer, a progress bar and a spinner",
-  "    div 44 434 680 9",
-  "    txt 44 455 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
-  "content 491 scroll 0"
+  "    lnk 44 434 680 18 | Notes: a page with a script and its own storage",
+  "    div 44 464 680 9",
+  "    txt 44 485 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
+  "content 521 scroll 0"
  ],
  "home @1280": [
   "col 0 0 1280 800",
-  "  col 280 0 720 491",
+  "  col 280 0 720 521",
   "    txt 300 20 680 32 | Pane",
   "    txt 300 64 680 35 | A small browser for pages written in Tiny's UI language. Pages are plain text: / one word per line says what to show, and end closes a group.",
   "    div 300 111 680 9",
@@ -358,9 +360,10 @@
   "    lnk 300 344 680 18 | Panels: tabs, an accordion and a dialog",
   "    lnk 300 374 680 18 | Layout: grow, align, percentages, min and max",
   "    lnk 300 404 680 18 | Clock: a timer, a progress bar and a spinner",
-  "    div 300 434 680 9",
-  "    txt 300 455 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
-  "content 491 scroll 0"
+  "    lnk 300 434 680 18 | Notes: a page with a script and its own storage",
+  "    div 300 464 680 9",
+  "    txt 300 485 680 16 | Type a page name or an address above. Back and forward keep your place on each page.",
+  "content 521 scroll 0"
  ],
  "layout @360": [
   "col 0 0 360 640",
@@ -520,6 +523,54 @@
   "        txt 697 510 561 17 | free",
   "    lnk 16 545 1248 17 | Back to the start page",
   "content 578 scroll 0"
+ ],
+ "notes @360": [
+  "col 0 0 360 640",
+  "  col 0 0 360 286",
+  "    txt 20 20 320 26 | Notes",
+  "    txt 20 58 320 52 | This page has a script. Notes are / kept on this device, for this site / only.",
+  "    row 20 122 320 30",
+  "      inp 20 122 222 30",
+  "      box 250 122 90 30",
+  "        btn 250 122 90 30",
+  "    txt 20 164 320 18 | Notes: 0",
+  "    lst 20 194 320 0",
+  "    row 20 206 320 30",
+  "      btn 20 206 99.6 30",
+  "    lnk 20 248 320 18 | Back to the start page",
+  "content 286 scroll 0"
+ ],
+ "notes @768": [
+  "col 0 0 768 1024",
+  "  col 124 0 520 269",
+  "    txt 144 20 480 26 | Notes",
+  "    txt 144 58 480 35 | This page has a script. Notes are kept on this device, / for this site only.",
+  "    row 144 105 480 30",
+  "      inp 144 105 382 30",
+  "      box 534 105 90 30",
+  "        btn 534 105 90 30",
+  "    txt 144 147 480 18 | Notes: 0",
+  "    lst 144 177 480 0",
+  "    row 144 189 480 30",
+  "      btn 144 189 99.6 30",
+  "    lnk 144 231 480 18 | Back to the start page",
+  "content 269 scroll 0"
+ ],
+ "notes @1280": [
+  "col 0 0 1280 800",
+  "  col 380 0 520 269",
+  "    txt 400 20 480 26 | Notes",
+  "    txt 400 58 480 35 | This page has a script. Notes are kept on this device, / for this site only.",
+  "    row 400 105 480 30",
+  "      inp 400 105 382 30",
+  "      box 790 105 90 30",
+  "        btn 790 105 90 30",
+  "    txt 400 147 480 18 | Notes: 0",
+  "    lst 400 177 480 0",
+  "    row 400 189 480 30",
+  "      btn 400 189 99.6 30",
+  "    lnk 400 231 480 18 | Back to the start page",
+  "content 269 scroll 0"
  ],
  "panels @360": [
   "col 0 0 360 640",

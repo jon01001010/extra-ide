@@ -26,6 +26,7 @@ col
   lnk Panels: tabs, an accordion and a dialog panels
   lnk Layout: grow, align, percentages, min and max layout
   lnk Clock: a timer, a progress bar and a spinner clock
+  lnk Notes: a page with a script and its own storage notes
   div
   fg 120 140 170
   fnt 12

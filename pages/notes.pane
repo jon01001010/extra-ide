@@ -1,0 +1,74 @@
+title Notes
+rem A page with a script. The script runs in its own Mote VM and can only use the page and store tables.
+align center
+col
+  w 100%
+  maxw 520
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Notes
+  fnt 14
+  fg 190 205 230
+  txt This page has a script. Notes are kept on this device, for this site only.
+  row
+    gap 8
+    inp 1
+    id field
+    box 90
+      btn Add
+      id add
+    end
+  end
+  txt Notes: {count}
+  lst
+    id list
+    gap 4
+  end
+  row
+    just start
+    btn Clear all
+    id clear
+  end
+  lnk Back to the start page home
+end
+script
+local notes = {}
+
+local function show()
+  page.clear("list")
+  for i, words in ipairs(notes) do
+    page.add("list", "txt", words)      -- the words go in as text, whatever they contain
+  end
+  page.set("count", #notes)
+end
+
+local function save()
+  store.set("count", #notes)
+  for i, words in ipairs(notes) do store.set("note" .. i, words) end
+end
+
+for i = 1, store.get("count") or 0 do
+  notes[#notes + 1] = store.get("note" .. i)
+end
+
+page.on("add", "click", function()
+  local field = page.find("field")
+  if field.value ~= "" then
+    notes[#notes + 1] = field.value
+    field.value = ""
+    save()
+    show()
+  end
+end)
+
+page.on("clear", "click", function()
+  for i = 1, #notes do store.remove("note" .. i) end
+  notes = {}
+  save()
+  show()
+end)
+
+show()
+end script

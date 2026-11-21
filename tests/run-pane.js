@@ -197,6 +197,253 @@ const all = (page, pred) => { const out = []; (function walk(n) { if (pred(n)) o
   ok('layout: follows the state (a variable that grows pushes the page down)', d.page.root.children[0].lines.length > 1 && d.page.root.children[1].y === d.page.root.children[0].h, Pane.dump(d.page));
 }
 
+// ───────────────────────────── names, adding and removing, hiding ─────────────────────────────
+{
+  const p = Pane.parse('col\nid main\n  txt a\n  id first\n  row\n  end\n  id therow\n  id first\n  id 9x\nend\nid Outer\nscript\n  local x = 1\n\nprint(x)\nend script\ntxt after\nscript\nprint(2)\nend script');
+  eq('id: names the element before it, or the container just opened or closed', [p.names.first.text, p.names.therow.type], ['a', 'row']);
+  eq('id: an element named twice keeps the later name', [p.names.outer.type, p.names.outer.name, p.names.main], ['col', 'outer', undefined]);
+  eq('id: a name used twice or badly formed is reported', p.warnings.map(w => w.line), [8, 9]);
+  const lines = p.script.split('\n');
+  eq('script: kept at its own line numbers, the rest blank', [lines.length, lines[12], lines[14], lines[18], lines.filter(Boolean).length], [20, '  local x = 1', 'print(x)', 'print(2)', 3]);
+  eq('script: its lines are not page lines', [p.root.children.length, p.nodes], [2, 4]);
+  eq('script: without end script is reported', Pane.parse('script\nprint(1)').warnings.length, 1);
+  eq('no script', Pane.parse('txt a').script, null);
+}
+{
+  const p = Pane.parse('fg 9 9 9\ncol\nid list\nfnt 20\nend\ntxt after');
+  eq('append: returns how many were added', Pane.append(p, p.names.list, 'txt one\nrow\nbtn Go 1\nid go\nend'), 3);
+  const [one, row] = p.names.list.children;
+  eq('append: new elements take the container\'s colour and size, and can be named', [one.props.fnt, one.props.fg, row.children[0].type, p.names.go === row.children[0], p.nodes], [20, [9, 9, 9], 'btn', true, 5]);
+  Pane.append(p, p.names.list, 'title Evil\nset a 1\nif a=1 do go x\nscript\npage.go("x")\nend script\ntxt two');
+  eq('append: title, statements and scripts are refused; the rest is added', [p.title, p.stmts.length, p.script, p.names.list.children.length, p.warnings.length], ['', 0, null, 3, 4]);
+  Pane.clear(p, p.names.list);
+  eq('clear: removes the elements and their names', [p.names.list.children.length, p.names.go, p.nodes], [0, undefined, 2]);
+  let threw = '';
+  try { Pane.append(p, p.names.list, 'txt x\n'.repeat(Pane.LIMITS.nodes + 10)); } catch (e) { threw = e.message; }
+  ok('append: a page has a limit on elements', /5000 elements/.test(threw) && p.nodes === Pane.LIMITS.nodes, [threw, p.nodes]);
+}
+{
+  const { page, relayout } = lay('fnt 10\ntxt a\ncol\nid box\ntxt inside\nend\ntxt b', 200);
+  eq('hidden: before', page.root.children.map(c => c.y), [0, 14, 28]);
+  page.names.box.off = true; relayout();
+  eq('hidden: an element switched off takes no room, with everything in it', [page.root.children.map(c => c.y), page.names.box.hidden, page.names.box.children[0].hidden, Pane.dump(page).includes('inside')], [[0, 0, 14], true, true, false]);
+  page.names.box.off = false; relayout();
+  eq('hidden: and comes back', page.root.children.map(c => c.y), [0, 14, 28]);
+}
+
+// ───────────────────────────── scripts ─────────────────────────────
+const Mote = require('../mote.js');
+/** A page with a script, and a host made of plain objects: timers and requests wait until the test fires them. */
+function scripted(src, opt) {
+  const page = Pane.parse(src), st = Pane.newState(), h = { log: [], timers: [], requests: [], went: [], titles: [], changed: 0, store: new Map() };
+  Pane.runStatements(page, st, 'load', {});
+  const hooks = {
+    log: (kind, text) => h.log.push(kind + ': ' + text), changed: () => h.changed++, navigate: a => h.went.push(a), title: t => h.titles.push(t),
+    setTimer: (fn, ms, repeat) => { const t = { fn, ms, repeat, live: true }; h.timers.push(t); return t; }, clearTimer: t => { t.live = false; },
+    fetch: (address, done) => h.requests.push({ address, done }),
+    storage: opt && opt.noStorage ? () => null : () => ({ get: k => h.store.get(k), set: (k, v) => { h.store.set(k, v); }, remove: k => { h.store.delete(k); }, keys: () => [...h.store.keys()].sort() }),
+  };
+  h.rt = Pane.createRuntime(page, st, hooks, opt && opt.noMote ? null : Mote);
+  h.page = page; h.st = st;
+  h.click = name => h.rt.dispatch(page.names[name], 'click', 0);
+  h.errors = () => h.log.filter(l => l.startsWith('error'));
+  return h;
+}
+const BODY = 'txt hello\nid msg\nbtn Go 1\nid go\nbtn Other 2\nid other\ninp 1\nid field\ntog 1\nid sw\nchk 2 Agree\nid agree\nsel 1 A, B, C\nid pick\nsld 0 10 1\nid vol\nrat 3 5\nid stars\nprg 20 100\nid bar\ncol\nid list\nend\nacc More\nid more\ntxt in\nend\ntab X, Y\nid tabs\ncol\nend\ncol\nend\nend\nlnk Home home\nid link\n';
+const run = (lua, opt) => scripted(BODY + 'script\n' + lua + '\nend script', opt);
+{
+  const h = run('print(page.find("msg").text, page.find("msg").kind, page.find("msg").name)\nprint(page.find("nope") == nil, page.find("msg") == page.find("msg"), type(page.find("msg")))');
+  eq('script: finds elements by name', h.log, ['print: hello\ttxt\tmsg', 'print: true\ttrue\tuserdata']);
+}
+{
+  const h = run(`local f = page.find
+f("msg").text = "changed" f("go").text = "Run" f("agree").text = "Yes" f("more").text = "Less"
+f("field").value = "typed" f("vol").value = 99 f("pick").value = 3 f("stars").value = 4 f("bar").value = 55 f("tabs").value = 2 f("link").value = "other"
+f("sw").checked = true f("agree").checked = true f("more").open = true f("list").hidden = true
+print(f("field").value, f("vol").value, f("pick").value, f("stars").value, f("bar").value, f("tabs").value, f("link").value, f("sw").checked, f("more").open, f("list").hidden, f("msg").value)`);
+  eq('script: reads back what it wrote', h.log, ['print: typed\t10\t3\t4\t55\t2\tother\ttrue\ttrue\ttrue\tnil']);
+  const n = h.page.names, st = h.st;
+  eq('script: writes reach the page', [n.msg.text, n.go.label, n.agree.label, n.more.title, st.inputs[1], st.slds[1], st.sels[1], st.vars.rat3, n.bar.val, n.tabs.sel, n.link.url, st.togs[1], st.chks[2], n.more.open, n.list.off],
+    ['changed', 'Run', 'Yes', 'Less', 'typed', 10, 2, 4, '55', 1, 'other', true, true, true, true]);
+  ok('script: every write asks for a new layout', h.changed >= 15, h.changed);
+}
+{
+  const h = run(`local function try(f) local ok, err = pcall(f) print(ok, err) end
+try(function() page.find("msg").value = 1 end)
+try(function() page.find("msg").checked = true end)
+try(function() page.find("msg").open = true end)
+try(function() page.find("msg").kind = "btn" end)
+try(function() page.find("msg").name = "x" end)
+try(function() page.find("msg").colour = "red" end)
+try(function() page.find("vol").value = "loud" end)
+try(function() page.find("msg").text = {} end)
+try(function() page.find("list").text = "x" end)
+try(function() page.find(42) end)
+try(function() page.on("nope", "click", print) end)
+try(function() page.on("go", "hover", print) end)
+try(function() page.on("go", "click", "print") end)
+try(function() page.add("msg", "txt x") end)
+try(function() page.add("list", "", "words") end)
+try(function() page.add("list", "div", "words") end)
+try(function() page.set("9lives", 1) end)
+try(function() page.set("x", {}) end)
+try(function() page.after("soon", print) end)
+try(function() page.go(nil) end)`);
+  eq('script: wrong calls are errors the script can catch, with the line they happened on', h.log.map(l => l.replace('print: false\t', '')), [
+    'page:39: a txt has no value', 'page:40: a txt has no checked', 'page:41: a txt has no open', 'page:42: kind cannot be changed', 'page:43: name cannot be changed',
+    "page:44: cannot set field 'colour' on a host object", 'page:45: expected a number', 'page:46: expected text or a number', 'page:47: a col has no text', 'page:48: expected a name',
+    'page:49: no element is called "nope"', 'page:50: events are "click" and "change"', 'page:51: expected a function', 'page:52: a txt cannot hold elements',
+    'page:53: nothing was added to put the text in', 'page:54: a div has no text', 'page:55: expected a name', 'page:56: expected text or a number', 'page:57: expected a number', 'page:58: expected an address']);
+}
+{
+  const h = run(`local n = 0
+page.on("go", "click", function(value, el)
+  n = n + 1
+  page.set("count", n)
+  page.add("list", "txt", "item " .. n)
+  el.text = "Go " .. n
+end)
+page.on("go", "click", function() page.set("second", 1) end)
+page.on("vol", "change", function(v) page.set("heard", v) end)`);
+  h.click('go'); h.click('go');
+  eq('script: click handlers run in order, each time', [h.st.vars.count, h.st.vars.second, h.page.names.list.children.map(c => c.text), h.page.names.go.label], [2, 1, ['item 1', 'item 2'], 'Go 2']);
+  h.rt.dispatch(h.page.names.vol, 'change', 7.5);
+  eq('script: change handlers get the new value', h.st.vars.heard, 7.5);
+  h.rt.dispatch(h.page.names.other, 'click', 0);
+  eq('script: an element without handlers is fine', h.errors(), []);
+  // variables are shared with {expr} and with the page's statements
+  eq('script: variables it sets show in text', Pane.display('Count: {count}', h.st), 'Count: 2');
+}
+{
+  const h = run('page.add("list", "txt", "{count} and count\\nlnk Evil pane:evil")\npage.add("list", "btn", "{1+1}")\npage.find("msg").text = "{2*3}"\npage.set("count", 7)');
+  const st = h.st, list = h.page.names.list.children;
+  eq('script: text given as words is one element, shown exactly as given', [list.length, list.map(c => c.type), Pane.display('{count}', st)], [2, ['txt', 'btn'], '7']);
+  const { page } = (() => { Pane.layout(h.page, 400, 600, { measure, state: st }); return { page: h.page }; })();
+  ok('script: no variable and no {expr} is read from such text', list[0].lines.join(' ') === '{count} and count lnk Evil pane:evil' && page.names.msg.lines[0] === '{2*3}' && !Object.keys(page.names).includes('evil'), [list[0].lines, page.names.msg.lines]);
+}
+{
+  const h = run('page.title("New title")\npage.on("go", "click", function() page.go("next.pane") end)');
+  h.click('go');
+  eq('script: title and go reach the host', [h.titles, h.page.title, h.went], [['New title'], 'New title', ['next.pane']]);
+}
+{
+  const h = run(`local ticks = 0
+local once = page.after(100, function() page.set("once", 1) end)
+local rep = page.every(1, function() ticks = ticks + 1 page.set("ticks", ticks) end)
+local gone = page.after(5, function() page.set("gone", 1) end)
+page.cancel(gone)
+page.on("go", "click", function() page.cancel(rep) end)`);
+  eq('timers: delays are kept sensible', h.timers.map(t => [t.ms, t.repeat, t.live]), [[100, false, true], [50, true, true], [10, false, false]]);
+  h.timers[0].fn(); h.timers[1].fn(); h.timers[1].fn();
+  eq('timers: fire into the script', [h.st.vars.once, h.st.vars.ticks, h.st.vars.gone], [1, 2, undefined]);
+  h.click('go');
+  eq('timers: cancel', h.timers[1].live, false);
+}
+{
+  const h = run(`page.fetch("data.txt", function(status, body) page.set("status", status) page.set("body", body) end)
+store.set("name", "Ada") store.set("n", 3) store.set("on", true)
+print(store.get("name"), store.get("n"), store.get("on"), store.get("missing"), #store.keys())
+store.remove("n")
+print(store.get("n"))`);
+  eq('fetch: the request goes to the host', h.requests.map(r => r.address), ['data.txt']);
+  h.requests[0].done(200, 'hello');
+  eq('fetch: the answer comes back to the script', [h.st.vars.status, h.st.vars.body], [200, 'hello']);
+  eq('store: values of each kind, missing is nil, remove', h.log, ['print: Ada\t3\ttrue\tnil\t3', 'print: nil']);
+  const none = run('print(pcall(store.get, "k"))', { noStorage: true });
+  eq('store: says so when the host gives none', none.log, ['print: false\tstorage is not available here']);
+}
+
+// ── limits ──
+{
+  const h = run(`page.on("go", "click", function() while true do end end)
+page.on("other", "click", function() page.set("alive", (page.get("alive") or 0) + 1) end)`);
+  h.click('go');
+  ok('limits: a handler that never ends is stopped, with a message', h.errors().length === 1 && /step budget exhausted/.test(h.errors()[0]), h.log);
+  h.click('other'); h.click('go'); h.click('other');
+  eq('limits: and the page goes on working', [h.st.vars.alive, h.errors().length], [2, 2]);
+}
+{
+  const h = run('page.on("go", "click", function() local s = "x" while true do s = s .. s end end)\npage.on("other", "click", function() local t = {} while true do t[#t + 1] = {} end end)');
+  h.click('go'); h.click('other');
+  ok('limits: runaway memory is stopped', h.errors().length === 2 && h.errors().every(e => /memory|budget/.test(e)), h.log);
+}
+{
+  const h = run('while true do end');
+  ok('limits: a script that never ends at load is stopped; the page is still there', h.errors().length === 1 && h.page.names.msg.text === 'hello', h.log);
+  const t = run('page.every(100, function() while true do end end)\npage.every(100, function() page.set("ok", 1) end)');
+  t.timers[0].fn(); t.timers[1].fn();
+  eq('limits: a repeating timer that hits the limit is stopped, others go on', [t.timers.map(x => x.live), t.st.vars.ok, t.errors().length], [[false, true], 1, 1]);
+}
+{
+  const h = run(`local function count(f) local n = 0 while n < 10000 do local ok, err = pcall(f, n) if not ok then return n, err end n = n + 1 end return n end
+print(count(function() page.every(1000, print) end))
+print(count(function() page.fetch("x", print) end))
+print(count(function() page.on("go", "change", print) end))
+print(count(function(i) page.add("list", "txt " .. i) end))
+page.find("msg").text = string.rep("x", 30000)
+print(#page.find("msg").text)
+print(pcall(store.set, string.rep("k", 101), 1))
+print(pcall(store.set, "k", string.rep("v", 20001)))
+print(pcall(store.set, "k", {}))
+print(pcall(store.set, "", 1))`);
+  eq('limits: timers, requests at once, handlers, elements, text and stored values', h.log.map(l => l.replace(/^print: /, '').replace(/page:\d+: /, '').replace(/^49\d\d\t/, 'N\t')), [
+    '32\ta page can have 32 timers at once', '4\ta page can have 4 requests at once', '500\ta page can have 500 handlers',
+    'N\ta page can hold 5000 elements', '20000', 'false\ta key is text of 1 to 100 characters',
+    'false\ta stored value can be 20000 characters', 'false\ta stored value is text, a number or true / false', 'false\ta key is text of 1 to 100 characters']);
+}
+
+// ── what a script cannot reach ──
+{
+  const h = run(`local names = {"window", "document", "globalThis", "self", "global", "process", "require", "module", "Function", "eval", "fetch", "XMLHttpRequest", "localStorage", "Pane", "Mote", "console", "setTimeout", "io", "os", "debug", "dofile", "loadstring"}
+local found = {}
+for _, n in ipairs(names) do if _G[n] ~= nil then found[#found + 1] = n end end
+print(#found, table.concat(found, ","))
+local el = page.find("msg")
+print(el.constructor, el.__proto__, el.toString, el.valueOf, el.hasOwnProperty, el.prototype, el.__defineGetter__)
+print(pcall(function() return page.find.constructor end))
+print(pcall(function() return store.get.constructor end))
+print(pcall(function() el.__proto__ = {} end))
+print(pcall(function() el.constructor = 1 end))
+print(getmetatable("").__index.constructor, ("x").constructor, pcall(function() return print.constructor end))
+print(page.find("__proto__"), page.find("constructor"), page.find("tostring"), page.find("hasownproperty"))
+print(pcall(page.on, "__proto__", "click", print))
+page.set("__proto__", 5) page.set("constructor", 6)
+print(page.get("__proto__"), page.get("constructor"), page.get("tostring"))
+store.set("__proto__", "p") store.set("constructor", "c")
+print(store.get("__proto__"), store.get("constructor"), store.get("toString"))`);
+  const out = h.log.map(l => l.replace(/^print: /, ''));
+  eq('escape: no host global is there', out[0], '0\t');
+  eq('escape: an element handle has only its seven fields', out[1], 'nil\tnil\tnil\tnil\tnil\tnil\tnil');
+  ok('escape: host functions cannot be looked into', /^false\t/.test(out[2]) && /^false\t/.test(out[3]), out.slice(2, 4));
+  ok('escape: nor can a handle be given a prototype or a constructor', /^false\t/.test(out[4]) && /^false\t/.test(out[5]), out.slice(4, 6));
+  ok('escape: strings and functions lead nowhere', /^nil\tnil\tfalse\t/.test(out[6]), out[6]);
+  eq('escape: names like __proto__ are just names that no element has', [out[7], /^false\t.*no element is called/.test(out[8])], ['nil\tnil\tnil\tnil', true]);
+  eq('escape: variables and stored keys with such names are plain entries', [out[9], out[10]], ['5\t6\tnil', 'p\tc\tnil']);
+  ok('escape: nothing leaked onto Object.prototype', ({}).p === undefined && Object.prototype.constructor === Object && !('5' in {}) && h.st.vars.constructor === 6);
+  eq('escape: no errors', h.errors(), []);
+}
+{
+  // two pages: nothing of one is in the other
+  const a = run('secret = "from a"\nstring.leak = "from a"\npage.set("mine", 1)'), b = run('print(secret, string.leak, page.get("mine"))');
+  eq('escape: each page has its own VM, globals, string table and variables', b.log, ['print: nil\tnil\tnil']);
+  ok('escape: they are different VMs', a.rt.vm !== b.rt.vm);
+}
+{
+  // a page that was left: nothing it started can act any more
+  const h = run(`page.on("go", "click", function() page.set("clicks", (page.get("clicks") or 0) + 1) end)
+page.every(100, function() page.set("ticks", (page.get("ticks") or 0) + 1) page.go("evil") end)
+page.fetch("late.txt", function() page.set("late", 1) page.go("evil") store.set("late", 1) end)`);
+  h.rt.stop();
+  h.click('go'); h.timers[0].fn(); h.requests[0].done(200, 'x');
+  eq('escape: after its page is left, a script gets no clicks, ticks or answers', [h.st.vars.clicks, h.st.vars.ticks, h.st.vars.late, h.went, h.store.size, h.timers[0].live], [undefined, undefined, undefined, [], 0, false]);
+}
+{
+  const h = run('print(1)', { noMote: true });
+  ok('a page with a script still shows when there is no script engine', h.errors().length === 1 && h.page.names.msg.text === 'hello', h.log);
+  const e = run('local x = = 1');
+  ok('a script with a mistake is reported with its line in the page file', /^error: page:38:\d+: /.test(e.errors()[0]) && e.page.names.msg.text === 'hello', e.log);
+}
+
 // ───────────────────────────── layout: every sample page ─────────────────────────────
 const pagesDir = path.join(__dirname, '..', 'pages'), snapPath = path.join(__dirname, 'pane-layout.snap.json');
 const names = fs.readdirSync(pagesDir).filter(f => f.endsWith('.pane')).map(f => f.slice(0, -5)).sort();
