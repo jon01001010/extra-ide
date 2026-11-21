@@ -112,6 +112,15 @@ number of steps, and timestamp conversion is the riskiest step.
       up front; `db.let` and `db.text` write values exactly. Each run is one
       batch in a fresh context. Shown on the interpreter: 41 runs of 50 over
       2,015 trapped tickets give the same answers as one run.
+- [x] First run of the db loop with a model as the runtime (Nov 21): six
+      chained runs of 50 records, a fresh Haiku each, told to run no code,
+      iso dates, the readme's procedure, the anchors. All 30 values exact
+      against the interpreter redoing each step. One sample per batch; 300
+      of 2,015 records; "no code" rests on the models' own tool reports.
+- [ ] Run all 41 batches, and repeat, to get a rate and not one sample.
+- [ ] The db grows: the lists kept for medians are copied by every run
+      (about 1,000 numbers by the last). Decide: a file per batch merged at
+      the end, or keep only what a median needs.
 - [ ] Run the db loop with a model as the runtime: each run reads the db
       file, works one batch in reasoning, writes the db file. Compare each
       db file with the interpreter's, to find the batch where a slip happens.
