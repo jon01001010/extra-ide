@@ -45,8 +45,19 @@ const PACKS = {
   bit: { say: "bit ops", types: "", notes: "" },
   bytes: { machine: true, say: "utf8 base64 hex url html.esc sha256", types: "", notes: "" },
   mat: { say: "vectors and matrices", types: "", notes: "@Mat = (Vec (Vec Num)). rows must be one length (E11)." },
-  draw: { machine: true, say: "shapes: ascii png svg pdf frames", opaque: "(rec Image [w Num h Num id Str])", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
-    notes: `a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
+  draw: { machine: true, say: "pictures. svg and pixel rows are text; * is for png gif pdf", opaque: "(rec Image [w Num h Num id Str])", types: "(sum Draw [Line [Num Num Num Num Str] Box [Num Num Num Num Str] Dot [Num Num Str] Text [Num Num Num Str Str]])",
+    notes: `a picture can be made in reasoning. the interpreter is needed only for the packed files: png gif pdf.
+two kinds of picture are plain text, and you can write either out exactly:
+  shapes: (svg w h shapes). one line of text a shape, in order. a Box is <rect x= y= width= height= fill="#rrggbb"/>
+  pixels: rows of [r g b], top row first. plain data: it goes in a let, a db file, a check. (px.svg scale rows) is the
+    file: the line <svg xmlns="http://www.w3.org/2000/svg" width="W*scale" height="H*scale" viewBox="0 0 W H" shape-rendering="crispEdges">
+    then <rect x="X" y="Y" width="1" height="1" fill="#rrggbb"/> for every pixel, row by row, then </svg>
+pixels can be made either way a picture model makes them:
+  one after another: (fold (fun [rows y] (push rows (row-from rows y))) [] (range h)). a pixel may read those before it.
+  all at once: start from noise given by a rule on x y, and step every pixel toward the picture, several times.
+    each pixel of a step needs only the step before, so rows are parts: a run a row, a db file between steps.
+keep it small in reasoning: 16 x 16 is 256 pixels. (px.img rows) gives an Image when the interpreter is there.
+a frame is a (Vec Draw), drawn in order: (Line x1 y1 x2 y2 color) (Box x y w h color) (Dot x y color)
 (Text x y size s color): a 3x5 pixel font, size = pixel scale, rounded and held to 1..64, a char is 4*size wide, 6*size tall.
 x right, y down. color = "#rgb" "#rrggbb" (rgb r g b) or a short name, else E14.
 shapes become pixels in the core: the same picture on every host.
@@ -292,6 +303,9 @@ radix bytes 2 Num,Num Str whole n in base 2..36
 pradix bytes 2 Str,Num @Opt.Num read base 2..36
 str str 1 @T Str !
 svg draw 3 Num,Num,@Vec.Draw Str w h shapes. an svg file as text
+px.svg draw 2 Num,@Vec.@Vec.@Vec.Num Str scale rows. rows of [r g b] as an svg file, one rect a pixel. each number rounded into 0..255. E14 uneven rows
+px.img draw 1 @Vec.@Vec.@Vec.Num Image rows of [r g b] as an Image, for img.png
+img.px draw 1 Image @Vec.@Vec.@Vec.Num the rows of [r g b]
 pdf.pack draw 3 Num,Num,@Vec.@Vec.Draw @Vec.Num w h pages. a pdf, one picture a page. sizes in points: a4 = 595 842
 pdf.flow draw 4 Num,Num,Num,Str @Vec.@Vec.Draw w h size text. text wrapped onto pages with a margin, for pdf.pack
 Image draw ! ! ! pixels. made by img.read and img.draw. shown as (Image w h id)
@@ -1879,6 +1893,29 @@ def("svg", "Num Num (Vec Draw) -> Str", ([w, h, v]) => {
   return out.join("\n") + "\n</svg>\n";
 });
 const textSize = z => Math.max(1, Math.min(64, Math.round(z)));
+/* ---- px: a picture as plain data, rows of [r g b]. a model can make every pixel in reasoning and write the svg text itself */
+function pxRows(rows, op) {
+  const h = rows.length, w = h ? rows[0].length : 0;
+  if (!h || !w) R("E10", `${op}: no pixels`);
+  if (w * h > 1e6) R("E17", `${op}: ${w} x ${h} is over 1000000 pixels`);
+  const out = new Uint8Array(w * h * 3);
+  rows.forEach((row, y) => {
+    if (row.length !== w) R("E14", `${op}: row ${y} has ${row.length} pixels, row 0 has ${w}. every row needs the same count`);
+    row.forEach((c, x) => {
+      if (c.length !== 3) R("E14", `${op}: the pixel at row ${y}, place ${x} has ${c.length} numbers. a pixel is [r g b]`);
+      for (let k = 0; k < 3; k++) out[(y * w + x) * 3 + k] = Math.max(0, Math.min(255, Math.round(c[k])));
+    });
+  });
+  return { w, h, px: out };
+}
+def("px.svg", "Num (Vec (Vec (Vec Num))) -> Str", ([z, rows]) => {
+  if (!isInt(z) || z < 1 || z > 64) R("E17", `px.svg: scale ${fmtNum(z)} must be whole and 1..64`);
+  const { w, h, px } = pxRows(rows, "px.svg"), out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w * z}" height="${h * z}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">`];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 3; out.push(`<rect x="${x}" y="${y}" width="1" height="1" fill="${hex2([px[i], px[i + 1], px[i + 2]])}"/>`); }
+  return out.join("\n") + "\n</svg>\n";
+});
+def("px.img", "(Vec (Vec (Vec Num))) -> Image", ([rows]) => { const { w, h, px } = pxRows(rows, "px.img"); return mkImg(w, h, px, "px.img"); });
+def("img.px", "Image -> (Vec (Vec (Vec Num)))", ([im]) => { const { w, h, px } = im.img; return Array.from({ length: h }, (_, y) => Array.from({ length: w }, (_, x) => { const i = (y * w + x) * 3; return [px[i], px[i + 1], px[i + 2]]; })); });
 
 /* ---- charts: data to (Vec Draw). light background, axes with ticks, legend for 2 or more series */
 const PAL = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf"];
@@ -4447,6 +4484,10 @@ const TESTS = [
   ["use: a private name is not seen from outside","(use \"lib.tact\")\n(show (_twice 1))","!E1@undefined:2",{"lib.tact":"(let _k 10)\n(fn _twice [x Num] Num (* x 2))\n(fn big [x Num] Num (+ _k (_twice x)))\n"}],
   ["use: an error in a private fn shows the name as written","(use \"lib.tact\")\n(show (big 1))","!E4",{"lib.tact":"(fn _twice [x Num] Num (cat x 2))\n(fn big [x Num] Num (_twice x))\n"}],
   ["use: a private fn as a value shows its written name","(use \"lib.tact\")\n(show (pick))","<fn _half>",{"lib.tact":"(fn _half [x Num] Num (/ x 2))\n(fn pick [] (Fn Num Num) _half)\n"}],
+  ["px: rows of pixels as svg text","(use draw)\n(show (px.svg 4 [[[255 0 0] [-3 300 9.4]]]))","<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"4\" viewBox=\"0 0 2 1\" shape-rendering=\"crispEdges\">\n<rect x=\"0\" y=\"0\" width=\"1\" height=\"1\" fill=\"#ff0000\"/>\n<rect x=\"1\" y=\"0\" width=\"1\" height=\"1\" fill=\"#00ff09\"/>\n</svg>\n"],
+  ["px: rows to an image and back","(use draw)\n(let r [[[1 2 3] [4 5 6]] [[7 8 9] [10 11 12]]])\n(check (img.px (px.img r)) r)\n(show (img.size (px.img r)))","[2 2]"],
+  ["px: uneven rows","(use draw)\n(show (px.svg 1 [[[1 2 3]] []]))","!E14"],
+  ["px: one after another and all at once reach the same picture","(use draw)\n(fn want [x Num y Num] (Vec Num) (if (< x y) [0 0 0] [64 128 192]))\n(let a (fold (fun [rows y] (push rows (for [x (range 3)] (want x y)))) [] (range 3)))\n(fn step [rows (Vec (Vec (Vec Num)))] (Vec (Vec (Vec Num))) (for [y (range 3)] (for [x (range 3)] (for [k (range 3)] (/ (+ (get (get (get rows y) x) k) (get (want x y) k)) 2)))))\n(let noise (for [y (range 3)] (for [x (range 3)] (for [k (range 3)] (mod (+ (+ (* x 37) (* y 91)) (* k 53)) 256)))))\n(let d (fold (fun [r _] (step r)) noise (range 10)))\n(check (px.svg 1 d) (px.svg 1 a))\n(show (get (get d 0) 0))","[63.9375 127.9267578125 191.916015625]"],
   ["use: a file brings its own packs","(use \"lib.tact\")\n(show (mid [1 2 9]))","2",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a pack another file loads is not yours","(use \"lib.tact\")\n(show (mid [1 2 9]))\n(show (median [1 2 9]))","!E1@undefined:3",{"lib.tact":"(use math)\n(fn mid [v (Vec Num)] Num (median v))\n"}],
   ["use: a file cannot lean on the packs of the program that loads it","(use math)\n(use \"lib.tact\")\n(show (mid [1 2 9]))","!E1",{"lib.tact":"(fn mid [v (Vec Num)] Num (median v))\n"}],
@@ -4936,7 +4977,8 @@ WHAT CANNOT BE DONE IN REASONING
   interpreter, or restate the task without them:
   - anything seeded and random: rand shuffle randn randint sample pick k.randn, and the prop pack
   - hashes and encodings of bytes: sha256, base64, compression
-  - pixels, sound and files: the draw chart wav zip xlsx and io packs
+  - packed files: png gif pdf wav zip xlsx, and reading or writing files (the io pack)
+    a picture itself is not on this list: svg text and rows of pixels are plain data. see draw
   - heavy numeric kernels: svd, eig, pinv, and root or integrate on anything but a simple function
   the pack list marks such packs with *.
 

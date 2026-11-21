@@ -133,6 +133,12 @@ number of steps, and timestamp conversion is the riskiest step.
       stays in its file. Not seen by the loader (E1 says it is private and
       to which file), no clash, left out of `--sigs`. Recs and sums are
       still always public.
+- [x] Pictures in reasoning: pixels as plain data, rows of `[r g b]`.
+      `px.svg` is text a model can write itself; `px.img` and `img.px` join
+      it to the Image functions. An example makes one picture both ways:
+      one pixel after another, and all at once from noise in steps.
+- [ ] Have a model make a 16 x 16 picture in reasoning, both ways, and
+      compare its svg text with the interpreter's.
 - [ ] Run the independent parts with a model as the runtime (the Haiku
       runs so far used the chained design). Each part is compared with the
       interpreter's part for that batch alone.

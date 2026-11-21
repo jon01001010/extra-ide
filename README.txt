@@ -75,7 +75,8 @@ WHAT CANNOT BE DONE IN REASONING
   interpreter, or restate the task without them:
   - anything seeded and random: rand shuffle randn randint sample pick k.randn, and the prop pack
   - hashes and encodings of bytes: sha256, base64, compression
-  - pixels, sound and files: the draw chart wav zip xlsx and io packs
+  - packed files: png gif pdf wav zip xlsx, and reading or writing files (the io pack)
+    a picture itself is not on this list: svg text and rows of pixels are plain data. see draw
   - heavy numeric kernels: svd, eig, pinv, and root or integrate on anything but a simple function
   the pack list marks such packs with *.
 
@@ -207,7 +208,7 @@ THE PACKS. 167 rows are core, the rest load with (use name). * = needs the inter
   bit    bit ops
   bytes* utf8 base64 hex url html.esc sha256
   mat    vectors and matrices
-  draw*  shapes: ascii png svg pdf frames
+  draw*  pictures. svg and pixel rows are text; * is for png gif pdf
   io*    files paths shell http clock
 
 COMMANDS OF THE INTERPRETER
