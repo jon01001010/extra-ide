@@ -155,7 +155,16 @@ number of steps, and timestamp conversion is the riskiest step.
       record with two traps at once and a wrong month table for one batch.
 - [ ] Try a batch size between 50 and 288, and repeat runs to measure
       variance: each setup has run once.
-- [ ] Test Haiku on writing programs.
+- [x] Test Haiku on writing programs, with the interpreter (Nov 21). Two
+      fresh Haikus, given only the readme, the spec and `tact.js`.
+      Data task (2,015 tickets, three results): right on the second run;
+      the one error was a missing `(use io)`, and the message said what to
+      write. All values equal the key. It added four reconciling checks
+      unasked. Picture task (artist, own brief, 24 x 24): ran first time.
+      About 95k tokens each, under 70 seconds. One sample per task.
+- [ ] From those runs, spec gaps to close: `=` is for Num and text uses
+      `same` (say so on the `=` row); whether dark or light is ink in
+      `img.ascii`; that `fun` sees outer names and a `fn` is a value.
 - [ ] Test Sonnet and Opus in context at 2,000 records.
 - [ ] Data shaped for reasoning: a guide for whoever supplies the data (iso
       dates, day numbers, trimmed and cased values, no duplicates).
