@@ -1,0 +1,47 @@
+title Widgets
+align center
+col
+  w 100%
+  maxw 520
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Widgets
+  fnt 14
+  fg 190 205 230
+  txt Your name
+  inp 1
+  txt Hello, {str 1}
+  sel 1 Small, Medium, Large
+  txt Size number {sel 1}
+  chk 1 Send me the newsletter
+  txt Newsletter: {chk 1}
+  row
+    txt Airplane mode
+    tog 1
+  end
+  txt Volume
+  sld 0 10 1
+  prg vol 10
+  rat 2 5
+  txt Stars: {rat 2}
+  row
+    gap 8
+    just start
+    bdg beta
+    ico star
+    spn
+  end
+  row
+    gap 10
+    btn Count 1
+    btn Reset 2
+  end
+  txt Count: {n}
+  lnk Back to the start page home
+end
+set n 0
+set vol 5
+if tap 1=1 do set n n+1:set vol sld 1
+if tap 2=1 do set n 0

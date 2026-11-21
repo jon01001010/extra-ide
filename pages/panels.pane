@@ -1,0 +1,44 @@
+title Panels
+align center
+col
+  w 100%
+  maxw 520
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Panels
+  fnt 14
+  fg 190 205 230
+  tab One, Two, Three
+    col
+      pad 10
+      txt The first panel. It is short.
+    end
+    col
+      pad 10
+      gap 6
+      txt The second panel is taller.
+      txt It has three lines.
+      txt So the page below it moves down.
+    end
+    col
+      pad 10
+      btn A button in panel three 1
+    end
+  end
+  acc More details
+    col
+      pad 10
+      gap 6
+      txt An accordion keeps its body closed until its header is clicked.
+      txt Opening it lays the page out again.
+    end
+  end
+  txt Below the panels.
+  lnk Back to the start page home
+  dlg Welcome
+    txt This dialog sits over the page. Only it takes clicks until it is closed.
+    btn Fine 9
+  end
+end

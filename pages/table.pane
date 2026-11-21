@@ -1,0 +1,27 @@
+title Table
+align center
+col
+  w 100%
+  maxw 720
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Languages in this repository
+  fnt 14
+  fg 190 205 230
+  tbl
+    txt Name | Runs as | Style
+    txt Emit | WebAssembly | typed, braces
+    txt Mote | bytecode VM | Lua-like
+    txt Opcode | WebAssembly | comma and full stop
+    txt Spark | JavaScript | numbered lines
+    txt Tiny | WebAssembly | three-letter words
+    txt thirteen | interpreter | thirteen words
+  end
+  fnt 12
+  fg 120 140 170
+  txt Each row of a table is one txt line, with | between the cells.
+  fnt 14
+  lnk Back to the start page home
+end

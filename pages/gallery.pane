@@ -1,0 +1,65 @@
+title Gallery
+align center
+col
+  w 100%
+  maxw 720
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Gallery
+  fnt 14
+  fg 190 205 230
+  txt A grid gives every cell the same width. Each row is as tall as its tallest card.
+  grid 3
+    gap 10
+    col
+      bg 14 24 42
+      pad 10
+      gap 6
+      fnt 22
+      ico rocket
+      fnt 14
+      txt Launch
+      bdg new
+    end
+    col
+      bg 14 24 42
+      pad 10
+      gap 6
+      fnt 22
+      ico gem
+      fnt 14
+      txt A card with a longer description that wraps onto more lines
+    end
+    col
+      bg 14 24 42
+      pad 10
+      gap 6
+      fnt 22
+      ico bug
+      fnt 14
+      txt Bugs
+      rat 1 5
+    end
+    col
+      bg 14 24 42
+      pad 10
+      gap 6
+      fnt 22
+      ico music
+      fnt 14
+      txt Sound
+    end
+    col
+      bg 14 24 42
+      pad 10
+      gap 6
+      fnt 22
+      ico clock
+      fnt 14
+      txt Time
+    end
+  end
+  lnk Back to the start page home
+end

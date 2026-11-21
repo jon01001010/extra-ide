@@ -1,0 +1,70 @@
+title Calculator
+align center
+col
+  w 100%
+  maxw 320
+  pad 16
+  gap 8
+  box
+    bg 10 18 32
+    brd 40 60 90
+    pad 12
+    fnt 26
+    fg 235 240 255
+    txt display
+  end
+  fnt 18
+  row
+    gap 8
+    btn 7 7
+    btn 8 8
+    btn 9 9
+    btn / 14
+  end
+  row
+    gap 8
+    btn 4 4
+    btn 5 5
+    btn 6 6
+    btn * 13
+  end
+  row
+    gap 8
+    btn 1 1
+    btn 2 2
+    btn 3 3
+    btn - 12
+  end
+  row
+    gap 8
+    btn C 16
+    btn 0 10
+    btn = 15
+    btn + 11
+  end
+  fnt 14
+  lnk Back to the start page home
+end
+set display 0
+set acc 0
+set op 0
+set nw 1
+if tap 1=1 do set display display*(1-nw)*10+1:set nw 0
+if tap 2=1 do set display display*(1-nw)*10+2:set nw 0
+if tap 3=1 do set display display*(1-nw)*10+3:set nw 0
+if tap 4=1 do set display display*(1-nw)*10+4:set nw 0
+if tap 5=1 do set display display*(1-nw)*10+5:set nw 0
+if tap 6=1 do set display display*(1-nw)*10+6:set nw 0
+if tap 7=1 do set display display*(1-nw)*10+7:set nw 0
+if tap 8=1 do set display display*(1-nw)*10+8:set nw 0
+if tap 9=1 do set display display*(1-nw)*10+9:set nw 0
+if tap 10=1 do set display display*(1-nw)*10:set nw 0
+if tap 15=1 and op=1 do set display acc+display:set op 0:set nw 1
+if tap 15=1 and op=2 do set display acc-display:set op 0:set nw 1
+if tap 15=1 and op=3 do set display acc*display:set op 0:set nw 1
+if tap 15=1 and op=4 do set display acc/display:set op 0:set nw 1
+if tap 11=1 do set acc display:set op 1:set nw 1
+if tap 12=1 do set acc display:set op 2:set nw 1
+if tap 13=1 do set acc display:set op 3:set nw 1
+if tap 14=1 do set acc display:set op 4:set nw 1
+if tap 16=1 do set display 0:set acc 0:set op 0:set nw 1

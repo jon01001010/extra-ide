@@ -1,0 +1,35 @@
+title Settings
+col
+  bg 18 22 38
+  pad 16
+  fnt 20
+  fg 220 230 255
+  txt Settings
+  gap 14
+  fnt 14
+  row
+    fg 170 190 220
+    txt Dark Mode
+    tog 1
+  end
+  row
+    fg 170 190 220
+    txt Notifications
+    tog 2
+  end
+  row
+    fg 170 190 220
+    txt Username
+    inp 1
+  end
+  row
+    gap 10
+    btn Save 1
+    btn Cancel 2
+  end
+  txt {saved}
+  lnk Back to the start page home
+end
+set saved ""
+if tap 1=1 do set saved "Saved as " + str 1
+if tap 2=1 do set saved "Nothing was changed"

@@ -1,0 +1,63 @@
+title Why text has to be measured first
+align center
+col
+  w 100%
+  maxw 640
+  pad 20
+  gap 14
+  fnt 24
+  fg 235 240 255
+  txt Why text has to be measured first
+  fnt 12
+  fg 120 140 170
+  txt A page about the page engine
+  fnt 15
+  fg 190 205 230
+  txt A layout engine has to know how tall a paragraph is before it can place whatever comes after it. The height depends on how many lines the paragraph needs, and that depends on the width it is given. So the order is always the same: decide the width, break the text into lines, count the lines, and only then move on.
+  txt Tiny broke text into lines while painting. By then every box already had its place, so a paragraph that needed three lines still had the height of one and ran over the element below it. Pane breaks the lines during layout, which is why this paragraph pushes the next one down however narrow the window gets.
+  fnt 18
+  fg 235 240 255
+  txt What changes with the width
+  fnt 15
+  fg 190 205 230
+  lst
+    txt On a phone the column is the width of the screen, less the padding.
+    txt On a desktop the column stops growing at 640 pixels and sits in the middle.
+    txt A word that is wider than the line, such as a long address, is broken between characters: https://example.org/a/very/long/path/that/would/otherwise/run/off/the/side/of/a/small/screen
+  end
+  txt Rows work the same way. Each child of a row gets a share of the width, the text inside it is broken to fit, and the row becomes as tall as its tallest child.
+  row
+    gap 12
+    col
+      bg 14 24 42
+      pad 10
+      txt Left column. It has more to say than the right one, so it needs more lines and sets the height of the row.
+    end
+    col
+      bg 14 24 42
+      pad 10
+      txt Right column.
+    end
+  end
+  fnt 18
+  fg 235 240 255
+  txt Scrolling
+  fnt 15
+  fg 190 205 230
+  txt The page is taller than the window, so it scrolls: wheel, drag on a touch screen, or the arrow, Page and Space keys. Only what is on screen is painted.
+  txt A scroll area inside the page scrolls on its own until it reaches its end, and then the page takes over.
+  scl 120
+    bg 10 18 32
+    pad 10
+    gap 6
+    txt Line one of a small scroll area.
+    txt Line two.
+    txt Line three.
+    txt Line four.
+    txt Line five.
+    txt Line six.
+    txt Line seven, the last.
+  end
+  div
+  lnk Back to the start page home
+end

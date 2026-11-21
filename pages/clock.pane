@@ -1,0 +1,28 @@
+title Clock
+align center
+col
+  w 100%
+  maxw 420
+  pad 20
+  gap 12
+  fnt 22
+  fg 235 240 255
+  txt Clock
+  fnt 14
+  fg 190 205 230
+  tmr 1 1000
+  txt Seconds on this page: {tmr1}
+  prg sec 60
+  txt Minutes: {mins}
+  row
+    just start
+    gap 8
+    spn
+    txt ticking
+  end
+  lnk Back to the start page home
+end
+set sec 0
+set mins 0
+if tmr1>0 do set sec tmr1-mins*60
+if sec>=60 do set mins mins+1:set sec 0

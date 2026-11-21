@@ -1,0 +1,33 @@
+title Pane
+rem The start page. Every page here is plain text in Tiny's UI language.
+align center
+col
+  w 100%
+  maxw 720
+  pad 20
+  gap 12
+  fnt 28
+  fg 235 240 255
+  txt Pane
+  fnt 14
+  fg 170 190 220
+  txt A small browser for pages written in Tiny's UI language. Pages are plain text: one word per line says what to show, and end closes a group.
+  div
+  fnt 16
+  fg 235 240 255
+  txt Sample pages
+  fnt 14
+  lnk Article: long text that wraps and scrolls article
+  lnk Settings: rows, switches and a text field settings
+  lnk Calculator: buttons and statements calculator
+  lnk Table: rows of cells table
+  lnk Gallery: a grid of cards gallery
+  lnk Widgets: every control, with live values widgets
+  lnk Panels: tabs, an accordion and a dialog panels
+  lnk Layout: grow, align, percentages, min and max layout
+  lnk Clock: a timer, a progress bar and a spinner clock
+  div
+  fg 120 140 170
+  fnt 12
+  txt Type a page name or an address above. Back and forward keep your place on each page.
+end
