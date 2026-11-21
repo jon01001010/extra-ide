@@ -88,6 +88,10 @@ index line (~70 chars). Merge into existing packs where it fits.
 
 ## Context-only: the model is the runtime
 
+Reframed Nov 21, on the measurements: Tact is written in context and run by
+the interpreter when there is one. The model as the runtime is the fallback,
+for when nothing may run, and for small jobs. Readme and spec now say so.
+
 Findings (Nov 20): exact over 120 records on three model sizes. Over 2,000
 records with messy values, Haiku in chunks of ~288 got about half the final
 values wrong by small amounts and reported them as finished. The limit is the

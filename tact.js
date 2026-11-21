@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// tact v2. a context-only language: a language model is the runtime. it checks a program against the spec and works it out
-// in its own reasoning, so nothing executes and nothing can be harmed. this file is the reference interpreter: it defines
-// the right answer and can check a result. node tact.js --readme   node tact.js --spec   node tact.js FILE
+// tact v2. a language a model writes from a spec in its context, with every knowable error reported before anything runs.
+// this file is the interpreter: it checks and runs a program exactly, and reaches only what its host gives it.
+// with no interpreter a model can work a small program out in its own reasoning. node tact.js --readme   --spec   FILE
 // ==TACT-CORE-BEGIN==
 // tact v2 core: spec + checker + interpreter + tests. no DOM. runs in a browser or under node.
 (function (root) {
@@ -79,7 +79,7 @@ what a host lacks = E13. what a host tried and could not do = E19. try catches b
 };
 const KINDPACK = { db: "db", xlsx: "xlsx", zip: "zip", wav: "wav", prop: "prop", graph: "graph", query: "query", dec: "dec", diff: "diff", chart: "chart", math: "math", text: "text", csv: "csv", re: "re", json: "json", time: "time", bit: "bit", bytes: "bytes", mat: "mat", kern: "mat", draw: "draw", io: "io" };
 
-const SYNTAX = `TACT v2. a context-only language: you are the runtime. check a program against this spec, then work\nit out in your reasoning. nothing executes, so nothing can be harmed. tact.js is the reference.
+const SYNTAX = `TACT v2. written by a model, from this spec in its context. run it with the interpreter, tact.js.\nwith none, be the runtime: check it against this spec, then work it out. small jobs only.
 
 PROGRAM = top forms only. anything else at top = E8.
   (let name expr)                  bind once ever. visible from the next form on.
@@ -4909,27 +4909,28 @@ function readme() {
   return `TACT. READ THIS FIRST. it is written for a language model.
 
 IN ONE BREATH
-  tact is a context-only language. you are the runtime.
-  a tact program is run in your own reasoning, from the spec in your context. no program is
-  executed on any machine. so running one cannot damage, change or leak anything: there is
-  nothing to mess up. that is the point of it.
-  you write one whole program, check it against the spec, and work it out form by form.
-  tact is built so this can be done exactly: nothing changes once bound, there are no loops
-  to lose track of, and every builtin has one row that says what it does.
-  an interpreter (tact.js) also exists. it is the reference: it defines the right answer, and
-  can check you when someone has it. you do not need it, and you should not assume it.
+  tact is a language you write from a spec that sits in your context.
+  you write one whole program. every error that can be known is reported before anything
+  runs, all at once, each with what to write instead. so one writing and one run are the aim.
+  run it with the interpreter (tact.js) whenever you have one. it is exact and cheap, and it
+  can touch only what its host gives it: embedded in an app, nothing outside its own memory;
+  on the command line, the files of the sandbox it is run in.
+  with no interpreter, you can be the runtime: check the program against the spec and work it
+  out in your reasoning. nothing executes, so nothing can be harmed. this is exact for small
+  jobs and not for large ones. the measurements are below.
 
 WHAT TACT IS
-  a small programming language made to be written and run by a language model, in one pass,
-  from a spec that sits in its context. it is not meant for people to write by hand, and it is
-  not meant to be handed to a machine. you reason about a problem, write one complete tact
-  program, check it, and work it out. tact gives your reasoning a strict form to follow for
-  exact work: arithmetic, data, grouping and joins, dates, money. the things that go wrong
-  when done loosely "in your head".
+  a small programming language made to be written by a language model, in one pass, from a
+  spec in its context. it is not meant for people to write by hand. you reason about a
+  problem, write one complete tact program, and it is checked and run. tact gives exact work
+  a strict form: arithmetic, data, grouping and joins, dates, money, files, pictures. the
+  things that go wrong when done loosely "in your head".
+  the model writes; the interpreter runs. a model can also run it, as the fallback.
 
 WHY IT EXISTS
   - safety. model-written code that runs on a machine can delete, send or change things.
-    a tact program runs nowhere but in reasoning. there is no program to mess anything up.
+    a tact program reaches only what its host gives it, and the check lists everything it
+    would reach before it runs. worked out in reasoning, it reaches nothing at all.
   - exactness. loose reasoning about numbers drifts. a tact program is a written procedure
     with one meaning: every step is a builtin with a fixed rule, and every value is written down.
     anyone, a person or the reference interpreter, can check each step.
@@ -4954,21 +4955,23 @@ THE ONE RULE OF ITS DESIGN: small pieces that stand alone
 
 HOW TO USE IT
   1 the spec is the contract: the syntax, the rules, every builtin as one row (name kind arity
-    in out note), every error code. it is in your context. it is all you need.
+    in out note), every error code. it is in your context. it is all you need to write.
   2 write the whole program. only top forms at top level: let fn rec sum show check do use.
   3 need more than the core? the spec lists the packs. (use name) loads one, and its spec must
     be in your context too. a pack marked * cannot be worked out in reasoning: see below.
-  4 be the checker. go through the program against the spec before working anything out:
+  4 have the interpreter? run  tact --check FILE  then  tact FILE, fix what it reports, and
+    you are done. steps 5 to 7 are for when you have none.
+  5 be the checker. go through the program against the spec before working anything out:
     every name known and its pack loaded, every call with the right number and types of
     arguments, every match covering every case, nothing bound twice.
     if anything fails, list every error as  CODE line N: what is wrong  and stop. nothing ran.
-  5 be the interpreter. take the top forms in order. a name's value never changes, so work it
+  6 be the interpreter. take the top forms in order. a name's value never changes, so work it
     out once, write it down, and reuse it. keep numbers exact: write intermediate values down
     instead of holding them in mind. a date is ms since 1970 utc: use the time pack's rules,
     and take care at month and year ends.
-  6 print what show would print: a Str bare, anything else as tact writes it.
-  7 put (check expr expected) beside your code. it is your proof the program does what you
-    meant. work both sides out; if they differ, that is ECHECK and nothing else is reported.
+  7 print what show would print: a Str bare, anything else as tact writes it.
+  8 either way, put (check expr expected) beside your code. it is your proof the program does
+    what you meant. in reasoning, work both sides out; if they differ, that is ECHECK and nothing else is reported.
 
   what an error looks like. this program:
       (show (+ 1 2))
@@ -4979,8 +4982,8 @@ HOW TO USE IT
   and prints nothing: line 1 did not run either. fix line 2 and it prints 3, 3, 12.
 
 WHAT CANNOT BE DONE IN REASONING
-  some builtins are beyond working out by hand. do not pretend to. say the result needs the
-  interpreter, or restate the task without them:
+  the interpreter does all of it. without one, some builtins are beyond working out by hand.
+  do not pretend to. say the result needs the interpreter, or restate the task without them:
   - anything seeded and random: rand shuffle randn randint sample pick k.randn, and the prop pack
   - hashes and encodings of bytes: sha256, base64, compression
   - packed files: png gif pdf wav zip xlsx, and reading or writing files (the io pack)
@@ -4999,8 +5002,13 @@ HOW FAR REASONING GOES. measured, not guessed
   from a long list; a month was placed by feel; and once a wrong month table was used for a
   whole batch, which checking again by the same method did not catch.
   so the limit is the number of steps taken at once, not understanding.
+  - the same 2,000 records with the interpreter: a small model, given only this readme and
+    the spec, wrote the program, got one error up front (a missing (use io), and the message
+    said what to write), and was right on its second run. every value exact, for about a
+    thirty-fifth of the tokens.
+  so: write in context, run on the interpreter. be the runtime only when there is none.
 
-LARGE DATA. the procedure that was measured
+LARGE DATA WITHOUT THE INTERPRETER. the procedure that was measured
   1 work on at most about 50 records at a time. past that, slips come from load alone.
   2 for each batch write down a partial result that can be merged, not a final one:
     a count per key; a sum and a count per key, never a mean; every value per key when a
@@ -5024,7 +5032,7 @@ LARGE DATA. the procedure that was measured
   "2026-09-30T23:59:59Z" the month is the first 7 characters, (ssub s 0 7), and the day is the
   first 10. for a count of days use date.daynum on each date and subtract.
 
-RUN, DB, RUN, DB. how tact scales
+RUN, DB, RUN, DB. how tact scales when the model is the runtime
   one run works on one batch, in a fresh context, and writes what it found to a db file.
   load never builds up, so every run is as easy as the first.
   - no run needs another. run n reads only batch n and writes only its own file, part-n.tact.
@@ -5071,10 +5079,10 @@ HOW TO THINK IN IT. where tact differs from the languages you know
   - a Num is a finite double. for money and big whole numbers use the dec pack.
   - a value prints as the expression that builds it, so you can read your own output back.
 
-THE REFERENCE INTERPRETER. for whoever has it; you do not need it
+THE INTERPRETER. use it when you have it
   tact.js is one file with no dependencies:   node tact.js program.tact
-  it checks and runs a program exactly as the spec says, and is what a result worked out in
-  reasoning is measured against. "tact" in the commands below means  node tact.js.
+  it checks and runs a program exactly as the spec says. it is also what a result worked out
+  in reasoning is measured against. "tact" in the commands below means  node tact.js.
   when a program is run by the interpreter, what it can reach is only what its host gives it:
   - memory host (the default when tact is embedded, and the browser page): files live in
     memory, there is no shell and no network. asking for those is E13, a normal error.
