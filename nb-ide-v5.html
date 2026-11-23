@@ -712,9 +712,44 @@ const POP1_OPS = new Set(['set','tee','drop','eqz','not','bnot','i2f','f2i','i2d
 const POP2_PUSH1 = new Set(['add','sub','mul','div','mod','eq','ne','lt','gt','le','ge','and','or','xor','shl','shr','fadd','fsub','fmul','fdiv','feq','fne','flt','fgt','fle','fge','dadd','dsub','dmul','ddiv','deq','dne','dlt','dgt','dle','dge','band','bor','bxor','bshl','bshr','min','max','fmin','fmax','copysign','rot','swap','select']);
 const POP2_OPS = new Set(['store','store8','store16','fstore','dstore']);
 
+// ── Stack rules: what each word does to the depth of the stack ──
+// Every row was read from the interpreter below (executeNB), by running each word on stacks of
+// depth 0 to 6 and reading what was left. So the depth column shows what a run really does.
+//   [needs, change, short, words]
+//   needs   the least depth from which the word always changes the depth by the same amount
+//   change  that amount
+//   short   what is left when the stack is shorter than that: short[depth]
+// (words that the interpreter does not act on, such as nip, rot and pick, leave the depth as it is, and are listed so.)
+const NB_STACK_RULES = {};
+for (const [needs, change, short, words] of [
+  [0, 1, [], 'push pushf pushd get dup size global_get'],
+  [1, -1, [0], 'set drop global_set branch'],
+  [0, 0, [], 'tee pick swap nip rot deq dne dlt dgt dle dge i2f f2i i2d f2d d2f d2i sqrt fsqrt ceil floor trunc nearest clz ctz popcnt wrap extend reinterpret copysign'],
+  [2, 1, [0,1], 'over'],
+  [2, -1, [1,1], 'add sub mul div mod eq ne lt gt le ge and or xor shl shr fadd fsub fmul fdiv feq fne flt fgt fle fge dadd dsub dmul ddiv band bor bxor bshl bshr min max fmin fmax'],
+  [1, 0, [1], 'eqz not bnot abs neg fneg fabs load load8 load16 fload dload grow'],
+  [3, -2, [1,1,1], 'select'],
+  [2, -2, [0,0], 'store store8 store16 fstore dstore'],
+]) for (const w of words.split(' ')) NB_STACK_RULES[w] = [needs, change, short];
+
+// what each function takes and whether it leaves a value, for the depth after a call
+function collectCallInfo(src) {
+  const info = {}, lines = (NB_STDLIB + '\n' + src).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const c = lines[i].indexOf('//'), p = (c >= 0 ? lines[i].substring(0, c) : lines[i]).trim().split(/\s+/);
+    const at = p[0] === 'export' && p[1] === 'func' ? 2 : p[0] === 'func' ? 1 : 0;
+    if (!at || !p[at]) continue;
+    let params = 0;
+    for (let j = i + 1; j < lines.length; j++) { const t = lines[j].trim(); if (!t || t.startsWith('//')) continue; if (t.split(/\s+/)[0] === 'param') params++; else break; }
+    info[p[at]] = { params, ret: p.includes('->') };
+  }
+  return info;
+}
+
 function analyzeStackDepth(src) {
   const lines = src.split('\n');
   const depths = [];
+  const callInfo = collectCallInfo(src);
   let depth = 0, inFunc = false;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
@@ -728,13 +763,9 @@ function analyzeStackDepth(src) {
     if (!inFunc) { depths.push(null); continue; }
     if (first === 'param' || first === 'local' || first === 'extern' || first === 'block' || first === 'loop') { depths.push(depth); continue; }
     if (first === 'if') { depth = Math.max(0, depth - 1); depths.push(depth); continue; }
-    if (first === 'else' || first === 'return' || first === 'branch' || first === 'jump') { depths.push(depth); continue; }
-    if (PUSH_OPS.has(first)) depth++;
-    else if (first === 'tee') {}
-    else if (first === 'call') {}
-    else if (POP1_OPS.has(first)) depth = Math.max(0, depth - 1);
-    else if (POP2_PUSH1.has(first)) depth = Math.max(0, depth - 1);
-    else if (POP2_OPS.has(first)) depth = Math.max(0, depth - 2);
+    if (first === 'else' || first === 'return' || first === 'jump') { depths.push(depth); continue; }
+    if (first === 'call') { const f = callInfo[parts[1]]; if (f) depth = Math.max(0, depth - f.params) + (f.ret ? 1 : 0); }
+    else if (NB_STACK_RULES[first]) { const r = NB_STACK_RULES[first]; depth = depth >= r[0] ? depth + r[1] : r[2][depth]; }
     depths.push(depth);
   }
   return depths;
